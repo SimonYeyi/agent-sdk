@@ -2,17 +2,26 @@ package io.github.yeyi.agent.core.agent
 
 import io.github.yeyi.agent.core.agent.fakes.EchoTool
 import io.github.yeyi.agent.core.agent.fakes.FakeLlmClient
+import io.github.yeyi.agent.core.error.AgentException
 import io.github.yeyi.agent.core.llm.ChatMessage
 import io.github.yeyi.agent.core.llm.ChatResponse
 import io.github.yeyi.agent.core.llm.FinishReason
 import io.github.yeyi.agent.core.llm.Role
 import io.github.yeyi.agent.core.llm.ToolCall
 import io.github.yeyi.agent.core.memory.InMemoryMemory
+import io.github.yeyi.agent.core.tool.Tool
+import io.github.yeyi.agent.core.tool.ToolContext
+import io.github.yeyi.agent.core.tool.ToolExecutionResult
+import io.github.yeyi.agent.core.tool.ToolParameters
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 class ReActAgentTest {
     @Test
@@ -98,5 +107,93 @@ class ReActAgentTest {
         val agent = ReActAgent(AgentConfig("", client, listOf(echo), { InMemoryMemory() }, 5))
         agent.run("hi", InMemoryMemory())
         assertEquals(2, echo.invocations.size)
+    }
+
+    @Test
+    fun `tool throwing returns isError result without aborting agent`() = runTest {
+        val failingTool = object : Tool {
+            override val name = "boom"
+            override val description = "always fails"
+            override val parametersSchema = ToolParameters.Empty
+            override suspend fun execute(args: JsonElement, ctx: ToolContext): ToolExecutionResult {
+                throw RuntimeException("kaboom")
+            }
+        }
+        val client = FakeLlmClient(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    ChatMessage.Assistant(toolCalls = listOf(ToolCall("c1", "boom", JsonNull))),
+                    finishReason = FinishReason.ToolCalls
+                ),
+                ChatResponse(ChatMessage.Assistant(content = "recovered"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = ReActAgent(AgentConfig("", client, listOf(failingTool), { InMemoryMemory() }, 5))
+        val mem = InMemoryMemory()
+        val result = agent.run("hi", mem)
+        assertEquals("recovered", result.finalMessage.content)
+        val toolResult = mem.history().filterIsInstance<ChatMessage.ToolResult>().single()
+        assertTrue(toolResult.isError)
+        assertTrue(toolResult.content.contains("kaboom"))
+    }
+
+    @Test
+    fun `tool not found returns isError result`() = runTest {
+        val client = FakeLlmClient(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    ChatMessage.Assistant(toolCalls = listOf(ToolCall("c1", "missing", JsonNull))),
+                    finishReason = FinishReason.ToolCalls
+                ),
+                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = ReActAgent(AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 5))
+        val mem = InMemoryMemory()
+        agent.run("hi", mem)
+        val toolResult = mem.history().filterIsInstance<ChatMessage.ToolResult>().single()
+        assertTrue(toolResult.isError)
+        assertTrue(toolResult.content.contains("missing"))
+        assertTrue(toolResult.content.contains("echo"))
+    }
+
+    @Test
+    fun `exceeding max iterations throws MaxIterations`() = runTest {
+        val toolResp = ChatResponse(
+            ChatMessage.Assistant(toolCalls = listOf(
+                ToolCall("c", "echo", JsonObject(mapOf("text" to JsonPrimitive("x"))))
+            )),
+            finishReason = FinishReason.ToolCalls
+        )
+        val client = FakeLlmClient(nonStreamResponses = listOf(toolResp, toolResp, toolResp))
+        val agent = ReActAgent(AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 2))
+        val ex = assertFailsWith<AgentException.MaxIterations> {
+            agent.run("hi", InMemoryMemory())
+        }
+        assertEquals(2, ex.max)
+    }
+
+    @Test
+    fun `cancellation inside tool propagates`() = runTest {
+        val cancellingTool = object : Tool {
+            override val name = "wait"
+            override val description = ""
+            override val parametersSchema = ToolParameters.Empty
+            override suspend fun execute(args: JsonElement, ctx: ToolContext): ToolExecutionResult {
+                throw kotlinx.coroutines.CancellationException("cancelled inside tool")
+            }
+        }
+        val client = FakeLlmClient(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    ChatMessage.Assistant(toolCalls = listOf(ToolCall("c1", "wait", JsonNull))),
+                    finishReason = FinishReason.ToolCalls
+                )
+            )
+        )
+        val agent = ReActAgent(AgentConfig("", client, listOf(cancellingTool), { InMemoryMemory() }, 5))
+        assertFailsWith<kotlinx.coroutines.CancellationException> {
+            agent.run("hi", InMemoryMemory())
+        }
     }
 }
