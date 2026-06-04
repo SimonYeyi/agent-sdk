@@ -6,6 +6,7 @@ import io.github.yeyi.agent.core.llm.ChatMessage
 import io.github.yeyi.agent.core.llm.ChatResponse
 import io.github.yeyi.agent.core.llm.FinishReason
 import io.github.yeyi.agent.core.memory.InMemoryMemory
+import io.github.yeyi.agent.core.memory.Memory
 import io.github.yeyi.agent.core.skill.Skill
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -89,5 +90,81 @@ class AgentBuilderTest {
             hook(h)
         }
         assertEquals(1, a.config.hooks.size)
+    }
+
+    @Test
+    fun `skill with blank systemPromptFragment is skipped`() {
+        val blankFragmentSkill = Skill(
+            name = "blank",
+            description = "d",
+            systemPromptFragment = "   ",
+            tools = listOf(EchoTool(name = "blank_tool"))
+        )
+        val a = agent {
+            systemPrompt = "X"
+            llmClient = fakeClient()
+            skill(blankFragmentSkill)
+        }
+        // No "\n\n" appended, fragment not included.
+        assertEquals("X", a.config.systemPrompt)
+        // The tool itself is still contributed, only the prompt fragment is skipped.
+        assertEquals(listOf("blank_tool"), a.config.tools.map { it.name })
+    }
+
+    @Test
+    fun `tools and skills iterables are bulk-added in declaration order`() {
+        val skillC = Skill(
+            name = "c",
+            description = "d",
+            tools = listOf(EchoTool(name = "c"))
+        )
+        val skillD = Skill(
+            name = "d",
+            description = "d",
+            tools = listOf(EchoTool(name = "d"))
+        )
+        val a = agent {
+            llmClient = fakeClient()
+            tools(listOf(EchoTool(name = "a"), EchoTool(name = "b")))
+            skills(listOf(skillC, skillD))
+        }
+        assertEquals(listOf("a", "b", "c", "d"), a.config.tools.map { it.name })
+    }
+
+    @Test
+    fun `memory factory is honored`() {
+        val a = agent {
+            llmClient = fakeClient()
+            memory { CountingMemory }
+        }
+        assertTrue(
+            a.config.memoryFactory() is CountingMemory,
+            "memoryFactory() should produce a CountingMemory instance"
+        )
+    }
+
+    @Test
+    fun `hooks are captured in declaration order`() {
+        val h1 = object : AgentHook {}
+        val h2 = object : AgentHook {}
+        val h3 = object : AgentHook {}
+        val a = agent {
+            llmClient = fakeClient()
+            hook(h1)
+            hook(h2)
+            hook(h3)
+        }
+        assertEquals(listOf<AgentHook>(h1, h2, h3), a.config.hooks)
+    }
+
+    // Note: the "empty systemPrompt with no tools or skills produces warning" scenario is
+    // already covered by `agent DSL builds an agent with defaults`, which exercises the same
+    // code path (default empty systemPrompt, no tools, no skills) and asserts the agent builds
+    // successfully. Adding a separate test would duplicate that coverage.
+
+    private object CountingMemory : Memory {
+        override suspend fun add(message: ChatMessage) {}
+        override suspend fun history(): List<ChatMessage> = emptyList()
+        override suspend fun clear() {}
     }
 }
