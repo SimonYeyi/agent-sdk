@@ -72,21 +72,21 @@ public class ReActAgent internal constructor(
             coroutineContext.ensureActive()
 
             val request = buildRequest(memory)
-            var accumulatedText: String? = null
-            val callOrder: MutableList<String> = mutableListOf()
+            val accumulatedText = StringBuilder()
+            val callOrder: LinkedHashSet<String> = linkedSetOf()
             val callNames: MutableMap<String, String> = mutableMapOf()
             val argumentsBuffers: MutableMap<String, StringBuilder> = mutableMapOf()
 
             config.llmClient.chatStream(request).collect { event ->
                 when (event) {
                     is StreamEvent.ContentDelta -> {
-                        accumulatedText = (accumulatedText ?: "") + event.text
+                        accumulatedText.append(event.text)
                         emit(AgentEvent.TextDelta(event.text))
                     }
                     is StreamEvent.ToolCallDelta -> {
                         val id = event.id
                         if (id != null) {
-                            if (!callOrder.contains(id)) callOrder += id
+                            callOrder.add(id) // LinkedHashSet: idempotent + preserves first-seen order
                             if (event.name != null) callNames[id] = event.name
                             argumentsBuffers.getOrPut(id) { StringBuilder() }.append(event.argumentsDelta)
                         }
@@ -107,7 +107,7 @@ public class ReActAgent internal constructor(
                     arguments = parsed
                 )
             }
-            val assistantMsg = ChatMessage.Assistant(accumulatedText, finalCalls)
+            val assistantMsg = ChatMessage.Assistant(accumulatedText.toString(), finalCalls)
             memory.add(assistantMsg)
 
             if (finalCalls.isEmpty()) {
