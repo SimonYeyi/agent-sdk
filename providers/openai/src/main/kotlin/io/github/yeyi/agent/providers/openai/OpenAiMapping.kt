@@ -9,9 +9,14 @@ import io.github.yeyi.agent.core.llm.ToolCall
 import io.github.yeyi.agent.core.llm.Usage
 import io.github.yeyi.agent.core.tool.ToolParameters
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 
+// Forward-compat: silently ignore unknown JSON fields returned by OpenAI
+// (e.g., new provider-side fields) so the parser does not break.
 private val Mapper: Json = Json { ignoreUnknownKeys = true }
+
+private val EmptyParams: JsonElement = Mapper.parseToJsonElement("""{"type":"object","properties":{}}""")
 
 internal fun mapToOpenAi(model: String, request: ChatRequest, stream: Boolean): OpenAiChatRequest {
     val msgs = request.messages.map { msg ->
@@ -26,7 +31,7 @@ internal fun mapToOpenAi(model: String, request: ChatRequest, stream: Boolean): 
                         id = tc.id,
                         function = OpenAiFunctionCall(
                             name = tc.name,
-                            arguments = Mapper.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), tc.arguments)
+                            arguments = Mapper.encodeToString(tc.arguments)
                         )
                     )
                 }
@@ -41,7 +46,7 @@ internal fun mapToOpenAi(model: String, request: ChatRequest, stream: Boolean): 
     }
     val tools = if (request.tools.isEmpty()) null else request.tools.map { td ->
         val params = when (val s = td.parametersSchema) {
-            is ToolParameters.Empty -> Mapper.parseToJsonElement("""{"type":"object","properties":{}}""")
+            is ToolParameters.Empty -> EmptyParams
             is ToolParameters.JsonSchema -> Mapper.parseToJsonElement(s.schema)
         }
         OpenAiTool(function = OpenAiFunction(
@@ -77,6 +82,8 @@ internal fun mapFromOpenAi(resp: OpenAiChatResponse): ChatResponse {
         toolCalls = toolCalls
     )
     val usage = resp.usage?.let { Usage(it.promptTokens, it.completionTokens, it.totalTokens) }
+    // OpenAI omits finish_reason only in mid-stream chunks; on the final non-streamed
+    // response it is always present. Treating null as Stop is safe for the non-stream path.
     val reason = when (choice.finishReason) {
         "stop", null -> FinishReason.Stop
         "tool_calls", "function_call" -> FinishReason.ToolCalls

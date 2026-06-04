@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.providers.openai
 
+import io.github.yeyi.agent.core.error.AgentException
 import io.github.yeyi.agent.core.llm.ChatMessage
 import io.github.yeyi.agent.core.llm.ChatRequest
 import io.github.yeyi.agent.core.llm.FinishReason
@@ -11,6 +12,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
 
 class OpenAiMappingTest {
@@ -93,5 +95,85 @@ class OpenAiMappingTest {
         assertEquals(FinishReason.Stop, parsed.finishReason)
         assertNull(parsed.message.content)
         assertEquals(0, parsed.message.toolCalls.size)
+    }
+
+    @Test
+    fun `mapFromOpenAi with null usage yields null usage`() {
+        val raw = OpenAiChatResponse(
+            choices = listOf(OpenAiChoice(message = OpenAiMessage(role = "assistant", content = "ok"), finishReason = "stop")),
+            usage = null
+        )
+        val parsed = mapFromOpenAi(raw)
+        assertNull(parsed.usage)
+    }
+
+    @Test
+    fun `mapFromOpenAi decodes length finish reason`() {
+        val raw = OpenAiChatResponse(
+            choices = listOf(OpenAiChoice(message = OpenAiMessage(role = "assistant", content = "partial"), finishReason = "length"))
+        )
+        val parsed = mapFromOpenAi(raw)
+        assertEquals(FinishReason.Length, parsed.finishReason)
+    }
+
+    @Test
+    fun `mapFromOpenAi decodes function_call legacy finish reason`() {
+        val raw = OpenAiChatResponse(
+            choices = listOf(OpenAiChoice(message = OpenAiMessage(role = "assistant"), finishReason = "function_call"))
+        )
+        val parsed = mapFromOpenAi(raw)
+        assertEquals(FinishReason.ToolCalls, parsed.finishReason)
+    }
+
+    @Test
+    fun `mapFromOpenAi maps unknown finish reason to Error`() {
+        val raw = OpenAiChatResponse(
+            choices = listOf(OpenAiChoice(message = OpenAiMessage(role = "assistant"), finishReason = "some_new_reason_xyz"))
+        )
+        val parsed = mapFromOpenAi(raw)
+        assertEquals(FinishReason.Error, parsed.finishReason)
+    }
+
+    @Test
+    fun `mapToOpenAi serializes ToolParameters Empty as object schema`() {
+        val req = ChatRequest(
+            messages = listOf(ChatMessage.User("hi")),
+            tools = listOf(
+                ToolDefinition(
+                    name = "noop",
+                    description = "no params",
+                    parametersSchema = ToolParameters.Empty
+                )
+            )
+        )
+        val out = mapToOpenAi("gpt-4o-mini", req, stream = false)
+        val expected = JsonObject(mapOf(
+            "type" to JsonPrimitive("object"),
+            "properties" to JsonObject(emptyMap())
+        ))
+        assertEquals(expected, out.tools!![0].function.parameters as JsonObject)
+    }
+
+    @Test
+    fun `mapToOpenAi sets stream true when stream param is true`() {
+        val req = ChatRequest(messages = listOf(ChatMessage.User("hi")))
+        val out = mapToOpenAi("gpt-4o-mini", req, stream = true)
+        assertEquals(true, out.stream)
+    }
+
+    @Test
+    fun `mapToOpenAi omits stop when stopSequences is empty, sets it when non-empty`() {
+        val empty = ChatRequest(messages = listOf(ChatMessage.User("hi")), stopSequences = emptyList())
+        val nonEmpty = ChatRequest(messages = listOf(ChatMessage.User("hi")), stopSequences = listOf("\n"))
+        val outEmpty = mapToOpenAi("gpt-4o-mini", empty, stream = false)
+        val outNonEmpty = mapToOpenAi("gpt-4o-mini", nonEmpty, stream = false)
+        assertNull(outEmpty.stop)
+        assertEquals(listOf("\n"), outNonEmpty.stop)
+    }
+
+    @Test
+    fun `mapFromOpenAi with empty choices throws InvalidResponse`() {
+        val raw = OpenAiChatResponse(choices = emptyList())
+        assertFailsWith<AgentException.InvalidResponse> { mapFromOpenAi(raw) }
     }
 }
