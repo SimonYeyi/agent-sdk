@@ -53,4 +53,9 @@ dependencies {
     implementation(libs.activity.compose)
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.runtime.compose)
+
+    testImplementation(libs.kotlin.test)
+    testImplementation(libs.kotlin.test.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.junit)
 }
