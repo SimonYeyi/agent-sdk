@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.core.agent
 
 import io.github.yeyi.agent.core.error.AgentException
+import io.github.yeyi.agent.core.internal.Logging
 import io.github.yeyi.agent.core.llm.ChatMessage
 import io.github.yeyi.agent.core.llm.ChatRequest
 import io.github.yeyi.agent.core.llm.StreamEvent
@@ -27,40 +28,56 @@ public class ReActAgent internal constructor(
         val toolCallRecords: MutableList<ToolCallRecord> = mutableListOf()
         var iterations = 0
 
-        while (iterations < config.maxIterations) {
-            iterations++
-            coroutineContext.ensureActive()
+        try {
+            while (iterations < config.maxIterations) {
+                iterations++
+                coroutineContext.ensureActive()
 
-            val request = buildRequest(memory)
-            val response = config.llmClient.chat(request)
-            memory.add(response.message)
+                val request = buildRequest(memory)
+                invokeHooks { beforeLlmCall(iterations, request.messages) }
+                val response = config.llmClient.chat(request)
+                invokeHooks { afterLlmResponse(iterations, response) }
+                memory.add(response.message)
 
-            if (response.message.toolCalls.isEmpty()) {
-                return AgentResult(
-                    finalMessage = response.message,
-                    memory = memory,
-                    iterations = iterations,
-                    toolCalls = toolCallRecords.toList()
-                )
+                if (response.message.toolCalls.isEmpty()) {
+                    val result = AgentResult(
+                        finalMessage = response.message,
+                        memory = memory,
+                        iterations = iterations,
+                        toolCalls = toolCallRecords.toList()
+                    )
+                    invokeHooks { onRunFinished(result) }
+                    return result
+                }
+
+                for (call in response.message.toolCalls) {
+                    invokeHooks { beforeToolCall(call) }
+                    val startMs = System.currentTimeMillis()
+                    val callResult = invokeTool(call)
+                    val durMs = System.currentTimeMillis() - startMs
+                    invokeHooks { afterToolCall(call, callResult, durMs) }
+
+                    toolCallRecords += ToolCallRecord(
+                        callId = call.id,
+                        toolName = call.name,
+                        arguments = call.arguments,
+                        result = callResult,
+                        timestamp = java.time.Instant.now()
+                    )
+                    memory.add(ChatMessage.ToolResult(
+                        toolCallId = call.id, toolName = call.name,
+                        content = callResult.content, isError = callResult.isError
+                    ))
+                }
             }
-            for (call in response.message.toolCalls) {
-                val result = invokeTool(call)
-                toolCallRecords += ToolCallRecord(
-                    callId = call.id,
-                    toolName = call.name,
-                    arguments = call.arguments,
-                    result = result,
-                    timestamp = java.time.Instant.now()
-                )
-                memory.add(ChatMessage.ToolResult(
-                    toolCallId = call.id,
-                    toolName = call.name,
-                    content = result.content,
-                    isError = result.isError
-                ))
-            }
+            val maxEx = AgentException.MaxIterations(config.maxIterations)
+            throw maxEx
+        } catch (t: kotlinx.coroutines.CancellationException) {
+            throw t
+        } catch (t: Throwable) {
+            invokeHooks { onError(iterations, t) }
+            throw t
         }
-        throw AgentException.MaxIterations(config.maxIterations)
     }
 
     override fun runStream(input: String, memory: Memory): Flow<AgentEvent> = flow {
@@ -152,4 +169,16 @@ public class ReActAgent internal constructor(
         },
         tools = config.tools.map { ToolDefinition(it.name, it.description, it.parametersSchema) }
     )
+
+    private suspend inline fun invokeHooks(crossinline action: suspend AgentHook.() -> Unit) {
+        for (h in config.hooks) {
+            try {
+                h.action()
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
+            } catch (t: Throwable) {
+                Logging.warn("AgentHook", "Hook ${h::class.simpleName} threw: ${t.message}")
+            }
+        }
+    }
 }
