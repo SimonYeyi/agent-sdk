@@ -3,8 +3,11 @@ package io.github.yeyi.agent.core.agent
 import io.github.yeyi.agent.core.error.AgentException
 import io.github.yeyi.agent.core.llm.ChatMessage
 import io.github.yeyi.agent.core.llm.ChatRequest
+import io.github.yeyi.agent.core.llm.ToolCall
 import io.github.yeyi.agent.core.llm.ToolDefinition
 import io.github.yeyi.agent.core.memory.Memory
+import io.github.yeyi.agent.core.tool.ToolContext
+import io.github.yeyi.agent.core.tool.ToolExecutionResult
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -37,13 +40,45 @@ public class ReActAgent internal constructor(
                     toolCalls = toolCallRecords.toList()
                 )
             }
-            error("Tool calls not implemented yet (Task 3.3)")
+            for (call in response.message.toolCalls) {
+                val result = invokeTool(call)
+                toolCallRecords += ToolCallRecord(
+                    callId = call.id,
+                    toolName = call.name,
+                    arguments = call.arguments,
+                    result = result,
+                    timestamp = java.time.Instant.now()
+                )
+                memory.add(ChatMessage.ToolResult(
+                    toolCallId = call.id,
+                    toolName = call.name,
+                    content = result.content,
+                    isError = result.isError
+                ))
+            }
         }
         throw AgentException.MaxIterations(config.maxIterations)
     }
 
     override fun runStream(input: String, memory: Memory): Flow<AgentEvent> = flow {
         error("runStream not implemented yet (Task 3.5)")
+    }
+
+    private suspend fun invokeTool(call: ToolCall): ToolExecutionResult {
+        val tool = config.tools.find { it.name == call.name }
+            ?: return ToolExecutionResult(
+                content = "Tool '${call.name}' not found. Available: ${config.tools.joinToString { it.name }}",
+                isError = true
+            )
+        return try {
+            tool.execute(call.arguments, ToolContext())
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            ToolExecutionResult(
+                content = "Tool error: ${t.message}",
+                isError = true
+            )
+        }
     }
 
     private suspend fun buildRequest(memory: Memory): ChatRequest = ChatRequest(
