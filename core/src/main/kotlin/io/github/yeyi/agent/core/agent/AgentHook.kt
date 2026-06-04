@@ -27,6 +27,9 @@ import io.github.yeyi.agent.core.tool.ToolExecutionResult
  * 多 hook 调用约定:
  * - 按 List 顺序依次调用;同一 step 内前一个 hook 抛异常不会阻止后续 hook 被调用
  * - 同一 step 内所有 hook 按顺序串行调用,不并发
+ *
+ * v1 实现范围:
+ * - 仅 `run` 路径触发上述回调;`runStream` 在 v1.x 中暂不触发 hook(由 v1.1 任务补齐)
  */
 public interface AgentHook {
     public suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {}
