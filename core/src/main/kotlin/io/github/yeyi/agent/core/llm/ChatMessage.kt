@@ -1,9 +1,11 @@
 package io.github.yeyi.agent.core.llm
 
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 
 public enum class Role { System, User, Assistant, Tool }
 
+@Serializable
 public data class ToolCall(
     public val id: String,
     public val name: String,
