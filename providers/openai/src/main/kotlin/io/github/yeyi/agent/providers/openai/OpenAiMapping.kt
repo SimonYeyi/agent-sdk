@@ -1,0 +1,87 @@
+package io.github.yeyi.agent.providers.openai
+
+import io.github.yeyi.agent.core.error.AgentException
+import io.github.yeyi.agent.core.llm.ChatMessage
+import io.github.yeyi.agent.core.llm.ChatRequest
+import io.github.yeyi.agent.core.llm.ChatResponse
+import io.github.yeyi.agent.core.llm.FinishReason
+import io.github.yeyi.agent.core.llm.ToolCall
+import io.github.yeyi.agent.core.llm.Usage
+import io.github.yeyi.agent.core.tool.ToolParameters
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+
+private val Mapper: Json = Json { ignoreUnknownKeys = true }
+
+internal fun mapToOpenAi(model: String, request: ChatRequest, stream: Boolean): OpenAiChatRequest {
+    val msgs = request.messages.map { msg ->
+        when (msg) {
+            is ChatMessage.System -> OpenAiMessage(role = "system", content = msg.content)
+            is ChatMessage.User -> OpenAiMessage(role = "user", content = msg.content)
+            is ChatMessage.Assistant -> OpenAiMessage(
+                role = "assistant",
+                content = msg.content,
+                toolCalls = if (msg.toolCalls.isEmpty()) null else msg.toolCalls.map { tc ->
+                    OpenAiToolCall(
+                        id = tc.id,
+                        function = OpenAiFunctionCall(
+                            name = tc.name,
+                            arguments = Mapper.encodeToString(kotlinx.serialization.json.JsonElement.serializer(), tc.arguments)
+                        )
+                    )
+                }
+            )
+            is ChatMessage.ToolResult -> OpenAiMessage(
+                role = "tool",
+                content = msg.content,
+                toolCallId = msg.toolCallId,
+                name = msg.toolName
+            )
+        }
+    }
+    val tools = if (request.tools.isEmpty()) null else request.tools.map { td ->
+        val params = when (val s = td.parametersSchema) {
+            is ToolParameters.Empty -> Mapper.parseToJsonElement("""{"type":"object","properties":{}}""")
+            is ToolParameters.JsonSchema -> Mapper.parseToJsonElement(s.schema)
+        }
+        OpenAiTool(function = OpenAiFunction(
+            name = td.name,
+            description = td.description,
+            parameters = params
+        ))
+    }
+    return OpenAiChatRequest(
+        model = model,
+        messages = msgs,
+        tools = tools,
+        temperature = request.temperature,
+        maxTokens = request.maxTokens,
+        stop = request.stopSequences.takeIf { it.isNotEmpty() },
+        stream = if (stream) true else null
+    )
+}
+
+internal fun mapFromOpenAi(resp: OpenAiChatResponse): ChatResponse {
+    val choice = resp.choices.firstOrNull()
+        ?: throw AgentException.InvalidResponse("OpenAI response has no choices")
+    val toolCalls = choice.message.toolCalls?.map { tc ->
+        ToolCall(
+            id = tc.id,
+            name = tc.function.name,
+            arguments = if (tc.function.arguments.isBlank()) JsonNull
+                else Mapper.parseToJsonElement(tc.function.arguments)
+        )
+    } ?: emptyList()
+    val assistant = ChatMessage.Assistant(
+        content = choice.message.content,
+        toolCalls = toolCalls
+    )
+    val usage = resp.usage?.let { Usage(it.promptTokens, it.completionTokens, it.totalTokens) }
+    val reason = when (choice.finishReason) {
+        "stop", null -> FinishReason.Stop
+        "tool_calls", "function_call" -> FinishReason.ToolCalls
+        "length" -> FinishReason.Length
+        else -> FinishReason.Error
+    }
+    return ChatResponse(message = assistant, usage = usage, finishReason = reason)
+}
