@@ -40,4 +40,16 @@ class SkillTest {
         assertEquals(1, s.tools.size)
         assertEquals("get_weather", s.tools[0].name)
     }
+
+    @Test
+    fun `skill DSL preserves order of multiple tools`() {
+        val s = skill("multi") {
+            description = "d"
+            tool(EchoTool(name = "first"))
+            tool(EchoTool(name = "second"))
+            tool(EchoTool(name = "third"))
+        }
+        assertEquals(3, s.tools.size)
+        assertEquals(listOf("first", "second", "third"), s.tools.map { it.name })
+    }
 }
