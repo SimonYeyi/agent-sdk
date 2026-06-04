@@ -23,6 +23,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class ReActAgentTest {
@@ -241,5 +242,38 @@ class ReActAgentTest {
         assertTrue(events.any { it is AgentEvent.ToolCallFinished })
         assertTrue(events.any { it is AgentEvent.Final })
         assertEquals(1, echo.invocations.size)
+    }
+
+    @Test
+    fun `runStream propagates Error event as thrown cause`() = runTest {
+        val boom = RuntimeException("stream failed")
+        val client = FakeLlmClient(
+            streamScripts = listOf(
+                listOf(
+                    StreamEvent.ContentDelta("hel"),
+                    StreamEvent.Error(boom),
+                    StreamEvent.Done(null)  // after Error: should not be reached
+                )
+            )
+        )
+        val agent = ReActAgent(AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5))
+        val ex = assertFailsWith<RuntimeException> {
+            agent.runStream("hi", InMemoryMemory()).toList()
+        }
+        assertSame(boom, ex)
+    }
+
+    @Test
+    fun `runStream exhausts max iterations`() = runTest {
+        val toolResp = listOf(
+            StreamEvent.ToolCallDelta(id = "c", name = "echo", argumentsDelta = "{\"text\":\"x\"}"),
+            StreamEvent.Done(null)
+        )
+        val client = FakeLlmClient(streamScripts = listOf(toolResp, toolResp, toolResp))
+        val agent = ReActAgent(AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 2))
+        val ex = assertFailsWith<AgentException.MaxIterations> {
+            agent.runStream("hi", InMemoryMemory()).toList()
+        }
+        assertEquals(2, ex.max)
     }
 }
