@@ -9,5 +9,6 @@ public data class AgentConfig(
     public val llmClient: LlmClient,
     public val tools: List<Tool>,
     public val memoryFactory: () -> Memory,
-    public val maxIterations: Int
+    public val maxIterations: Int,
+    public val hooks: List<AgentHook> = emptyList()
 )
