@@ -12,8 +12,10 @@ import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
+import io.ktor.utils.io.readUTF8Line
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
@@ -62,6 +64,32 @@ public class OpenAiClient(
     }
 
     override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow {
-        error("chatStream not implemented yet (Task 5.6)")
+        val openAiReq = mapToOpenAi(model, request, stream = true)
+        try {
+            httpClient.preparePost("$baseUrl/chat/completions") {
+                header(HttpHeaders.Authorization, "Bearer $apiKey")
+                header(HttpHeaders.Accept, "text/event-stream")
+                contentType(ContentType.Application.Json)
+                setBody(openAiReq)
+            }.execute { resp ->
+                if (!resp.status.isSuccess()) {
+                    throw AgentException.LlmError(
+                        RuntimeException("HTTP ${resp.status.value}: ${resp.bodyAsText()}")
+                    )
+                }
+                val channel = resp.bodyAsChannel()
+                val lineFlow = flow {
+                    while (true) {
+                        val line = channel.readUTF8Line() ?: break
+                        emit(line)
+                    }
+                }
+                decodeOpenAiSseLines(lineFlow).collect { emit(it) }
+            }
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            if (t is AgentException) throw t
+            throw AgentException.LlmError(t)
+        }
     }
 }

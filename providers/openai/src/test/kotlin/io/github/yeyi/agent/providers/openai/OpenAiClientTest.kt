@@ -3,12 +3,14 @@ package io.github.yeyi.agent.providers.openai
 import io.github.yeyi.agent.core.llm.ChatMessage
 import io.github.yeyi.agent.core.llm.ChatRequest
 import io.github.yeyi.agent.core.llm.FinishReason
+import io.github.yeyi.agent.core.llm.StreamEvent
 import io.ktor.client.*
 import io.ktor.client.engine.mock.*
 import io.ktor.client.plugins.contentnegotiation.*
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.utils.io.*
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
@@ -64,5 +66,32 @@ class OpenAiClientTest {
         } catch (e: io.github.yeyi.agent.core.error.AgentException.LlmError) {
             assertEquals(true, e.message!!.contains("LLM call failed"))
         }
+    }
+
+    @Test
+    fun `chatStream emits TextDelta and Done`() = runTest {
+        val sseBody = """
+            data: {"choices":[{"index":0,"delta":{"content":"hi"}}]}
+
+            data: [DONE]
+
+        """.trimIndent()
+        val engine = MockEngine { _ ->
+            respond(
+                content = ByteReadChannel(sseBody),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "text/event-stream")
+            )
+        }
+        val http = HttpClient(engine) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+        val client = OpenAiClient(apiKey = "k", httpClient = http)
+        val events = client.chatStream(
+            ChatRequest(messages = listOf(ChatMessage.User("hi")))
+        ).toList()
+        val deltas = events.filterIsInstance<StreamEvent.ContentDelta>()
+        assertEquals(1, deltas.size)
+        assertEquals("hi", deltas[0].text)
     }
 }
