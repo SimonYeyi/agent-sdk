@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
     alias(libs.plugins.kotlin.serialization)
+    `java-test-fixtures`
 }
 
 group = "io.github.yeyi.agent"
