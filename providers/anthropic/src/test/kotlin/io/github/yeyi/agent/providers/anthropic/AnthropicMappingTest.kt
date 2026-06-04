@@ -1,0 +1,168 @@
+package io.github.yeyi.agent.providers.anthropic
+
+import io.github.yeyi.agent.core.llm.ChatMessage
+import io.github.yeyi.agent.core.llm.ChatRequest
+import io.github.yeyi.agent.core.llm.FinishReason
+import io.github.yeyi.agent.core.llm.ToolCall
+import io.github.yeyi.agent.core.llm.ToolDefinition
+import io.github.yeyi.agent.core.tool.ToolParameters
+import io.github.yeyi.agent.providers.anthropic.dto.AnthropicChatRequest
+import io.github.yeyi.agent.providers.anthropic.dto.AnthropicChatResponse
+import io.github.yeyi.agent.providers.anthropic.dto.AnthropicContentBlock
+import io.github.yeyi.agent.providers.anthropic.dto.AnthropicMessage
+import io.github.yeyi.agent.providers.anthropic.dto.AnthropicUsage
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlin.test.Test
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+
+class AnthropicMappingTest {
+
+    @Test
+    fun `system prompt is extracted to top-level field`() {
+        val req = ChatRequest(
+            messages = listOf(
+                ChatMessage.System("you are concise"),
+                ChatMessage.User("hi"),
+            ),
+        )
+        val mapped = mapToAnthropic("claude-sonnet-4-6", req)
+        assertEquals("you are concise", mapped.system)
+    }
+
+    @Test
+    fun `null system prompt produces null system field`() {
+        val req = ChatRequest(
+            messages = listOf(ChatMessage.User("hi")),
+        )
+        val mapped = mapToAnthropic("claude-sonnet-4-6", req)
+        assertNull(mapped.system)
+    }
+
+    @Test
+    fun `User and Assistant messages are mapped with text content block`() {
+        val req = ChatRequest(
+            messages = listOf(
+                ChatMessage.User("hello"),
+                ChatMessage.Assistant(content = "hi back"),
+            ),
+        )
+        val mapped = mapToAnthropic("claude-sonnet-4-6", req)
+        assertEquals(
+            listOf(
+                AnthropicMessage("user", listOf(AnthropicContentBlock.Text("hello"))),
+                AnthropicMessage("assistant", listOf(AnthropicContentBlock.Text("hi back"))),
+            ),
+            mapped.messages,
+        )
+    }
+
+    @Test
+    fun `Assistant tool call is mapped to tool_use content block`() {
+        val args = buildJsonObject { put("city", JsonPrimitive("Beijing")) }
+        val req = ChatRequest(
+            messages = listOf(
+                ChatMessage.User("weather?"),
+                ChatMessage.Assistant(
+                    content = null,
+                    toolCalls = listOf(ToolCall("call_1", "get_weather", args)),
+                ),
+            ),
+        )
+        val mapped = mapToAnthropic("claude-sonnet-4-6", req)
+        val assistantMsg = mapped.messages[1]
+        assertEquals("assistant", assistantMsg.role)
+        assertEquals(1, assistantMsg.content.size)
+        val block = assistantMsg.content[0]
+        assertEquals(AnthropicContentBlock.ToolUse("call_1", "get_weather", args), block)
+    }
+
+    @Test
+    fun `ToolResult is mapped to user message with tool_result block`() {
+        val req = ChatRequest(
+            messages = listOf(
+                ChatMessage.User("weather?"),
+                ChatMessage.Assistant(
+                    content = null,
+                    toolCalls = listOf(ToolCall("call_1", "get_weather", buildJsonObject {})),
+                ),
+                ChatMessage.ToolResult(toolCallId = "call_1", toolName = "get_weather", content = "25C sunny", isError = false),
+            ),
+        )
+        val mapped = mapToAnthropic("claude-sonnet-4-6", req)
+        val toolResultMsg = mapped.messages[2]
+        assertEquals("user", toolResultMsg.role)
+        assertEquals(
+            AnthropicContentBlock.ToolResult("call_1", "25C sunny", isError = false),
+            toolResultMsg.content[0],
+        )
+    }
+
+    @Test
+    fun `tools list maps ToolDefinition with input_schema field name`() {
+        val schemaJson = """{"type":"object","properties":{"city":{"type":"string"}}}"""
+        val req = ChatRequest(
+            messages = listOf(ChatMessage.User("hi")),
+            tools = listOf(
+                ToolDefinition(
+                    name = "get_weather",
+                    description = "Get current weather",
+                    parametersSchema = ToolParameters.JsonSchema(schemaJson),
+                ),
+            ),
+        )
+        val mapped = mapToAnthropic("claude-sonnet-4-6", req)
+        assertEquals(1, mapped.tools?.size)
+        val tool = mapped.tools!![0]
+        assertEquals("get_weather", tool.name)
+        assertEquals("Get current weather", tool.description)
+        // input_schema 是 Anthropic 特定字段名
+        val expected = JsonObject(mapOf(
+            "type" to JsonPrimitive("object"),
+            "properties" to JsonObject(mapOf("city" to JsonObject(mapOf("type" to JsonPrimitive("string"))))),
+        ))
+        assertEquals(expected, tool.inputSchema)
+    }
+
+    @Test
+    fun `mapToCore converts Anthropic response to ChatResponse with text`() {
+        val resp = AnthropicChatResponse(
+            id = "msg_1",
+            model = "claude-sonnet-4-6",
+            content = listOf(AnthropicContentBlock.Text("hello back")),
+            stopReason = "end_turn",
+            usage = AnthropicUsage(inputTokens = 10, outputTokens = 5),
+        )
+        val core = mapAnthropicToCore(resp)
+        assertEquals(
+            ChatMessage.Assistant(content = "hello back", toolCalls = emptyList()),
+            core.message,
+        )
+        assertEquals(FinishReason.Stop, core.finishReason)
+        assertEquals(15, core.usage?.totalTokens)
+    }
+
+    @Test
+    fun `mapToCore converts tool_use content block to ToolCall`() {
+        val args = buildJsonObject { put("city", JsonPrimitive("Beijing")) }
+        val resp = AnthropicChatResponse(
+            id = "msg_1",
+            model = "claude-sonnet-4-6",
+            content = listOf(
+                AnthropicContentBlock.Text("let me check"),
+                AnthropicContentBlock.ToolUse("toolu_1", "get_weather", args),
+            ),
+            stopReason = "tool_use",
+            usage = null,
+        )
+        val core = mapAnthropicToCore(resp)
+        assertEquals(1, core.message.toolCalls.size)
+        val call = core.message.toolCalls[0]
+        assertEquals("toolu_1", call.id)
+        assertEquals("get_weather", call.name)
+        assertEquals(args, call.arguments)
+        assertEquals(FinishReason.ToolCalls, core.finishReason)
+    }
+}
