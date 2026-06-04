@@ -59,3 +59,15 @@ class ChatViewModel(
         }
     }
 }
+
+class ChatViewModelFactory(
+    private val agent: Agent,
+) : androidx.lifecycle.ViewModelProvider.Factory {
+    override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
+        require(modelClass.isAssignableFrom(ChatViewModel::class.java)) {
+            "Unknown ViewModel class: ${modelClass.name}"
+        }
+        @Suppress("UNCHECKED_CAST")
+        return ChatViewModel(agent) as T
+    }
+}
