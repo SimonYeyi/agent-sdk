@@ -100,6 +100,11 @@ public class ReActAgent internal constructor(
                         accumulatedText.append(event.text)
                         emit(AgentEvent.TextDelta(event.text))
                     }
+                    is StreamEvent.ToolCallStart -> {
+                        callOrder.add(event.id) // LinkedHashSet: idempotent + preserves first-seen order
+                        callNames[event.id] = event.name
+                        argumentsBuffers.getOrPut(event.id) { StringBuilder() }
+                    }
                     is StreamEvent.ToolCallDelta -> {
                         val id = event.id
                         if (id != null) {
