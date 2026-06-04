@@ -7,12 +7,14 @@ import io.github.yeyi.agent.core.llm.ChatMessage
 import io.github.yeyi.agent.core.llm.ChatResponse
 import io.github.yeyi.agent.core.llm.FinishReason
 import io.github.yeyi.agent.core.llm.Role
+import io.github.yeyi.agent.core.llm.StreamEvent
 import io.github.yeyi.agent.core.llm.ToolCall
 import io.github.yeyi.agent.core.memory.InMemoryMemory
 import io.github.yeyi.agent.core.tool.Tool
 import io.github.yeyi.agent.core.tool.ToolContext
 import io.github.yeyi.agent.core.tool.ToolExecutionResult
 import io.github.yeyi.agent.core.tool.ToolParameters
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -195,5 +197,49 @@ class ReActAgentTest {
         assertFailsWith<kotlinx.coroutines.CancellationException> {
             agent.run("hi", InMemoryMemory())
         }
+    }
+
+    @Test
+    fun `runStream emits TextDelta and Final for plain answer`() = runTest {
+        val client = FakeLlmClient(
+            streamScripts = listOf(
+                listOf(
+                    StreamEvent.ContentDelta("hel"),
+                    StreamEvent.ContentDelta("lo"),
+                    StreamEvent.Done(null)
+                )
+            )
+        )
+        val agent = ReActAgent(AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5))
+        val events = agent.runStream("hi", InMemoryMemory()).toList()
+        val texts = events.filterIsInstance<AgentEvent.TextDelta>().map { it.text }
+        assertEquals(listOf("hel", "lo"), texts)
+        val finals = events.filterIsInstance<AgentEvent.Final>()
+        assertEquals(1, finals.size)
+        assertEquals("hello", finals.single().message.content)
+    }
+
+    @Test
+    fun `runStream handles tool call cycle`() = runTest {
+        val echo = EchoTool()
+        val client = FakeLlmClient(
+            streamScripts = listOf(
+                listOf(
+                    StreamEvent.ToolCallDelta(id = "c1", name = "echo", argumentsDelta = "{\"text\":"),
+                    StreamEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "\"x\"}"),
+                    StreamEvent.Done(null)
+                ),
+                listOf(
+                    StreamEvent.ContentDelta("done"),
+                    StreamEvent.Done(null)
+                )
+            )
+        )
+        val agent = ReActAgent(AgentConfig("", client, listOf(echo), { InMemoryMemory() }, 5))
+        val events = agent.runStream("hi", InMemoryMemory()).toList()
+        assertTrue(events.any { it is AgentEvent.ToolCallStarted && it.toolName == "echo" })
+        assertTrue(events.any { it is AgentEvent.ToolCallFinished })
+        assertTrue(events.any { it is AgentEvent.Final })
+        assertEquals(1, echo.invocations.size)
     }
 }

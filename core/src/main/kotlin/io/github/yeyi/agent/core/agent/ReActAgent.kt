@@ -3,6 +3,7 @@ package io.github.yeyi.agent.core.agent
 import io.github.yeyi.agent.core.error.AgentException
 import io.github.yeyi.agent.core.llm.ChatMessage
 import io.github.yeyi.agent.core.llm.ChatRequest
+import io.github.yeyi.agent.core.llm.StreamEvent
 import io.github.yeyi.agent.core.llm.ToolCall
 import io.github.yeyi.agent.core.llm.ToolDefinition
 import io.github.yeyi.agent.core.memory.Memory
@@ -11,6 +12,8 @@ import io.github.yeyi.agent.core.tool.ToolExecutionResult
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
 import kotlin.coroutines.coroutineContext
 
 public class ReActAgent internal constructor(
@@ -61,7 +64,68 @@ public class ReActAgent internal constructor(
     }
 
     override fun runStream(input: String, memory: Memory): Flow<AgentEvent> = flow {
-        error("runStream not implemented yet (Task 3.5)")
+        memory.add(ChatMessage.User(input))
+        var iterations = 0
+
+        while (iterations < config.maxIterations) {
+            iterations++
+            coroutineContext.ensureActive()
+
+            val request = buildRequest(memory)
+            var accumulatedText: String? = null
+            val callOrder: MutableList<String> = mutableListOf()
+            val callNames: MutableMap<String, String> = mutableMapOf()
+            val argumentsBuffers: MutableMap<String, StringBuilder> = mutableMapOf()
+
+            config.llmClient.chatStream(request).collect { event ->
+                when (event) {
+                    is StreamEvent.ContentDelta -> {
+                        accumulatedText = (accumulatedText ?: "") + event.text
+                        emit(AgentEvent.TextDelta(event.text))
+                    }
+                    is StreamEvent.ToolCallDelta -> {
+                        val id = event.id
+                        if (id != null) {
+                            if (!callOrder.contains(id)) callOrder += id
+                            if (event.name != null) callNames[id] = event.name
+                            argumentsBuffers.getOrPut(id) { StringBuilder() }.append(event.argumentsDelta)
+                        }
+                    }
+                    is StreamEvent.Done -> Unit
+                    is StreamEvent.Error -> throw event.cause
+                }
+            }
+
+            val finalCalls: List<ToolCall> = callOrder.map { id ->
+                val argsText = argumentsBuffers[id]?.toString().orEmpty()
+                val parsed = if (argsText.isNotBlank())
+                    Json.parseToJsonElement(argsText)
+                else JsonNull
+                ToolCall(
+                    id = id,
+                    name = callNames[id] ?: error("ToolCallDelta lacked a name for id=$id"),
+                    arguments = parsed
+                )
+            }
+            val assistantMsg = ChatMessage.Assistant(accumulatedText, finalCalls)
+            memory.add(assistantMsg)
+
+            if (finalCalls.isEmpty()) {
+                emit(AgentEvent.Final(assistantMsg))
+                return@flow
+            }
+
+            for (call in finalCalls) {
+                emit(AgentEvent.ToolCallStarted(call.id, call.name))
+                val result = invokeTool(call)
+                emit(AgentEvent.ToolCallFinished(call.id, result))
+                memory.add(ChatMessage.ToolResult(
+                    toolCallId = call.id, toolName = call.name,
+                    content = result.content, isError = result.isError
+                ))
+            }
+        }
+        throw AgentException.MaxIterations(config.maxIterations)
     }
 
     private suspend fun invokeTool(call: ToolCall): ToolExecutionResult {
