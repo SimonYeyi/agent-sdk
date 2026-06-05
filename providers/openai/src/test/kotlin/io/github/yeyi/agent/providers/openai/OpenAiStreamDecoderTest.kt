@@ -80,6 +80,28 @@ class OpenAiStreamDecoderTest {
     }
 
     @Test
+    fun `multiple distinct tool calls each get exactly one ToolCallStart`() = runTest {
+        val lines = flowOf(
+            // First chunk: c1 starts with name, c2 starts with name
+            """data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"calc","arguments":""}},{"index":1,"id":"c2","function":{"name":"time","arguments":""}}]}}]}""",
+            // Continuation chunks for both
+            """data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"1"}},{"index":1,"function":{"arguments":"now"}}]}}]}""",
+            """data: [DONE]"""
+        )
+        val events = decodeOpenAiSseLines(lines).toList()
+        val starts = events.filterIsInstance<StreamEvent.ToolCallStart>()
+        val deltas = events.filterIsInstance<StreamEvent.ToolCallDelta>()
+        assertEquals(2, starts.size)
+        assertEquals(setOf("c1", "c2"), starts.map { it.id }.toSet())
+        assertEquals(setOf("calc", "time"), starts.map { it.name }.toSet())
+        // 2 first-chunk deltas + 2 continuation deltas = 4 total
+        assertEquals(4, deltas.size)
+        // Continuation deltas have id=null, name=null
+        val continuationDeltas = deltas.filter { it.id == null }
+        assertEquals(2, continuationDeltas.size)
+    }
+
+    @Test
     fun `decode ignores empty data and comments`() = runTest {
         val sseLines = listOf(
             ":heartbeat",
