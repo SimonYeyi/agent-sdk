@@ -69,7 +69,7 @@ class AnthropicClientStreamTest {
     }
 
     @Test
-    fun `stream emits ToolCallStart then ToolCallDelta for tool_use block`() = runTest {
+    fun `chatStream emits ToolCallStart and ToolCallDelta for tool_use block`() = runTest {
         val sse = """
             event: message_start
             data: {"type":"message_start","message":{"id":"m1","usage":{"input_tokens":5,"output_tokens":0}}}
