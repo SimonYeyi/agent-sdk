@@ -73,7 +73,7 @@ class AnthropicStreamDecoderTest {
     }
 
     @Test
-    fun `malformed json emits Error event and continues`() = runTest {
+    fun `malformed json emits Error event`() = runTest {
         val lines = flowOf(
             """event: message_start""",
             """data: {not valid json""",
@@ -105,6 +105,28 @@ class AnthropicStreamDecoderTest {
         val events = decodeAnthropicSse(lines).toList()
         val done = events.last() as StreamEvent.Done
         assertEquals(Usage(promptTokens = 10, completionTokens = 3, totalTokens = 13), done.usage)
+        assertEquals(FinishReason.Stop, done.finishReason)
+    }
+
+    @Test
+    fun `Done usage is null when neither message_start nor message_delta carries usage`() = runTest {
+        val lines = flowOf(
+            "event: message_start",
+            """data: {"type":"message_start","message":{"id":"m1"}}""",
+            "",
+            "event: content_block_delta",
+            """data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"hi"}}""",
+            "",
+            "event: message_delta",
+            """data: {"type":"message_delta","delta":{"stop_reason":"end_turn"}}""",
+            "",
+            "event: message_stop",
+            """data: {"type":"message_stop"}""",
+            "",
+        )
+        val events = decodeAnthropicSse(lines).toList()
+        val done = events.last() as StreamEvent.Done
+        assertEquals(null, done.usage)
         assertEquals(FinishReason.Stop, done.finishReason)
     }
 }
