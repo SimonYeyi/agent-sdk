@@ -1,23 +1,21 @@
 package io.github.yeyi.agent.providers.anthropic
 
+import io.github.yeyi.agent.error.AgentException
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.LlmClient
 import io.github.yeyi.agent.llm.StreamEvent
-import io.ktor.client.HttpClient
-import io.ktor.client.call.body
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.plugins.logging.LogLevel
-import io.ktor.client.plugins.logging.Logging
-import io.ktor.client.request.header
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
+import io.ktor.client.*
+import io.ktor.client.call.*
+import io.ktor.client.engine.cio.*
+import io.ktor.client.plugins.*
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.request.*
+import io.ktor.client.statement.*
 import io.ktor.client.statement.bodyAsChannel
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
-import io.ktor.serialization.kotlinx.json.json
-import io.ktor.utils.io.readRemaining
+import io.ktor.http.*
+import io.ktor.serialization.kotlinx.json.*
+import io.ktor.utils.io.readUTF8Line
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
@@ -30,60 +28,74 @@ public class AnthropicClient(
 ) : LlmClient {
     override val providerName: String = "anthropic"
 
+    public companion object {
+        public fun defaultAnthropicHttpClient(): HttpClient = HttpClient(CIO) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+            install(HttpTimeout) {
+                requestTimeoutMillis = 60_000
+                socketTimeoutMillis = 60_000
+            }
+        }
+    }
+
     override suspend fun chat(request: ChatRequest): ChatResponse {
         val anthropicReq = mapToAnthropic(this.model, request)
-        val response: AnthropicChatResponse = httpClient.post("$baseUrl/v1/messages") {
-            header("x-api-key", apiKey)
-            header("anthropic-version", "2023-06-01")
-            contentType(ContentType.Application.Json)
-            setBody(anthropicReq)
-        }.body()
-        return mapAnthropicToCore(response)
+        val resp: HttpResponse = try {
+            httpClient.post("$baseUrl/v1/messages") {
+                header("x-api-key", apiKey)
+                header("anthropic-version", "2023-06-01")
+                contentType(ContentType.Application.Json)
+                setBody(anthropicReq)
+            }
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            throw AgentException.LlmError(t)
+        }
+        if (!resp.status.isSuccess()) {
+            throw AgentException.LlmError(
+                RuntimeException("HTTP ${resp.status.value}: ${resp.bodyAsText()}")
+            )
+        }
+        val parsed: AnthropicChatResponse = try {
+            resp.body()
+        } catch (t: Throwable) {
+            throw AgentException.InvalidResponse("Anthropic body parse: ${t.message}")
+        }
+        return mapAnthropicToCore(parsed)
     }
 
     override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow {
         val anthropicReq = mapToAnthropic(this@AnthropicClient.model, request).copy(stream = true)
-        val lineFlow: Flow<String> = httpClient.post("$baseUrl/v1/messages") {
-            header("x-api-key", apiKey)
-            header("anthropic-version", "2023-06-01")
-            contentType(ContentType.Application.Json)
-            setBody(anthropicReq)
-        }.bodyAsChannel().let { channel ->
-            flow {
-                // SSE 格式:每行以 \n 分隔,空行表示一个事件结束
-                // Ktor 3.x 没有内置 SSE parser,这里用 byte-by-byte 累加
-                val buffer = StringBuilder()
-                while (!channel.isClosedForRead) {
-                    val chunk = channel.readRemaining(4096)
-                    while (!chunk.exhausted()) {
-                        val byte = chunk.readByte()
-                        val ch = byte.toInt().toChar()
-                        if (ch == '\n') {
-                            emit(buffer.toString())
-                            buffer.clear()
-                        } else if (ch != '\r') {
-                            buffer.append(ch)
-                        }
+        try {
+            httpClient.preparePost("$baseUrl/v1/messages") {
+                header("x-api-key", apiKey)
+                header("anthropic-version", "2023-06-01")
+                header(HttpHeaders.Accept, "text/event-stream")
+                contentType(ContentType.Application.Json)
+                setBody(anthropicReq)
+            }.execute { resp ->
+                if (!resp.status.isSuccess()) {
+                    throw AgentException.LlmError(
+                        RuntimeException("HTTP ${resp.status.value}: ${resp.bodyAsText()}")
+                    )
+                }
+                val channel = resp.bodyAsChannel()
+                val lineFlow = flow {
+                    while (true) {
+                        val line = channel.readUTF8Line() ?: break
+                        emit(line)
                     }
+                    // Anthropic SSE decoder uses empty lines to delimit events.
+                    // Emit a trailing empty line so the final event is flushed,
+                    // matching the prior byte-by-byte parser's behavior.
+                    emit("")
                 }
-                // 流结束时,若缓冲区还有未换行的尾行,先 emit 出去,再 emit 一个空行触发解码器收尾
-                if (buffer.isNotEmpty()) {
-                    emit(buffer.toString())
-                    buffer.clear()
-                }
-                emit("")
+                decodeAnthropicSse(lineFlow).collect { emit(it) }
             }
+        } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            if (t is AgentException) throw t
+            throw AgentException.LlmError(t)
         }
-        decodeAnthropicSse(lineFlow).collect { emit(it) }
-    }
-}
-
-public fun defaultAnthropicHttpClient(): HttpClient = HttpClient(CIO) {
-    expectSuccess = true
-    install(ContentNegotiation) {
-        json(Json { ignoreUnknownKeys = true })
-    }
-    install(Logging) {
-        level = LogLevel.NONE
     }
 }

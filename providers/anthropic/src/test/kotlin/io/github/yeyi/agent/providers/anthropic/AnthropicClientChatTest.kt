@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.providers.anthropic
 
+import io.github.yeyi.agent.error.AgentException
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.ktor.client.HttpClient
@@ -80,5 +81,28 @@ class AnthropicClientChatTest {
         val response = client.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
         assertEquals("hello back", response.message.content)
         assertEquals(0, response.message.toolCalls.size)
+    }
+
+    @Test
+    fun `chat wraps HTTP 500 in AgentException LlmError`() = runTest {
+        val engine = MockEngine { _ ->
+            respond(
+                content = ByteReadChannel("server error"),
+                status = HttpStatusCode.InternalServerError,
+            )
+        }
+        val http = HttpClient(engine) {
+            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+        }
+        val client = AnthropicClient(apiKey = "k", model = "m", httpClient = http)
+        try {
+            client.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+            error("should have thrown")
+        } catch (e: AgentException.LlmError) {
+            assertTrue(
+                e.message!!.contains("500") || (e.cause?.message?.contains("500") ?: false),
+                "expected '500' in message or cause, got: ${e.message} | cause=${e.cause?.message}",
+            )
+        }
     }
 }
