@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.providers.openai
 
+import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.llm.Usage
 import kotlinx.coroutines.flow.Flow
@@ -10,12 +11,18 @@ private val SseMapper: Json = Json { ignoreUnknownKeys = true }
 
 /**
  * 把 OpenAI SSE 文本行流(已按行拆分)解码为 StreamEvent。
- * - "data: [DONE]" → Done
+ * - "data: [DONE]" → Done(usage, finishReason)
  * - "data: {...}" 是 OpenAiStreamChunk
  * - 其他行(注释、空行)忽略
+ *
+ * 第一个见到 tool_call id 的 chunk 会先发 ToolCallStart,再发 ToolCallDelta,
+ * 让消费方可以提前初始化 id/name/arguments 缓冲(spec §4.2 与 Anthropic decoder 对齐)。
+ * `finishReason` 来自最后一个 chunk 的 `choices[*].finish_reason`,映射后挂到 Done 上。
  */
 internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow {
     var lastUsage: Usage? = null
+    var lastFinishReason: String? = null
+    val seenToolCallIds = mutableSetOf<String>()
     lines.collect { rawLine ->
         val line = rawLine.trim()
         if (line.isEmpty() || line.startsWith(":")) return@collect
@@ -23,7 +30,7 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow
         val payload = line.removePrefix("data:").trim()
         if (payload.isEmpty()) return@collect
         if (payload == "[DONE]") {
-            emit(StreamEvent.Done(lastUsage))
+            emit(StreamEvent.Done(usage = lastUsage, finishReason = mapFinishReason(lastFinishReason)))
             return@collect
         }
         val chunk: OpenAiStreamChunk = try {
@@ -36,17 +43,39 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow
             lastUsage = Usage(it.promptTokens, it.completionTokens, it.totalTokens)
         }
         for (choice in chunk.choices) {
+            // 覆盖式记录:每条 chunk 的 finishReason 都更新,留最后一个非空值
+            // (OpenAI 通常只在最后一条非空;但万一中间出现也按最后一次为准)
+            choice.finishReason?.let { lastFinishReason = it }
             val delta = choice.delta
             delta.content?.let {
                 if (it.isNotEmpty()) emit(StreamEvent.ContentDelta(it))
             }
             delta.toolCalls?.forEach { tc ->
+                val id = tc.id
+                val name = tc.function?.name
+                if (id != null && id !in seenToolCallIds) {
+                    seenToolCallIds += id
+                    emit(StreamEvent.ToolCallStart(id = id, name = name ?: ""))
+                }
                 emit(StreamEvent.ToolCallDelta(
-                    id = tc.id,
-                    name = tc.function?.name,
+                    id = id,
+                    name = name,
                     argumentsDelta = tc.function?.arguments.orEmpty()
                 ))
             }
         }
     }
+}
+
+/**
+ * OpenAI 字符串 → FinishReason 映射。OpenAI 文档字符串包括
+ * "stop" / "length" / "tool_calls" / "function_call" / "content_filter"。
+ * 未匹配视为 Error(保留与 `OpenAiMapping.mapFromOpenAi` 同样的宽容降级)。
+ */
+private fun mapFinishReason(s: String?): FinishReason? = when (s) {
+    null -> null
+    "stop" -> FinishReason.Stop
+    "tool_calls", "function_call" -> FinishReason.ToolCalls
+    "length" -> FinishReason.Length
+    else -> FinishReason.Error
 }
