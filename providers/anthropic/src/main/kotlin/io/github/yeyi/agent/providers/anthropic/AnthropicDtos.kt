@@ -1,4 +1,4 @@
-package io.github.yeyi.agent.providers.anthropic.dto
+package io.github.yeyi.agent.providers.anthropic
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable

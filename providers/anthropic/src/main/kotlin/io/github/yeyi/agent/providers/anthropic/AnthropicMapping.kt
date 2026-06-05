@@ -7,11 +7,6 @@ import io.github.yeyi.agent.core.llm.FinishReason
 import io.github.yeyi.agent.core.llm.ToolCall
 import io.github.yeyi.agent.core.llm.Usage
 import io.github.yeyi.agent.core.tool.ToolParameters
-import io.github.yeyi.agent.providers.anthropic.dto.AnthropicChatRequest
-import io.github.yeyi.agent.providers.anthropic.dto.AnthropicChatResponse
-import io.github.yeyi.agent.providers.anthropic.dto.AnthropicContentBlock
-import io.github.yeyi.agent.providers.anthropic.dto.AnthropicMessage
-import io.github.yeyi.agent.providers.anthropic.dto.AnthropicTool
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
