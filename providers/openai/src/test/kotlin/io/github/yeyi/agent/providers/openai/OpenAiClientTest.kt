@@ -18,12 +18,16 @@ import kotlin.test.assertEquals
 
 class OpenAiClientTest {
 
-    private fun mockHttpClient(responseJson: String, statusCode: HttpStatusCode = HttpStatusCode.OK): HttpClient {
+    private fun mockHttpClient(
+        responseJson: String,
+        statusCode: HttpStatusCode = HttpStatusCode.OK,
+        contentType: String = "application/json",
+    ): HttpClient {
         val engine = MockEngine { _ ->
             respond(
                 content = ByteReadChannel(responseJson),
                 status = statusCode,
-                headers = headersOf(HttpHeaders.ContentType, "application/json")
+                headers = headersOf(HttpHeaders.ContentType, contentType)
             )
         }
         return HttpClient(engine) {
@@ -76,17 +80,10 @@ class OpenAiClientTest {
             data: [DONE]
 
         """.trimIndent()
-        val engine = MockEngine { _ ->
-            respond(
-                content = ByteReadChannel(sseBody),
-                status = HttpStatusCode.OK,
-                headers = headersOf(HttpHeaders.ContentType, "text/event-stream")
-            )
-        }
-        val http = HttpClient(engine) {
-            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
-        }
-        val client = OpenAiClient(apiKey = "k", httpClient = http)
+        val client = OpenAiClient(
+            apiKey = "k",
+            httpClient = mockHttpClient(sseBody, contentType = "text/event-stream")
+        )
         val events = client.chatStream(
             ChatRequest(messages = listOf(ChatMessage.User("hi")))
         ).toList()
