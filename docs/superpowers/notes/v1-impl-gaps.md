@@ -90,6 +90,8 @@ data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta:
 
 **影响:** 公共 API 表面新增 1 个 sealed 分支；与 spec 文字不一致、但符合 spec §10.1 规则。**v1.1 可在 KDoc 中说明此设计意图。**
 
+**补注 (2026-06-05 对齐审计):** 此前 OpenAI provider **仅**发 `ToolCallDelta`、从不发 `ToolCallStart`(Anthropic 一直正确发);本审计 Task 1 已将 OpenAI 补齐至与 Anthropic 行为一致,spec §4.2 完整形态落地,两端 provider 现在均发 `ToolCallStart` + `ToolCallDelta`。
+
 ---
 
 ### 偏差 2: `runStream` 不触发 `AgentHook` 回调 — 已知限制
@@ -127,11 +129,9 @@ data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta:
 
 **判定:** **Minor structural gap, functionally equivalent**。`internal` 边界未被破坏（provider 间无跨包依赖），但 spec 的"共用层"意图未落地。重复代码 ~8 行 × 2。
 
-**修复路径 (v1.1 / v1.2):**
-1. 新建 `agent/src/main/kotlin/io/github/yeyi/agent/providers/ProviderSupport.kt`
-2. 提供 `internal fun defaultProviderHttpClient(): HttpClient = HttpClient(CIO) { defaultConfig() }`
-3. `OpenAiClient` / `AnthropicClient` 改为 `httpClient: HttpClient = ProviderSupport.defaultProviderHttpClient()`
-4. 简化后预计 -10 行重复；加 1 个测试验证默认 config
+**补注 (2026-06-05 对齐审计):** 本次审计后用户决定维持不复用方案——通过在两个 provider 内部逐行对齐代码实现等价效果(详见 Task 3 / 4 / 5),`internal object ProviderSupport` 不再安排。
+
+**修复路径:** v1.1 不再安排此任务(用户 2026-06-05 决定)。
 
 ---
 
@@ -159,12 +159,38 @@ is AgentEvent.ToolCallFinished -> {
 
 ---
 
+## Provider 对齐审计 (2026-06-05)
+
+计划:`docs/superpowers/plans/idempotent-wondering-newt.md`(7 个 task)。
+
+| 维度 | 对齐前 | 对齐后 |
+|------|--------|--------|
+| OpenAI 发 `ToolCallStart` | ❌ | ✅ |
+| OpenAI `Done.finishReason` | 永远 null | 从最后 chunk 抓取 |
+| Anthropic 发 `Error` 事件 | ❌ (静默丢弃) | ✅ |
+| Anthropic `Done.usage` | 永远 null | 从 `message_start` + `message_delta` 合并 |
+| Anthropic HTTP 客户端 | `expectSuccess` + `Logging` (死代码) | 显式 status 判断 + `HttpTimeout` |
+| Anthropic SSE 解析 | 手写 byte-by-byte (25 行) | `readUTF8Line` 行级 API |
+| 错误处理 | OpenAI 包装,Anthropic 原始 Ktor 异常 | 两端统一包 `AgentException` |
+| 测试 | OpenAI `mockHttpClient` 私有,Anthropic 内联 | 两端 helper 统一 + Anthropic 补 4 个测试 |
+| LlmClient / StreamEvent KDoc | 零文档 | 完整契约文档 |
+| ProviderSupport 共用层 | 未抽取 | **用户决定不抽**(详见偏差 3) |
+
+**未解决项** (跨文件,本审计范围外):
+- `providers/anthropic/build.gradle.kts:20` 仍有 `ktor.client.logging` 依赖,现未使用
+- `OpenAiClient.chat()` 缺少 `CancellationException` 重抛守卫(Anthropic 已有)
+- `AnthropicDtos.AnthropicErrorResponse` / `AnthropicErrorBody` 仍为死代码
+
+**测试增量**: 22 → 26(本审计新增 4 个测试)
+
+---
+
 ## v1 Self-Check 总结
 
 | 维度 | 结果 |
 |---|---|
 | 公共 API 表面覆盖 | 16/16 spec 节 — 全覆盖 |
-| 行为契约满足 | 14/16 — §5.6 hook 在 runStream 未触发,§6.2 ProviderSupport 未抽取 |
+| 行为契约满足 | 15/16 — §5.6 hook 在 runStream 未触发(其余 v1 自检偏差已在本审计中解决) |
 | 测试通过 | 104/104 |
 | 构建产出 | `app-debug.apk` 生成 |
 | 内部 API 隔离 | `internal` 边界守住 — `Logging`、测试 fakes、`ReActAgent` 构造器 |
@@ -178,7 +204,7 @@ is AgentEvent.ToolCallFinished -> {
 ## 建议的 v1.1 任务列表 (来自本次自检)
 
 1. **Task V1.1.1:** `runStream` 路径集成 `AgentHook` 回调（修复偏差 2）
-2. **Task V1.1.2:** 抽取 `agent/.../providers/ProviderSupport` 共用层（修复偏差 3）
+2. ~~**Task V1.1.2:** 抽取 `agent/.../providers/ProviderSupport` 共用层（修复偏差 3）~~ — **已撤销** (用户 2026-06-05 决定不抽,详见偏差 3 补注)
 3. **Task V1.1.3:** `ChatViewModel` 实时渲染 `TextDelta` + Tool 指示器（Demo App UX 升级）
 
 任务均已具备测试设计思路，预估合计 +20 个测试、+50 行实现代码、+30 行测试代码。
