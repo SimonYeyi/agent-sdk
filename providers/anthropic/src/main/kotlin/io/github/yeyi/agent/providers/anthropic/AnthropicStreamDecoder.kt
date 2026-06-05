@@ -2,9 +2,11 @@ package io.github.yeyi.agent.providers.anthropic
 
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.Usage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -14,6 +16,7 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<StreamEvent> = flow {
     var pendingEvent: String? = null
     val pendingData = StringBuilder()
     var lastStopReason: String? = null
+    var lastUsage: Usage? = null
 
     lines.collect { line ->
         when {
@@ -33,6 +36,7 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<StreamEvent> = flow {
                 val parsed = try {
                     decoderJson.parseToJsonElement(data).jsonObject
                 } catch (e: Throwable) {
+                    emit(StreamEvent.Error(e))
                     return@collect
                 }
                 when (event) {
@@ -58,9 +62,42 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<StreamEvent> = flow {
                             }
                         }
                     }
+                    "message_start" -> {
+                        // message_start.message.usage 提供初始 input_tokens 与 output_tokens(=0)
+                        val usage = parsed["message"]?.jsonObject?.get("usage")?.jsonObject
+                        if (usage != null) {
+                            val input = usage["input_tokens"]?.jsonPrimitive?.intOrNull
+                            val output = usage["output_tokens"]?.jsonPrimitive?.intOrNull
+                            if (input != null && output != null) {
+                                lastUsage = Usage(
+                                    promptTokens = input,
+                                    completionTokens = output,
+                                    totalTokens = input + output
+                                )
+                            }
+                        }
+                    }
                     "message_delta" -> {
                         val delta = parsed["delta"]?.jsonObject
                         lastStopReason = delta?.get("stop_reason")?.jsonPrimitive?.content
+                        // message_delta.usage(若存在)的 output_tokens 是最终值,不是增量;
+                        // input_tokens 与 message_start 一致,保持 promptTokens 不变。
+                        val usage = parsed["usage"]?.jsonObject
+                        if (usage != null) {
+                            val input = usage["input_tokens"]?.jsonPrimitive?.intOrNull
+                            val output = usage["output_tokens"]?.jsonPrimitive?.intOrNull
+                            val current = lastUsage
+                            if (output != null) {
+                                val prompt = input
+                                    ?: current?.promptTokens
+                                    ?: 0
+                                lastUsage = Usage(
+                                    promptTokens = prompt,
+                                    completionTokens = output,
+                                    totalTokens = prompt + output
+                                )
+                            }
+                        }
                     }
                     "message_stop" -> {
                         val finish = when (lastStopReason) {
@@ -69,9 +106,9 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<StreamEvent> = flow {
                             "tool_use" -> FinishReason.ToolCalls
                             else -> FinishReason.Stop
                         }
-                        emit(StreamEvent.Done(usage = null, finishReason = finish))
+                        emit(StreamEvent.Done(usage = lastUsage, finishReason = finish))
                     }
-                    // ping / message_start / content_block_stop / 其他 → 忽略
+                    // ping / content_block_stop / 其他 → 忽略
                     else -> {}
                 }
             }
