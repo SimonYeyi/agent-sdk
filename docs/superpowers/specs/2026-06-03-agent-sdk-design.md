@@ -1,5 +1,10 @@
 # Agent SDK 设计文档
 
+> **Post-rename note (2026-06-05):** 本 spec 按 v1 设计撰写,模块名 `core`、根包 `io.github.yeyi.agent.core.*`。
+> v1 发布后,模块重命名为 `agent`,`core.agent.*` 子包的文件被提升到根包 `io.github.yeyi.agent.*` 避免 `agent.agent` 反模式。
+> 阅读时请将本 spec 中的 `core` 模块等同于当前 `agent` 模块,`io.github.yeyi.agent.core.X` 等同于 `io.github.yeyi.agent.X`。
+> 实际代码、路径、命令见 README 与 `docs/superpowers/notes/v1-impl-gaps.md`。
+
 > **v1 设计 · Android 平台优先 · Kotlin 实现**
 > 日期：2026-06-03 · 状态：Draft（待用户审阅）
 

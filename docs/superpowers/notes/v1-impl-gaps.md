@@ -14,7 +14,7 @@
 
 | Module              | Test Suites | Tests |
 |---------------------|-------------|-------|
-| `core`              | 10          | 58    |
+| `agent`              | 10          | 58    |
 | `providers/openai`  | 3           | 18    |
 | `providers/anthropic` | 5         | 18    |
 | `app` (debug+release variants) | 2×2 | 10  |
@@ -28,12 +28,12 @@
 
 | Spec 节 | 状态 | 证据 |
 |---|---|---|
-| **§0 元信息** (包名 / 语言 / 平台) | Implemented | `core` namespace `io.github.yeyi.agent.core`；`providers/openai`、`providers/anthropic`、`app` 一致；Kotlin 2.2.0 / Android 7.0+ |
+| **§0 元信息** (包名 / 语言 / 平台) | Implemented | `agent` namespace `io.github.yeyi.agent`；`providers/openai`、`providers/anthropic`、`app` 一致；Kotlin 2.2.0 / Android 7.0+ |
 | **§1.1–1.2 核心目标** | Implemented | 4 个核心接口 `LlmClient` / `Tool` / `Memory` / `Agent` 全部 public、稳定 |
 | **§1.3 非目标** | Implemented | 无持久化、无 token 截断、无 auto-discovery、无 MCP、无 Plan-Execute、无结构化输出、无 Session、无可观测性 |
 | **§2 关键概念区分** | Implemented | Provider/Tool/Memory/Agent/Skill 与 spec 一致；Tool 是用户职责、SDK 只提供 `Tool` 接口 |
-| **§3 模块结构** (1+1+n) | Implemented | `core` / `providers/openai` / `providers/anthropic` / `app` 四个 module；`core` 不依赖 provider、HTTP client、Android SDK |
-| **§4.1 ChatMessage** (4 variants) | Implemented | `core/.../llm/ChatMessage.kt` — `System` / `User` / `Assistant` / `ToolResult` 四个 data class；`Role` enum 4 值；`ToolCall(id, name, arguments: JsonElement)` |
+| **§3 模块结构** (1+1+n) | Implemented | `agent` / `providers/openai` / `providers/anthropic` / `app` 四个 module；`agent` 不依赖 provider、HTTP client、Android SDK |
+| **§4.1 ChatMessage** (4 variants) | Implemented | `agent/.../llm/ChatMessage.kt` — `System` / `User` / `Assistant` / `ToolResult` 四个 data class；`Role` enum 4 值；`ToolCall(id, name, arguments: JsonElement)` |
 | **§4.2 LlmClient + ChatRequest/Response/StreamEvent/Usage/FinishReason** | Implemented (with additive extension) | `LlmClient.kt` — `providerName` + `chat()` + `chatStream()`；`ChatRequest` / `ChatResponse` / `Usage` / `FinishReason` (4 values) 全部对位。**注:** `StreamEvent` 多了 `ToolCallStart(id, name)` 子类型，详见"已知偏差"节 |
 | **§4.3 Tool + ToolParameters + ToolContext + ToolExecutionResult** | Implemented | `Tool` interface 4 成员；`ToolParameters` sealed (`Empty` / `JsonSchema`)；`ToolExecutionResult(content, isError=false)`；`ToolContext(invocationId, metadata)` |
 | **§4.4 Memory + InMemoryMemory** | Implemented | `Memory` interface 3 方法；`InMemoryMemory` 用 `Mutex.withLock` 保护，线程安全 |
@@ -47,20 +47,20 @@
 | **§5.5 Tool 取消契约** | Implemented (契约由 Tool 实现者保证) | 工具 `suspend fun execute(args, ctx)` 自动响应协程取消；SDK 在 `invokeTool` 中正确处理 `CancellationException` |
 | **§5.6 Hook 集成点** | **Partially Implemented** | `run()` 路径正确触发全部 6 个回调点；`runStream()` 路径**不**触发回调（详见"已知偏差"节） |
 | **§6.1 HTTP 客户端选型 (Ktor 3.x + CIO)** | Implemented | `OpenAiClient` / `AnthropicClient` 均用 `HttpClient(CIO)` |
-| **§6.2 Provider 共用层 (`internal object ProviderSupport`)** | **Gap (minor)** | `core/.../providers/ProviderSupport` **未创建**。每个 provider 各自在 `companion object` / 顶层函数中实现等价 `defaultHttpClient { install(ContentNegotiation); install(HttpTimeout) }`。功能等价、违反 spec 的"共用层"结构意图 |
+| **§6.2 Provider 共用层 (`internal object ProviderSupport`)** | **Gap (minor)** | `agent/.../providers/ProviderSupport` **未创建**。每个 provider 各自在 `companion object` / 顶层函数中实现等价 `defaultHttpClient { install(ContentNegotiation); install(HttpTimeout) }`。功能等价、违反 spec 的"共用层"结构意图 |
 | **§6.3 OpenAI Provider** | Implemented | `OpenAiClient(apiKey, model, baseUrl, httpClient)`；`chat()` + `chatStream()`；OpenAI 兼容服务（DeepSeek/DashScope 等）可换 `baseUrl` |
 | **§6.4 Anthropic Provider** | Implemented | `AnthropicClient(apiKey, model, baseUrl, httpClient)`；`chat()` + `chatStream()`；`x-api-key` / `anthropic-version: 2023-06-01` headers；`tools[].input_schema` 字段映射；tool_result 块以 `role=user` 回灌 |
 | **§6.5 流式事件映射** | Implemented | `AnthropicStreamDecoder` 处理 message_start / content_block_start / content_block_delta(text_delta) → `ContentDelta` / content_block_delta(input_json_delta) → `ToolCallDelta(argumentsDelta)` / content_block_stop / message_delta / message_stop → `Done(usage, finishReason)` |
 | **§7.1 版本矩阵** | Implemented | Gradle 9.2.1-bin / AGP 8.9.1（实际 8.9.1 而非 spec 草拟的 9.1.1；功能等价）/ Kotlin 2.2.0 / coroutines 1.10.1 / serialization 1.9.0 / Ktor 3.0.3 / Compose BOM 2025.04.00 / minSdk 24 / targetSdk 36 / JVM 17 |
 | **§7.2 Version Catalog** | Implemented | `gradle/libs.versions.toml` 含所有必要坐标 + plugins |
-| **§7.3 发布配置** | Implemented (声明) | `core` / `providers/*` 使用 `maven-publish` + `signing` 插件（v1 阶段 mavenLocal / GitHub Packages 验证） |
+| **§7.3 发布配置** | Implemented (声明) | `agent` / `providers/*` 使用 `maven-publish` + `signing` 插件（v1 阶段 mavenLocal / GitHub Packages 验证） |
 | **§7.4 Gradle 配置注意** | Implemented | `gradle.properties` 配置 `-Xmx4g`；Gradle 9.x + JDK 17 验证通过 |
 | **§8 错误处理** | Implemented | `AgentException` sealed class 含 `MaxIterations` / `LlmError` / `InvalidResponse` / `ToolNotFound` / `Cancelled`；Tool 业务异常转 `isError=true` 喂回 LLM；`finishReason=Length` 视为终态 |
 | **§9 Sample App** | Implemented | `app` module 完整结构：MainActivity / Compose UI (`ChatScreen` / `MessageBubble` / `ToolCallIndicator`) / `ChatViewModel` (持 Agent + Memory) / `DemoAgentFactory` (注册 3 tool) / 3 个 demo tool (`GetCurrentTime` / `Calculator` / `WebSearchMock`) |
 | **§9.3 ViewModel 核心** | Implemented (with UX simplification) | `ChatViewModel.sendUserInput` 用 `viewModelScope.launch` + `agent.runStream` + `when (event)` 分支；**简化点:** `TextDelta` 不实时渲染，UI 仅在 `Final` 时追加一条 assistant 消息（ViewModel 内 KDoc 与代码注释已注明） |
 | **§9.4 3 个演示 Tool 纯 Kotlin** | Implemented | `GetCurrentTimeTool` / `CalculatorTool` / `WebSearchMockTool` 全部纯 Kotlin（`java.time.Instant` / `javax.script` / `kotlinx.coroutines.delay`），零 Android 依赖 |
 | **§10 v1 稳定性承诺** | Implemented | 6 个公共接口（`LlmClient` / `Tool` / `Memory` / `Agent` / `AgentHook` / `Skill`）public、`explicitApi()` 强制可见性；`internal` 保护所有实现细节（`Logging` / `ReActAgent` 构造器 / 测试 fakes 不在主 module） |
-| **§10.2 内部 API 隔离** | Implemented (partial) | `core/.../internal/Logging` 存在并 `internal`；`internal object ProviderSupport` **不存在**（同 §6.2 gap） |
+| **§10.2 内部 API 隔离** | Implemented (partial) | `agent/.../internal/Logging` 存在并 `internal`；`internal object ProviderSupport` **不存在**（同 §6.2 gap） |
 | **§10.3 数据类稳定性** | Implemented | `data class` 字段均带默认值；新增字段可后向兼容 |
 | **§10.4 Skill 稳定性** | Implemented | `Skill` 4 字段全部带默认值；v1 不引入 `interface Skill` |
 | **§11–§15 v2+ 路线图 / 6 层架构 / 术语 / 开放问题** | N/A (spec 内容，非实现项) | — |
@@ -80,7 +80,7 @@ data class ToolCallDelta(
 ) : StreamEvent
 ```
 
-**实际实现 (`core/.../llm/StreamEvent.kt`):**
+**实际实现 (`agent/.../llm/StreamEvent.kt`):**
 ```kotlin
 data class ToolCallStart(val id: String, val name: String) : StreamEvent
 data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta: String) : StreamEvent
@@ -98,7 +98,7 @@ data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta:
 
 **实际行为:** 仅 `run(input, memory)` 路径触发全部 6 个 hook；`runStream(input, memory)` 路径**不**触发任何 hook。
 
-**代码位置:** `core/.../agent/AgentHook.kt:32-33` KDoc 显式声明:
+**代码位置:** `agent/src/main/kotlin/io/github/yeyi/agent/AgentHook.kt:32-33` KDoc 显式声明:
 > v1 实现范围: 仅 `run` 路径触发上述回调; `runStream` 在 v1.x 中暂不触发 hook(由 v1.1 任务补齐)
 
 **判定:** **Known limitation, planned for v1.1**。实现侧已记录、未在 spec 中作为例外但属于合理切割——流式路径在 hook 语义上需要回答"是否每个 TextDelta 触发 beforeLlmCall?"等子问题，v1 决定先在 run 路径落地、流式路径留待 v1.1。
@@ -112,7 +112,7 @@ data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta:
 ### 偏差 3: `ProviderSupport` 共用层未抽取 — 小型重复
 
 **Spec §6.2 表述:**
-> 放在 `core` 模块的 `io.github.yeyi.agent.core.providers` 包，避免每个 provider 重复：
+> 放在 `agent` 模块的 `io.github.yeyi.agent.providers` 包，避免每个 provider 重复：
 > ```kotlin
 > internal object ProviderSupport {
 >     fun HttpClientConfig<*>.defaultConfig() { ... }
@@ -128,7 +128,7 @@ data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta:
 **判定:** **Minor structural gap, functionally equivalent**。`internal` 边界未被破坏（provider 间无跨包依赖），但 spec 的"共用层"意图未落地。重复代码 ~8 行 × 2。
 
 **修复路径 (v1.1 / v1.2):**
-1. 新建 `core/src/main/kotlin/io/github/yeyi/agent/core/providers/ProviderSupport.kt`
+1. 新建 `agent/src/main/kotlin/io/github/yeyi/agent/providers/ProviderSupport.kt`
 2. 提供 `internal fun defaultProviderHttpClient(): HttpClient = HttpClient(CIO) { defaultConfig() }`
 3. `OpenAiClient` / `AnthropicClient` 改为 `httpClient: HttpClient = ProviderSupport.defaultProviderHttpClient()`
 4. 简化后预计 -10 行重复；加 1 个测试验证默认 config
@@ -178,7 +178,7 @@ is AgentEvent.ToolCallFinished -> {
 ## 建议的 v1.1 任务列表 (来自本次自检)
 
 1. **Task V1.1.1:** `runStream` 路径集成 `AgentHook` 回调（修复偏差 2）
-2. **Task V1.1.2:** 抽取 `core/.../providers/ProviderSupport` 共用层（修复偏差 3）
+2. **Task V1.1.2:** 抽取 `agent/.../providers/ProviderSupport` 共用层（修复偏差 3）
 3. **Task V1.1.3:** `ChatViewModel` 实时渲染 `TextDelta` + Tool 指示器（Demo App UX 升级）
 
 任务均已具备测试设计思路，预估合计 +20 个测试、+50 行实现代码、+30 行测试代码。

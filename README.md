@@ -8,7 +8,9 @@
 ## 快速开始
 
 ```kotlin
+import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.agent
+import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.providers.openai.OpenAiClient
 
 val client = OpenAiClient(apiKey = "...", model = "gpt-4o-mini")
@@ -31,12 +33,13 @@ println(result.finalMessage.content)
 - **ReAct 循环**:`ReActAgent` 在 reason/act 之间迭代,直到模型给出终态回答或耗尽 `maxIterations`。
 - **工具调用 (Tool)**:`Tool` 接口描述 JSON Schema 入参与返回值,由 Agent 在循环中按需分发。
 - **多轮 Memory**:`Memory` 抽象当前默认实现为 `InMemoryMemory`,可被自定义工厂替换。
-- **Streaming**:除 `run()` 外,`Agent` 暴露 `runStream()` 返回 `Flow<StreamEvent>`,可消费
-  `TextDelta`、`ToolCallStart/End`、`FinishReason` 等事件。
+- **Streaming**:除 `run()` 外,`Agent` 暴露 `runStream()` 返回 `Flow<AgentEvent>`,可消费
+  `TextDelta` / `ToolCallStarted` / `ToolCallFinished` / `Final` / `Failed` 等事件。
 - **Skill 加载**:一组 `systemPromptFragment + tools` 的可复用包,通过 `skill(...)` 注入,
   展开为最终 systemPrompt 与工具列表(详见 `agent/src/main/kotlin/io/github/yeyi/agent/skill/Skill.kt`)。
-- **Hook 生命周期**:`AgentHook` 允许在 `onRunStart` / `onIterationEnd` / `onRunFinish` /
-  `onError` 四个时点插入横切逻辑(日志、监控、安全审计等)。
+- **Hook 生命周期**:`AgentHook` 允许在 `beforeLlmCall` / `afterLlmResponse` /
+  `beforeToolCall` / `afterToolCall` / `onError` / `onRunFinished` 六个时点插入横切逻辑
+  (日志、监控、安全审计等)。
 - **多协议 Provider**:OpenAI 与 Anthropic 均实现同一 `LlmClient` 接口,二者都支持
   非流式 `chat()` 与 SSE 流式 `chatStream()`。
 
