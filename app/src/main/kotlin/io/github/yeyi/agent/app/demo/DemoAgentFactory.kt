@@ -3,8 +3,8 @@ package io.github.yeyi.agent.app.demo
 import io.github.yeyi.agent.app.demo.tools.CalculatorTool
 import io.github.yeyi.agent.app.demo.tools.GetCurrentTimeTool
 import io.github.yeyi.agent.app.demo.tools.WebSearchMockTool
-import io.github.yeyi.agent.core.agent.Agent
-import io.github.yeyi.agent.core.agent.agent
+import io.github.yeyi.agent.Agent
+import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.providers.openai.OpenAiClient
 
 /**

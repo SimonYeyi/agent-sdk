@@ -12,7 +12,7 @@ import io.github.yeyi.agent.app.demo.DemoAgentFactory
 import io.github.yeyi.agent.app.ui.ChatScreen
 import io.github.yeyi.agent.app.vm.ChatViewModel
 import io.github.yeyi.agent.app.vm.ChatViewModelFactory
-import io.github.yeyi.agent.core.agent.Agent
+import io.github.yeyi.agent.Agent
 
 class MainActivity : ComponentActivity() {
 

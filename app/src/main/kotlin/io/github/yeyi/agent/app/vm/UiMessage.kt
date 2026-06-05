@@ -1,6 +1,6 @@
 package io.github.yeyi.agent.app.vm
 
-import io.github.yeyi.agent.core.llm.ToolCall
+import io.github.yeyi.agent.llm.ToolCall
 import kotlinx.serialization.Serializable
 
 @Serializable

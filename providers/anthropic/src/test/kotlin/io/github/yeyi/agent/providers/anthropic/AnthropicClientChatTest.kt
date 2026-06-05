@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.providers.anthropic
 
-import io.github.yeyi.agent.core.llm.ChatMessage
-import io.github.yeyi.agent.core.llm.ChatRequest
+import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ChatRequest
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond

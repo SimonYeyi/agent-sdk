@@ -1,9 +1,9 @@
 package io.github.yeyi.agent.app.vm
 
-import io.github.yeyi.agent.core.agent.Agent
-import io.github.yeyi.agent.core.agent.agent
-import io.github.yeyi.agent.core.agent.fakes.FakeLlmClient
-import io.github.yeyi.agent.core.llm.StreamEvent
+import io.github.yeyi.agent.Agent
+import io.github.yeyi.agent.agent
+import io.github.yeyi.agent.fakes.FakeLlmClient
+import io.github.yeyi.agent.llm.StreamEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher

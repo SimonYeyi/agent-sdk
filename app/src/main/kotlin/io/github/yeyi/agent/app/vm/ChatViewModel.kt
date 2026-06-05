@@ -2,9 +2,9 @@ package io.github.yeyi.agent.app.vm
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import io.github.yeyi.agent.core.agent.Agent
-import io.github.yeyi.agent.core.agent.AgentEvent
-import io.github.yeyi.agent.core.memory.InMemoryMemory
+import io.github.yeyi.agent.Agent
+import io.github.yeyi.agent.AgentEvent
+import io.github.yeyi.agent.memory.InMemoryMemory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow

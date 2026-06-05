@@ -1,9 +1,9 @@
 package io.github.yeyi.agent.providers.openai
 
-import io.github.yeyi.agent.core.llm.ChatMessage
-import io.github.yeyi.agent.core.llm.ChatRequest
-import io.github.yeyi.agent.core.llm.FinishReason
-import io.github.yeyi.agent.core.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ChatRequest
+import io.github.yeyi.agent.llm.FinishReason
+import io.github.yeyi.agent.llm.StreamEvent
 import io.ktor.client.*
 import io.ktor.client.engine.mock.*
 import io.ktor.client.plugins.contentnegotiation.*
@@ -63,7 +63,7 @@ class OpenAiClientTest {
         try {
             client.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
             error("should have thrown")
-        } catch (e: io.github.yeyi.agent.core.error.AgentException.LlmError) {
+        } catch (e: io.github.yeyi.agent.error.AgentException.LlmError) {
             assertEquals(true, e.message!!.contains("LLM call failed"))
         }
     }

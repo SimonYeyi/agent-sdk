@@ -1,9 +1,9 @@
 package io.github.yeyi.agent.providers.anthropic
 
-import io.github.yeyi.agent.core.llm.ChatRequest
-import io.github.yeyi.agent.core.llm.ChatResponse
-import io.github.yeyi.agent.core.llm.LlmClient
-import io.github.yeyi.agent.core.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatRequest
+import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.LlmClient
+import io.github.yeyi.agent.llm.StreamEvent
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO

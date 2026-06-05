@@ -39,7 +39,7 @@ android {
 }
 
 dependencies {
-    implementation(project(":core"))
+    implementation(project(":agent"))
     implementation(project(":providers:openai"))
     implementation(project(":providers:anthropic"))
 
@@ -58,5 +58,5 @@ dependencies {
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.junit)
-    testImplementation(testFixtures(project(":core")))
+    testImplementation(testFixtures(project(":agent")))
 }

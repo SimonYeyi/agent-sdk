@@ -1,6 +1,6 @@
 package io.github.yeyi.agent.app.demo.tools
 
-import io.github.yeyi.agent.core.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolContext
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject

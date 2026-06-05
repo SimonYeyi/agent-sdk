@@ -8,7 +8,7 @@
 ## 快速开始
 
 ```kotlin
-import io.github.yeyi.agent.core.agent.agent
+import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.providers.openai.OpenAiClient
 
 val client = OpenAiClient(apiKey = "...", model = "gpt-4o-mini")
@@ -34,7 +34,7 @@ println(result.finalMessage.content)
 - **Streaming**:除 `run()` 外,`Agent` 暴露 `runStream()` 返回 `Flow<StreamEvent>`,可消费
   `TextDelta`、`ToolCallStart/End`、`FinishReason` 等事件。
 - **Skill 加载**:一组 `systemPromptFragment + tools` 的可复用包,通过 `skill(...)` 注入,
-  展开为最终 systemPrompt 与工具列表(详见 `core/.../skill/Skill.kt`)。
+  展开为最终 systemPrompt 与工具列表(详见 `agent/src/main/kotlin/io/github/yeyi/agent/skill/Skill.kt`)。
 - **Hook 生命周期**:`AgentHook` 允许在 `onRunStart` / `onIterationEnd` / `onRunFinish` /
   `onError` 四个时点插入横切逻辑(日志、监控、安全审计等)。
 - **多协议 Provider**:OpenAI 与 Anthropic 均实现同一 `LlmClient` 接口,二者都支持
@@ -44,14 +44,14 @@ println(result.finalMessage.content)
 
 ```text
 agent-sdk/
-├── core/                 # 抽象层:LlmClient / Tool / Memory / Agent / AgentHook / Skill
+├── agent/                # 抽象层:LlmClient / Tool / Memory / Agent / AgentHook / Skill
 ├── providers/
 │   ├── openai/           # OpenAI 协议实现 (chat + SSE 流式)
 │   └── anthropic/        # Anthropic 协议实现 (chat + SSE 流式)
 └── app/                  # Android Demo App(Compose UI + 3 个演示 Tool)
 ```
 
-`core` 模块对外暴露公共 API;`providers/*` 与 `app` 都依赖 `core`,但彼此不耦合。
+`agent` 模块对外暴露公共 API;`providers/*` 与 `app` 都依赖 `agent`,但彼此不耦合。
 
 ## 演示场景 (Demo App)
 

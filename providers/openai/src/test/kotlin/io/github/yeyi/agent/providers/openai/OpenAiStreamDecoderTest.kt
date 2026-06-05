@@ -1,6 +1,6 @@
 package io.github.yeyi.agent.providers.openai
 
-import io.github.yeyi.agent.core.llm.StreamEvent
+import io.github.yeyi.agent.llm.StreamEvent
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest

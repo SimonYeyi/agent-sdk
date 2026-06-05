@@ -12,7 +12,7 @@ kotlin {
 }
 
 dependencies {
-    api(project(":core"))
+    api(project(":agent"))
     api(libs.ktor.client.core)
     api(libs.ktor.client.cio)
     api(libs.ktor.client.content.negotiation)

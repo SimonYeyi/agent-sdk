@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.providers.openai
 
-import io.github.yeyi.agent.core.llm.StreamEvent
-import io.github.yeyi.agent.core.llm.Usage
+import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.Usage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json

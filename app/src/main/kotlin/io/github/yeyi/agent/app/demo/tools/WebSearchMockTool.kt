@@ -1,9 +1,9 @@
 package io.github.yeyi.agent.app.demo.tools
 
-import io.github.yeyi.agent.core.tool.Tool
-import io.github.yeyi.agent.core.tool.ToolContext
-import io.github.yeyi.agent.core.tool.ToolExecutionResult
-import io.github.yeyi.agent.core.tool.ToolParameters
+import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionResult
+import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject

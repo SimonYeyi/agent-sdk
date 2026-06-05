@@ -1,11 +1,11 @@
 package io.github.yeyi.agent.providers.anthropic
 
-import io.github.yeyi.agent.core.llm.ChatMessage
-import io.github.yeyi.agent.core.llm.ChatRequest
-import io.github.yeyi.agent.core.llm.FinishReason
-import io.github.yeyi.agent.core.llm.ToolCall
-import io.github.yeyi.agent.core.llm.ToolDefinition
-import io.github.yeyi.agent.core.tool.ToolParameters
+import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ChatRequest
+import io.github.yeyi.agent.llm.FinishReason
+import io.github.yeyi.agent.llm.ToolCall
+import io.github.yeyi.agent.llm.ToolDefinition
+import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
