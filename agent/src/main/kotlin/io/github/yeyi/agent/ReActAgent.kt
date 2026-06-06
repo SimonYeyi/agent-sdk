@@ -121,7 +121,7 @@ public class ReActAgent internal constructor(
                 else JsonNull
                 ToolCall(
                     id = id,
-                    name = callNames[id].orEmpty(),
+                    name = callNames[id]!!,
                     arguments = parsed
                 )
             }
