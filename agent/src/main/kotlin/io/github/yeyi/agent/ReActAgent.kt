@@ -106,12 +106,8 @@ public class ReActAgent internal constructor(
                         argumentsBuffers.getOrPut(event.id) { StringBuilder() }
                     }
                     is StreamEvent.ToolCallDelta -> {
-                        val id = event.id
-                        if (id != null) {
-                            callOrder.add(id) // LinkedHashSet: idempotent + preserves first-seen order
-                            if (event.name != null) callNames[id] = event.name
-                            argumentsBuffers.getOrPut(id) { StringBuilder() }.append(event.argumentsDelta)
-                        }
+                        val id = event.id ?: return@collect
+                        argumentsBuffers[id]?.append(event.argumentsDelta)
                     }
                     is StreamEvent.Done -> Unit
                     is StreamEvent.Error -> throw event.cause
@@ -125,7 +121,7 @@ public class ReActAgent internal constructor(
                 else JsonNull
                 ToolCall(
                     id = id,
-                    name = callNames[id] ?: error("ToolCallDelta lacked a name for id=$id"),
+                    name = callNames[id].orEmpty(),
                     arguments = parsed
                 )
             }

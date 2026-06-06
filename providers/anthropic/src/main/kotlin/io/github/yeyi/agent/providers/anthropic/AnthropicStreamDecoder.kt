@@ -17,6 +17,7 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<StreamEvent> = flow {
     val pendingData = StringBuilder()
     var lastStopReason: String? = null
     var lastUsage: Usage? = null
+    var currentToolCallId: String? = null
 
     lines.collect { line ->
         when {
@@ -45,6 +46,7 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<StreamEvent> = flow {
                         if (contentBlock?.get("type")?.jsonPrimitive?.content == "tool_use") {
                             val id = contentBlock["id"]?.jsonPrimitive?.content ?: return@collect
                             val name = contentBlock["name"]?.jsonPrimitive?.content ?: return@collect
+                            currentToolCallId = id
                             emit(StreamEvent.ToolCallStart(id = id, name = name))
                         }
                     }
@@ -58,7 +60,11 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<StreamEvent> = flow {
                             }
                             "input_json_delta" -> {
                                 val partial = delta["partial_json"]?.jsonPrimitive?.content ?: ""
-                                emit(StreamEvent.ToolCallDelta(id = null, name = null, argumentsDelta = partial))
+                                emit(StreamEvent.ToolCallDelta(
+                                    id = currentToolCallId,
+                                    name = null,
+                                    argumentsDelta = partial
+                                ))
                             }
                         }
                     }
@@ -108,7 +114,10 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<StreamEvent> = flow {
                         }
                         emit(StreamEvent.Done(usage = lastUsage, finishReason = finish))
                     }
-                    // ping / content_block_stop / 其他 → 忽略
+                    "content_block_stop" -> {
+                        currentToolCallId = null
+                    }
+                    // ping / 其他 → 忽略
                     else -> {}
                 }
             }

@@ -12,9 +12,11 @@ public sealed interface StreamEvent {
      */
     public data class ToolCallStart(public val id: String, public val name: String) : StreamEvent
     /**
-     * A fragment of a tool call's arguments JSON. Continuation chunks may have null id and name
-     * (they refer to the most recent unconsumed [ToolCallStart]). Concatenate the argumentsDelta
-     * values in order to reconstruct the full arguments JSON.
+     * A fragment of a tool call's arguments JSON. Emitted one or more times per tool call,
+     * after the corresponding [ToolCallStart]. The `id` MUST be non-null (providers fill it
+     * on continuation chunks — see [LlmClient] contract). The `name` is non-null on the first
+     * delta for a given id and may be null on continuation chunks. Concatenate the
+     * `argumentsDelta` values in order to reconstruct the full arguments JSON.
      */
     public data class ToolCallDelta(
         public val id: String?,

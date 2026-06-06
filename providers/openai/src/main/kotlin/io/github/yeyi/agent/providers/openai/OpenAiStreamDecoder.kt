@@ -18,6 +18,7 @@ private val SseMapper: Json = Json { ignoreUnknownKeys = true }
  * 第一个见到 tool_call id 的 chunk 会先发 ToolCallStart,再发 ToolCallDelta,
  * 让消费方可以提前初始化 id/name/arguments 缓冲(spec §4.2 与 Anthropic decoder 对齐)。
  * `finishReason` 来自最后一个 chunk 的 `choices[*].finish_reason`,映射后挂到 Done 上。
+ * Continuation ToolCallDelta events always carry the most-recently-seen tool call id (filled from `seenToolCallIds`).
  */
 internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow {
     var lastUsage: Usage? = null
@@ -58,7 +59,7 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow
                     emit(StreamEvent.ToolCallStart(id = id, name = name ?: ""))
                 }
                 emit(StreamEvent.ToolCallDelta(
-                    id = id,
+                    id = id ?: seenToolCallIds.lastOrNull(),
                     name = name,
                     argumentsDelta = tc.function?.arguments.orEmpty()
                 ))

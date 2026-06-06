@@ -226,7 +226,8 @@ class ReActAgentTest {
         val client = FakeLlmClient(
             streamScripts = listOf(
                 listOf(
-                    StreamEvent.ToolCallDelta(id = "c1", name = "echo", argumentsDelta = "{\"text\":"),
+                    StreamEvent.ToolCallStart(id = "c1", name = "echo"),
+                    StreamEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":"),
                     StreamEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "\"x\"}"),
                     StreamEvent.Done(null)
                 ),
@@ -266,7 +267,8 @@ class ReActAgentTest {
     @Test
     fun `runStream exhausts max iterations`() = runTest {
         val toolResp = listOf(
-            StreamEvent.ToolCallDelta(id = "c", name = "echo", argumentsDelta = "{\"text\":\"x\"}"),
+            StreamEvent.ToolCallStart(id = "c", name = "echo"),
+            StreamEvent.ToolCallDelta(id = "c", name = null, argumentsDelta = "{\"text\":\"x\"}"),
             StreamEvent.Done(null)
         )
         val client = FakeLlmClient(streamScripts = listOf(toolResp, toolResp, toolResp))

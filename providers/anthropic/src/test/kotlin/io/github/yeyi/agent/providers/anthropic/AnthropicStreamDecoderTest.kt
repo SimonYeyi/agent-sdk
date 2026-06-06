@@ -129,4 +129,39 @@ class AnthropicStreamDecoderTest {
         assertEquals(null, done.usage)
         assertEquals(FinishReason.Stop, done.finishReason)
     }
+
+    @Test
+    fun `currentToolCallId resets after content_block_stop so next tool_use gets own id`() = runTest {
+        val lines = flowOf(
+            "event: content_block_start",
+            """data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"first","input":{}}}""",
+            "",
+            "event: content_block_delta",
+            """data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"1"}}""",
+            "",
+            "event: content_block_stop",
+            """data: {"type":"content_block_stop","index":0}""",
+            "",
+            "event: content_block_start",
+            """data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_2","name":"second","input":{}}}""",
+            "",
+            "event: content_block_delta",
+            """data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"2"}}""",
+            "",
+            "event: content_block_stop",
+            """data: {"type":"content_block_stop","index":1}""",
+            "",
+        )
+        val events = decodeAnthropicSse(lines).toList()
+        val starts = events.filterIsInstance<StreamEvent.ToolCallStart>()
+        val deltas = events.filterIsInstance<StreamEvent.ToolCallDelta>()
+        assertEquals(2, starts.size)
+        assertEquals(setOf("toolu_1", "toolu_2"), starts.map { it.id }.toSet())
+        // Each delta carries the id of the tool_use block that produced it
+        assertEquals(2, deltas.size)
+        assertEquals("toolu_1", deltas[0].id)
+        assertEquals("1", deltas[0].argumentsDelta)
+        assertEquals("toolu_2", deltas[1].id)
+        assertEquals("2", deltas[1].argumentsDelta)
+    }
 }

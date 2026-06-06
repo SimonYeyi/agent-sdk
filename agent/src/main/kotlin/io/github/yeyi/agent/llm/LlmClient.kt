@@ -13,8 +13,10 @@ import kotlinx.coroutines.flow.Flow
  * - Implementations SHOULD throw [io.github.yeyi.agent.error.AgentException] subtypes
  *   for transport / protocol errors rather than raw Ktor exceptions.
  * - For multi-tool-call streams, each tool call MUST begin with a [StreamEvent.ToolCallStart]
- *   (id, name), followed by one or more [StreamEvent.ToolCallDelta] events
- *   (id and name may be null on continuation chunks).
+ *   (id, name), followed by one or more [StreamEvent.ToolCallDelta] events.
+ *   Every [StreamEvent.ToolCallDelta] MUST carry a non-null `id`; providers are responsible
+ *   for filling it on continuation chunks (the consumer trusts the id is stable). The `name`
+ *   field is non-null only on the first delta for a given id and may be null on continuation chunks.
  */
 public interface LlmClient {
     public val providerName: String

@@ -39,12 +39,12 @@ class OpenAiStreamDecoderTest {
         assertEquals(1, starts.size)
         assertEquals("c1", starts[0].id)
         assertEquals("echo", starts[0].name)
-        // 两条 tool_call 都有 ToolCallDelta(第二条 id/name 为 null,只带 arguments)
+        // 两条 tool_call 都有 ToolCallDelta(continuation delta 的 id 由 decoder 用 seenToolCallIds.lastOrNull() 兜底)
         assertEquals(2, deltas.size)
         assertEquals("c1", deltas[0].id)
         assertEquals("echo", deltas[0].name)
         assertEquals("{\"", deltas[0].argumentsDelta)
-        assertEquals(null, deltas[1].id)
+        assertEquals("c1", deltas[1].id)
         assertEquals("text\":\"x\"}", deltas[1].argumentsDelta)
     }
 
@@ -60,7 +60,7 @@ class OpenAiStreamDecoderTest {
             listOf(
                 StreamEvent.ToolCallStart(id = "call_1", name = "get_time"),
                 StreamEvent.ToolCallDelta(id = "call_1", name = "get_time", argumentsDelta = ""),
-                StreamEvent.ToolCallDelta(id = null, name = null, argumentsDelta = "{}"),
+                StreamEvent.ToolCallDelta(id = "call_1", name = null, argumentsDelta = "{}"),
                 StreamEvent.Done(usage = null, finishReason = null)
             ),
             events
@@ -96,9 +96,31 @@ class OpenAiStreamDecoderTest {
         assertEquals(setOf("calc", "time"), starts.map { it.name }.toSet())
         // 2 first-chunk deltas + 2 continuation deltas = 4 total
         assertEquals(4, deltas.size)
-        // Continuation deltas have id=null, name=null
-        val continuationDeltas = deltas.filter { it.id == null }
+        // Continuation deltas have name=null; id backfills to seenToolCallIds.lastOrNull() ("c2")
+        val continuationDeltas = deltas.filter { it.name == null }
         assertEquals(2, continuationDeltas.size)
+    }
+
+    @Test
+    fun `continuation delta backfills id from most recently seen tool call`() = runTest {
+        val lines = flowOf(
+            // c1 starts first chunk
+            """data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"f1","arguments":"{"}}]}}]}""",
+            // Then c2 starts (mixed chunk)
+            """data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"c2","function":{"name":"f2","arguments":"["}}]}}]}""",
+            // Continuation for c2
+            """data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"]"}}]}}]}""",
+            "data: [DONE]"
+        )
+        val events = decodeOpenAiSseLines(lines).toList()
+        val deltas = events.filterIsInstance<StreamEvent.ToolCallDelta>()
+        assertEquals(3, deltas.size)
+        // First two carry their own id (start chunks)
+        assertEquals("c1", deltas[0].id)
+        assertEquals("c2", deltas[1].id)
+        // Continuation delta backfills from last seen (c2)
+        assertEquals("c2", deltas[2].id)
+        assertEquals("]", deltas[2].argumentsDelta)
     }
 
     @Test
