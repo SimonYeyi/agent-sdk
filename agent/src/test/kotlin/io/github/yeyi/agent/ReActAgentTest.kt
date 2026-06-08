@@ -247,7 +247,7 @@ class ReActAgentTest {
 
     @Test
     fun `ToolCallStarted event is emitted before tool invocation`() = runTest {
-        // 验证事件时序:Started 必须在 invokeTool 之前发出,Finished/Recorded 之后
+        // 验证事件时序:Started 必须在 invokeTool 之前发出,Finished 之后
         val echo = EchoTool()
         val client = FakeLlmClient(
             streamScripts = listOf(
@@ -267,12 +267,9 @@ class ReActAgentTest {
 
         val startedIdx = events.indexOfFirst { it is AgentEvent.ToolCallStarted }
         val finishedIdx = events.indexOfFirst { it is AgentEvent.ToolCallFinished }
-        val recordedIdx = events.indexOfFirst { it is AgentEvent.ToolCallRecorded }
         assertTrue(startedIdx >= 0, "ToolCallStarted must be emitted")
         assertTrue(finishedIdx >= 0, "ToolCallFinished must be emitted")
-        assertTrue(recordedIdx >= 0, "ToolCallRecorded must be emitted")
         assertTrue(startedIdx < finishedIdx, "ToolCallStarted must precede ToolCallFinished")
-        assertTrue(finishedIdx < recordedIdx, "ToolCallFinished must precede ToolCallRecorded")
     }
 
     @Test

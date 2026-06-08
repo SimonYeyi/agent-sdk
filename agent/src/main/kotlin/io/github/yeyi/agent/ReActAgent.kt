@@ -151,7 +151,6 @@ public class ReActAgent internal constructor(
                         content = callResult.content, isError = callResult.isError
                     ))
                     emit(AgentEvent.ToolCallFinished(call.id, callResult))
-                    emit(AgentEvent.ToolCallRecorded(record))
                 }
             }
             throw AgentException.MaxIterations(config.maxIterations)

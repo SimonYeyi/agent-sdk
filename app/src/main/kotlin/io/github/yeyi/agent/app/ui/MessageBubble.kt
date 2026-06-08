@@ -52,12 +52,12 @@ fun MessageBubble(message: UiMessage, modifier: Modifier = Modifier) {
             }
         }
         is UiMessage.ToolExecution -> {
-            val color = if (message.record.result.isError) {
+            val color = if (message.result.isError) {
                 MaterialTheme.colorScheme.errorContainer
             } else {
                 MaterialTheme.colorScheme.tertiaryContainer
             }
-            val onColor = if (message.record.result.isError) {
+            val onColor = if (message.result.isError) {
                 MaterialTheme.colorScheme.onErrorContainer
             } else {
                 MaterialTheme.colorScheme.onTertiaryContainer
@@ -70,7 +70,7 @@ fun MessageBubble(message: UiMessage, modifier: Modifier = Modifier) {
                     .padding(12.dp)
             ) {
                 Text(
-                    "✅ ${message.record.toolName}: ${message.record.result.content}",
+                    "✅ ${message.toolName}: ${message.result.content}",
                     color = onColor,
                 )
             }

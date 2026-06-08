@@ -314,7 +314,6 @@ sealed interface AgentEvent {
     data class TextDelta(val text: String) : AgentEvent
     data class ToolCallStarted(val callId: String, val toolName: String) : AgentEvent
     data class ToolCallFinished(val callId: String, val result: ToolExecutionResult) : AgentEvent
-    data class ToolCallRecorded(val record: ToolCallRecord) : AgentEvent
     data class Final(
         val message: ChatMessage.Assistant,
         val iterations: Int = 0,
@@ -543,7 +542,7 @@ override fun run(input: String, memory: Memory): Flow<AgentEvent> = flow {
 - 循环顶部 `coroutineContext.ensureActive()` 响应取消
 - 每次 LLM 调用前后统一触发 `beforeLlmCall` / `afterLlmResponse` hook
 - `invokeTool` 内部吞业务异常转 `ToolExecutionResult(isError=true)` 喂回 LLM,**不吞 `CancellationException`**
-- 工具结果回写 `memory` 后,emit `ToolCallStarted` / `ToolCallFinished` / `ToolCallRecorded` 三个事件
+- 工具结果回写 `memory` 后,emit `ToolCallStarted` / `ToolCallFinished` 两个事件(完整 record 通过 `Final.toolCallRecords` 一次性给出)
 - 终态 emit `Final(message, iterations, toolCallRecords)`,并触发 `onRunFinished` hook
 - 超过 `maxIterations` 抛 `AgentException.MaxIterations`
 
@@ -957,8 +956,7 @@ class ChatViewModel(private val agent: Agent) : ViewModel() {
     private fun handleEvent(event: AgentEvent) = when (event) {
         is AgentEvent.TextDelta       -> { /* 累积到 currentAssistantText,Final 时提交 */ }
         is AgentEvent.ToolCallStarted -> { _messages.update { it + UiMessage.ToolInProgress(...) } }
-        is AgentEvent.ToolCallFinished-> { _messages.update { it + UiMessage.ToolExecution(...) } }
-        is AgentEvent.ToolCallRecorded-> { /* UI 已通过 ToolCallFinished 渲染,no-op */ }
+        is AgentEvent.ToolCallFinished-> { _messages.update { it + UiMessage.ToolExecution(callId, toolName, result) } }
         is AgentEvent.Final           -> { /* 提交 Assistant 消息,优先用累积的 TextDelta;BATCH 模式回退到 event.message.content */ }
         is AgentEvent.Failed          -> { _messages.update { it + UiMessage.Error(event.cause.message ?: "") } }
     }
@@ -966,7 +964,8 @@ class ChatViewModel(private val agent: Agent) : ViewModel() {
 ```
 
 **关键设计**:
-- **6 事件全部消费**:`TextDelta` 累积、`ToolCallStarted`/`ToolCallFinished` 渲染工具指示器、`ToolCallRecorded` 为内核 back-fill(UI 无需重复渲染)、`Final` 提交消息、`Failed` 显示错误
+- **5 事件全部消费**:`TextDelta` 累积、`ToolCallStarted`/`ToolCallFinished` 渲染工具指示器、`Final` 提交消息(含完整 `toolCallRecords`)、`Failed` 显示错误
+- **UiMessage 与 SDK 内部 record 解耦**:`UiMessage.ToolExecution` 持有 `(callId, toolName, result: ToolExecutionResult)`,不 import SDK 内部审计类型 `ToolCallRecord`(完整 record 仍出现在 `AgentResult.toolCalls` 和 `Final.toolCallRecords` 给审计/回放用)
 - **STREAM/BATCH 模式**:通过 `RunMode` 切换上游调用 (`runStream` vs `run`),UI 渲染逻辑不变——`Final` handler 同时支持"累积 TextDelta 优先 + 自身 message.content 回退"
 - **每次 run 独立 `InMemoryMemory`**:Demo App 的简化决策,v1.1 维持(真实业务应持有 ViewModel scope memory)
 

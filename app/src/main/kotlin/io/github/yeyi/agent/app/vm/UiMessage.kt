@@ -1,6 +1,6 @@
 package io.github.yeyi.agent.app.vm
 
-import io.github.yeyi.agent.ToolCallRecord
+import io.github.yeyi.agent.tool.ToolExecutionResult
 
 sealed class UiMessage {
     abstract val id: String
@@ -22,7 +22,8 @@ sealed class UiMessage {
 
     data class ToolExecution(
         val callId: String,
-        val record: ToolCallRecord,
+        val toolName: String,
+        val result: ToolExecutionResult,
     ) : UiMessage() {
         override val id: String = "ex-$callId"
     }

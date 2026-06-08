@@ -4,14 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
-import io.github.yeyi.agent.ToolCallRecord
 import io.github.yeyi.agent.memory.InMemoryMemory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import java.time.Instant
 
 enum class RunMode { STREAM, BATCH }
 
@@ -75,17 +73,13 @@ class ChatViewModel(
             }
             is AgentEvent.ToolCallFinished -> {
                 val started = inProgressByCallId.remove(event.callId)
-                val record = ToolCallRecord(
-                    callId = event.callId,
-                    toolName = started?.toolName ?: event.callId,
-                    arguments = kotlinx.serialization.json.JsonNull,
-                    result = event.result,
-                    timestamp = Instant.now(),
-                )
-                _messages.update { it + UiMessage.ToolExecution(event.callId, record) }
-            }
-            is AgentEvent.ToolCallRecorded -> {
-                // v1.0 back-fill internal event; UI already rendered via ToolCallFinished
+                _messages.update {
+                    it + UiMessage.ToolExecution(
+                        callId = event.callId,
+                        toolName = started?.toolName ?: event.callId,
+                        result = event.result,
+                    )
+                }
             }
             is AgentEvent.Final -> {
                 // STREAM 路径用累积的 TextDelta;BATCH 路径不 emit TextDelta,需回退到 Final 自带的 message.content

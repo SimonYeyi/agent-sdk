@@ -57,11 +57,11 @@
 | **§4.2 LlmClient + ChatRequest/Response/StreamEvent/Usage/FinishReason** | Implemented (with additive extension) | `LlmClient.kt` — `providerName` + `chat()` + `chatStream()`；`ChatRequest` / `ChatResponse` / `Usage` / `FinishReason` (4 values) 全部对位。**注:** `StreamEvent` 多了 `ToolCallStart(id, name)` 子类型，详见"已知偏差"节 |
 | **§4.3 Tool + ToolParameters + ToolContext + ToolExecutionResult** | Implemented | `Tool` interface 4 成员；`ToolParameters` sealed (`Empty` / `JsonSchema`)；`ToolExecutionResult(content, isError=false)`；`ToolContext(invocationId, metadata)` |
 | **§4.4 Memory + InMemoryMemory** | Implemented | `Memory` interface 3 方法；`InMemoryMemory` 用 `Mutex.withLock` 保护，线程安全 |
-| **§4.5 Agent + AgentConfig + AgentResult + ToolCallRecord + AgentEvent + AgentHook + NoOpAgentHook** | Implemented (v1.1 additive) | `Agent` 三方法全部返回 `Flow<AgentEvent>` (`run` / `run(input, memory)` / `runStream`)；`AgentConfig` 6 字段；`AgentResult` 3 字段(无 `memory`，caller 持有引用)；`ToolCallRecord` 5 字段；`AgentEvent` **6 变体** (新增 `ToolCallRecorded`)；`Final` 带 `iterations` / `toolCallRecords` 默认字段；`AgentHook` **6 回调** (beforeLlmCall / afterLlmResponse / beforeToolCall / afterToolCall / onError / onRunFinished)；`NoOpAgentHook` object；扩展 `Flow<AgentEvent>.awaitResult()` |
+| **§4.5 Agent + AgentConfig + AgentResult + ToolCallRecord + AgentEvent + AgentHook + NoOpAgentHook** | Implemented (v1.1 additive) | `Agent` 三方法全部返回 `Flow<AgentEvent>` (`run` / `run(input, memory)` / `runStream`)；`AgentConfig` 6 字段；`AgentResult` 3 字段(无 `memory`，caller 持有引用)；`ToolCallRecord` 5 字段(SDK 内部审计类型,完整 record 仅出现在 `AgentResult.toolCalls` / `Final.toolCallRecords`,流式事件不再 emit 完整 record)；`AgentEvent` **5 变体** (v1.1 加 `Final.iterations` / `Final.toolCallRecords` 默认字段,`ToolCallRecorded` 删除);`AgentHook` **6 回调** (beforeLlmCall / afterLlmResponse / beforeToolCall / afterToolCall / onError / onRunFinished)；`NoOpAgentHook` object；扩展 `Flow<AgentEvent>.awaitResult()` |
 | **§4.6 AgentBuilder DSL** | Implemented | `agent { }` 顶层函数 + `AgentBuilder` class；包含 `systemPrompt` / `llmClient` / `maxIterations` / `tool()` / `tools()` / `skill()` / `skills()` / `memory { }` / `hook()`；Skill 展开为 systemPrompt + tools；重复 tool name 检测 |
 | **§4.7 Skill 数据类 + DSL** | Implemented | `Skill(name, description, systemPromptFragment, tools)` data class；`SkillBuilder` + `skill(name) { }` 顶层函数；`description` 默认空、`systemPromptFragment` 默认空、`tools` 默认空 |
 | **§5.1 ReAct 非流式算法** | Implemented (v1.1 重构) | `ReActAgent.run(input, memory)` 返回 `Flow<AgentEvent>`；与 `runStream` 共享 `runAlgorithm` 内核，差别仅在传入的 `llmCall = { req -> config.llmClient.chat(req) }`。`ensureActive()`、`invokeTool` 吞业务异常不吞 `CancellationException`；业务异常触发 `onError` hook + emit `Failed` |
-| **§5.2 ReAct 流式算法** | Implemented (v1.1 重构) | `ReActAgent.runStream(input, memory)` 返回 `Flow<AgentEvent>`；共享 `runAlgorithm` 内核，差别在 `llmCall` 内部消费 `chatStream()`、累积 `TextDelta`、把 `ToolCallStart` 作为流式解码边界事件处理；emit `TextDelta` / `ToolCallStarted` / `ToolCallFinished` / `ToolCallRecorded` / `Final` / `Failed`；tool not found 转 `isError=true` |
+| **§5.2 ReAct 流式算法** | Implemented (v1.1 重构) | `ReActAgent.runStream(input, memory)` 返回 `Flow<AgentEvent>`；共享 `runAlgorithm` 内核，差别在 `llmCall` 内部消费 `chatStream()`、累积 `TextDelta`、把 `ToolCallStart` 作为流式解码边界事件处理；emit `TextDelta` / `ToolCallStarted` / `ToolCallFinished` / `Final` / `Failed`；tool not found 转 `isError=true` |
 | **§5.3 取消与错误语义** | Implemented | `coroutineContext.ensureActive()`；`CancellationException` 在多处重新抛出；LLM 错误抛 `LlmError`；格式错误抛 `InvalidResponse`；超 maxIter 抛 `MaxIterations` |
 | **§5.4 线程安全契约** | Implemented | `ReActAgent` 不可变（只持 `config`），并发 `run` / `runStream` 安全；`InMemoryMemory` 用 `Mutex` 保护 |
 | **§5.5 Tool 取消契约** | Implemented (契约由 Tool 实现者保证) | 工具 `suspend fun execute(args, ctx)` 自动响应协程取消；SDK 在 `invokeTool` 中正确处理 `CancellationException` |
@@ -77,7 +77,7 @@
 | **§7.4 Gradle 配置注意** | Implemented | `gradle.properties` 配置 `-Xmx4g`；Gradle 9.x + JDK 17 验证通过 |
 | **§8 错误处理** | Implemented | `AgentException` sealed class 含 `MaxIterations` / `LlmError` / `InvalidResponse` / `ToolNotFound` / `Cancelled`；Tool 业务异常转 `isError=true` 喂回 LLM；`finishReason=Length` 视为终态 |
 | **§9 Sample App** | Implemented | `app` module 完整结构：MainActivity / Compose UI (`ChatScreen` / `MessageBubble` / `ToolCallIndicator`) / `ChatViewModel` (持 Agent + Memory) / `DemoAgentFactory` (注册 3 tool) / 3 个 demo tool (`GetCurrentTime` / `Calculator` / `WebSearchMock`) |
-| **§9.3 ViewModel 核心** | **Implemented (v1.1 修复)** | `ChatViewModel` 完整实现 6 事件 handler：`TextDelta` 实时累积 + `Final` 时提交；`ToolCallStarted` / `ToolCallFinished` 渲染 `ToolInProgress` / `ToolExecution` UiMessage；`ToolCallRecorded` 为内核 back-fill、no-op；`Failed` 显示错误。新增 `STREAM` / `BATCH` 模式切换，共享同一套 6 事件渲染逻辑 |
+| **§9.3 ViewModel 核心** | **Implemented (v1.1 修复)** | `ChatViewModel` 完整实现 5 事件 handler：`TextDelta` 实时累积 + `Final` 时提交；`ToolCallStarted` / `ToolCallFinished` 渲染 `ToolInProgress` / `ToolExecution` UiMessage；`Failed` 显示错误。新增 `STREAM` / `BATCH` 模式切换，共享同一套事件渲染逻辑。`UiMessage.ToolExecution` 持有 `(callId, toolName, result: ToolExecutionResult)`,不依赖 SDK 内部 `ToolCallRecord` 审计类型 |
 | **§9.4 3 个演示 Tool 纯 Kotlin** | Implemented | `GetCurrentTimeTool` / `CalculatorTool` / `WebSearchMockTool` 全部纯 Kotlin（`java.time.Instant` / `javax.script` / `kotlinx.coroutines.delay`），零 Android 依赖 |
 | **§10 v1 稳定性承诺** | Implemented | 6 个公共接口（`LlmClient` / `Tool` / `Memory` / `Agent` / `AgentHook` / `Skill`）public、`explicitApi()` 强制可见性；`internal` 保护所有实现细节（`Logging` / `ReActAgent` 构造器 / 测试 fakes 不在主 module） |
 | **§10.2 内部 API 隔离** | Implemented (partial) | `agent/.../internal/Logging` 存在并 `internal`；`internal object ProviderSupport` **不存在**（同 §6.2 gap） |
@@ -162,11 +162,10 @@ data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta:
 **修复前状态:** `ChatViewModel.handleEvent` 对 `TextDelta` / `ToolCallStarted` / `ToolCallFinished` 三个分支是 no-op,Assistant 文本只在 `Final` 事件后整段追加。
 
 **修复内容 (v1.1):**
-- `ChatViewModel.handleEvent` 完整实现 6 事件 handler:
+- `ChatViewModel.handleEvent` 完整实现 5 事件 handler:
   - `TextDelta` 累积到 `currentAssistantText: StringBuilder`
   - `ToolCallStarted` 渲染 `UiMessage.ToolInProgress`
-  - `ToolCallFinished` 渲染 `UiMessage.ToolExecution` 并清理 in-progress 状态
-  - `ToolCallRecorded` 为内核 back-fill 事件、no-op(UI 已通过 `ToolCallFinished` 渲染)
+  - `ToolCallFinished` 渲染 `UiMessage.ToolExecution(callId, toolName, result)` 并清理 in-progress 状态
   - `Final` 提交 Assistant 消息,优先用累积的 `TextDelta`,BATCH 模式回退到 `event.message.content`
   - `Failed` 显示错误
 - 新增 `RunMode.STREAM` / `RunMode.BATCH` 模式切换,UI 渲染逻辑不变
