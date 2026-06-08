@@ -6,12 +6,12 @@ import kotlinx.coroutines.flow.Flow
 public interface Agent {
     public val config: AgentConfig
 
-    /** 单轮:不维护历史(每次 run 新建 InMemoryMemory) */
-    public suspend fun run(input: String): AgentResult
+    /** 单轮:不维护历史(内部使用临时 InMemoryMemory,run 完即丢弃) */
+    public fun run(input: String): Flow<AgentEvent>
 
-    /** 多轮:传入 memory 保留历史 */
-    public suspend fun run(input: String, memory: Memory): AgentResult
+    /** 多轮批式:传入 memory 保留历史,使用 chat() 单次 RTT */
+    public fun run(input: String, memory: Memory): Flow<AgentEvent>
 
-    /** 流式:边生成边 yield 事件 */
+    /** 多轮流式:传入 memory 保留历史,使用 chatStream() 推送 TextDelta */
     public fun runStream(input: String, memory: Memory): Flow<AgentEvent>
 }

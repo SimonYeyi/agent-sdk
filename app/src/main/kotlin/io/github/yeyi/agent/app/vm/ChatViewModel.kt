@@ -48,7 +48,8 @@ class ChatViewModel(
                             _messages.update { it + UiMessage.Error(event.cause.message ?: "Unknown error") }
                         }
                         is AgentEvent.ToolCallStarted,
-                        is AgentEvent.ToolCallFinished -> {
+                        is AgentEvent.ToolCallFinished,
+                        is AgentEvent.ToolCallRecorded -> {
                             // 仅用于 UI 指示,本 demo 简化
                         }
                     }

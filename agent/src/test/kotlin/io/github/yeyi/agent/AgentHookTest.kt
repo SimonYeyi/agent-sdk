@@ -13,6 +13,7 @@ import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -59,7 +60,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 5, hooks = listOf(hook))
         )
-        agent.run("hi", InMemoryMemory())
+        agent.run("hi", InMemoryMemory()).awaitResult()
         assertEquals(
             listOf(
                 "beforeLlmCall(1)",
@@ -89,7 +90,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5, hooks = listOf(throwingHook))
         )
-        val result = agent.run("hi", InMemoryMemory())
+        val result = agent.run("hi", InMemoryMemory()).awaitResult()
         assertEquals("ok", result.finalMessage.content)
     }
 
@@ -111,11 +112,11 @@ class AgentHookTest {
                 )
             )
         )
-        // maxIterations=1,会立刻 throw MaxIterations
+        // maxIterations=1,会立刻 emit Failed(MaxIterations)
         val agent = ReActAgent(
             AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 1, hooks = listOf(errorHook))
         )
-        try { agent.run("hi", InMemoryMemory()) } catch (_: Throwable) { /* expected */ }
+        agent.run("hi", InMemoryMemory()).toList()
         assertTrue(errorHook.errors.size == 1)
     }
 
@@ -134,7 +135,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5, hooks = listOf(throwingHook))
         )
-        val result = agent.run("hi", InMemoryMemory())
+        val result = agent.run("hi", InMemoryMemory()).awaitResult()
         assertEquals("ok", result.finalMessage.content)
     }
 
@@ -159,7 +160,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 5, hooks = listOf(throwingHook))
         )
-        val result = agent.run("hi", InMemoryMemory())
+        val result = agent.run("hi", InMemoryMemory()).awaitResult()
         assertEquals("final", result.finalMessage.content)
         assertEquals(1, result.toolCalls.size)
     }
@@ -182,7 +183,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5, hooks = listOf(errorHook))
         )
-        try { agent.run("hi", InMemoryMemory()) } catch (_: Throwable) { /* expected */ }
+        agent.run("hi", InMemoryMemory()).toList()
         assertEquals(1, errorHook.errors.size)
         assertSame(boom, errorHook.errors[0])
     }
@@ -205,7 +206,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5, hooks = listOf(errorHook))
         )
-        try { agent.run("hi", InMemoryMemory()) } catch (t: Throwable) {
+        try { agent.run("hi", InMemoryMemory()).toList() } catch (t: Throwable) {
             assertTrue(t is kotlinx.coroutines.CancellationException)
         }
         // onError MUST NOT be called for cancellation
