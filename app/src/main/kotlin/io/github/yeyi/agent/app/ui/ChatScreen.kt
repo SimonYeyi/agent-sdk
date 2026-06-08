@@ -7,10 +7,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,11 +27,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.yeyi.agent.app.vm.ChatViewModel
+import io.github.yeyi.agent.app.vm.RunMode
 
 @Composable
 fun ChatScreen(viewModel: ChatViewModel) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val isProcessing by viewModel.isProcessing.collectAsStateWithLifecycle()
+    val mode by viewModel.mode.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -37,8 +42,26 @@ fun ChatScreen(viewModel: ChatViewModel) {
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Mode:", style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.width(8.dp))
+            FilterChip(
+                selected = mode == RunMode.STREAM,
+                onClick = { viewModel.setMode(RunMode.STREAM) },
+                label = { Text("Stream") },
+                enabled = !isProcessing,
+            )
+            Spacer(Modifier.width(8.dp))
+            FilterChip(
+                selected = mode == RunMode.BATCH,
+                onClick = { viewModel.setMode(RunMode.BATCH) },
+                label = { Text("Batch") },
+                enabled = !isProcessing,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
         LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
-            items(messages) { msg -> MessageBubble(message = msg) }
+            items(messages, key = { it.id }) { msg -> MessageBubble(message = msg) }
         }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -49,7 +72,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
                 modifier = Modifier.weight(1f),
                 enabled = !isProcessing,
             )
-            Spacer(Modifier.height(0.dp))
+            Spacer(Modifier.width(8.dp))
             Button(
                 onClick = {
                     if (input.isNotBlank()) {

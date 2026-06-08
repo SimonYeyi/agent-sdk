@@ -4,24 +4,37 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
+import io.github.yeyi.agent.ToolCallRecord
 import io.github.yeyi.agent.memory.InMemoryMemory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.Instant
+
+enum class RunMode { STREAM, BATCH }
 
 class ChatViewModel(
     private val agent: Agent,
 ) : ViewModel() {
 
-    private val memory = InMemoryMemory()
+    private val _mode = MutableStateFlow(RunMode.STREAM)
+    val mode: StateFlow<RunMode> = _mode.asStateFlow()
+
+    fun setMode(m: RunMode) {
+        _mode.value = m
+    }
 
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages.asStateFlow()
 
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
+
+    private var currentAssistantId: String? = null
+    private var currentAssistantText: StringBuilder? = null
+    private val inProgressByCallId = mutableMapOf<String, UiMessage.ToolInProgress>()
 
     fun sendUserInput(text: String) {
         if (text.isBlank() || _isProcessing.value) return
@@ -30,32 +43,60 @@ class ChatViewModel(
 
         viewModelScope.launch {
             try {
-                agent.runStream(text, memory).collect { event ->
-                    when (event) {
-                        is AgentEvent.TextDelta -> {
-                            // 文本增量由 collect 之外统一处理:本 demo 简化,仅在 Final 时写入消息
-                        }
-                        is AgentEvent.Final -> {
-                            // spec §4.7: AgentEvent.Final.message 是 ChatMessage.Assistant
-                            _messages.update {
-                                it + UiMessage.Assistant(
-                                    text = event.message.content.orEmpty(),
-                                    toolCalls = event.message.toolCalls,
-                                )
-                            }
-                        }
-                        is AgentEvent.Failed -> {
-                            _messages.update { it + UiMessage.Error(event.cause.message ?: "Unknown error") }
-                        }
-                        is AgentEvent.ToolCallStarted,
-                        is AgentEvent.ToolCallFinished,
-                        is AgentEvent.ToolCallRecorded -> {
-                            // 仅用于 UI 指示,本 demo 简化
-                        }
-                    }
+                val flow = when (_mode.value) {
+                    RunMode.STREAM -> agent.runStream(text, InMemoryMemory())
+                    RunMode.BATCH -> agent.run(text)
                 }
+                flow.collect { handleEvent(it) }
+            } catch (t: Throwable) {
+                _messages.update { it + UiMessage.Error(t.message ?: "Unknown error") }
             } finally {
+                currentAssistantId = null
+                currentAssistantText = null
+                inProgressByCallId.clear()
                 _isProcessing.value = false
+            }
+        }
+    }
+
+    private fun handleEvent(event: AgentEvent) {
+        when (event) {
+            is AgentEvent.TextDelta -> {
+                if (currentAssistantText == null) {
+                    currentAssistantId = "pending"
+                    currentAssistantText = StringBuilder()
+                }
+                currentAssistantText?.append(event.text)
+            }
+            is AgentEvent.ToolCallStarted -> {
+                val msg = UiMessage.ToolInProgress(event.callId, event.toolName)
+                inProgressByCallId[event.callId] = msg
+                _messages.update { it + msg }
+            }
+            is AgentEvent.ToolCallFinished -> {
+                val started = inProgressByCallId.remove(event.callId)
+                val record = ToolCallRecord(
+                    callId = event.callId,
+                    toolName = started?.toolName ?: event.callId,
+                    arguments = kotlinx.serialization.json.JsonNull,
+                    result = event.result,
+                    timestamp = Instant.now(),
+                )
+                _messages.update { it + UiMessage.ToolExecution(event.callId, record) }
+            }
+            is AgentEvent.ToolCallRecorded -> {
+                // v1.0 back-fill internal event; UI already rendered via ToolCallFinished
+            }
+            is AgentEvent.Final -> {
+                val text = currentAssistantText?.toString().orEmpty()
+                if (text.isNotEmpty()) {
+                    _messages.update { it + UiMessage.Assistant(text) }
+                }
+                currentAssistantId = null
+                currentAssistantText = null
+            }
+            is AgentEvent.Failed -> {
+                _messages.update { it + UiMessage.Error(event.cause.message ?: "Unknown error") }
             }
         }
     }

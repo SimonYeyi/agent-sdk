@@ -35,13 +35,44 @@ fun MessageBubble(message: UiMessage, modifier: Modifier = Modifier) {
                     .padding(12.dp)
             ) {
                 Text(message.text, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (message.toolCalls.isNotEmpty()) {
-                    Column(Modifier.padding(top = 8.dp)) {
-                        message.toolCalls.forEach { call ->
-                            ToolCallIndicator(toolName = call.name)
-                        }
-                    }
-                }
+            }
+        }
+        is UiMessage.ToolInProgress -> {
+            Column(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(12.dp))
+                    .padding(12.dp)
+            ) {
+                Text(
+                    "🔧 ${message.toolName}...",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        is UiMessage.ToolExecution -> {
+            val color = if (message.record.result.isError) {
+                MaterialTheme.colorScheme.errorContainer
+            } else {
+                MaterialTheme.colorScheme.tertiaryContainer
+            }
+            val onColor = if (message.record.result.isError) {
+                MaterialTheme.colorScheme.onErrorContainer
+            } else {
+                MaterialTheme.colorScheme.onTertiaryContainer
+            }
+            Column(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+                    .background(color, RoundedCornerShape(12.dp))
+                    .padding(12.dp)
+            ) {
+                Text(
+                    "✅ ${message.record.toolName}: ${message.record.result.content}",
+                    color = onColor,
+                )
             }
         }
         is UiMessage.Error -> {

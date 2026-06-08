@@ -1,19 +1,33 @@
 package io.github.yeyi.agent.app.vm
 
-import io.github.yeyi.agent.llm.ToolCall
-import kotlinx.serialization.Serializable
+import io.github.yeyi.agent.ToolCallRecord
 
-@Serializable
 sealed class UiMessage {
-    @Serializable
-    data class User(val text: String) : UiMessage()
+    abstract val id: String
 
-    @Serializable
-    data class Assistant(
-        val text: String,         // 流式累积的最终文本
-        val toolCalls: List<ToolCall> = emptyList(),
-    ) : UiMessage()
+    data class User(val text: String) : UiMessage() {
+        override val id: String = "u-${text.hashCode()}"
+    }
 
-    @Serializable
-    data class Error(val cause: String) : UiMessage()
+    data class Assistant(val text: String) : UiMessage() {
+        override val id: String = "a-${text.hashCode()}"
+    }
+
+    data class ToolInProgress(
+        val callId: String,
+        val toolName: String,
+    ) : UiMessage() {
+        override val id: String = "ip-$callId"
+    }
+
+    data class ToolExecution(
+        val callId: String,
+        val record: ToolCallRecord,
+    ) : UiMessage() {
+        override val id: String = "ex-$callId"
+    }
+
+    data class Error(val cause: String) : UiMessage() {
+        override val id: String = "e-${cause.hashCode()}"
+    }
 }
