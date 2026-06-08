@@ -56,7 +56,7 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow
                 val name = tc.function?.name
                 if (id != null && id !in seenToolCallIds) {
                     seenToolCallIds += id
-                    emit(StreamEvent.ToolCallStart(id = id, name = name ?: ""))
+                    emit(StreamEvent.ToolCallStart(id = id, name = name!!))
                 }
                 emit(StreamEvent.ToolCallDelta(
                     id = id ?: seenToolCallIds.lastOrNull(),
