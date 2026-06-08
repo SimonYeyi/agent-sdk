@@ -76,6 +76,40 @@ class AgentHookTest {
     }
 
     @Test
+    fun `runStream also fires all hooks in order`() = runTest {
+        val hook = RecordingHook()
+        val client = FakeLlmClient(
+            streamScripts = listOf(
+                listOf(
+                    StreamEvent.ToolCallStart(id = "c1", name = "echo"),
+                    StreamEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":\"x\"}"),
+                    StreamEvent.Done(null)
+                ),
+                listOf(
+                    StreamEvent.ContentDelta("final"),
+                    StreamEvent.Done(null)
+                )
+            )
+        )
+        val agent = ReActAgent(
+            AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 5, hooks = listOf(hook))
+        )
+        agent.runStream("hi", InMemoryMemory()).awaitResult()
+        assertEquals(
+            listOf(
+                "beforeLlmCall(1)",
+                "afterLlmResponse(1)",
+                "beforeToolCall(echo)",
+                "afterToolCall(echo)",
+                "beforeLlmCall(2)",
+                "afterLlmResponse(2)",
+                "onRunFinished(iter=2)"
+            ),
+            hook.events
+        )
+    }
+
+    @Test
     fun `exception in hook does not crash agent`() = runTest {
         val throwingHook = object : AgentHook {
             override suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {
