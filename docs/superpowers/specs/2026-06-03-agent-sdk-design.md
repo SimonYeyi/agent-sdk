@@ -277,13 +277,13 @@ class InMemoryMemory : Memory {                          // v1 唯一实现
 interface Agent {
     val config: AgentConfig
 
-    /** 单轮：不维护历史（每次 run 新建 InMemoryMemory） */
-    suspend fun run(input: String): AgentResult
+    /** 单轮：内部使用临时 InMemoryMemory（run 完即丢弃） */
+    fun run(input: String): Flow<AgentEvent>
 
-    /** 多轮：传入 memory 保留历史 */
-    suspend fun run(input: String, memory: Memory): AgentResult
+    /** 多轮批式：传入 memory 保留历史，内部调用 llmClient.chat() */
+    fun run(input: String, memory: Memory): Flow<AgentEvent>
 
-    /** 流式：边生成边 yield 事件 */
+    /** 多轮流式：传入 memory 保留历史，内部调用 llmClient.chatStream() 推送 TextDelta */
     fun runStream(input: String, memory: Memory): Flow<AgentEvent>
 }
 
@@ -298,7 +298,6 @@ data class AgentConfig(
 
 data class AgentResult(
     val finalMessage: ChatMessage.Assistant,
-    val memory: Memory,                                    // 更新后的 memory（caller 可继续持有）
     val iterations: Int,
     val toolCalls: List<ToolCallRecord>                    // 本次 run 触发的所有工具调用
 )
@@ -315,7 +314,12 @@ sealed interface AgentEvent {
     data class TextDelta(val text: String) : AgentEvent
     data class ToolCallStarted(val callId: String, val toolName: String) : AgentEvent
     data class ToolCallFinished(val callId: String, val result: ToolExecutionResult) : AgentEvent
-    data class Final(val message: ChatMessage.Assistant) : AgentEvent
+    data class ToolCallRecorded(val record: ToolCallRecord) : AgentEvent
+    data class Final(
+        val message: ChatMessage.Assistant,
+        val iterations: Int = 0,
+        val toolCallRecords: List<ToolCallRecord> = emptyList(),
+    ) : AgentEvent
     data class Failed(val cause: Throwable) : AgentEvent
 }
 
@@ -340,6 +344,15 @@ interface AgentHook {
 /** v1 默认提供的 NoOp hook */
 object NoOpAgentHook : AgentHook
 ```
+
+#### 4.5.1 `awaitResult` 扩展
+
+```kotlin
+/** 从 Flow<AgentEvent> 中取首个 Final 事件并组装为 AgentResult */
+suspend fun Flow<AgentEvent>.awaitResult(): AgentResult
+```
+
+**使用场景**：caller 只关心最终结果、不需要观察中间事件。`run` / `runStream` 返回 `Flow<AgentEvent>` 后，调用 `.awaitResult()` 即可获得语义上等价于 v1.0 `AgentResult` 的对象（不含 `memory` 字段——caller 持有自身 `Memory` 引用）。
 
 ### 4.6 配置 DSL
 
@@ -511,151 +524,102 @@ val myAgent = agent {
 
 ### 5.1 算法（非流式）
 
+`ReActAgent.run(input, memory)` 与 `runStream` 共享同一个 `runAlgorithm` 内核,差别仅在于传入的 `llmCall` lambda。批式版本的 `llmCall` 是一次性 `chat()` 调用:
+
 ```kotlin
-internal class ReActAgent(private val config: AgentConfig) : Agent {
-
-    override suspend fun run(input: String, memory: Memory): AgentResult {
-        memory.add(ChatMessage.User(input))
-        val toolCallRecords = mutableListOf<ToolCallRecord>()
-        var iterations = 0
-
-        while (iterations < config.maxIterations) {
-            iterations++
-            ensureActive()                                              // 响应 coroutine 取消
-
-            val request = buildRequest(memory)
-            val response = config.llmClient.chat(request)
-            memory.add(response.message)
-
-            if (response.message.toolCalls.isEmpty()) {
-                return AgentResult(
-                    finalMessage = response.message,
-                    memory = memory,
-                    iterations = iterations,
-                    toolCalls = toolCallRecords.toList()
-                )
-            }
-
-            for (call in response.message.toolCalls) {
-                val result = invokeTool(call)
-                toolCallRecords += ToolCallRecord(
-                    callId = call.id,
-                    toolName = call.name,
-                    arguments = call.arguments,
-                    result = result,
-                    timestamp = java.time.Instant.now()
-                )
-                memory.add(ChatMessage.ToolResult(
-                    toolCallId = call.id,
-                    toolName = call.name,
-                    content = result.content,
-                    isError = result.isError
-                ))
-            }
-        }
-
-        throw AgentMaxIterationsException(
-            "Reached max iterations (${config.maxIterations}) without final answer"
-        )
-    }
-
-    private fun buildRequest(memory: Memory): ChatRequest = ChatRequest(
-        messages = buildList {
-            if (config.systemPrompt.isNotBlank()) add(ChatMessage.System(config.systemPrompt))
-            addAll(memory.history())
-        },
-        tools = config.tools.map { ToolDefinition(it.name, it.description, it.parametersSchema) }
+override fun run(input: String, memory: Memory): Flow<AgentEvent> = flow {
+    runAlgorithm(
+        input = input,
+        memory = memory,
+        llmCall = { req -> config.llmClient.chat(req) },
+        emitTextDeltas = false,
+        hooks = config.hooks,
+        emit = { emit(it) },
     )
-
-    private suspend fun invokeTool(call: ToolCall): ToolExecutionResult {
-        val tool = config.tools.find { it.name == call.name }
-            ?: return ToolExecutionResult(
-                content = "Tool '${call.name}' not found. Available: ${config.tools.joinToString { it.name }}",
-                isError = true
-            )
-        return try {
-            tool.execute(call.arguments, ToolContext())
-        } catch (t: Throwable) {
-            if (t is CancellationException) throw t                      // 取消必须传播
-            ToolExecutionResult(content = "Tool error: ${t.message}", isError = true)
-        }
-    }
 }
 ```
+
+**核心原则**(`runAlgorithm` 内核不变,见 §5.2):
+- 循环顶部 `coroutineContext.ensureActive()` 响应取消
+- 每次 LLM 调用前后统一触发 `beforeLlmCall` / `afterLlmResponse` hook
+- `invokeTool` 内部吞业务异常转 `ToolExecutionResult(isError=true)` 喂回 LLM,**不吞 `CancellationException`**
+- 工具结果回写 `memory` 后,emit `ToolCallStarted` / `ToolCallFinished` / `ToolCallRecorded` 三个事件
+- 终态 emit `Final(message, iterations, toolCallRecords)`,并触发 `onRunFinished` hook
+- 超过 `maxIterations` 抛 `AgentException.MaxIterations`
 
 ### 5.2 算法（流式）
 
+`ReActAgent.runStream(input, memory)` 与批式版本共享 `runAlgorithm` 内核,差别在于传入的 `llmCall` lambda——流式版本消费 `chatStream()`,在收到 `ContentDelta` 时同步 emit `TextDelta`,并把累积后的 `ChatResponse` 交给内核:
+
 ```kotlin
 override fun runStream(input: String, memory: Memory): Flow<AgentEvent> = flow {
-    memory.add(ChatMessage.User(input))
-    var iterations = 0
+    runAlgorithm(
+        input = input,
+        memory = memory,
+        llmCall = { req ->
+            val accumulatedText = StringBuilder()
+            val callOrder: LinkedHashSet<String> = linkedSetOf()
+            val callNames: MutableMap<String, String> = mutableMapOf()
+            val argumentsBuffers: MutableMap<String, StringBuilder> = mutableMapOf()
+            var finishReason: FinishReason? = null
 
-    while (iterations < config.maxIterations) {
-        iterations++
-        ensureActive()
-
-        val request = buildRequest(memory)
-        var accumulatedText: String? = null
-        val accumulatedCalls: MutableList<ToolCall> = mutableListOf()
-        val argumentsBuffers: MutableMap<String, StringBuilder> = mutableMapOf()
-
-        // 1. 流式消费 LLM 输出
-        config.llmClient.chatStream(request).collect { event ->
-            when (event) {
-                is StreamEvent.ContentDelta -> {
-                    accumulatedText = (accumulatedText ?: "") + event.text
-                    emit(AgentEvent.TextDelta(event.text))
-                }
-                is StreamEvent.ToolCallDelta -> {
-                    val id = event.id ?: return@collect                  // 第一次 delta 才有 id
-                    val buf = argumentsBuffers.getOrPut(id) { StringBuilder() }
-                    buf.append(event.argumentsDelta)
-                    if (event.name != null && accumulatedCalls.none { it.id == id }) {
-                        accumulatedCalls += ToolCall(id = id, name = event.name, arguments = JsonNull)
+            config.llmClient.chatStream(req).collect { event ->
+                when (event) {
+                    is StreamEvent.ContentDelta -> {
+                        accumulatedText.append(event.text)
+                        emit(AgentEvent.TextDelta(event.text))
                     }
+                    is StreamEvent.ToolCallStart -> {
+                        callOrder.add(event.id)
+                        callNames[event.id] = event.name
+                        argumentsBuffers.getOrPut(event.id) { StringBuilder() }
+                    }
+                    is StreamEvent.ToolCallDelta -> {
+                        val id = event.id ?: return@collect
+                        argumentsBuffers[id]?.append(event.argumentsDelta)
+                    }
+                    is StreamEvent.Done -> finishReason = event.finishReason
+                    is StreamEvent.Error -> throw event.cause
                 }
-                is StreamEvent.Done -> Unit
-                is StreamEvent.Error -> throw event.cause
             }
-        }
 
-        // 2. 把已累积的 assistant message 入 memory
-        val finalCalls = accumulatedCalls.map { call ->
-            call.copy(arguments = argumentsBuffers[call.id]?.toString()?.let {
-                Json.parseToJsonElement(it)
-            } ?: JsonNull)
-        }
-        val assistantMsg = ChatMessage.Assistant(accumulatedText, finalCalls)
-        memory.add(assistantMsg)
-
-        // 3. 没有 tool call → 终态
-        if (finalCalls.isEmpty()) {
-            emit(AgentEvent.Final(assistantMsg))
-            return@flow
-        }
-
-        // 4. 执行 tool，emit 事件，回灌结果
-        for (call in finalCalls) {
-            emit(AgentEvent.ToolCallStarted(call.id, call.name))
-            val result = invokeTool(call)
-            emit(AgentEvent.ToolCallFinished(call.id, result))
-            memory.add(ChatMessage.ToolResult(
-                toolCallId = call.id, toolName = call.name,
-                content = result.content, isError = result.isError
-            ))
-        }
-    }
-
-    throw AgentMaxIterationsException("Reached max iterations (${config.maxIterations})")
+            val finalCalls = callOrder.map { id ->
+                val argsText = argumentsBuffers[id]?.toString().orEmpty()
+                ToolCall(
+                    id = id,
+                    name = callNames[id]!!,
+                    arguments = if (argsText.isNotBlank()) Json.parseToJsonElement(argsText) else JsonNull,
+                )
+            }
+            ChatResponse(
+                message = ChatMessage.Assistant(accumulatedText.toString(), finalCalls),
+                usage = null,
+                finishReason = finishReason
+                    ?: if (finalCalls.isNotEmpty()) FinishReason.ToolCalls else FinishReason.Stop,
+            )
+        },
+        emitTextDeltas = true,
+        hooks = config.hooks,
+        emit = { emit(it) },
+    )
 }
 ```
 
+**`ToolCallStart` 处理(流式版本内核之外)**:`StreamEvent.ToolCallStart` 是 `chatStream()` 输出的边界事件,用于在流式解码阶段预先建立 call id 槽位——`runAlgorithm` 内核无需直接处理它,只在 `llmCall` lambda 内部消费即可。
+
+**核心原则**(由 `runAlgorithm` 内核统一保证,见 §5.1):
+- 与批式版本触发**完全相同**的 6 个 hook 时点
+- 与批式版本 emit **完全相同**的 `AgentEvent` 序列(批式版本无 `TextDelta` 事件;流式版本多 emit `TextDelta`)
+- 超过 `maxIterations` 抛 `AgentException.MaxIterations`
+- 业务异常 → `AgentEvent.Failed`;取消 → `CancellationException` 正常传播
+
 ### 5.3 取消与错误语义
 - 所有 `suspend` 方法尊重 coroutine 取消
-- 循环顶部 `ensureActive()` 检查
-- `invokeTool` 内部吞业务异常（转 `ToolResult(isError=true)` 喂回 LLM），**不吞 `CancellationException`**
+- 循环顶部 `coroutineContext.ensureActive()` 检查
+- `invokeTool` 内部吞业务异常（转 `ToolExecutionResult(isError=true)` 喂回 LLM），**不吞 `CancellationException`**
+- 业务异常触发 `onError` hook 并 emit `AgentEvent.Failed`(不再抛异常)
 - LLM 错误抛 `LlmError`（见第 8 章）
-- 超过 max iterations 抛 `AgentMaxIterationsException`
+- 超过 max iterations 抛 `AgentException.MaxIterations`
 
 ### 5.4 线程安全契约
 - `ReActAgent` 实例是 **immutable + stateless**（除 `config` 外不持有可变状态）
@@ -670,6 +634,8 @@ override fun runStream(input: String, memory: Memory): Flow<AgentEvent> = flow {
 - 工具可以**额外**清理（如回滚事务），但必须在 catch 块**重新抛** `CancellationException`
 
 ### 5.6 Hook 集成点
+
+- v1.1 起,`run` 和 `runStream` 两条路径均触发全部 6 个 hook。底层是共享的 `runAlgorithm` 内核,在 `beforeLlmCall` / `afterLlmResponse` / `beforeToolCall` / `afterToolCall` / `onError` / `onRunFinished` 处统一触发。
 - `ReActAgent` 在以下时点调用 `config.hooks` 中的所有 `AgentHook`：
   - 每次 LLM 调用前：`beforeLlmCall(iteration, messages)`
   - 每次 LLM 响应后：`afterLlmResponse(iteration, response)`
@@ -677,7 +643,9 @@ override fun runStream(input: String, memory: Memory): Flow<AgentEvent> = flow {
   - 每次 Tool 调用后：`afterToolCall(call, result, durationMs)`
   - 错误发生时：`onError(iteration, cause)`
   - Run 结束时：`onRunFinished(result)`
-- Hook 异常被吞掉并通过 SDK 内部 logger 记录（不向主流程传播）
+- Hook 异常被吞掉并通过 SDK 内部 logger 记录（不向主流程传播,但 `CancellationException` 必须重新抛出）
+
+**证据**：`agent/src/test/kotlin/io/github/yeyi/agent/AgentHookTest.kt` 的 `runStream also fires all hooks in order` 测试用例显式验证 `runStream` 路径上 6 个 hook 全部按序触发。
 
 ---
 
@@ -961,31 +929,46 @@ app/src/main/java/io/github/yeyi/agent/app/
 
 ### 9.3 ViewModel 核心
 
+v1.1 起的 `ChatViewModel` 完整实现 6 事件 handler,支持 STREAM/BATCH 模式切换,共享同一套 UI 渲染逻辑:
+
 ```kotlin
-class ChatViewModel(
-    private val agent: Agent = DemoAgentFactory.create()
-) : ViewModel() {
+enum class RunMode { STREAM, BATCH }
+
+class ChatViewModel(private val agent: Agent) : ViewModel() {
+
+    private val _mode = MutableStateFlow(RunMode.STREAM)
+    val mode: StateFlow<RunMode> = _mode.asStateFlow()
+
+    fun setMode(m: RunMode) { _mode.value = m }
 
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages.asStateFlow()
 
-    private val memory = InMemoryMemory()                    // ViewModel scope = 会话 scope
-
     fun sendUserInput(text: String) {
         viewModelScope.launch {
-            agent.runStream(text, memory).collect { event ->
-                when (event) {
-                    is AgentEvent.TextDelta -> appendToCurrentAssistant(event.text)
-                    is AgentEvent.ToolCallStarted -> showToolIndicator(event.toolName)
-                    is AgentEvent.ToolCallFinished -> hideToolIndicator()
-                    is AgentEvent.Final -> commitAssistantMessage()
-                    is AgentEvent.Failed -> showError(event.cause)
-                }
+            val flow = when (_mode.value) {
+                RunMode.STREAM -> agent.runStream(text, InMemoryMemory())  // 推 TextDelta
+                RunMode.BATCH  -> agent.run(text, InMemoryMemory())         // 一次性 chat
             }
+            flow.collect { handleEvent(it) }
         }
+    }
+
+    private fun handleEvent(event: AgentEvent) = when (event) {
+        is AgentEvent.TextDelta       -> { /* 累积到 currentAssistantText,Final 时提交 */ }
+        is AgentEvent.ToolCallStarted -> { _messages.update { it + UiMessage.ToolInProgress(...) } }
+        is AgentEvent.ToolCallFinished-> { _messages.update { it + UiMessage.ToolExecution(...) } }
+        is AgentEvent.ToolCallRecorded-> { /* UI 已通过 ToolCallFinished 渲染,no-op */ }
+        is AgentEvent.Final           -> { /* 提交 Assistant 消息,优先用累积的 TextDelta;BATCH 模式回退到 event.message.content */ }
+        is AgentEvent.Failed          -> { _messages.update { it + UiMessage.Error(event.cause.message ?: "") } }
     }
 }
 ```
+
+**关键设计**:
+- **6 事件全部消费**:`TextDelta` 累积、`ToolCallStarted`/`ToolCallFinished` 渲染工具指示器、`ToolCallRecorded` 为内核 back-fill(UI 无需重复渲染)、`Final` 提交消息、`Failed` 显示错误
+- **STREAM/BATCH 模式**:通过 `RunMode` 切换上游调用 (`runStream` vs `run`),UI 渲染逻辑不变——`Final` handler 同时支持"累积 TextDelta 优先 + 自身 message.content 回退"
+- **每次 run 独立 `InMemoryMemory`**:Demo App 的简化决策,v1.1 维持(真实业务应持有 ViewModel scope memory)
 
 ### 9.4 3 个演示 Tool 的设计原则
 

@@ -1,26 +1,46 @@
 # v1 Implementation Gaps
 
-**Date:** 2026-06-04
-**Reviewer:** Task 8.3 自检
-**Branch:** main · 62 commits · build SUCCESSFUL
+**Date:** 2026-06-08 (v1.1 自检)
+**Reviewer:** v1.1 任务清单收尾
+**Branch:** main · build SUCCESSFUL
+
+---
+
+## v1.1 Release Notes (2026-06-08)
+
+| 维度 | 改动 |
+|------|------|
+| Agent 公共 API | 三个 run 入口统一返回 `Flow<AgentEvent>`(共享 `runAlgorithm` 内核);`run(input)` 单轮内部用临时 `InMemoryMemory` |
+| AgentResult | 移除 `memory` 字段(caller 持有引用) |
+| AgentEvent | 新增 `ToolCallRecorded(record)` 变体;`Final` 加 `iterations` / `toolCallRecords` 字段(带默认值) |
+| Hook 集成 | `run()` 和 `runStream()` 两条路径都触发全部 6 个 hook(共享内核)(修复偏差 2) |
+| awaitResult 扩展 | 新增 `suspend fun Flow<AgentEvent>.awaitResult(): AgentResult` |
+| Demo App | `ChatViewModel` 完整实现 6 事件 handler;新增 STREAM/BATCH 模式切换(无需改 UI 逻辑) |
+| 测试 | 104 → 115(+ runStream hooks + awaitResult + mode 切换) |
+
+**原子 commit 列表**:
+- `28e918c` refactor(agent): unify run/runStream to return Flow<AgentEvent>
+- `708fb51` feat(app): 模式切换 + 6 事件 UI 全覆盖
+- `57a2b0f` test: 补全 v1.1 hooks 在 runStream 触发验证 + awaitResult + mode 切换
+- `7954d30` fix(app): Final handler falls back to event.message.content for BATCH mode
+- `<D commit>` docs: v1.1 文档同步
 
 ---
 
 ## Build Evidence
 
-- `./gradlew clean test assembleDebug` → **BUILD SUCCESSFUL in 23s**
-- 82 actionable tasks executed
-- **Total test entries: 104** (0 failures, 0 errors, 0 skipped)
+- `./gradlew clean test assembleDebug` → **BUILD SUCCESSFUL**
+- **Total test entries: 115** (0 failures, 0 errors, 0 skipped)
 
 | Module              | Test Suites | Tests |
 |---------------------|-------------|-------|
-| `agent`              | 10          | 58    |
-| `providers/openai`  | 3           | 18    |
-| `providers/anthropic` | 5         | 18    |
-| `app` (debug+release variants) | 2×2 | 10  |
-| **合计**            | **22**      | **104** |
+| `agent`              | 10          | 62    |
+| `providers/openai`  | 3           | 22    |
+| `providers/anthropic` | 5         | 24    |
+| `app` (debug+release variants) | 2×2 | 7  |
+| **合计**            | **22**      | **115** |
 
-`app` module is counted twice because `:app:test` triggers both `testDebugUnitTest` and `testReleaseUnitTest`. Both run the same 5 test cases.
+`app` module is counted twice because `:app:test` triggers both `testDebugUnitTest` and `testReleaseUnitTest`. Both run the same 7 test cases.
 
 ---
 
@@ -37,15 +57,15 @@
 | **§4.2 LlmClient + ChatRequest/Response/StreamEvent/Usage/FinishReason** | Implemented (with additive extension) | `LlmClient.kt` — `providerName` + `chat()` + `chatStream()`；`ChatRequest` / `ChatResponse` / `Usage` / `FinishReason` (4 values) 全部对位。**注:** `StreamEvent` 多了 `ToolCallStart(id, name)` 子类型，详见"已知偏差"节 |
 | **§4.3 Tool + ToolParameters + ToolContext + ToolExecutionResult** | Implemented | `Tool` interface 4 成员；`ToolParameters` sealed (`Empty` / `JsonSchema`)；`ToolExecutionResult(content, isError=false)`；`ToolContext(invocationId, metadata)` |
 | **§4.4 Memory + InMemoryMemory** | Implemented | `Memory` interface 3 方法；`InMemoryMemory` 用 `Mutex.withLock` 保护，线程安全 |
-| **§4.5 Agent + AgentConfig + AgentResult + ToolCallRecord + AgentEvent + AgentHook + NoOpAgentHook** | Implemented | `Agent` 三方法 (`run` / `run(input, memory)` / `runStream`)；`AgentConfig` 6 字段；`AgentResult` 4 字段；`ToolCallRecord` 5 字段；`AgentEvent` 5 变体；`AgentHook` **6 回调** (beforeLlmCall / afterLlmResponse / beforeToolCall / afterToolCall / onError / onRunFinished)；`NoOpAgentHook` object |
+| **§4.5 Agent + AgentConfig + AgentResult + ToolCallRecord + AgentEvent + AgentHook + NoOpAgentHook** | Implemented (v1.1 additive) | `Agent` 三方法全部返回 `Flow<AgentEvent>` (`run` / `run(input, memory)` / `runStream`)；`AgentConfig` 6 字段；`AgentResult` 3 字段(无 `memory`，caller 持有引用)；`ToolCallRecord` 5 字段；`AgentEvent` **6 变体** (新增 `ToolCallRecorded`)；`Final` 带 `iterations` / `toolCallRecords` 默认字段；`AgentHook` **6 回调** (beforeLlmCall / afterLlmResponse / beforeToolCall / afterToolCall / onError / onRunFinished)；`NoOpAgentHook` object；扩展 `Flow<AgentEvent>.awaitResult()` |
 | **§4.6 AgentBuilder DSL** | Implemented | `agent { }` 顶层函数 + `AgentBuilder` class；包含 `systemPrompt` / `llmClient` / `maxIterations` / `tool()` / `tools()` / `skill()` / `skills()` / `memory { }` / `hook()`；Skill 展开为 systemPrompt + tools；重复 tool name 检测 |
 | **§4.7 Skill 数据类 + DSL** | Implemented | `Skill(name, description, systemPromptFragment, tools)` data class；`SkillBuilder` + `skill(name) { }` 顶层函数；`description` 默认空、`systemPromptFragment` 默认空、`tools` 默认空 |
-| **§5.1 ReAct 非流式算法** | Implemented | `ReActAgent.run(input, memory)`：添加 user msg → 循环 buildRequest → chat → 添 assistant msg → tool 循环 invokeTool → 添 ToolResult → 达到 maxIter 抛 `MaxIterations`。`ensureActive()`、`invokeTool` 吞业务异常不吞 `CancellationException` |
-| **§5.2 ReAct 流式算法** | Implemented | `ReActAgent.runStream(input, memory)`：同主循环；累积 ContentDelta / 拼装 ToolCall.arguments；emit `TextDelta` / `ToolCallStarted` / `ToolCallFinished` / `Final`；tool not found 转 `isError=true` |
+| **§5.1 ReAct 非流式算法** | Implemented (v1.1 重构) | `ReActAgent.run(input, memory)` 返回 `Flow<AgentEvent>`；与 `runStream` 共享 `runAlgorithm` 内核，差别仅在传入的 `llmCall = { req -> config.llmClient.chat(req) }`。`ensureActive()`、`invokeTool` 吞业务异常不吞 `CancellationException`；业务异常触发 `onError` hook + emit `Failed` |
+| **§5.2 ReAct 流式算法** | Implemented (v1.1 重构) | `ReActAgent.runStream(input, memory)` 返回 `Flow<AgentEvent>`；共享 `runAlgorithm` 内核，差别在 `llmCall` 内部消费 `chatStream()`、累积 `TextDelta`、把 `ToolCallStart` 作为流式解码边界事件处理；emit `TextDelta` / `ToolCallStarted` / `ToolCallFinished` / `ToolCallRecorded` / `Final` / `Failed`；tool not found 转 `isError=true` |
 | **§5.3 取消与错误语义** | Implemented | `coroutineContext.ensureActive()`；`CancellationException` 在多处重新抛出；LLM 错误抛 `LlmError`；格式错误抛 `InvalidResponse`；超 maxIter 抛 `MaxIterations` |
 | **§5.4 线程安全契约** | Implemented | `ReActAgent` 不可变（只持 `config`），并发 `run` / `runStream` 安全；`InMemoryMemory` 用 `Mutex` 保护 |
 | **§5.5 Tool 取消契约** | Implemented (契约由 Tool 实现者保证) | 工具 `suspend fun execute(args, ctx)` 自动响应协程取消；SDK 在 `invokeTool` 中正确处理 `CancellationException` |
-| **§5.6 Hook 集成点** | **Partially Implemented** | `run()` 路径正确触发全部 6 个回调点；`runStream()` 路径**不**触发回调（详见"已知偏差"节） |
+| **§5.6 Hook 集成点** | **Implemented (v1.1 修复)** | `run()` 和 `runStream()` 路径**均**触发全部 6 个 hook；底层共享 `runAlgorithm` 内核统一触发 |
 | **§6.1 HTTP 客户端选型 (Ktor 3.x + CIO)** | Implemented | `OpenAiClient` / `AnthropicClient` 均用 `HttpClient(CIO)` |
 | **§6.2 Provider 共用层 (`internal object ProviderSupport`)** | **Gap (minor)** | `agent/.../providers/ProviderSupport` **未创建**。每个 provider 各自在 `companion object` / 顶层函数中实现等价 `defaultHttpClient { install(ContentNegotiation); install(HttpTimeout) }`。功能等价、违反 spec 的"共用层"结构意图 |
 | **§6.3 OpenAI Provider** | Implemented | `OpenAiClient(apiKey, model, baseUrl, httpClient)`；`chat()` + `chatStream()`；OpenAI 兼容服务（DeepSeek/DashScope 等）可换 `baseUrl` |
@@ -57,7 +77,7 @@
 | **§7.4 Gradle 配置注意** | Implemented | `gradle.properties` 配置 `-Xmx4g`；Gradle 9.x + JDK 17 验证通过 |
 | **§8 错误处理** | Implemented | `AgentException` sealed class 含 `MaxIterations` / `LlmError` / `InvalidResponse` / `ToolNotFound` / `Cancelled`；Tool 业务异常转 `isError=true` 喂回 LLM；`finishReason=Length` 视为终态 |
 | **§9 Sample App** | Implemented | `app` module 完整结构：MainActivity / Compose UI (`ChatScreen` / `MessageBubble` / `ToolCallIndicator`) / `ChatViewModel` (持 Agent + Memory) / `DemoAgentFactory` (注册 3 tool) / 3 个 demo tool (`GetCurrentTime` / `Calculator` / `WebSearchMock`) |
-| **§9.3 ViewModel 核心** | Implemented (with UX simplification) | `ChatViewModel.sendUserInput` 用 `viewModelScope.launch` + `agent.runStream` + `when (event)` 分支；**简化点:** `TextDelta` 不实时渲染，UI 仅在 `Final` 时追加一条 assistant 消息（ViewModel 内 KDoc 与代码注释已注明） |
+| **§9.3 ViewModel 核心** | **Implemented (v1.1 修复)** | `ChatViewModel` 完整实现 6 事件 handler：`TextDelta` 实时累积 + `Final` 时提交；`ToolCallStarted` / `ToolCallFinished` 渲染 `ToolInProgress` / `ToolExecution` UiMessage；`ToolCallRecorded` 为内核 back-fill、no-op；`Failed` 显示错误。新增 `STREAM` / `BATCH` 模式切换，共享同一套 6 事件渲染逻辑 |
 | **§9.4 3 个演示 Tool 纯 Kotlin** | Implemented | `GetCurrentTimeTool` / `CalculatorTool` / `WebSearchMockTool` 全部纯 Kotlin（`java.time.Instant` / `javax.script` / `kotlinx.coroutines.delay`），零 Android 依赖 |
 | **§10 v1 稳定性承诺** | Implemented | 6 个公共接口（`LlmClient` / `Tool` / `Memory` / `Agent` / `AgentHook` / `Skill`）public、`explicitApi()` 强制可见性；`internal` 保护所有实现细节（`Logging` / `ReActAgent` 构造器 / 测试 fakes 不在主 module） |
 | **§10.2 内部 API 隔离** | Implemented (partial) | `agent/.../internal/Logging` 存在并 `internal`；`internal object ProviderSupport` **不存在**（同 §6.2 gap） |
@@ -94,20 +114,20 @@ data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta:
 
 ---
 
-### 偏差 2: `runStream` 不触发 `AgentHook` 回调 — 已知限制
+### 偏差 2: `runStream` 不触发 `AgentHook` 回调 — **v1.1 已修复**
 
-**Spec §5.6 表述:** "ReActAgent 在以下时点调用 config.hooks 中的所有 AgentHook: …"（未限定 run vs runStream）
+**修复前状态:** 仅 `run(input, memory)` 路径触发全部 6 个 hook；`runStream(input, memory)` 路径**不**触发任何 hook。
 
-**实际行为:** 仅 `run(input, memory)` 路径触发全部 6 个 hook；`runStream(input, memory)` 路径**不**触发任何 hook。
+**修复内容 (v1.1):**
+- `ReActAgent` 提取共享 `runAlgorithm` 内核,`run` / `runStream` / `run(input)` 三条路径都通过 `runAlgorithm` 执行
+- `runAlgorithm` 内部在 6 个时点统一调用 `invokeHooks`: `beforeLlmCall` / `afterLlmResponse` / `beforeToolCall` / `afterToolCall` / `onError` / `onRunFinished`
+- `StreamEvent.ToolCallStart` 作为流式解码边界事件在 `runStream` 的 `llmCall` lambda 内部消费,内核无需处理
 
-**代码位置:** `agent/src/main/kotlin/io/github/yeyi/agent/AgentHook.kt:32-33` KDoc 显式声明:
-> v1 实现范围: 仅 `run` 路径触发上述回调; `runStream` 在 v1.x 中暂不触发 hook(由 v1.1 任务补齐)
+**证据:**
+- `agent/src/test/kotlin/io/github/yeyi/agent/AgentHookTest.kt` 的 `runStream also fires all hooks in order` 测试用例
+- `agent/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` 的 `runAlgorithm` 方法
 
-**判定:** **Known limitation, planned for v1.1**。实现侧已记录、未在 spec 中作为例外但属于合理切割——流式路径在 hook 语义上需要回答"是否每个 TextDelta 触发 beforeLlmCall?"等子问题，v1 决定先在 run 路径落地、流式路径留待 v1.1。
-
-**影响:** 业务方若用 `runStream` 配合 Logging/Metrics Hook，**看不到事件**。这不影响功能、但与 spec §5.6 文字不严格一致。
-
-**修复路径 (v1.1):** 在 `runStream` 内同样调用 `invokeHooks { beforeLlmCall / afterLlmResponse / beforeToolCall / afterToolCall / onError / onRunFinished }`，但要解决"流式 LLM 响应何时算 afterLlmResponse"——`Done` 事件后一次性触发。`invokeTool` 后正常触发 `beforeToolCall` / `afterToolCall`。预估 +30 行 + 5–8 个测试。
+**判定:** **v1.1 已修复,与 spec §5.6 文字完全一致。**
 
 ---
 
@@ -137,25 +157,26 @@ data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta:
 
 ## 已知限制 (Cosmetics, 文档已注明)
 
-### 限制 1: `ChatViewModel` 不实时渲染 `TextDelta`
+### 限制 1: `ChatViewModel` 不实时渲染 `TextDelta` — **v1.1 已修复**
 
-**位置:** `app/.../vm/ChatViewModel.kt:35-37, 50-53`
+**修复前状态:** `ChatViewModel.handleEvent` 对 `TextDelta` / `ToolCallStarted` / `ToolCallFinished` 三个分支是 no-op,Assistant 文本只在 `Final` 事件后整段追加。
 
-```kotlin
-is AgentEvent.TextDelta -> {
-    // 文本增量由 collect 之外统一处理:本 demo 简化,仅在 Final 时写入消息
-}
-is AgentEvent.ToolCallStarted,
-is AgentEvent.ToolCallFinished -> {
-    // 仅用于 UI 指示,本 demo 简化
-}
-```
+**修复内容 (v1.1):**
+- `ChatViewModel.handleEvent` 完整实现 6 事件 handler:
+  - `TextDelta` 累积到 `currentAssistantText: StringBuilder`
+  - `ToolCallStarted` 渲染 `UiMessage.ToolInProgress`
+  - `ToolCallFinished` 渲染 `UiMessage.ToolExecution` 并清理 in-progress 状态
+  - `ToolCallRecorded` 为内核 back-fill 事件、no-op(UI 已通过 `ToolCallFinished` 渲染)
+  - `Final` 提交 Assistant 消息,优先用累积的 `TextDelta`,BATCH 模式回退到 `event.message.content`
+  - `Failed` 显示错误
+- 新增 `RunMode.STREAM` / `RunMode.BATCH` 模式切换,UI 渲染逻辑不变
+- 修复 commit `7954d30`: `Final` handler 在 BATCH 模式下回退到 `event.message.content`
 
-**说明:** Demo App 故意简化——文本只在 `Final` 事件后整段追加，不做打字机效果；tool 调用指示器未接到 UI 树。`AgentEvent` 全部 5 个分支都被消费,只是其中 3 个分支是 no-op。
+**证据:**
+- `app/src/main/kotlin/io/github/yeyi/agent/app/vm/ChatViewModel.kt`
+- `app/src/test/kotlin/io/github/yeyi/agent/app/vm/ChatViewModelTest.kt`
 
-**判定:** Demo App 教学价值完整；真实业务应改为实时渲染。**不影响 SDK 公共 API 正确性。**
-
-**修复:** 在 `ChatViewModel` 维护一个 `currentAssistantBuilder: StringBuilder`，收到 `TextDelta` 时 `append`，收到 `Final` 时 commit；tool indicator 路径添加 `MutableStateFlow<Set<ToolCallRecord>>` 给 Compose 订阅。
+**判定:** **v1.1 已修复,Demo App UX 完整。**
 
 ---
 
@@ -190,21 +211,28 @@ is AgentEvent.ToolCallFinished -> {
 | 维度 | 结果 |
 |---|---|
 | 公共 API 表面覆盖 | 16/16 spec 节 — 全覆盖 |
-| 行为契约满足 | 15/16 — §5.6 hook 在 runStream 未触发(其余 v1 自检偏差已在本审计中解决) |
-| 测试通过 | 104/104 |
+| 行为契约满足 | **16/16** — 全部 v1 偏差/限制在 v1.1 已修复或保留决定 |
+| 测试通过 | **115/115** |
 | 构建产出 | `app-debug.apk` 生成 |
 | 内部 API 隔离 | `internal` 边界守住 — `Logging`、测试 fakes、`ReActAgent` 构造器 |
-| 数据类稳定性 | 全字段带默认值 |
+| 数据类稳定性 | 全字段带默认值(v1.1 新增 `AgentEvent.Final.iterations` / `.toolCallRecords` 均带默认值) |
 | spec §1.3 非目标全部回避 | 11/11 — 持久化/token/discovery/MCP/Plan-Execute/结构化输出/Session/可观测性/缓存/重试/KMP 均未越界 |
 
-**结论: v1 实现完整、可发布。** 3 处已知偏差/限制均已记录在 KDoc 或本文件中，属于合理的 v1.x → v1.1 增量改进项，**不阻塞 v1.0.0 发布**。
+**结论: v1.1 完成 Part A/B/C/D,所有 3 个已知偏差/限制全部修复或保留决定记录。** 可发布 v1.1.0。
 
 ---
 
-## 建议的 v1.1 任务列表 (来自本次自检)
+## v1.1 完成情况
 
-1. **Task V1.1.1:** `runStream` 路径集成 `AgentHook` 回调（修复偏差 2）
-2. ~~**Task V1.1.2:** 抽取 `agent/.../providers/ProviderSupport` 共用层（修复偏差 3）~~ — **已撤销** (用户 2026-06-05 决定不抽,详见偏差 3 补注)
-3. **Task V1.1.3:** `ChatViewModel` 实时渲染 `TextDelta` + Tool 指示器（Demo App UX 升级）
+| 任务 | 状态 | 证据 |
+|---|---|---|
+| V1.1.1 `runStream` 路径集成 `AgentHook` 回调（修复偏差 2） | **DONE** | `ReActAgent.runAlgorithm` 内核 + `AgentHookTest.runStream also fires all hooks in order` |
+| ~~V1.1.2 抽取 `agent/.../providers/ProviderSupport` 共用层（修复偏差 3）~~ | **WITHDRAWN** | 用户 2026-06-05 决定不抽(详见偏差 3 补注) |
+| V1.1.3 `ChatViewModel` 实时渲染 `TextDelta` + Tool 指示器 + 模式切换（修复限制 1） | **DONE** | `ChatViewModel.handleEvent` 6 事件实现 + `ChatViewModelTest` 3 用例 + 修复 commit `7954d30` |
 
-任务均已具备测试设计思路，预估合计 +20 个测试、+50 行实现代码、+30 行测试代码。
+v1.1 实际原子 commit 列表(详见 §v1.1 Release Notes):
+- `28e918c` refactor(agent): unify run/runStream to return Flow<AgentEvent>
+- `708fb51` feat(app): 模式切换 + 6 事件 UI 全覆盖
+- `57a2b0f` test: 补全 v1.1 hooks 在 runStream 触发验证 + awaitResult + mode 切换
+- `7954d30` fix(app): Final handler falls back to event.message.content for BATCH mode
+- `<D commit>` docs: v1.1 文档同步
