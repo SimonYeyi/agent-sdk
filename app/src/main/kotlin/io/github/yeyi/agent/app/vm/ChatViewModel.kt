@@ -88,7 +88,9 @@ class ChatViewModel(
                 // v1.0 back-fill internal event; UI already rendered via ToolCallFinished
             }
             is AgentEvent.Final -> {
-                val text = currentAssistantText?.toString().orEmpty()
+                // STREAM 路径用累积的 TextDelta;BATCH 路径不 emit TextDelta,需回退到 Final 自带的 message.content
+                val text = currentAssistantText?.toString()?.takeIf { it.isNotEmpty() }
+                    ?: event.message.content.orEmpty()
                 if (text.isNotEmpty()) {
                     _messages.update { it + UiMessage.Assistant(text) }
                 }

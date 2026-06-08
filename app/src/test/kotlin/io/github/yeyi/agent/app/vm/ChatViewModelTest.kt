@@ -88,22 +88,20 @@ class ChatViewModelTest {
         vm.setMode(RunMode.BATCH)
         vm.sendUserInput("hi")
         advanceUntilIdle()
-        // BATCH 路径走 chat() 而非 chatStream():通过 recordedRequests 验证
+        // BATCH 路径走 chat():通过 recordedRequests 验证
         assertEquals(1, client.recordedRequests.size, "BATCH mode should call chat() exactly once")
-        // isProcessing 流程结束应回到 false
-        assertEquals(false, vm.isProcessing.value, "isProcessing should be false after BATCH run completes")
-        // BATCH 路径不 emit TextDelta,currentAssistantText 在 Final 时为 null;
-        // 当前 handleEvent 的 Final 分支仅依赖 accumulated text,所以 Assistant UiMessage 不会被写入。
-        // (Part B 的已知限制 — v1-impl-gaps.md "限制 1"; 真正的修复应让 Final handler 同时回退到 event.message.content)
+        // 两种 mode 都应渲染同样的消息结构 [User, Assistant]
         val messages = vm.messages.value
-        assertEquals(1, messages.size)
+        assertEquals(2, messages.size, "expected [User, Assistant], got $messages")
         assertTrue(messages[0] is UiMessage.User)
+        assertTrue(messages[1] is UiMessage.Assistant)
         assertEquals("hi", (messages[0] as UiMessage.User).text)
+        assertEquals("batch-reply", (messages[1] as UiMessage.Assistant).text)
+        assertEquals(false, vm.isProcessing.value)
     }
 
     @Test
     fun `mode toggle does not affect UI logic`() = runTest {
-        // 同一个 agent 在 STREAM / BATCH 两种 mode 下都应正常完成 (isProcessing 回 false)
         val client = FakeLlmClient(
             streamScripts = listOf(
                 listOf(
@@ -125,19 +123,18 @@ class ChatViewModelTest {
         vm.sendUserInput("hi")
         advanceUntilIdle()
         val streamMessages = vm.messages.value.map { it::class.simpleName }
-        // STREAM 模式:有 TextDelta → 累积文本,Final 时整段写入 Assistant
-        assertEquals(listOf("User", "Assistant"), streamMessages, "STREAM mode renders User + Assistant")
+        val streamTexts = vm.messages.value.map { (it as? UiMessage.Assistant)?.text }
 
-        // 重置 vm 用 BATCH 模式
         val vm2 = ChatViewModel(agent)
         vm2.setMode(RunMode.BATCH)
         vm2.sendUserInput("hi")
         advanceUntilIdle()
         val batchMessages = vm2.messages.value.map { it::class.simpleName }
-        // BATCH 模式:不 emit TextDelta → currentAssistantText 为 null → Final handler 不写入 Assistant
-        // (Part B 已知限制,见 v1-impl-gaps.md "限制 1")
-        assertEquals(listOf("User"), batchMessages, "BATCH mode: TextDelta absent, Assistant not rendered (Part B limit)")
-        // 两种模式都应正常完成
+        val batchTexts = vm2.messages.value.map { (it as? UiMessage.Assistant)?.text }
+
+        // 模式切换不改变 UI 消息结构与文本
+        assertEquals(streamMessages, batchMessages, "STREAM and BATCH should produce same message shapes")
+        assertEquals(streamTexts, batchTexts, "STREAM and BATCH should produce same final text")
         assertEquals(false, vm.isProcessing.value)
         assertEquals(false, vm2.isProcessing.value)
     }
