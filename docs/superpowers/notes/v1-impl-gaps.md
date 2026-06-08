@@ -71,7 +71,7 @@
 | **§6.3 OpenAI Provider** | Implemented | `OpenAiClient(apiKey, model, baseUrl, httpClient)`；`chat()` + `chatStream()`；OpenAI 兼容服务（DeepSeek/DashScope 等）可换 `baseUrl` |
 | **§6.4 Anthropic Provider** | Implemented | `AnthropicClient(apiKey, model, baseUrl, httpClient)`；`chat()` + `chatStream()`；`x-api-key` / `anthropic-version: 2023-06-01` headers；`tools[].input_schema` 字段映射；tool_result 块以 `role=user` 回灌 |
 | **§6.5 流式事件映射** | Implemented | `AnthropicStreamDecoder` 处理 message_start / content_block_start / content_block_delta(text_delta) → `ContentDelta` / content_block_delta(input_json_delta) → `ToolCallDelta(argumentsDelta)` / content_block_stop / message_delta / message_stop → `Done(usage, finishReason)` |
-| **§7.1 版本矩阵** | Implemented | Gradle 9.2.1-bin / AGP 8.9.1（实际 8.9.1 而非 spec 草拟的 9.1.1；功能等价）/ Kotlin 2.2.0 / coroutines 1.10.1 / serialization 1.9.0 / Ktor 3.0.3 / Compose BOM 2025.04.00 / minSdk 24 / targetSdk 36 / JVM 17 |
+| **§7.1 版本矩阵** | Implemented | Gradle 9.2.1-bin / AGP 8.9.1（实际 8.9.1 而非 spec 草拟的 9.1.1；功能等价）/ Kotlin 2.2.0 / coroutines 1.10.1 / serialization 1.9.0 / Ktor 3.0.3 / Compose BOM 2025.04.00 / minSdk 26 (v1.2 bump,java.time 原生支持) / targetSdk 36 / JVM 17 |
 | **§7.2 Version Catalog** | Implemented | `gradle/libs.versions.toml` 含所有必要坐标 + plugins |
 | **§7.3 发布配置** | Implemented (声明) | `agent` / `providers/*` 使用 `maven-publish` + `signing` 插件（v1 阶段 mavenLocal / GitHub Packages 验证） |
 | **§7.4 Gradle 配置注意** | Implemented | `gradle.properties` 配置 `-Xmx4g`；Gradle 9.x + JDK 17 验证通过 |

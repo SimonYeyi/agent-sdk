@@ -96,7 +96,7 @@ UI 基于 Jetpack Compose,提供 `ChatScreen` / `MessageBubble` / `ToolCallIndic
 | Kotlin                   | 2.2.0               |
 | Java (source/target)     | 17                  |
 | compileSdk               | 36                  |
-| minSdk                   | 24                  |
+| minSdk                   | 26                  |
 | targetSdk                | 36                  |
 | Ktor (client)            | 3.0.3               |
 | kotlinx-coroutines       | 1.10.1              |

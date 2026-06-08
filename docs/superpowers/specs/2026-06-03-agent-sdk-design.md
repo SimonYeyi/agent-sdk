@@ -821,7 +821,7 @@ anthropic-version: 2023-06-01
 | kotlinx-serialization | 1.8.3 | 与 Kotlin 2.2 配套 |
 | Ktor | 3.0.3 | 3.x 稳定，CIO engine |
 | Compose BOM | 2025.04.00 | Sample App 用 |
-| minSdk | 24 | 覆盖 97%+ 设备 |
+| minSdk | 26 | 覆盖 99%+ 设备（v1.2 bump: java.time 原生支持） |
 | targetSdk | 36 | Android 16 |
 | compileSdk | 36 | 与 target 对齐 |
 | JVM target | 17 | AGP 9.x + Kotlin 2.2 推荐 |
