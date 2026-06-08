@@ -132,6 +132,7 @@ public class ReActAgent internal constructor(
 
                 for (call in response.message.toolCalls) {
                     invokeHooks(hooks) { beforeToolCall(call) }
+                    emit(AgentEvent.ToolCallStarted(call.id, call.name))
                     val startMs = System.currentTimeMillis()
                     val callResult = invokeTool(call)
                     val durMs = System.currentTimeMillis() - startMs
@@ -149,7 +150,6 @@ public class ReActAgent internal constructor(
                         toolCallId = call.id, toolName = call.name,
                         content = callResult.content, isError = callResult.isError
                     ))
-                    emit(AgentEvent.ToolCallStarted(call.id, call.name))
                     emit(AgentEvent.ToolCallFinished(call.id, callResult))
                     emit(AgentEvent.ToolCallRecorded(record))
                 }

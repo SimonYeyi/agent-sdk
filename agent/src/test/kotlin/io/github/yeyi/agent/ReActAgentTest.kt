@@ -246,6 +246,36 @@ class ReActAgentTest {
     }
 
     @Test
+    fun `ToolCallStarted event is emitted before tool invocation`() = runTest {
+        // 验证事件时序:Started 必须在 invokeTool 之前发出,Finished/Recorded 之后
+        val echo = EchoTool()
+        val client = FakeLlmClient(
+            streamScripts = listOf(
+                listOf(
+                    StreamEvent.ToolCallStart(id = "c1", name = "echo"),
+                    StreamEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":\"x\"}"),
+                    StreamEvent.Done(null)
+                ),
+                listOf(
+                    StreamEvent.ContentDelta("done"),
+                    StreamEvent.Done(null)
+                )
+            )
+        )
+        val agent = ReActAgent(AgentConfig("", client, listOf(echo), { InMemoryMemory() }, 5))
+        val events = agent.runStream("hi", InMemoryMemory()).toList()
+
+        val startedIdx = events.indexOfFirst { it is AgentEvent.ToolCallStarted }
+        val finishedIdx = events.indexOfFirst { it is AgentEvent.ToolCallFinished }
+        val recordedIdx = events.indexOfFirst { it is AgentEvent.ToolCallRecorded }
+        assertTrue(startedIdx >= 0, "ToolCallStarted must be emitted")
+        assertTrue(finishedIdx >= 0, "ToolCallFinished must be emitted")
+        assertTrue(recordedIdx >= 0, "ToolCallRecorded must be emitted")
+        assertTrue(startedIdx < finishedIdx, "ToolCallStarted must precede ToolCallFinished")
+        assertTrue(finishedIdx < recordedIdx, "ToolCallFinished must precede ToolCallRecorded")
+    }
+
+    @Test
     fun `runStream propagates Error event as thrown cause`() = runTest {
         val boom = RuntimeException("stream failed")
         val client = FakeLlmClient(
