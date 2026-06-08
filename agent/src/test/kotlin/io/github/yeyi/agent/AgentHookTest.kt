@@ -125,7 +125,7 @@ class AgentHookTest {
             AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5, hooks = listOf(throwingHook))
         )
         val result = agent.run("hi", InMemoryMemory()).awaitResult()
-        assertEquals("ok", result.finalMessage.content)
+        assertEquals("ok", result.message.content)
     }
 
     @Test
@@ -170,7 +170,7 @@ class AgentHookTest {
             AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5, hooks = listOf(throwingHook))
         )
         val result = agent.run("hi", InMemoryMemory()).awaitResult()
-        assertEquals("ok", result.finalMessage.content)
+        assertEquals("ok", result.message.content)
     }
 
     @Test
@@ -195,7 +195,7 @@ class AgentHookTest {
             AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 5, hooks = listOf(throwingHook))
         )
         val result = agent.run("hi", InMemoryMemory()).awaitResult()
-        assertEquals("final", result.finalMessage.content)
+        assertEquals("final", result.message.content)
         assertEquals(1, result.toolCalls.size)
     }
 

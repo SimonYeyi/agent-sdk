@@ -37,7 +37,7 @@ agent.runStream("现在几点？", memory).collect { event ->
 
 // 或者：只关心最终结果
 val result = agent.run("现在几点？", memory).awaitResult()
-println(result.finalMessage.content)
+println(result.message.content)
 ```
 
 ## 核心特性
@@ -46,7 +46,7 @@ println(result.finalMessage.content)
 - **统一 Flow API**:`run` / `runStream` 三个入口均返回 `Flow<AgentEvent>`,共享同一个 `loop` 内核;只需 `.awaitResult()` 即可获得最终 `AgentResult`。
 - **工具调用 (Tool)**:`Tool` 接口描述 JSON Schema 入参与返回值,由 Agent 在循环中按需分发。
 - **多轮 Memory**:`Memory` 抽象当前默认实现为 `InMemoryMemory`,可被自定义工厂替换。
-- **Streaming**:消费 6 个 `AgentEvent` 变体 (`TextDelta` / `ToolCallStarted` / `ToolCallFinished` / `ToolCallRecorded` / `Final` / `Failed`)。
+- **Streaming**:消费 5 个 `AgentEvent` 变体 (`TextDelta` / `ToolCallStarted` / `ToolCallFinished` / `Final` / `Failed`)。`Final` 直接包装 `AgentResult`,审计 record 走 `result.toolCalls`。
 - **Skill 加载**:一组 `systemPromptFragment + tools` 的可复用包,通过 `skill(...)` 注入,
   展开为最终 systemPrompt 与工具列表(详见 `agent/src/main/kotlin/io/github/yeyi/agent/skill/Skill.kt`)。
 - **Hook 生命周期**:`AgentHook` 允许在 `beforeLlmCall` / `afterLlmResponse` /
@@ -60,7 +60,7 @@ println(result.finalMessage.content)
 - **统一 API 形态**:`run` / `runStream` 三个入口全部返回 `Flow<AgentEvent>`,共享 `loop` 内核
 - **Hook 双路径触发**:`run` 和 `runStream` 路径上 6 个 hook 全部按序触发(修复 v1 已知偏差)
 - **`awaitResult` 扩展**:`suspend fun Flow<AgentEvent>.awaitResult(): AgentResult` —— 只关心结果时的便捷入口
-- **新事件 `ToolCallRecorded(record)`**:在每次 tool 调用结束后 emit,携带完整 `ToolCallRecord`(含 arguments、timestamp)
+- **`Final` 事件收敛**:`AgentEvent.Final` 改为 `Final(val result: AgentResult)` 直接包装终态结果,作为 `AgentResult` 数据的单一来源
 - **Demo App 模式切换**:`ChatViewModel` 暴露 `STREAM` / `BATCH` 切换,共享同一套 6 事件 UI 渲染逻辑
 
 ## 模块结构
@@ -106,7 +106,7 @@ UI 基于 Jetpack Compose,提供 `ChatScreen` / `MessageBubble` / `ToolCallIndic
 ## 路线图
 
 - v1.0 — Kotlin/Android + OpenAI/Anthropic + ReAct + Memory + Skills + Hooks(初版)
-- **v1.1 (本仓库)** — 核心 API 统一(三个 run 入口返回 `Flow<AgentEvent>`);Hook 在 `run` 和 `runStream` 双路径触发;新增 `awaitResult` 扩展与 `AgentEvent.ToolCallRecorded` 事件;Demo App 新增 STREAM/BATCH 模式切换
+- **v1.1 (本仓库)** — 核心 API 统一(三个 run 入口返回 `Flow<AgentEvent>`);Hook 在 `run` 和 `runStream` 双路径触发;新增 `awaitResult` 扩展;`AgentEvent.Final` 收敛为直接包装 `AgentResult`;Demo App 新增 STREAM/BATCH 模式切换
 - v2.0 — 核心算法在 Python 端重新实现
 - v2.1+ — Token 计数、Token 限流、磁盘 Memory、多 Agent 编排
 

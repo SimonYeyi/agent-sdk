@@ -79,7 +79,7 @@ class AgentBuilderTest {
             llmClient = fakeClient()
         }
         val r = a.run("hi").awaitResult()
-        assertEquals("ok", r.finalMessage.content)
+        assertEquals("ok", r.message.content)
     }
 
     @Test

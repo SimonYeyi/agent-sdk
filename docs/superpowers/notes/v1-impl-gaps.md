@@ -12,7 +12,7 @@
 |------|------|
 | Agent 公共 API | 三个 run 入口统一返回 `Flow<AgentEvent>`(共享 `loop` 内核);`run(input)` 单轮内部用临时 `InMemoryMemory` |
 | AgentResult | 移除 `memory` 字段(caller 持有引用) |
-| AgentEvent | 新增 `ToolCallRecorded(record)` 变体;`Final` 加 `iterations` / `toolCallRecords` 字段(带默认值) |
+| AgentEvent | `Final` 收敛为 `Final(val result: AgentResult)`,数据单一来源;`Final` 旧字段(iterations / toolCallRecords)与 `ToolCallRecorded` 变体一并删除,审计 record 只通过 `AgentResult.toolCalls` 暴露 |
 | Hook 集成 | `run()` 和 `runStream()` 两条路径都触发全部 6 个 hook(共享内核)(修复偏差 2) |
 | awaitResult 扩展 | 新增 `suspend fun Flow<AgentEvent>.awaitResult(): AgentResult` |
 | Demo App | `ChatViewModel` 完整实现 6 事件 handler;新增 STREAM/BATCH 模式切换(无需改 UI 逻辑) |
@@ -57,7 +57,7 @@
 | **§4.2 LlmClient + ChatRequest/Response/StreamEvent/Usage/FinishReason** | Implemented (with additive extension) | `LlmClient.kt` — `providerName` + `chat()` + `chatStream()`；`ChatRequest` / `ChatResponse` / `Usage` / `FinishReason` (4 values) 全部对位。**注:** `StreamEvent` 多了 `ToolCallStart(id, name)` 子类型，详见"已知偏差"节 |
 | **§4.3 Tool + ToolParameters + ToolContext + ToolExecutionResult** | Implemented | `Tool` interface 4 成员；`ToolParameters` sealed (`Empty` / `JsonSchema`)；`ToolExecutionResult(content, isError=false)`；`ToolContext(invocationId, metadata)` |
 | **§4.4 Memory + InMemoryMemory** | Implemented | `Memory` interface 3 方法；`InMemoryMemory` 用 `Mutex.withLock` 保护，线程安全 |
-| **§4.5 Agent + AgentConfig + AgentResult + ToolCallRecord + AgentEvent + AgentHook + NoOpAgentHook** | Implemented (v1.1 additive) | `Agent` 三方法全部返回 `Flow<AgentEvent>` (`run` / `run(input, memory)` / `runStream`)；`AgentConfig` 6 字段；`AgentResult` 3 字段(无 `memory`，caller 持有引用)；`ToolCallRecord` 5 字段(SDK 内部审计类型,完整 record 仅出现在 `AgentResult.toolCalls` / `Final.toolCallRecords`,流式事件不再 emit 完整 record)；`AgentEvent` **5 变体** (v1.1 加 `Final.iterations` / `Final.toolCallRecords` 默认字段,`ToolCallRecorded` 删除);`AgentHook` **6 回调** (beforeLlmCall / afterLlmResponse / beforeToolCall / afterToolCall / onError / onRunFinished)；`NoOpAgentHook` object；扩展 `Flow<AgentEvent>.awaitResult()` |
+| **§4.5 Agent + AgentConfig + AgentResult + ToolCallRecord + AgentEvent + AgentHook + NoOpAgentHook** | Implemented (v1.1 additive) | `Agent` 三方法全部返回 `Flow<AgentEvent>` (`run` / `run(input, memory)` / `runStream`)；`AgentConfig` 6 字段；`AgentResult` 3 字段(`message` / `iterations` / `toolCalls`,无 `memory`，caller 持有引用)；`AgentResult.ToolCallRecord` 5 字段(SDK 内部审计类型,作为 `AgentResult` 嵌套类,完整 record 仅出现在 `AgentResult.toolCalls`);`AgentEvent` **5 变体** (v1.1 收敛为 `Final(val result: AgentResult)` 直接包装,数据单一来源,`Final` 旧字段与 `ToolCallRecorded` 事件均删除);`AgentHook` **6 回调** (beforeLlmCall / afterLlmResponse / beforeToolCall / afterToolCall / onError / onRunFinished)；`NoOpAgentHook` object；扩展 `Flow<AgentEvent>.awaitResult()` |
 | **§4.6 AgentBuilder DSL** | Implemented | `agent { }` 顶层函数 + `AgentBuilder` class；包含 `systemPrompt` / `llmClient` / `maxIterations` / `tool()` / `tools()` / `skill()` / `skills()` / `memory { }` / `hook()`；Skill 展开为 systemPrompt + tools；重复 tool name 检测 |
 | **§4.7 Skill 数据类 + DSL** | Implemented | `Skill(name, description, systemPromptFragment, tools)` data class；`SkillBuilder` + `skill(name) { }` 顶层函数；`description` 默认空、`systemPromptFragment` 默认空、`tools` 默认空 |
 | **§5.1 ReAct 非流式算法** | Implemented (v1.1 重构) | `ReActAgent.run(input, memory)` 返回 `Flow<AgentEvent>`；与 `runStream` 共享 `loop` 内核，差别仅在传入的 `llmCall = { req -> config.llmClient.chat(req) }`。`ensureActive()`、`invokeTool` 吞业务异常不吞 `CancellationException`；业务异常触发 `onError` hook + emit `Failed` |
@@ -166,10 +166,10 @@ data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta:
   - `TextDelta` 累积到 `currentAssistantText: StringBuilder`
   - `ToolCallStarted` 渲染 `UiMessage.ToolInProgress`
   - `ToolCallFinished` 渲染 `UiMessage.ToolExecution(callId, toolName, result)` 并清理 in-progress 状态
-  - `Final` 提交 Assistant 消息,优先用累积的 `TextDelta`,BATCH 模式回退到 `event.message.content`
+  - `Final` 提交 Assistant 消息,优先用累积的 `TextDelta`,BATCH 模式回退到 `event.result.message.content`
   - `Failed` 显示错误
 - 新增 `RunMode.STREAM` / `RunMode.BATCH` 模式切换,UI 渲染逻辑不变
-- 修复 commit `7954d30`: `Final` handler 在 BATCH 模式下回退到 `event.message.content`
+- 修复 commit `7954d30`: `Final` handler 在 BATCH 模式下回退到 `event.message.content`（v1.1 收敛后改为 `event.result.message.content`）
 
 **证据:**
 - `app/src/main/kotlin/io/github/yeyi/agent/app/vm/ChatViewModel.kt`
@@ -214,7 +214,7 @@ data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta:
 | 测试通过 | **115/115** |
 | 构建产出 | `app-debug.apk` 生成 |
 | 内部 API 隔离 | `internal` 边界守住 — `Logging`、测试 fakes、`ReActAgent` 构造器 |
-| 数据类稳定性 | 全字段带默认值(v1.1 新增 `AgentEvent.Final.iterations` / `.toolCallRecords` 均带默认值) |
+| 数据类稳定性 | `AgentResult` / `AgentEvent.Final` 收敛为 `Final(val result: AgentResult)` 包装,数据单一来源;原 `Final` 多字段 API 与 `ToolCallRecorded` 事件删除 |
 | spec §1.3 非目标全部回避 | 11/11 — 持久化/token/discovery/MCP/Plan-Execute/结构化输出/Session/可观测性/缓存/重试/KMP 均未越界 |
 
 **结论: v1.1 完成 Part A/B/C/D,所有 3 个已知偏差/限制全部修复或保留决定记录。** 可发布 v1.1.0。

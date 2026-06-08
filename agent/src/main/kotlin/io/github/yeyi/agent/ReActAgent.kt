@@ -98,7 +98,7 @@ public class ReActAgent internal constructor(
         emit: suspend (AgentEvent) -> Unit,
     ) {
         memory.add(ChatMessage.User(input))
-        val toolCallRecords: MutableList<ToolCallRecord> = mutableListOf()
+        val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
         var iterations = 0
 
         try {
@@ -113,14 +113,13 @@ public class ReActAgent internal constructor(
                 memory.add(response.message)
 
                 if (response.message.toolCalls.isEmpty()) {
-                    val records = toolCallRecords.toList()
                     val result = AgentResult(
-                        finalMessage = response.message,
+                        message = response.message,
                         iterations = iterations,
-                        toolCalls = records
+                        toolCalls = toolCalls.toList(),
                     )
                     invokeHooks(config.hooks) { onRunFinished(result) }
-                    emit(AgentEvent.Final(response.message, iterations, records))
+                    emit(AgentEvent.Final(result))
                     return
                 }
 
@@ -132,14 +131,14 @@ public class ReActAgent internal constructor(
                     val durMs = System.currentTimeMillis() - startMs
                     invokeHooks(config.hooks) { afterToolCall(call, callResult, durMs) }
 
-                    val record = ToolCallRecord(
+                    val record = AgentResult.ToolCallRecord(
                         callId = call.id,
                         toolName = call.name,
                         arguments = call.arguments,
                         result = callResult,
                         timestamp = java.time.Instant.now()
                     )
-                    toolCallRecords += record
+                    toolCalls += record
                     memory.add(ChatMessage.ToolResult(
                         toolCallId = call.id, toolName = call.name,
                         content = callResult.content, isError = callResult.isError

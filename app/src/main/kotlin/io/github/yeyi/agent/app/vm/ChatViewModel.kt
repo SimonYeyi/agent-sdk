@@ -82,9 +82,9 @@ class ChatViewModel(
                 }
             }
             is AgentEvent.Final -> {
-                // STREAM 路径用累积的 TextDelta;BATCH 路径不 emit TextDelta,需回退到 Final 自带的 message.content
+                // STREAM 路径用累积的 TextDelta;BATCH 路径不 emit TextDelta,需回退到 Final.result.message.content
                 val text = currentAssistantText?.toString()?.takeIf { it.isNotEmpty() }
-                    ?: event.message.content.orEmpty()
+                    ?: event.result.message.content.orEmpty()
                 if (text.isNotEmpty()) {
                     _messages.update { it + UiMessage.Assistant(text) }
                 }

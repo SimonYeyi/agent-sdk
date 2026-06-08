@@ -297,28 +297,24 @@ data class AgentConfig(
 )
 
 data class AgentResult(
-    val finalMessage: ChatMessage.Assistant,
+    val message: ChatMessage.Assistant,
     val iterations: Int,
     val toolCalls: List<ToolCallRecord>                    // 本次 run 触发的所有工具调用
-)
-
-data class ToolCallRecord(
-    val callId: String,
-    val toolName: String,
-    val arguments: JsonElement,
-    val result: ToolExecutionResult,
-    val timestamp: java.time.Instant
-)
+) {
+    data class ToolCallRecord(                             // v1.1 嵌套:仅作为审计/回放 record 出现
+        val callId: String,
+        val toolName: String,
+        val arguments: JsonElement,
+        val result: ToolExecutionResult,
+        val timestamp: java.time.Instant
+    )
+}
 
 sealed interface AgentEvent {
     data class TextDelta(val text: String) : AgentEvent
     data class ToolCallStarted(val callId: String, val toolName: String) : AgentEvent
     data class ToolCallFinished(val callId: String, val result: ToolExecutionResult) : AgentEvent
-    data class Final(
-        val message: ChatMessage.Assistant,
-        val iterations: Int = 0,
-        val toolCallRecords: List<ToolCallRecord> = emptyList(),
-    ) : AgentEvent
+    data class Final(val result: AgentResult) : AgentEvent   // v1.1 收敛:终态事件直接包装 AgentResult
     data class Failed(val cause: Throwable) : AgentEvent
 }
 
@@ -432,7 +428,7 @@ val myAgent = agent {
 
 val memory = InMemoryMemory()
 val result = myAgent.run("现在几点？帮我算 3*7+2", memory)
-println(result.finalMessage.content)
+println(result.message.content)
 ```
 
 ### 4.7 Skill（v1 提权）
@@ -540,8 +536,8 @@ override fun run(input: String, memory: Memory): Flow<AgentEvent> = flow {
 - 循环顶部 `coroutineContext.ensureActive()` 响应取消
 - 每次 LLM 调用前后统一触发 `beforeLlmCall` / `afterLlmResponse` hook
 - `invokeTool` 内部吞业务异常转 `ToolExecutionResult(isError=true)` 喂回 LLM,**不吞 `CancellationException`**
-- 工具结果回写 `memory` 后,emit `ToolCallStarted` / `ToolCallFinished` 两个事件(完整 record 通过 `Final.toolCallRecords` 一次性给出)
-- 终态 emit `Final(message, iterations, toolCallRecords)`,并触发 `onRunFinished` hook
+- 工具结果回写 `memory` 后,emit `ToolCallStarted` / `ToolCallFinished` 两个事件
+- 终态 emit `Final(AgentResult(message, iterations, toolCalls))`,并触发 `onRunFinished` hook
 - 超过 `maxIterations` 抛 `AgentException.MaxIterations`
 
 ### 5.2 算法（流式）
@@ -960,9 +956,9 @@ class ChatViewModel(private val agent: Agent) : ViewModel() {
 ```
 
 **关键设计**:
-- **5 事件全部消费**:`TextDelta` 累积、`ToolCallStarted`/`ToolCallFinished` 渲染工具指示器、`Final` 提交消息(含完整 `toolCallRecords`)、`Failed` 显示错误
-- **UiMessage 与 SDK 内部 record 解耦**:`UiMessage.ToolExecution` 持有 `(callId, toolName, result: ToolExecutionResult)`,不 import SDK 内部审计类型 `ToolCallRecord`(完整 record 仍出现在 `AgentResult.toolCalls` 和 `Final.toolCallRecords` 给审计/回放用)
-- **STREAM/BATCH 模式**:通过 `RunMode` 切换上游调用 (`runStream` vs `run`),UI 渲染逻辑不变——`Final` handler 同时支持"累积 TextDelta 优先 + 自身 message.content 回退"
+- **5 事件全部消费**:`TextDelta` 累积、`ToolCallStarted`/`ToolCallFinished` 渲染工具指示器、`Final` 提交消息(`result.message.content` + 完整 `result.toolCalls`)、`Failed` 显示错误
+- **UiMessage 与 SDK 内部 record 解耦**:`UiMessage.ToolExecution` 持有 `(callId, toolName, result: ToolExecutionResult)`,不 import SDK 内部审计类型 `AgentResult.ToolCallRecord`(完整 record 仍出现在 `AgentResult.toolCalls` 给审计/回放用)
+- **STREAM/BATCH 模式**:通过 `RunMode` 切换上游调用 (`runStream` vs `run`),UI 渲染逻辑不变——`Final` handler 同时支持"累积 TextDelta 优先 + `event.result.message.content` 回退"
 - **每次 run 独立 `InMemoryMemory`**:Demo App 的简化决策,v1.1 维持(真实业务应持有 ViewModel scope memory)
 
 ### 9.4 3 个演示 Tool 的设计原则

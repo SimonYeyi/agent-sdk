@@ -22,7 +22,7 @@ class AgentResultExtensionsTest {
         )
         val agent = ReActAgent(AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5))
         val result = agent.run("hello", InMemoryMemory()).awaitResult()
-        assertEquals("hi", result.finalMessage.content)
+        assertEquals("hi", result.message.content)
         assertEquals(1, result.iterations)
         assertEquals(emptyList(), result.toolCalls)
     }
@@ -30,14 +30,17 @@ class AgentResultExtensionsTest {
     @Test
     fun `awaitResult filters non-Final events and finds Final`() = runTest {
         // 直接构造一个混有其他事件的 flow
+        val result = AgentResult(
+            message = ChatMessage.Assistant(content = "hello"),
+            iterations = 1,
+            toolCalls = emptyList(),
+        )
         val flow = flowOf<AgentEvent>(
             AgentEvent.TextDelta("he"),
             AgentEvent.TextDelta("llo"),
-            AgentEvent.Final(ChatMessage.Assistant(content = "hello"), iterations = 1)
+            AgentEvent.Final(result),
         )
-        val result = flow.awaitResult()
-        assertEquals("hello", result.finalMessage.content)
-        assertEquals(1, result.iterations)
+        assertEquals(result, flow.awaitResult())
     }
 
     @Test

@@ -39,7 +39,7 @@ class ReActAgentTest {
         )
         val memory = InMemoryMemory()
         val result = agent.run("hi", memory).awaitResult()
-        assertEquals("hello", result.finalMessage.content)
+        assertEquals("hello", result.message.content)
         assertEquals(1, result.iterations)
         assertEquals(0, result.toolCalls.size)
         val h = memory.history()
@@ -81,7 +81,7 @@ class ReActAgentTest {
         val agent = ReActAgent(AgentConfig("", client, listOf(echo), { InMemoryMemory() }, 5))
         val mem = InMemoryMemory()
         val result = agent.run("hi", mem).awaitResult()
-        assertEquals("done: hello", result.finalMessage.content)
+        assertEquals("done: hello", result.message.content)
         assertEquals(2, result.iterations)
         assertEquals(1, result.toolCalls.size)
         assertEquals("echo", result.toolCalls[0].toolName)
@@ -134,7 +134,7 @@ class ReActAgentTest {
         val agent = ReActAgent(AgentConfig("", client, listOf(failingTool), { InMemoryMemory() }, 5))
         val mem = InMemoryMemory()
         val result = agent.run("hi", mem).awaitResult()
-        assertEquals("recovered", result.finalMessage.content)
+        assertEquals("recovered", result.message.content)
         val toolResult = mem.history().filterIsInstance<ChatMessage.ToolResult>().single()
         assertTrue(toolResult.isError)
         assertTrue(toolResult.content.contains("kaboom"))
@@ -217,7 +217,7 @@ class ReActAgentTest {
         assertEquals(listOf("hel", "lo"), texts)
         val finals = events.filterIsInstance<AgentEvent.Final>()
         assertEquals(1, finals.size)
-        assertEquals("hello", finals.single().message.content)
+        assertEquals("hello", finals.single().result.message.content)
     }
 
     @Test
