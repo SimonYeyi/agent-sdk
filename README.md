@@ -43,7 +43,7 @@ println(result.finalMessage.content)
 ## 核心特性
 
 - **ReAct 循环**:`ReActAgent` 在 reason/act 之间迭代,直到模型给出终态回答或耗尽 `maxIterations`。
-- **统一 Flow API**:`run` / `runStream` 三个入口均返回 `Flow<AgentEvent>`,共享同一个 `runAlgorithm` 内核;只需 `.awaitResult()` 即可获得最终 `AgentResult`。
+- **统一 Flow API**:`run` / `runStream` 三个入口均返回 `Flow<AgentEvent>`,共享同一个 `loop` 内核;只需 `.awaitResult()` 即可获得最终 `AgentResult`。
 - **工具调用 (Tool)**:`Tool` 接口描述 JSON Schema 入参与返回值,由 Agent 在循环中按需分发。
 - **多轮 Memory**:`Memory` 抽象当前默认实现为 `InMemoryMemory`,可被自定义工厂替换。
 - **Streaming**:消费 6 个 `AgentEvent` 变体 (`TextDelta` / `ToolCallStarted` / `ToolCallFinished` / `ToolCallRecorded` / `Final` / `Failed`)。
@@ -57,7 +57,7 @@ println(result.finalMessage.content)
 
 ## v1.1 新增
 
-- **统一 API 形态**:`run` / `runStream` 三个入口全部返回 `Flow<AgentEvent>`,共享 `runAlgorithm` 内核
+- **统一 API 形态**:`run` / `runStream` 三个入口全部返回 `Flow<AgentEvent>`,共享 `loop` 内核
 - **Hook 双路径触发**:`run` 和 `runStream` 路径上 6 个 hook 全部按序触发(修复 v1 已知偏差)
 - **`awaitResult` 扩展**:`suspend fun Flow<AgentEvent>.awaitResult(): AgentResult` —— 只关心结果时的便捷入口
 - **新事件 `ToolCallRecorded(record)`**:在每次 tool 调用结束后 emit,携带完整 `ToolCallRecord`(含 arguments、timestamp)

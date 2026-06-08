@@ -523,22 +523,20 @@ val myAgent = agent {
 
 ### 5.1 算法（非流式）
 
-`ReActAgent.run(input, memory)` 与 `runStream` 共享同一个 `runAlgorithm` 内核,差别仅在于传入的 `llmCall` lambda。批式版本的 `llmCall` 是一次性 `chat()` 调用:
+`ReActAgent.run(input, memory)` 与 `runStream` 共享同一个 `loop` 内核,差别仅在于传入的 `llmCall` lambda。批式版本的 `llmCall` 是一次性 `chat()` 调用:
 
 ```kotlin
 override fun run(input: String, memory: Memory): Flow<AgentEvent> = flow {
-    runAlgorithm(
+    loop(
         input = input,
         memory = memory,
         llmCall = { req -> config.llmClient.chat(req) },
-        emitTextDeltas = false,
-        hooks = config.hooks,
         emit = { emit(it) },
     )
 }
 ```
 
-**核心原则**(`runAlgorithm` 内核不变,见 §5.2):
+**核心原则**(`loop` 内核不变,见 §5.2):
 - 循环顶部 `coroutineContext.ensureActive()` 响应取消
 - 每次 LLM 调用前后统一触发 `beforeLlmCall` / `afterLlmResponse` hook
 - `invokeTool` 内部吞业务异常转 `ToolExecutionResult(isError=true)` 喂回 LLM,**不吞 `CancellationException`**
@@ -548,11 +546,11 @@ override fun run(input: String, memory: Memory): Flow<AgentEvent> = flow {
 
 ### 5.2 算法（流式）
 
-`ReActAgent.runStream(input, memory)` 与批式版本共享 `runAlgorithm` 内核,差别在于传入的 `llmCall` lambda——流式版本消费 `chatStream()`,在收到 `ContentDelta` 时同步 emit `TextDelta`,并把累积后的 `ChatResponse` 交给内核:
+`ReActAgent.runStream(input, memory)` 与批式版本共享 `loop` 内核,差别在于传入的 `llmCall` lambda——流式版本消费 `chatStream()`,在收到 `ContentDelta` 时同步 emit `TextDelta`,并把累积后的 `ChatResponse` 交给内核:
 
 ```kotlin
 override fun runStream(input: String, memory: Memory): Flow<AgentEvent> = flow {
-    runAlgorithm(
+    loop(
         input = input,
         memory = memory,
         llmCall = { req ->
@@ -597,16 +595,14 @@ override fun runStream(input: String, memory: Memory): Flow<AgentEvent> = flow {
                     ?: if (finalCalls.isNotEmpty()) FinishReason.ToolCalls else FinishReason.Stop,
             )
         },
-        emitTextDeltas = true,
-        hooks = config.hooks,
         emit = { emit(it) },
     )
 }
 ```
 
-**`ToolCallStart` 处理(流式版本内核之外)**:`StreamEvent.ToolCallStart` 是 `chatStream()` 输出的边界事件,用于在流式解码阶段预先建立 call id 槽位——`runAlgorithm` 内核无需直接处理它,只在 `llmCall` lambda 内部消费即可。
+**`ToolCallStart` 处理(流式版本内核之外)**:`StreamEvent.ToolCallStart` 是 `chatStream()` 输出的边界事件,用于在流式解码阶段预先建立 call id 槽位——`loop` 内核无需直接处理它,只在 `llmCall` lambda 内部消费即可。
 
-**核心原则**(由 `runAlgorithm` 内核统一保证,见 §5.1):
+**核心原则**(由 `loop` 内核统一保证,见 §5.1):
 - 与批式版本触发**完全相同**的 6 个 hook 时点
 - 与批式版本 emit **完全相同**的 `AgentEvent` 序列(批式版本无 `TextDelta` 事件;流式版本多 emit `TextDelta`)
 - 超过 `maxIterations` 抛 `AgentException.MaxIterations`
@@ -634,7 +630,7 @@ override fun runStream(input: String, memory: Memory): Flow<AgentEvent> = flow {
 
 ### 5.6 Hook 集成点
 
-- v1.1 起,`run` 和 `runStream` 两条路径均触发全部 6 个 hook。底层是共享的 `runAlgorithm` 内核,在 `beforeLlmCall` / `afterLlmResponse` / `beforeToolCall` / `afterToolCall` / `onError` / `onRunFinished` 处统一触发。
+- v1.1 起,`run` 和 `runStream` 两条路径均触发全部 6 个 hook。底层是共享的 `loop` 内核,在 `beforeLlmCall` / `afterLlmResponse` / `beforeToolCall` / `afterToolCall` / `onError` / `onRunFinished` 处统一触发。
 - `ReActAgent` 在以下时点调用 `config.hooks` 中的所有 `AgentHook`：
   - 每次 LLM 调用前：`beforeLlmCall(iteration, messages)`
   - 每次 LLM 响应后：`afterLlmResponse(iteration, response)`

@@ -10,7 +10,7 @@
 
 | 维度 | 改动 |
 |------|------|
-| Agent 公共 API | 三个 run 入口统一返回 `Flow<AgentEvent>`(共享 `runAlgorithm` 内核);`run(input)` 单轮内部用临时 `InMemoryMemory` |
+| Agent 公共 API | 三个 run 入口统一返回 `Flow<AgentEvent>`(共享 `loop` 内核);`run(input)` 单轮内部用临时 `InMemoryMemory` |
 | AgentResult | 移除 `memory` 字段(caller 持有引用) |
 | AgentEvent | 新增 `ToolCallRecorded(record)` 变体;`Final` 加 `iterations` / `toolCallRecords` 字段(带默认值) |
 | Hook 集成 | `run()` 和 `runStream()` 两条路径都触发全部 6 个 hook(共享内核)(修复偏差 2) |
@@ -60,12 +60,12 @@
 | **§4.5 Agent + AgentConfig + AgentResult + ToolCallRecord + AgentEvent + AgentHook + NoOpAgentHook** | Implemented (v1.1 additive) | `Agent` 三方法全部返回 `Flow<AgentEvent>` (`run` / `run(input, memory)` / `runStream`)；`AgentConfig` 6 字段；`AgentResult` 3 字段(无 `memory`，caller 持有引用)；`ToolCallRecord` 5 字段(SDK 内部审计类型,完整 record 仅出现在 `AgentResult.toolCalls` / `Final.toolCallRecords`,流式事件不再 emit 完整 record)；`AgentEvent` **5 变体** (v1.1 加 `Final.iterations` / `Final.toolCallRecords` 默认字段,`ToolCallRecorded` 删除);`AgentHook` **6 回调** (beforeLlmCall / afterLlmResponse / beforeToolCall / afterToolCall / onError / onRunFinished)；`NoOpAgentHook` object；扩展 `Flow<AgentEvent>.awaitResult()` |
 | **§4.6 AgentBuilder DSL** | Implemented | `agent { }` 顶层函数 + `AgentBuilder` class；包含 `systemPrompt` / `llmClient` / `maxIterations` / `tool()` / `tools()` / `skill()` / `skills()` / `memory { }` / `hook()`；Skill 展开为 systemPrompt + tools；重复 tool name 检测 |
 | **§4.7 Skill 数据类 + DSL** | Implemented | `Skill(name, description, systemPromptFragment, tools)` data class；`SkillBuilder` + `skill(name) { }` 顶层函数；`description` 默认空、`systemPromptFragment` 默认空、`tools` 默认空 |
-| **§5.1 ReAct 非流式算法** | Implemented (v1.1 重构) | `ReActAgent.run(input, memory)` 返回 `Flow<AgentEvent>`；与 `runStream` 共享 `runAlgorithm` 内核，差别仅在传入的 `llmCall = { req -> config.llmClient.chat(req) }`。`ensureActive()`、`invokeTool` 吞业务异常不吞 `CancellationException`；业务异常触发 `onError` hook + emit `Failed` |
-| **§5.2 ReAct 流式算法** | Implemented (v1.1 重构) | `ReActAgent.runStream(input, memory)` 返回 `Flow<AgentEvent>`；共享 `runAlgorithm` 内核，差别在 `llmCall` 内部消费 `chatStream()`、累积 `TextDelta`、把 `ToolCallStart` 作为流式解码边界事件处理；emit `TextDelta` / `ToolCallStarted` / `ToolCallFinished` / `Final` / `Failed`；tool not found 转 `isError=true` |
+| **§5.1 ReAct 非流式算法** | Implemented (v1.1 重构) | `ReActAgent.run(input, memory)` 返回 `Flow<AgentEvent>`；与 `runStream` 共享 `loop` 内核，差别仅在传入的 `llmCall = { req -> config.llmClient.chat(req) }`。`ensureActive()`、`invokeTool` 吞业务异常不吞 `CancellationException`；业务异常触发 `onError` hook + emit `Failed` |
+| **§5.2 ReAct 流式算法** | Implemented (v1.1 重构) | `ReActAgent.runStream(input, memory)` 返回 `Flow<AgentEvent>`；共享 `loop` 内核，差别在 `llmCall` 内部消费 `chatStream()`、累积 `TextDelta`、把 `ToolCallStart` 作为流式解码边界事件处理；emit `TextDelta` / `ToolCallStarted` / `ToolCallFinished` / `Final` / `Failed`；tool not found 转 `isError=true` |
 | **§5.3 取消与错误语义** | Implemented | `coroutineContext.ensureActive()`；`CancellationException` 在多处重新抛出；LLM 错误抛 `LlmError`；格式错误抛 `InvalidResponse`；超 maxIter 抛 `MaxIterations` |
 | **§5.4 线程安全契约** | Implemented | `ReActAgent` 不可变（只持 `config`），并发 `run` / `runStream` 安全；`InMemoryMemory` 用 `Mutex` 保护 |
 | **§5.5 Tool 取消契约** | Implemented (契约由 Tool 实现者保证) | 工具 `suspend fun execute(args, ctx)` 自动响应协程取消；SDK 在 `invokeTool` 中正确处理 `CancellationException` |
-| **§5.6 Hook 集成点** | **Implemented (v1.1 修复)** | `run()` 和 `runStream()` 路径**均**触发全部 6 个 hook；底层共享 `runAlgorithm` 内核统一触发 |
+| **§5.6 Hook 集成点** | **Implemented (v1.1 修复)** | `run()` 和 `runStream()` 路径**均**触发全部 6 个 hook；底层共享 `loop` 内核统一触发 |
 | **§6.1 HTTP 客户端选型 (Ktor 3.x + CIO)** | Implemented | `OpenAiClient` / `AnthropicClient` 均用 `HttpClient(CIO)` |
 | **§6.2 Provider 共用层 (`internal object ProviderSupport`)** | **Gap (minor)** | `agent/.../providers/ProviderSupport` **未创建**。每个 provider 各自在 `companion object` / 顶层函数中实现等价 `defaultHttpClient { install(ContentNegotiation); install(HttpTimeout) }`。功能等价、违反 spec 的"共用层"结构意图 |
 | **§6.3 OpenAI Provider** | Implemented | `OpenAiClient(apiKey, model, baseUrl, httpClient)`；`chat()` + `chatStream()`；OpenAI 兼容服务（DeepSeek/DashScope 等）可换 `baseUrl` |
@@ -119,13 +119,13 @@ data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta:
 **修复前状态:** 仅 `run(input, memory)` 路径触发全部 6 个 hook；`runStream(input, memory)` 路径**不**触发任何 hook。
 
 **修复内容 (v1.1):**
-- `ReActAgent` 提取共享 `runAlgorithm` 内核,`run` / `runStream` / `run(input)` 三条路径都通过 `runAlgorithm` 执行
-- `runAlgorithm` 内部在 6 个时点统一调用 `invokeHooks`: `beforeLlmCall` / `afterLlmResponse` / `beforeToolCall` / `afterToolCall` / `onError` / `onRunFinished`
+- `ReActAgent` 提取共享 `loop` 内核,`run` / `runStream` / `run(input)` 三条路径都通过 `loop` 执行
+- `loop` 内部在 6 个时点统一调用 `invokeHooks`: `beforeLlmCall` / `afterLlmResponse` / `beforeToolCall` / `afterToolCall` / `onError` / `onRunFinished`
 - `StreamEvent.ToolCallStart` 作为流式解码边界事件在 `runStream` 的 `llmCall` lambda 内部消费,内核无需处理
 
 **证据:**
 - `agent/src/test/kotlin/io/github/yeyi/agent/AgentHookTest.kt` 的 `runStream also fires all hooks in order` 测试用例
-- `agent/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` 的 `runAlgorithm` 方法
+- `agent/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` 的 `loop` 方法
 
 **判定:** **v1.1 已修复,与 spec §5.6 文字完全一致。**
 
@@ -225,7 +225,7 @@ data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta:
 
 | 任务 | 状态 | 证据 |
 |---|---|---|
-| V1.1.1 `runStream` 路径集成 `AgentHook` 回调（修复偏差 2） | **DONE** | `ReActAgent.runAlgorithm` 内核 + `AgentHookTest.runStream also fires all hooks in order` |
+| V1.1.1 `runStream` 路径集成 `AgentHook` 回调（修复偏差 2） | **DONE** | `ReActAgent.loop` 内核 + `AgentHookTest.runStream also fires all hooks in order` |
 | ~~V1.1.2 抽取 `agent/.../providers/ProviderSupport` 共用层（修复偏差 3）~~ | **WITHDRAWN** | 用户 2026-06-05 决定不抽(详见偏差 3 补注) |
 | V1.1.3 `ChatViewModel` 实时渲染 `TextDelta` + Tool 指示器 + 模式切换（修复限制 1） | **DONE** | `ChatViewModel.handleEvent` 6 事件实现 + `ChatViewModelTest` 3 用例 + 修复 commit `7954d30` |
 
