@@ -27,18 +27,16 @@ public class ReActAgent internal constructor(
     override fun run(input: String): Flow<AgentEvent> = run(input, InMemoryMemory())
 
     override fun run(input: String, memory: Memory): Flow<AgentEvent> = flow {
-        runAlgorithm(
+        loop(
             input = input,
             memory = memory,
             llmCall = { req -> config.llmClient.chat(req) },
-            emitTextDeltas = false,
-            hooks = config.hooks,
             emit = { emit(it) },
         )
     }
 
     override fun runStream(input: String, memory: Memory): Flow<AgentEvent> = flow {
-        runAlgorithm(
+        loop(
             input = input,
             memory = memory,
             llmCall = { req ->
@@ -89,18 +87,14 @@ public class ReActAgent internal constructor(
                         ?: if (finalCalls.isNotEmpty()) FinishReason.ToolCalls else FinishReason.Stop,
                 )
             },
-            emitTextDeltas = true,
-            hooks = config.hooks,
             emit = { emit(it) },
         )
     }
 
-    private suspend fun runAlgorithm(
+    private suspend fun loop(
         input: String,
         memory: Memory,
         llmCall: suspend (ChatRequest) -> ChatResponse,
-        @Suppress("UNUSED_PARAMETER") emitTextDeltas: Boolean,
-        hooks: List<AgentHook>,
         emit: suspend (AgentEvent) -> Unit,
     ) {
         memory.add(ChatMessage.User(input))
@@ -113,9 +107,9 @@ public class ReActAgent internal constructor(
                 coroutineContext.ensureActive()
 
                 val request = buildRequest(memory)
-                invokeHooks(hooks) { beforeLlmCall(iterations, request.messages) }
+                invokeHooks(config.hooks) { beforeLlmCall(iterations, request.messages) }
                 val response = llmCall(request)
-                invokeHooks(hooks) { afterLlmResponse(iterations, response) }
+                invokeHooks(config.hooks) { afterLlmResponse(iterations, response) }
                 memory.add(response.message)
 
                 if (response.message.toolCalls.isEmpty()) {
@@ -125,18 +119,18 @@ public class ReActAgent internal constructor(
                         iterations = iterations,
                         toolCalls = records
                     )
-                    invokeHooks(hooks) { onRunFinished(result) }
+                    invokeHooks(config.hooks) { onRunFinished(result) }
                     emit(AgentEvent.Final(response.message, iterations, records))
                     return
                 }
 
                 for (call in response.message.toolCalls) {
-                    invokeHooks(hooks) { beforeToolCall(call) }
+                    invokeHooks(config.hooks) { beforeToolCall(call) }
                     emit(AgentEvent.ToolCallStarted(call.id, call.name))
                     val startMs = System.currentTimeMillis()
                     val callResult = invokeTool(call)
                     val durMs = System.currentTimeMillis() - startMs
-                    invokeHooks(hooks) { afterToolCall(call, callResult, durMs) }
+                    invokeHooks(config.hooks) { afterToolCall(call, callResult, durMs) }
 
                     val record = ToolCallRecord(
                         callId = call.id,
@@ -157,7 +151,7 @@ public class ReActAgent internal constructor(
         } catch (t: kotlinx.coroutines.CancellationException) {
             throw t
         } catch (t: Throwable) {
-            invokeHooks(hooks) { onError(iterations, t) }
+            invokeHooks(config.hooks) { onError(iterations, t) }
             emit(AgentEvent.Failed(t))
         }
     }
