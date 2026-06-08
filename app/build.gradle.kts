@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -15,6 +17,20 @@ android {
         targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
+
+        val localProps = Properties().apply {
+            val f = rootProject.file("local.properties")
+            if (f.exists()) f.inputStream().use { load(it) }
+        }
+        fun p(key: String, default: String): String {
+            val v = localProps.getProperty(key)?.trim().orEmpty()
+            val unquoted = if (v.startsWith("\"") && v.endsWith("\"") && v.length >= 2) v.substring(1, v.length - 1) else v
+            return unquoted.ifEmpty { default }
+        }
+        buildConfigField("String", "MODEL_PROVIDER", "\"${p("MODEL_PROVIDER", "openai")}\"")
+        buildConfigField("String", "MODEL_BASE_URL", "\"${p("MODEL_BASE_URL", "")}\"")
+        buildConfigField("String", "MODEL_API_KEY", "\"${p("MODEL_API_KEY", "")}\"")
+        buildConfigField("String", "MODEL_NAME", "\"${p("MODEL_NAME", "gpt-4o-mini")}\"")
     }
 
     buildTypes {
@@ -35,6 +51,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
