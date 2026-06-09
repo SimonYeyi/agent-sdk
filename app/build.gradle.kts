@@ -22,12 +22,7 @@ android {
             val f = rootProject.file("local.properties")
             if (f.exists()) f.inputStream().use { load(it) }
         }
-        fun raw(key: String): String {
-            val v = localProps.getProperty(key).orEmpty()
-            // BuildConfig 生成 Java 源码,嵌入字符串字面量需把 \ 和 " 转义。
-            // 语义层面的 trim/unquote/default 全部下沉到 DemoAgentFactory。
-            return v.replace("\\", "\\\\").replace("\"", "\\\"")
-        }
+        fun raw(key: String) = localProps.getProperty(key).orEmpty()
         buildConfigField("String", "MODEL_PROVIDER", "\"${raw("MODEL_PROVIDER")}\"")
         buildConfigField("String", "MODEL_BASE_URL", "\"${raw("MODEL_BASE_URL")}\"")
         buildConfigField("String", "MODEL_API_KEY", "\"${raw("MODEL_API_KEY")}\"")

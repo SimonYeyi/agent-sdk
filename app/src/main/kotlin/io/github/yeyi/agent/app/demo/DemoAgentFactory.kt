@@ -13,21 +13,20 @@ import io.github.yeyi.agent.providers.openai.OpenAiClient
 /**
  * 构造一个配好演示 Tool 与默认 LLM Client 的 Agent。
  *
- * **配置来源**:从 `local.properties` 的 `MODEL_API_KEY` / `MODEL_BASE_URL` /
- * `MODEL_NAME` 读取(经由 `BuildConfig` 注入,Demo 用途)。`MODEL_PROVIDER`
- * 是可选的。
+ * **配置来源**:从 `local.properties` 的 `MODEL_PROVIDER` / `MODEL_BASE_URL` /
+ * `MODEL_API_KEY` / `MODEL_NAME` 读取(经由 `BuildConfig` 注入)。值由用户
+ * 保证是干净的(无引号、无前后空格),不在工厂里做清理。`MODEL_PROVIDER` 是
+ * 可选的。
  *
  * **Provider 解析优先级**:
- * 1. `MODEL_PROVIDER` 非空 → 必须为 `openai` 或 `anthropic`,否则报错
- * 2. `MODEL_PROVIDER` 为空 → 简单 `baseUrl.contains("anthropic", ignoreCase = true)`
- *    推断,命中则 Anthropic,否则 OpenAI(覆盖 OpenAI 兼容代理场景)
+ * 1. `MODEL_PROVIDER` 非空 → 必须严格等于 `openai` 或 `anthropic`
+ * 2. `MODEL_PROVIDER` 为空 → `baseUrl.contains("anthropic", ignoreCase = true)`
+ *    命中则 Anthropic,否则 OpenAI
  *
- * **fail-fast**:`MODEL_API_KEY` / `MODEL_BASE_URL` / `MODEL_NAME` 任一为空
- * → 抛 [IllegalStateException]。工厂的职责是"忠实翻译完整配置",不静默
- * 回落。SDK 直接用户想"少配即用"走 `OpenAiClient.official(apiKey)` /
- * `AnthropicClient.official(apiKey)`。
- *
- * build.gradle.kts 只做 raw 透传 + Java 字面量转义,所有解析在这里完成。
+ * **核心配置校验**:`MODEL_API_KEY` / `MODEL_BASE_URL` / `MODEL_NAME` 必填,
+ * 任一为空 → 抛 [IllegalStateException];`MODEL_PROVIDER` 显式给了非法值
+ * 也抛。`baseUrl` 是不是合法 URL、API key 是不是有效,留给 LLM client 运行时
+ * 暴露,工厂不做猜测性校验。
  */
 object DemoAgentFactory {
 
@@ -35,14 +34,14 @@ object DemoAgentFactory {
     private const val PROVIDER_ANTHROPIC = "anthropic"
 
     fun create(): Agent {
-        val providerRaw = BuildConfig.MODEL_PROVIDER.unquote().trim().lowercase()
-        val apiKey = BuildConfig.MODEL_API_KEY.unquote().requireNonEmpty("MODEL_API_KEY")
-        val baseUrl = BuildConfig.MODEL_BASE_URL.unquote().requireNonEmpty("MODEL_BASE_URL")
-        val model = BuildConfig.MODEL_NAME.unquote().requireNonEmpty("MODEL_NAME")
+        val providerRaw = BuildConfig.MODEL_PROVIDER
+        val apiKey = BuildConfig.MODEL_API_KEY.requireNonEmpty("MODEL_API_KEY")
+        val baseUrl = BuildConfig.MODEL_BASE_URL.requireNonEmpty("MODEL_BASE_URL")
+        val model = BuildConfig.MODEL_NAME.requireNonEmpty("MODEL_NAME")
 
         val provider: String = when {
             providerRaw.isNotEmpty() -> {
-                check(providerRaw == PROVIDER_OPENAI || providerRaw == PROVIDER_ANTHROPIC) {
+                check(providerRaw in setOf(PROVIDER_OPENAI, PROVIDER_ANTHROPIC)) {
                     "Unsupported MODEL_PROVIDER: '$providerRaw'. " +
                         "Use 'openai' or 'anthropic' (or leave empty to infer from MODEL_BASE_URL)."
                 }
@@ -67,19 +66,8 @@ object DemoAgentFactory {
         }
     }
 
-    /**
-     * 去除字符串首尾空白,再剥除可能包裹的双引号——兼容 `local.properties` 里
-     * `MODEL_API_KEY="sk-..."` 这种带引号的写法。
-     */
-    private fun String.unquote(): String {
-        val t = trim()
-        return if (t.length >= 2 && t.startsWith("\"") && t.endsWith("\"")) t.substring(1, t.length - 1) else t
-    }
-
     private fun String.requireNonEmpty(fieldName: String): String {
-        if (isEmpty()) {
-            throw IllegalStateException("$fieldName is required (set it in local.properties)")
-        }
+        check(isNotEmpty()) { "$fieldName is required (set it in local.properties)" }
         return this
     }
 }
