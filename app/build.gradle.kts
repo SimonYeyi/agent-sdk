@@ -22,15 +22,16 @@ android {
             val f = rootProject.file("local.properties")
             if (f.exists()) f.inputStream().use { load(it) }
         }
-        fun p(key: String, default: String): String {
-            val v = localProps.getProperty(key)?.trim().orEmpty()
-            val unquoted = if (v.startsWith("\"") && v.endsWith("\"") && v.length >= 2) v.substring(1, v.length - 1) else v
-            return unquoted.ifEmpty { default }
+        fun raw(key: String): String {
+            val v = localProps.getProperty(key).orEmpty()
+            // BuildConfig 生成 Java 源码,嵌入字符串字面量需把 \ 和 " 转义。
+            // 语义层面的 trim/unquote/default 全部下沉到 DemoAgentFactory。
+            return v.replace("\\", "\\\\").replace("\"", "\\\"")
         }
-        buildConfigField("String", "MODEL_PROVIDER", "\"${p("MODEL_PROVIDER", "openai")}\"")
-        buildConfigField("String", "MODEL_BASE_URL", "\"${p("MODEL_BASE_URL", "")}\"")
-        buildConfigField("String", "MODEL_API_KEY", "\"${p("MODEL_API_KEY", "")}\"")
-        buildConfigField("String", "MODEL_NAME", "\"${p("MODEL_NAME", "gpt-4o-mini")}\"")
+        buildConfigField("String", "MODEL_PROVIDER", "\"${raw("MODEL_PROVIDER")}\"")
+        buildConfigField("String", "MODEL_BASE_URL", "\"${raw("MODEL_BASE_URL")}\"")
+        buildConfigField("String", "MODEL_API_KEY", "\"${raw("MODEL_API_KEY")}\"")
+        buildConfigField("String", "MODEL_NAME", "\"${raw("MODEL_NAME")}\"")
     }
 
     buildTypes {
