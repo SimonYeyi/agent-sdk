@@ -22,6 +22,8 @@ class OpenAiClientStreamTest {
         """.trimIndent()
         val client = OpenAiClient(
             apiKey = "k",
+            model = OpenAiClient.DEFAULT_MODEL,
+            baseUrl = OpenAiClient.DEFAULT_BASE_URL,
             httpClient = mockOpenAiHttpClient { respond(sseBody, HttpStatusCode.OK, sseHeaders) },
         )
         val events = client.chatStream(

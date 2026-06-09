@@ -22,14 +22,17 @@ import kotlinx.serialization.json.Json
 
 public class OpenAiClient(
     private val apiKey: String,
-    private val model: String = "gpt-4o-mini",
-    private val baseUrl: String = "https://api.openai.com/v1",
+    private val model: String,
+    private val baseUrl: String,
     private val httpClient: HttpClient = defaultHttpClient()
 ) : LlmClient {
 
     override val providerName: String = "openai"
 
     public companion object {
+        public const val DEFAULT_MODEL: String = "gpt-4o-mini"
+        public const val DEFAULT_BASE_URL: String = "https://api.openai.com/v1"
+
         public fun defaultHttpClient(): HttpClient = HttpClient(CIO) {
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
             install(HttpTimeout) {
@@ -37,6 +40,16 @@ public class OpenAiClient(
                 socketTimeoutMillis = 60_000
             }
         }
+
+        public fun official(
+            apiKey: String,
+            httpClient: HttpClient = defaultHttpClient(),
+        ): OpenAiClient = OpenAiClient(
+            apiKey = apiKey,
+            model = DEFAULT_MODEL,
+            baseUrl = DEFAULT_BASE_URL,
+            httpClient = httpClient,
+        )
     }
 
     override suspend fun chat(request: ChatRequest): ChatResponse {

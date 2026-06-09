@@ -29,6 +29,7 @@ class OpenAiClientChatTest {
         val client = OpenAiClient(
             apiKey = "test",
             model = "gpt-4o-mini",
+            baseUrl = OpenAiClient.DEFAULT_BASE_URL,
             httpClient = mockOpenAiHttpClient { _ ->
                 respond(
                     content = raw,
@@ -48,6 +49,7 @@ class OpenAiClientChatTest {
         val client = OpenAiClient(
             apiKey = "test",
             model = "gpt-4o-mini",
+            baseUrl = OpenAiClient.DEFAULT_BASE_URL,
             httpClient = mockOpenAiHttpClient { _ ->
                 respond(
                     content = "server error",

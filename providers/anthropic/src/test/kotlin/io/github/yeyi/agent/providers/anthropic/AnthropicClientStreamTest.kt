@@ -34,7 +34,12 @@ class AnthropicClientStreamTest {
 
         """.trimIndent()
         val http = mockAnthropicHttpClient { respond(sseBody, HttpStatusCode.OK, sseHeaders) }
-        val client = AnthropicClient(apiKey = "k", httpClient = http)
+        val client = AnthropicClient(
+            apiKey = "k",
+            model = AnthropicClient.DEFAULT_MODEL,
+            baseUrl = AnthropicClient.DEFAULT_BASE_URL,
+            httpClient = http,
+        )
         val events = client.chatStream(
             ChatRequest(messages = listOf(ChatMessage.User("hi")))
         ).toList()
@@ -60,7 +65,12 @@ class AnthropicClientStreamTest {
 
         """.trimIndent()
         val http = mockAnthropicHttpClient { respond(sseBody, HttpStatusCode.OK, sseHeaders) }
-        val client = AnthropicClient(apiKey = "k", httpClient = http)
+        val client = AnthropicClient(
+            apiKey = "k",
+            model = AnthropicClient.DEFAULT_MODEL,
+            baseUrl = AnthropicClient.DEFAULT_BASE_URL,
+            httpClient = http,
+        )
         val events = client.chatStream(
             ChatRequest(messages = listOf(ChatMessage.User("hi")))
         ).toList()
@@ -94,8 +104,10 @@ class AnthropicClientStreamTest {
 
         """.trimIndent()
         val client = AnthropicClient(
-            apiKey = "k", model = "m",
-            httpClient = mockAnthropicHttpClient { respond(sse, HttpStatusCode.OK, sseHeaders) }
+            apiKey = "k",
+            model = "m",
+            baseUrl = AnthropicClient.DEFAULT_BASE_URL,
+            httpClient = mockAnthropicHttpClient { respond(sse, HttpStatusCode.OK, sseHeaders) },
         )
         val events = client.chatStream(ChatRequest(messages = listOf(ChatMessage.User("hi")))).toList()
         val starts = events.filterIsInstance<StreamEvent.ToolCallStart>()

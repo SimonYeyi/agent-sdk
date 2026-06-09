@@ -22,13 +22,16 @@ import kotlinx.serialization.json.Json
 
 public class AnthropicClient(
     private val apiKey: String,
-    private val model: String = "claude-sonnet-4-6",
-    private val baseUrl: String = "https://api.anthropic.com",
+    private val model: String,
+    private val baseUrl: String,
     private val httpClient: HttpClient = defaultAnthropicHttpClient(),
 ) : LlmClient {
     override val providerName: String = "anthropic"
 
     public companion object {
+        public const val DEFAULT_MODEL: String = "claude-sonnet-4-6"
+        public const val DEFAULT_BASE_URL: String = "https://api.anthropic.com"
+
         public fun defaultAnthropicHttpClient(): HttpClient = HttpClient(CIO) {
             install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
             install(HttpTimeout) {
@@ -36,6 +39,16 @@ public class AnthropicClient(
                 socketTimeoutMillis = 60_000
             }
         }
+
+        public fun official(
+            apiKey: String,
+            httpClient: HttpClient = defaultAnthropicHttpClient(),
+        ): AnthropicClient = AnthropicClient(
+            apiKey = apiKey,
+            model = DEFAULT_MODEL,
+            baseUrl = DEFAULT_BASE_URL,
+            httpClient = httpClient,
+        )
     }
 
     override suspend fun chat(request: ChatRequest): ChatResponse {
