@@ -28,6 +28,7 @@ android {
             // 语义层面的 trim/unquote/default 全部下沉到 DemoAgentFactory。
             return v.replace("\\", "\\\\").replace("\"", "\\\"")
         }
+        buildConfigField("String", "MODEL_PROVIDER", "\"${raw("MODEL_PROVIDER")}\"")
         buildConfigField("String", "MODEL_BASE_URL", "\"${raw("MODEL_BASE_URL")}\"")
         buildConfigField("String", "MODEL_API_KEY", "\"${raw("MODEL_API_KEY")}\"")
         buildConfigField("String", "MODEL_NAME", "\"${raw("MODEL_NAME")}\"")

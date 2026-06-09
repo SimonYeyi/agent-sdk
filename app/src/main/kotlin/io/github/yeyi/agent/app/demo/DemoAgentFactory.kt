@@ -9,49 +9,50 @@ import io.github.yeyi.agent.app.demo.tools.WebSearchMockTool
 import io.github.yeyi.agent.llm.LlmClient
 import io.github.yeyi.agent.providers.anthropic.AnthropicClient
 import io.github.yeyi.agent.providers.openai.OpenAiClient
-import java.net.URI
-import java.net.URISyntaxException
 
 /**
  * 构造一个配好演示 Tool 与默认 LLM Client 的 Agent。
  *
  * **配置来源**:从 `local.properties` 的 `MODEL_API_KEY` / `MODEL_BASE_URL` /
- * `MODEL_NAME` 读取(经由 `BuildConfig` 注入,Demo 用途)。
+ * `MODEL_NAME` 读取(经由 `BuildConfig` 注入,Demo 用途)。`MODEL_PROVIDER`
+ * 是可选的。
  *
- * **Provider 推断**:不再单独配置 provider,而是从 `MODEL_BASE_URL` 解析
- * —— host 或 path 含 `anthropic` 时选 [AnthropicClient],否则 [OpenAiClient]
- * (覆盖 OpenAI 兼容代理场景)。
+ * **Provider 解析优先级**:
+ * 1. `MODEL_PROVIDER` 非空 → 必须为 `openai` 或 `anthropic`,否则报错
+ * 2. `MODEL_PROVIDER` 为空 → 简单 `baseUrl.contains("anthropic", ignoreCase = true)`
+ *    推断,命中则 Anthropic,否则 OpenAI(覆盖 OpenAI 兼容代理场景)
  *
- * **容错策略 (fail-fast)**:三件套任一缺失 / `MODEL_BASE_URL` 不是合法 URI
- * → 直接抛 [IllegalStateException]。Demo 工厂的职责是"忠实翻译完整配置",
- * 不为"用户忘了填"提供静默回落到 client 默认值的兜底。client 自带的
- * `OpenAiClient.official(apiKey)` / `AnthropicClient.official(apiKey)` 静态
- * 工厂才是"少配即用"的入口——SDK 直接用户走那边。
+ * **fail-fast**:`MODEL_API_KEY` / `MODEL_BASE_URL` / `MODEL_NAME` 任一为空
+ * → 抛 [IllegalStateException]。工厂的职责是"忠实翻译完整配置",不静默
+ * 回落。SDK 直接用户想"少配即用"走 `OpenAiClient.official(apiKey)` /
+ * `AnthropicClient.official(apiKey)`。
  *
  * build.gradle.kts 只做 raw 透传 + Java 字面量转义,所有解析在这里完成。
  */
 object DemoAgentFactory {
 
+    private const val PROVIDER_OPENAI = "openai"
+    private const val PROVIDER_ANTHROPIC = "anthropic"
+
     fun create(): Agent {
+        val providerRaw = BuildConfig.MODEL_PROVIDER.unquote().trim().lowercase()
         val apiKey = BuildConfig.MODEL_API_KEY.unquote().requireNonEmpty("MODEL_API_KEY")
         val baseUrl = BuildConfig.MODEL_BASE_URL.unquote().requireNonEmpty("MODEL_BASE_URL")
         val model = BuildConfig.MODEL_NAME.unquote().requireNonEmpty("MODEL_NAME")
 
-        val uri = try {
-            URI(baseUrl)
-        } catch (e: URISyntaxException) {
-            throw IllegalStateException("MODEL_BASE_URL is not a valid URI: '$baseUrl'", e)
-        }
-        if (uri.scheme.isNullOrBlank() || uri.host.isNullOrBlank()) {
-            throw IllegalStateException(
-                "MODEL_BASE_URL must include scheme and host: '$baseUrl'"
-            )
+        val provider: String = when {
+            providerRaw.isNotEmpty() -> {
+                check(providerRaw == PROVIDER_OPENAI || providerRaw == PROVIDER_ANTHROPIC) {
+                    "Unsupported MODEL_PROVIDER: '$providerRaw'. " +
+                        "Use 'openai' or 'anthropic' (or leave empty to infer from MODEL_BASE_URL)."
+                }
+                providerRaw
+            }
+            baseUrl.contains(PROVIDER_ANTHROPIC, ignoreCase = true) -> PROVIDER_ANTHROPIC
+            else -> PROVIDER_OPENAI
         }
 
-        val isAnthropic = uri.host.orEmpty().contains("anthropic", ignoreCase = true) ||
-            uri.path.orEmpty().contains("anthropic", ignoreCase = true)
-
-        val client: LlmClient = if (isAnthropic) {
+        val client: LlmClient = if (provider == PROVIDER_ANTHROPIC) {
             AnthropicClient(apiKey = apiKey, model = model, baseUrl = baseUrl)
         } else {
             OpenAiClient(apiKey = apiKey, model = model, baseUrl = baseUrl)
