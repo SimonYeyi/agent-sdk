@@ -44,7 +44,7 @@ public class AgentBuilder {
 
     private val tools: MutableList<Tool> = mutableListOf()
     private val skills: MutableList<Skill> = mutableListOf()
-    private var memoryFactory: () -> Memory = { InMemoryMemory() }
+    private var memory: Memory = InMemoryMemory()
     private val hooks: MutableList<AgentHook> = mutableListOf()
 
     public fun tool(t: Tool) {
@@ -63,8 +63,8 @@ public class AgentBuilder {
         skills += ss
     }
 
-    public fun memory(f: () -> Memory) {
-        memoryFactory = f
+    public fun memory(m: Memory) {
+        memory = m
     }
 
     public fun hook(h: AgentHook) {
@@ -111,7 +111,7 @@ public class AgentBuilder {
             systemPrompt = combinedPrompt,
             llmClient = client,
             tools = allTools,
-            memoryFactory = memoryFactory,
+            memory = memory,
             maxIterations = maxIterations,
             hooks = hooks.toList()
         )

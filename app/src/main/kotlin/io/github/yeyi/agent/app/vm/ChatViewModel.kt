@@ -4,7 +4,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
-import io.github.yeyi.agent.memory.InMemoryMemory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -42,7 +41,7 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 val flow = when (_mode.value) {
-                    RunMode.STREAM -> agent.runStream(text, InMemoryMemory())
+                    RunMode.STREAM -> agent.runStream(text)
                     RunMode.BATCH -> agent.run(text)
                 }
                 flow.collect { handleEvent(it) }

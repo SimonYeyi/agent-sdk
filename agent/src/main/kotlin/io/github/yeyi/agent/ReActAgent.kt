@@ -9,8 +9,6 @@ import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.ToolDefinition
-import io.github.yeyi.agent.memory.InMemoryMemory
-import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.ensureActive
@@ -24,21 +22,17 @@ public class ReActAgent internal constructor(
     override val config: AgentConfig
 ) : Agent {
 
-    override fun run(input: String): Flow<AgentEvent> = run(input, InMemoryMemory())
-
-    override fun run(input: String, memory: Memory): Flow<AgentEvent> = flow {
+    override fun run(input: String): Flow<AgentEvent> = flow {
         loop(
             input = input,
-            memory = memory,
             llmCall = { req -> config.llmClient.chat(req) },
             emit = { emit(it) },
         )
     }
 
-    override fun runStream(input: String, memory: Memory): Flow<AgentEvent> = flow {
+    override fun runStream(input: String): Flow<AgentEvent> = flow {
         loop(
             input = input,
-            memory = memory,
             llmCall = { req ->
                 val accumulatedText = StringBuilder()
                 val callOrder: LinkedHashSet<String> = linkedSetOf()
@@ -93,11 +87,10 @@ public class ReActAgent internal constructor(
 
     private suspend fun loop(
         input: String,
-        memory: Memory,
         llmCall: suspend (ChatRequest) -> ChatResponse,
         emit: suspend (AgentEvent) -> Unit,
     ) {
-        memory.add(ChatMessage.User(input))
+        config.memory.add(ChatMessage.User(input))
         val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
         var iterations = 0
 
@@ -106,11 +99,11 @@ public class ReActAgent internal constructor(
                 iterations++
                 coroutineContext.ensureActive()
 
-                val request = buildRequest(memory)
+                val request = buildRequest()
                 invokeHooks(config.hooks) { beforeLlmCall(iterations, request.messages) }
                 val response = llmCall(request)
                 invokeHooks(config.hooks) { afterLlmResponse(iterations, response) }
-                memory.add(response.message)
+                config.memory.add(response.message)
 
                 if (response.message.toolCalls.isEmpty()) {
                     val result = AgentResult(
@@ -139,7 +132,7 @@ public class ReActAgent internal constructor(
                         timestamp = java.time.Instant.now()
                     )
                     toolCalls += record
-                    memory.add(ChatMessage.ToolResult(
+                    config.memory.add(ChatMessage.ToolResult(
                         toolCallId = call.id, toolName = call.name,
                         content = callResult.content, isError = callResult.isError
                     ))
@@ -172,10 +165,10 @@ public class ReActAgent internal constructor(
         }
     }
 
-    private suspend fun buildRequest(memory: Memory): ChatRequest = ChatRequest(
+    private suspend fun buildRequest(): ChatRequest = ChatRequest(
         messages = buildList {
             if (config.systemPrompt.isNotBlank()) add(ChatMessage.System(config.systemPrompt))
-            addAll(memory.history())
+            addAll(config.memory.history())
         },
         tools = config.tools.map { ToolDefinition(it.name, it.description, it.parametersSchema) }
     )

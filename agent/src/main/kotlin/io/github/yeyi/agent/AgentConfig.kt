@@ -8,7 +8,7 @@ public data class AgentConfig internal constructor(
     public val systemPrompt: String,
     public val llmClient: LlmClient,
     public val tools: List<Tool>,
-    public val memoryFactory: () -> Memory,
+    public val memory: Memory,
     public val maxIterations: Int,
     public val hooks: List<AgentHook>
 )

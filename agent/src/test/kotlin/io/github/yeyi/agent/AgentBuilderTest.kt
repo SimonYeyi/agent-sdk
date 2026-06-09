@@ -12,6 +12,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AgentBuilderTest {
@@ -132,14 +133,15 @@ class AgentBuilderTest {
     }
 
     @Test
-    fun `memory factory is honored`() {
+    fun `memory is captured in config`() {
         val a = agent {
             llmClient = fakeClient()
-            memory { CountingMemory }
+            memory(CountingMemory)
         }
-        assertTrue(
-            a.config.memoryFactory() is CountingMemory,
-            "memoryFactory() should produce a CountingMemory instance"
+        assertSame(
+            CountingMemory,
+            a.config.memory,
+            "config.memory should be the instance passed to memory()"
         )
     }
 

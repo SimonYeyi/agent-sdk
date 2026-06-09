@@ -58,9 +58,9 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 5, hooks = listOf(hook))
+            AgentConfig("", client, listOf(EchoTool()), InMemoryMemory(), 5, hooks = listOf(hook))
         )
-        agent.run("hi", InMemoryMemory()).awaitResult()
+        agent.run("hi").awaitResult()
         assertEquals(
             listOf(
                 "beforeLlmCall(1)",
@@ -92,9 +92,9 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 5, hooks = listOf(hook))
+            AgentConfig("", client, listOf(EchoTool()), InMemoryMemory(), 5, hooks = listOf(hook))
         )
-        agent.runStream("hi", InMemoryMemory()).awaitResult()
+        agent.runStream("hi").awaitResult()
         assertEquals(
             listOf(
                 "beforeLlmCall(1)",
@@ -122,9 +122,9 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5, hooks = listOf(throwingHook))
+            AgentConfig("", client, emptyList(), InMemoryMemory(), 5, hooks = listOf(throwingHook))
         )
-        val result = agent.run("hi", InMemoryMemory()).awaitResult()
+        val result = agent.run("hi").awaitResult()
         assertEquals("ok", result.message.content)
     }
 
@@ -148,9 +148,9 @@ class AgentHookTest {
         )
         // maxIterations=1,会立刻 emit Failed(MaxIterations)
         val agent = ReActAgent(
-            AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 1, hooks = listOf(errorHook))
+            AgentConfig("", client, listOf(EchoTool()), InMemoryMemory(), 1, hooks = listOf(errorHook))
         )
-        agent.run("hi", InMemoryMemory()).toList()
+        agent.run("hi").toList()
         assertTrue(errorHook.errors.size == 1)
     }
 
@@ -167,9 +167,9 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5, hooks = listOf(throwingHook))
+            AgentConfig("", client, emptyList(), InMemoryMemory(), 5, hooks = listOf(throwingHook))
         )
-        val result = agent.run("hi", InMemoryMemory()).awaitResult()
+        val result = agent.run("hi").awaitResult()
         assertEquals("ok", result.message.content)
     }
 
@@ -192,9 +192,9 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 5, hooks = listOf(throwingHook))
+            AgentConfig("", client, listOf(EchoTool()), InMemoryMemory(), 5, hooks = listOf(throwingHook))
         )
-        val result = agent.run("hi", InMemoryMemory()).awaitResult()
+        val result = agent.run("hi").awaitResult()
         assertEquals("final", result.message.content)
         assertEquals(1, result.toolCalls.size)
     }
@@ -215,9 +215,9 @@ class AgentHookTest {
             override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
-            AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5, hooks = listOf(errorHook))
+            AgentConfig("", client, emptyList(), InMemoryMemory(), 5, hooks = listOf(errorHook))
         )
-        agent.run("hi", InMemoryMemory()).toList()
+        agent.run("hi").toList()
         assertEquals(1, errorHook.errors.size)
         assertSame(boom, errorHook.errors[0])
     }
@@ -238,9 +238,9 @@ class AgentHookTest {
             override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
-            AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5, hooks = listOf(errorHook))
+            AgentConfig("", client, emptyList(), InMemoryMemory(), 5, hooks = listOf(errorHook))
         )
-        try { agent.run("hi", InMemoryMemory()).toList() } catch (t: Throwable) {
+        try { agent.run("hi").toList() } catch (t: Throwable) {
             assertTrue(t is kotlinx.coroutines.CancellationException)
         }
         // onError MUST NOT be called for cancellation
