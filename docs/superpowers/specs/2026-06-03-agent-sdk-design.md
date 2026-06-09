@@ -277,21 +277,18 @@ class InMemoryMemory : Memory {                          // v1 唯一实现
 interface Agent {
     val config: AgentConfig
 
-    /** 单轮：内部使用临时 InMemoryMemory（run 完即丢弃） */
+    /** 批式：使用 config.memory 维护历史,内部调用 llmClient.chat() 单次 RTT */
     fun run(input: String): Flow<AgentEvent>
 
-    /** 多轮批式：传入 memory 保留历史，内部调用 llmClient.chat() */
-    fun run(input: String, memory: Memory): Flow<AgentEvent>
-
-    /** 多轮流式：传入 memory 保留历史，内部调用 llmClient.chatStream() 推送 TextDelta */
-    fun runStream(input: String, memory: Memory): Flow<AgentEvent>
+    /** 流式：使用 config.memory 维护历史,内部调用 llmClient.chatStream() 推送 TextDelta */
+    fun runStream(input: String): Flow<AgentEvent>
 }
 
 data class AgentConfig(
     val systemPrompt: String,
     val llmClient: LlmClient,
     val tools: List<Tool>,
-    val memoryFactory: () -> Memory,
+    val memory: Memory,
     val maxIterations: Int,
     val hooks: List<AgentHook> = emptyList()                // v1 新增：生命周期回调
 )
@@ -358,14 +355,14 @@ class AgentBuilder {
     var maxIterations: Int = 10
     private val tools: MutableList<Tool> = mutableListOf()
     private val skills: MutableList<Skill> = mutableListOf()
-    private var memoryFactory: () -> Memory = { InMemoryMemory() }
+    private var memory: Memory = InMemoryMemory()
     private val hooks: MutableList<AgentHook> = mutableListOf()
 
     fun tool(t: Tool) { tools += t }
     fun tools(ts: Iterable<Tool>) { tools += ts }
     fun skill(s: Skill) { skills += s }
     fun skills(ss: Iterable<Skill>) { skills += ss }
-    fun memory(f: () -> Memory) { memoryFactory = f }
+    fun memory(m: Memory) { memory = m }
     fun hook(h: AgentHook) { hooks += h }
 
     fun build(): Agent {
@@ -394,7 +391,7 @@ class AgentBuilder {
             systemPrompt = combinedPrompt,
             llmClient = client,
             tools = allTools,
-            memoryFactory = memoryFactory,
+            memory = memory,
             maxIterations = maxIterations,
             hooks = hooks.toList()
         )
@@ -519,13 +516,12 @@ val myAgent = agent {
 
 ### 5.1 算法（非流式）
 
-`ReActAgent.run(input, memory)` 与 `runStream` 共享同一个 `loop` 内核,差别仅在于传入的 `llmCall` lambda。批式版本的 `llmCall` 是一次性 `chat()` 调用:
+`ReActAgent.run(input)` 与 `runStream` 共享同一个 `loop` 内核(loop 内部通过 `config.memory` 读写历史),差别仅在于传入的 `llmCall` lambda。批式版本的 `llmCall` 是一次性 `chat()` 调用:
 
 ```kotlin
-override fun run(input: String, memory: Memory): Flow<AgentEvent> = flow {
+override fun run(input: String): Flow<AgentEvent> = flow {
     loop(
         input = input,
-        memory = memory,
         llmCall = { req -> config.llmClient.chat(req) },
         emit = { emit(it) },
     )
@@ -542,13 +538,12 @@ override fun run(input: String, memory: Memory): Flow<AgentEvent> = flow {
 
 ### 5.2 算法（流式）
 
-`ReActAgent.runStream(input, memory)` 与批式版本共享 `loop` 内核,差别在于传入的 `llmCall` lambda——流式版本消费 `chatStream()`,在收到 `ContentDelta` 时同步 emit `TextDelta`,并把累积后的 `ChatResponse` 交给内核:
+`ReActAgent.runStream(input)` 与批式版本共享 `loop` 内核,差别在于传入的 `llmCall` lambda——流式版本消费 `chatStream()`,在收到 `ContentDelta` 时同步 emit `TextDelta`,并把累积后的 `ChatResponse` 交给内核:
 
 ```kotlin
-override fun runStream(input: String, memory: Memory): Flow<AgentEvent> = flow {
+override fun runStream(input: String): Flow<AgentEvent> = flow {
     loop(
         input = input,
-        memory = memory,
         llmCall = { req ->
             val accumulatedText = StringBuilder()
             val callOrder: LinkedHashSet<String> = linkedSetOf()
@@ -938,8 +933,8 @@ class ChatViewModel(private val agent: Agent) : ViewModel() {
     fun sendUserInput(text: String) {
         viewModelScope.launch {
             val flow = when (_mode.value) {
-                RunMode.STREAM -> agent.runStream(text, InMemoryMemory())  // 推 TextDelta
-                RunMode.BATCH  -> agent.run(text, InMemoryMemory())         // 一次性 chat
+                RunMode.STREAM -> agent.runStream(text)  // 推 TextDelta
+                RunMode.BATCH  -> agent.run(text)         // 一次性 chat
             }
             flow.collect { handleEvent(it) }
         }
