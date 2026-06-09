@@ -9,9 +9,14 @@ sealed class UiMessage {
         override val id: String = "u-${text.hashCode()}"
     }
 
-    data class Assistant(val text: String) : UiMessage() {
-        override val id: String = "a-${text.hashCode()}"
-    }
+    /**
+     * 已落定的 assistant 文本。
+     *
+     * [id] 显式构造——流式期间 `liveBubble` 用 sentinel id("a-live-{turn}"),
+     * Final 提交时沿用同 id,保证 LazyColumn 视为同 item 原地更新,避免
+     * "删 live + 加 Assistant" 的视觉跳动。
+     */
+    data class Assistant(val text: String, override val id: String) : UiMessage()
 
     data class ToolInProgress(
         val callId: String,

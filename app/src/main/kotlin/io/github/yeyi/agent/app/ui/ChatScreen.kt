@@ -28,17 +28,27 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.yeyi.agent.app.vm.ChatViewModel
 import io.github.yeyi.agent.app.vm.RunMode
+import io.github.yeyi.agent.app.vm.UiMessage
 
 @Composable
 fun ChatScreen(viewModel: ChatViewModel) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
+    val liveBubble by viewModel.liveBubble.collectAsStateWithLifecycle()
     val isProcessing by viewModel.isProcessing.collectAsStateWithLifecycle()
     val mode by viewModel.mode.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
-    LaunchedEffect(messages.size) {
-        if (messages.isNotEmpty()) listState.animateScrollToItem(messages.size - 1)
+    // 派生:live bubble 拼到 messages 末尾,id 沿用 ViewModel 给的 sentinel,
+    // Final 提交 Assistant 时用同 id,LazyColumn 视为同 item 原地更新——无视觉跳动
+    val displayItems: List<UiMessage> = remember(messages, liveBubble) {
+        val live = liveBubble
+        if (live == null) messages
+        else messages + UiMessage.Assistant(live.text, id = live.id)
+    }
+
+    LaunchedEffect(displayItems.size) {
+        if (displayItems.isNotEmpty()) listState.animateScrollToItem(displayItems.size - 1)
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
@@ -61,7 +71,7 @@ fun ChatScreen(viewModel: ChatViewModel) {
         }
         Spacer(Modifier.height(8.dp))
         LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth()) {
-            items(messages, key = { it.id }) { msg -> MessageBubble(message = msg) }
+            items(displayItems, key = { it.id }) { msg -> MessageBubble(message = msg) }
         }
         Spacer(Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {

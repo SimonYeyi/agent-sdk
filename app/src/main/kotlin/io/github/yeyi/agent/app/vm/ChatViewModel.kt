@@ -12,6 +12,14 @@ import kotlinx.coroutines.launch
 
 enum class RunMode { STREAM, BATCH }
 
+/**
+ * UI 渲染时拼接在 [_messages] 末尾的瞬时态——仅在 STREAM 模式累积阶段存在。
+ *
+ * @param id 当前轮唯一 id(sentinel "a-live-{turn}"),与 Final 提交的 [UiMessage.Assistant]
+ *   共用,确保 LazyColumn 把 live → committed 视为同 item 的内容变化,无视觉跳动。
+ */
+data class LiveBubble(val id: String, val text: String)
+
 class ChatViewModel(
     private val agent: Agent,
 ) : ViewModel() {
@@ -26,16 +34,21 @@ class ChatViewModel(
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages.asStateFlow()
 
+    private val _liveBubble = MutableStateFlow<LiveBubble?>(null)
+    val liveBubble: StateFlow<LiveBubble?> = _liveBubble.asStateFlow()
+
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
 
-    private var currentAssistantId: String? = null
-    private var currentAssistantText: StringBuilder? = null
     private val inProgressByCallId = mutableMapOf<String, UiMessage.ToolInProgress>()
+
+    private var turnCounter: Int = 0
 
     fun sendUserInput(text: String) {
         if (text.isBlank() || _isProcessing.value) return
+        turnCounter++
         _messages.update { it + UiMessage.User(text) }
+        _liveBubble.value = null
         _isProcessing.value = true
 
         viewModelScope.launch {
@@ -48,8 +61,7 @@ class ChatViewModel(
             } catch (t: Throwable) {
                 _messages.update { it + UiMessage.Error(t.message ?: "Unknown error") }
             } finally {
-                currentAssistantId = null
-                currentAssistantText = null
+                _liveBubble.value = null
                 inProgressByCallId.clear()
                 _isProcessing.value = false
             }
@@ -59,11 +71,11 @@ class ChatViewModel(
     private fun handleEvent(event: AgentEvent) {
         when (event) {
             is AgentEvent.TextDelta -> {
-                if (currentAssistantText == null) {
-                    currentAssistantId = "pending"
-                    currentAssistantText = StringBuilder()
+                val turnId = "a-live-${turnCounter}"
+                _liveBubble.update { current ->
+                    val next = (current?.text ?: "") + event.text
+                    if (current == null) LiveBubble(turnId, next) else current.copy(text = next)
                 }
-                currentAssistantText?.append(event.text)
             }
             is AgentEvent.ToolCallStarted -> {
                 val msg = UiMessage.ToolInProgress(event.callId, event.toolName)
@@ -81,17 +93,18 @@ class ChatViewModel(
                 }
             }
             is AgentEvent.Final -> {
-                // STREAM 路径用累积的 TextDelta;BATCH 路径不 emit TextDelta,需回退到 Final.result.message.content
-                val text = currentAssistantText?.toString()?.takeIf { it.isNotEmpty() }
+                val live = _liveBubble.value
+                val text = live?.text?.takeIf { it.isNotEmpty() }
                     ?: event.result.message.content.orEmpty()
                 if (text.isNotEmpty()) {
-                    _messages.update { it + UiMessage.Assistant(text) }
+                    val id = live?.id ?: "a-live-${turnCounter}"
+                    _messages.update { it + UiMessage.Assistant(text, id = id) }
                 }
-                currentAssistantId = null
-                currentAssistantText = null
+                _liveBubble.value = null
             }
             is AgentEvent.Failed -> {
                 _messages.update { it + UiMessage.Error(event.cause.message ?: "Unknown error") }
+                _liveBubble.value = null
             }
         }
     }
