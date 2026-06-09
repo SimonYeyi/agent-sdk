@@ -10,5 +10,5 @@ public data class AgentConfig(
     public val tools: List<Tool>,
     public val memoryFactory: () -> Memory,
     public val maxIterations: Int,
-    public val hooks: List<AgentHook> = emptyList()
+    public val hooks: List<AgentHook>
 )

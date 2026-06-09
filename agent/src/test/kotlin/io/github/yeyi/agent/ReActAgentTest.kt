@@ -35,7 +35,7 @@ class ReActAgentTest {
             )
         )
         val agent = ReActAgent(
-            AgentConfig("you are helpful", client, emptyList(), { InMemoryMemory() }, 5)
+            AgentConfig("you are helpful", client, emptyList(), { InMemoryMemory() }, 5, hooks = emptyList())
         )
         val memory = InMemoryMemory()
         val result = agent.run("hi", memory).awaitResult()
@@ -55,7 +55,7 @@ class ReActAgentTest {
                 ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
             )
         )
-        val agent = ReActAgent(AgentConfig("ROLE", client, emptyList(), { InMemoryMemory() }, 5))
+        val agent = ReActAgent(AgentConfig("ROLE", client, emptyList(), { InMemoryMemory() }, 5, hooks = emptyList()))
         agent.run("q", InMemoryMemory()).awaitResult()
         val msgs = client.recordedRequests.single().messages
         assertEquals(Role.System, msgs[0].role)
@@ -78,7 +78,7 @@ class ReActAgentTest {
                 ChatResponse(ChatMessage.Assistant(content = "done: hello"), finishReason = FinishReason.Stop)
             )
         )
-        val agent = ReActAgent(AgentConfig("", client, listOf(echo), { InMemoryMemory() }, 5))
+        val agent = ReActAgent(AgentConfig("", client, listOf(echo), { InMemoryMemory() }, 5, hooks = emptyList()))
         val mem = InMemoryMemory()
         val result = agent.run("hi", mem).awaitResult()
         assertEquals("done: hello", result.message.content)
@@ -107,7 +107,7 @@ class ReActAgentTest {
                 ChatResponse(ChatMessage.Assistant(content = "final"), finishReason = FinishReason.Stop)
             )
         )
-        val agent = ReActAgent(AgentConfig("", client, listOf(echo), { InMemoryMemory() }, 5))
+        val agent = ReActAgent(AgentConfig("", client, listOf(echo), { InMemoryMemory() }, 5, hooks = emptyList()))
         agent.run("hi", InMemoryMemory()).awaitResult()
         assertEquals(2, echo.invocations.size)
     }
@@ -131,7 +131,7 @@ class ReActAgentTest {
                 ChatResponse(ChatMessage.Assistant(content = "recovered"), finishReason = FinishReason.Stop)
             )
         )
-        val agent = ReActAgent(AgentConfig("", client, listOf(failingTool), { InMemoryMemory() }, 5))
+        val agent = ReActAgent(AgentConfig("", client, listOf(failingTool), { InMemoryMemory() }, 5, hooks = emptyList()))
         val mem = InMemoryMemory()
         val result = agent.run("hi", mem).awaitResult()
         assertEquals("recovered", result.message.content)
@@ -151,7 +151,7 @@ class ReActAgentTest {
                 ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
             )
         )
-        val agent = ReActAgent(AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 5))
+        val agent = ReActAgent(AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 5, hooks = emptyList()))
         val mem = InMemoryMemory()
         agent.run("hi", mem).awaitResult()
         val toolResult = mem.history().filterIsInstance<ChatMessage.ToolResult>().single()
@@ -169,7 +169,7 @@ class ReActAgentTest {
             finishReason = FinishReason.ToolCalls
         )
         val client = FakeLlmClient(nonStreamResponses = listOf(toolResp, toolResp, toolResp))
-        val agent = ReActAgent(AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 2))
+        val agent = ReActAgent(AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 2, hooks = emptyList()))
         val events = agent.run("hi", InMemoryMemory()).toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
         val ex = failed.cause as AgentException.MaxIterations
@@ -194,7 +194,7 @@ class ReActAgentTest {
                 )
             )
         )
-        val agent = ReActAgent(AgentConfig("", client, listOf(cancellingTool), { InMemoryMemory() }, 5))
+        val agent = ReActAgent(AgentConfig("", client, listOf(cancellingTool), { InMemoryMemory() }, 5, hooks = emptyList()))
         assertFailsWith<kotlinx.coroutines.CancellationException> {
             agent.run("hi", InMemoryMemory()).toList()
         }
@@ -211,7 +211,7 @@ class ReActAgentTest {
                 )
             )
         )
-        val agent = ReActAgent(AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5))
+        val agent = ReActAgent(AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5, hooks = emptyList()))
         val events = agent.runStream("hi", InMemoryMemory()).toList()
         val texts = events.filterIsInstance<AgentEvent.TextDelta>().map { it.text }
         assertEquals(listOf("hel", "lo"), texts)
@@ -237,7 +237,7 @@ class ReActAgentTest {
                 )
             )
         )
-        val agent = ReActAgent(AgentConfig("", client, listOf(echo), { InMemoryMemory() }, 5))
+        val agent = ReActAgent(AgentConfig("", client, listOf(echo), { InMemoryMemory() }, 5, hooks = emptyList()))
         val events = agent.runStream("hi", InMemoryMemory()).toList()
         assertTrue(events.any { it is AgentEvent.ToolCallStarted && it.toolName == "echo" })
         assertTrue(events.any { it is AgentEvent.ToolCallFinished })
@@ -262,7 +262,7 @@ class ReActAgentTest {
                 )
             )
         )
-        val agent = ReActAgent(AgentConfig("", client, listOf(echo), { InMemoryMemory() }, 5))
+        val agent = ReActAgent(AgentConfig("", client, listOf(echo), { InMemoryMemory() }, 5, hooks = emptyList()))
         val events = agent.runStream("hi", InMemoryMemory()).toList()
 
         val startedIdx = events.indexOfFirst { it is AgentEvent.ToolCallStarted }
@@ -284,7 +284,7 @@ class ReActAgentTest {
                 )
             )
         )
-        val agent = ReActAgent(AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5))
+        val agent = ReActAgent(AgentConfig("", client, emptyList(), { InMemoryMemory() }, 5, hooks = emptyList()))
         val events = agent.runStream("hi", InMemoryMemory()).toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
         assertSame(boom, failed.cause)
@@ -298,7 +298,7 @@ class ReActAgentTest {
             StreamEvent.Done(null)
         )
         val client = FakeLlmClient(streamScripts = listOf(toolResp, toolResp, toolResp))
-        val agent = ReActAgent(AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 2))
+        val agent = ReActAgent(AgentConfig("", client, listOf(EchoTool()), { InMemoryMemory() }, 2, hooks = emptyList()))
         val events = agent.runStream("hi", InMemoryMemory()).toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
         val ex = failed.cause as AgentException.MaxIterations
