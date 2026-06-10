@@ -5,9 +5,12 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
 sealed class UiMessage {
     abstract val id: String
 
-    data class User(val text: String) : UiMessage() {
-        override val id: String = "u-${text.hashCode()}"
-    }
+    /**
+     * 用户输入。[id] 由 [io.github.yeyi.agent.app.vm.ChatViewModel] 显式注入
+     * 单调计数器生成——同一段文本多次发送,id 也必须不同,否则 LazyColumn
+     * 第二次进时 `Key already used` 崩溃。
+     */
+    data class User(val text: String, override val id: String) : UiMessage()
 
     /**
      * 已落定的 assistant 文本。
@@ -33,7 +36,11 @@ sealed class UiMessage {
         override val id: String = "ex-$callId"
     }
 
-    data class Error(val cause: String) : UiMessage() {
-        override val id: String = "e-${cause.hashCode()}"
-    }
+    /**
+     * 错误提示。[id] 由 [io.github.yeyi.agent.app.vm.ChatViewModel] 显式注入
+     * 单调计数器生成——同样的错误信息(如 DNS 失败、连接超时)会在多次请求
+     * 中重复出现,基于 cause.hashCode() 的 id 第二次起会冲突,改用计数器
+     * 保证全 VM 生命周期内唯一。
+     */
+    data class Error(val cause: String, override val id: String) : UiMessage()
 }

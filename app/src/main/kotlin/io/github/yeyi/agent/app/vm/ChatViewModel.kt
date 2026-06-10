@@ -44,10 +44,18 @@ class ChatViewModel(
 
     private var turnCounter: Int = 0
 
+    /**
+     * 单调计数器,用于为没有天然唯一 id 的 [UiMessage.User] /
+     * [UiMessage.Error] 生成 LazyColumn key。全 VM 生命周期内单调递增,
+     * 避免相同内容的两条消息生成相同 id 触发 `Key already used` 崩溃。
+     */
+    private var messageIdCounter: Int = 0
+
     fun sendUserInput(text: String) {
         if (text.isBlank() || _isProcessing.value) return
         turnCounter++
-        _messages.update { it + UiMessage.User(text) }
+        messageIdCounter++
+        _messages.update { it + UiMessage.User(text, id = "u-$messageIdCounter") }
         _liveBubble.value = null
         _isProcessing.value = true
 
@@ -59,7 +67,10 @@ class ChatViewModel(
                 }
                 flow.collect { handleEvent(it) }
             } catch (t: Throwable) {
-                _messages.update { it + UiMessage.Error(t.message ?: "Unknown error") }
+                messageIdCounter++
+                _messages.update {
+                    it + UiMessage.Error(t.message ?: "Unknown error", id = "e-$messageIdCounter")
+                }
             } finally {
                 _liveBubble.value = null
                 inProgressByCallId.clear()
@@ -103,7 +114,10 @@ class ChatViewModel(
                 _liveBubble.value = null
             }
             is AgentEvent.Failed -> {
-                _messages.update { it + UiMessage.Error(event.cause.message ?: "Unknown error") }
+                messageIdCounter++
+                _messages.update {
+                    it + UiMessage.Error(event.cause.message ?: "Unknown error", id = "e-$messageIdCounter")
+                }
                 _liveBubble.value = null
             }
         }
