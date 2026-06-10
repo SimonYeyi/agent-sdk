@@ -48,7 +48,7 @@ class ChatViewModelTest {
                 listOf(
                     StreamEvent.ContentDelta("hello "),
                     StreamEvent.ContentDelta("back"),
-                    StreamEvent.Done(usage = null),
+                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop),
                 )
             )
         )
@@ -106,7 +106,7 @@ class ChatViewModelTest {
             streamScripts = listOf(
                 listOf(
                     StreamEvent.ContentDelta("streamed"),
-                    StreamEvent.Done(usage = null)
+                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 )
             ),
             nonStreamResponses = listOf(

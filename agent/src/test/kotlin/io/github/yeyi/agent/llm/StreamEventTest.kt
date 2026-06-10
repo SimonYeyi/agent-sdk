@@ -20,8 +20,8 @@ class StreamEventTest {
     }
 
     @Test
-    fun `Done holds optional usage`() {
-        val e = StreamEvent.Done(null)
+    fun `Done allows nullable usage and requires non-null finishReason`() {
+        val e = StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
         assertNull(e.usage)
     }
 

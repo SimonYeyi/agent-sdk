@@ -61,7 +61,7 @@ class OpenAiStreamDecoderTest {
                 StreamEvent.ToolCallStart(id = "call_1", name = "get_time"),
                 StreamEvent.ToolCallDelta(id = "call_1", name = "get_time", argumentsDelta = ""),
                 StreamEvent.ToolCallDelta(id = "call_1", name = null, argumentsDelta = "{}"),
-                StreamEvent.Done(usage = null, finishReason = null)
+                StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
             ),
             events
         )

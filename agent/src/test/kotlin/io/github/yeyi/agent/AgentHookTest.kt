@@ -83,11 +83,11 @@ class AgentHookTest {
                 listOf(
                     StreamEvent.ToolCallStart(id = "c1", name = "echo"),
                     StreamEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":\"x\"}"),
-                    StreamEvent.Done(null)
+                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 ),
                 listOf(
                     StreamEvent.ContentDelta("final"),
-                    StreamEvent.Done(null)
+                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 )
             )
         )

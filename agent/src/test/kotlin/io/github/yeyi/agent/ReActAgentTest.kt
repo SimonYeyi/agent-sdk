@@ -208,7 +208,7 @@ class ReActAgentTest {
                 listOf(
                     StreamEvent.ContentDelta("hel"),
                     StreamEvent.ContentDelta("lo"),
-                    StreamEvent.Done(null)
+                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 )
             )
         )
@@ -230,11 +230,11 @@ class ReActAgentTest {
                     StreamEvent.ToolCallStart(id = "c1", name = "echo"),
                     StreamEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":"),
                     StreamEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "\"x\"}"),
-                    StreamEvent.Done(null)
+                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 ),
                 listOf(
                     StreamEvent.ContentDelta("done"),
-                    StreamEvent.Done(null)
+                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 )
             )
         )
@@ -255,11 +255,11 @@ class ReActAgentTest {
                 listOf(
                     StreamEvent.ToolCallStart(id = "c1", name = "echo"),
                     StreamEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":\"x\"}"),
-                    StreamEvent.Done(null)
+                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 ),
                 listOf(
                     StreamEvent.ContentDelta("done"),
-                    StreamEvent.Done(null)
+                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 )
             )
         )
@@ -281,7 +281,7 @@ class ReActAgentTest {
                 listOf(
                     StreamEvent.ContentDelta("hel"),
                     StreamEvent.Error(boom),
-                    StreamEvent.Done(null)  // after Error: should not be reached
+                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)  // after Error: should not be reached
                 )
             )
         )
@@ -313,7 +313,7 @@ class ReActAgentTest {
         val toolResp = listOf(
             StreamEvent.ToolCallStart(id = "c", name = "echo"),
             StreamEvent.ToolCallDelta(id = "c", name = null, argumentsDelta = "{\"text\":\"x\"}"),
-            StreamEvent.Done(null)
+            StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
         )
         val client = FakeLlmClient(streamScripts = listOf(toolResp, toolResp, toolResp))
         val agent = ReActAgent(AgentConfig("", client, listOf(EchoTool()), InMemoryMemory(), 2, hooks = emptyList()))
