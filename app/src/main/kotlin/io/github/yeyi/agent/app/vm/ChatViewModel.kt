@@ -15,8 +15,8 @@ enum class RunMode { STREAM, BATCH }
 /**
  * UI 渲染时拼接在 [_messages] 末尾的瞬时态——仅在 STREAM 模式累积阶段存在。
  *
- * @param id 当前轮唯一 id(sentinel "a-live-{turn}"),与 Final 提交的 [UiMessage.Assistant]
- *   共用,确保 LazyColumn 把 live → committed 视为同 item 的内容变化,无视觉跳动。
+ * @param id VM 计数器分配的唯一 LazyColumn key,Final 提交的 [UiMessage.Assistant]
+ *   沿用,保证 LazyColumn 把 live → committed 视为同 item 的内容变化,无视觉跳动。
  */
 data class LiveBubble(val id: String, val text: String)
 
@@ -42,20 +42,16 @@ class ChatViewModel(
 
     private val inProgressByCallId = mutableMapOf<String, UiMessage.ToolInProgress>()
 
-    private var turnCounter: Int = 0
-
     /**
-     * 单调计数器,用于为没有天然唯一 id 的 [UiMessage.User] /
-     * [UiMessage.Error] 生成 LazyColumn key。全 VM 生命周期内单调递增,
-     * 避免相同内容的两条消息生成相同 id 触发 `Key already used` 崩溃。
+     * VM 内部单调计数器,为 LazyColumn 生成稳定唯一的 key。
+     * 不暴露、不带语义前缀——用户不可见,LazyColumn 只看唯一性。
      */
-    private var messageIdCounter: Int = 0
+    private var nextUiId: Int = 0
+    private fun nextUiId(): String = (++nextUiId).toString()
 
     fun sendUserInput(text: String) {
         if (text.isBlank() || _isProcessing.value) return
-        turnCounter++
-        messageIdCounter++
-        _messages.update { it + UiMessage.User(text, id = "u-$messageIdCounter") }
+        _messages.update { it + UiMessage.User(text, id = nextUiId()) }
         _liveBubble.value = null
         _isProcessing.value = true
 
@@ -67,9 +63,8 @@ class ChatViewModel(
                 }
                 flow.collect { handleEvent(it) }
             } catch (t: Throwable) {
-                messageIdCounter++
                 _messages.update {
-                    it + UiMessage.Error(t.message ?: "Unknown error", id = "e-$messageIdCounter")
+                    it + UiMessage.Error(t.message ?: "Unknown error", id = nextUiId())
                 }
             } finally {
                 _liveBubble.value = null
@@ -82,10 +77,9 @@ class ChatViewModel(
     private fun handleEvent(event: AgentEvent) {
         when (event) {
             is AgentEvent.TextDelta -> {
-                val turnId = "a-live-${turnCounter}"
                 _liveBubble.update { current ->
                     val next = (current?.text ?: "") + event.text
-                    if (current == null) LiveBubble(turnId, next) else current.copy(text = next)
+                    if (current == null) LiveBubble(nextUiId(), next) else current.copy(text = next)
                 }
             }
             is AgentEvent.ToolCallStarted -> {
@@ -108,15 +102,14 @@ class ChatViewModel(
                 val text = live?.text?.takeIf { it.isNotEmpty() }
                     ?: event.result.message.content.orEmpty()
                 if (text.isNotEmpty()) {
-                    val id = live?.id ?: "a-live-${turnCounter}"
+                    val id = live?.id ?: nextUiId()
                     _messages.update { it + UiMessage.Assistant(text, id = id) }
                 }
                 _liveBubble.value = null
             }
             is AgentEvent.Failed -> {
-                messageIdCounter++
                 _messages.update {
-                    it + UiMessage.Error(event.cause.message ?: "Unknown error", id = "e-$messageIdCounter")
+                    it + UiMessage.Error(event.cause.message ?: "Unknown error", id = nextUiId())
                 }
                 _liveBubble.value = null
             }

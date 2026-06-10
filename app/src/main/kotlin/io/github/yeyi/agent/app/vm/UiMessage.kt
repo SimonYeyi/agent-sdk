@@ -5,19 +5,15 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
 sealed class UiMessage {
     abstract val id: String
 
-    /**
-     * 用户输入。[id] 由 [io.github.yeyi.agent.app.vm.ChatViewModel] 显式注入
-     * 单调计数器生成——同一段文本多次发送,id 也必须不同,否则 LazyColumn
-     * 第二次进时 `Key already used` 崩溃。
-     */
+    /** [id] 由 [ChatViewModel] 注入,VM 生命周期内唯一,作 LazyColumn key 用。 */
     data class User(val text: String, override val id: String) : UiMessage()
 
     /**
      * 已落定的 assistant 文本。
      *
-     * [id] 显式构造——流式期间 `liveBubble` 用 sentinel id("a-live-{turn}"),
-     * Final 提交时沿用同 id,保证 LazyColumn 视为同 item 原地更新,避免
-     * "删 live + 加 Assistant" 的视觉跳动。
+     * [id] 沿用流式期间的 LiveBubble.id,保证 LazyColumn 视为同 item
+     * 原地更新,避免"删 live + 加 Assistant"的视觉跳动。BATCH 模式无
+     * live bubble 时,id 由 [ChatViewModel] 显式生成。
      */
     data class Assistant(val text: String, override val id: String) : UiMessage()
 
@@ -36,11 +32,6 @@ sealed class UiMessage {
         override val id: String = "ex-$callId"
     }
 
-    /**
-     * 错误提示。[id] 由 [io.github.yeyi.agent.app.vm.ChatViewModel] 显式注入
-     * 单调计数器生成——同样的错误信息(如 DNS 失败、连接超时)会在多次请求
-     * 中重复出现,基于 cause.hashCode() 的 id 第二次起会冲突,改用计数器
-     * 保证全 VM 生命周期内唯一。
-     */
+    /** [id] 由 [ChatViewModel] 注入,VM 生命周期内唯一,作 LazyColumn key 用。 */
     data class Error(val cause: String, override val id: String) : UiMessage()
 }
