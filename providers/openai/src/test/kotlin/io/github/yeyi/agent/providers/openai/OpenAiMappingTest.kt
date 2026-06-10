@@ -126,12 +126,12 @@ class OpenAiMappingTest {
     }
 
     @Test
-    fun `mapFromOpenAi maps unknown finish reason to Error`() {
+    fun `mapFromOpenAi maps unknown finish reason to Stop`() {
         val raw = OpenAiChatResponse(
             choices = listOf(OpenAiChoice(message = OpenAiMessage(role = "assistant"), finishReason = "some_new_reason_xyz"))
         )
         val parsed = mapFromOpenAi(raw)
-        assertEquals(FinishReason.Error, parsed.finishReason)
+        assertEquals(FinishReason.Stop, parsed.finishReason)
     }
 
     @Test

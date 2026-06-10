@@ -27,8 +27,9 @@ public sealed interface StreamEvent {
      * Terminal event indicating the stream completed successfully. Carries the final usage
      * statistics and the finish reason. `usage` is nullable (some providers do not expose
      * token counts); `finishReason` is non-null — providers MUST map upstream values to one
-     * of the [FinishReason] variants: unknown/missing signals become [FinishReason.Stop] (a
-     * normal completion), while protocol-anomalous values become [FinishReason.Error].
+     * of the [FinishReason] variants. Unknown or missing upstream finish signals become
+     * [FinishReason.Stop] (a normal completion) so consumers can rely on a non-null value
+     * inside a terminal event.
      */
     public data class Done(
         public val usage: Usage?,

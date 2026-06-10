@@ -84,12 +84,13 @@ internal fun mapFromOpenAi(resp: OpenAiChatResponse): ChatResponse {
     )
     val usage = resp.usage?.let { Usage(it.promptTokens, it.completionTokens, it.totalTokens) }
     // OpenAI omits finish_reason only in mid-stream chunks; on the final non-streamed
-    // response it is always present. Treating null as Stop is safe for the non-stream path.
+    // response it is always present. Treating null and any unknown string as Stop is the
+    // "unknown = safe default" rule shared across all 4 finishReason-mapping paths.
     val reason = when (choice.finishReason) {
         "stop", null -> FinishReason.Stop
         "tool_calls", "function_call" -> FinishReason.ToolCalls
         "length" -> FinishReason.Length
-        else -> FinishReason.Error
+        else -> FinishReason.Stop
     }
     return ChatResponse(message = assistant, usage = usage, finishReason = reason)
 }

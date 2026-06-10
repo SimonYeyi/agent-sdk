@@ -72,15 +72,16 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow
  * OpenAI 字符串 → FinishReason 映射。OpenAI 文档字符串包括
  * "stop" / "length" / "tool_calls" / "function_call" / "content_filter"。
  *
- * - `null` → [FinishReason.Stop]:协议层没有给出 finish_reason(空流或上游缺失字段),
- *   按"模型正常完成、未发起工具调用"处理——这是合法的非错误状态。
- * - 未匹配的非空字符串 → [FinishReason.Error]:协议字段值不在已知集合内,属于真正的
- *   协议异常,留给消费方显式感知。
+ * 所有未匹配值(null + 未知字符串)统一映射为 [FinishReason.Stop]:
+ * - 协议已经走到 Done 事件,流正常结束是确定事实
+ * - 未识别值按"安全默认"处理为正常停止,而不是错误;
+ *   若需要为 `content_filter` 等已知错误条件单独识别,加显式 case
+ * - 真正的错误(网络、解析)在 [StreamEvent.Error] 与 LlmClient 抛
+ *   `AgentException` 路径上处理,不在 finishReason 维度重复出口
  */
 private fun mapFinishReason(s: String?): FinishReason = when (s) {
-    null -> FinishReason.Stop
-    "stop" -> FinishReason.Stop
+    "stop", null -> FinishReason.Stop
     "tool_calls", "function_call" -> FinishReason.ToolCalls
     "length" -> FinishReason.Length
-    else -> FinishReason.Error
+    else -> FinishReason.Stop
 }

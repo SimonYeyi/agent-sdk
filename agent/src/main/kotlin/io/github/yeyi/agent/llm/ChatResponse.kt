@@ -6,7 +6,7 @@ public data class Usage(
     public val totalTokens: Int
 )
 
-public enum class FinishReason { Stop, ToolCalls, Length, Error }
+public enum class FinishReason { Stop, ToolCalls, Length }
 
 public data class ChatResponse(
     public val message: ChatMessage.Assistant,
