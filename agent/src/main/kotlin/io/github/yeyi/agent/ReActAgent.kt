@@ -9,6 +9,7 @@ import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.ToolDefinition
+import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.ensureActive
@@ -39,6 +40,7 @@ public class ReActAgent internal constructor(
                 val callNames: MutableMap<String, String> = mutableMapOf()
                 val argumentsBuffers: MutableMap<String, StringBuilder> = mutableMapOf()
                 var finishReason: FinishReason? = null
+                var usage: Usage? = null
 
                 config.llmClient.chatStream(req).collect { event ->
                     when (event) {
@@ -46,29 +48,35 @@ public class ReActAgent internal constructor(
                             accumulatedText.append(event.text)
                             emit(AgentEvent.TextDelta(event.text))
                         }
+
                         is StreamEvent.ToolCallStart -> {
                             callOrder.add(event.id) // LinkedHashSet: idempotent + preserves first-seen order
                             callNames[event.id] = event.name
                             argumentsBuffers.getOrPut(event.id) { StringBuilder() }
                         }
+
                         is StreamEvent.ToolCallDelta -> {
                             val id = event.id ?: return@collect
                             argumentsBuffers[id]?.append(event.argumentsDelta)
                         }
-                        is StreamEvent.Done -> finishReason = event.finishReason
+
+                        is StreamEvent.Done -> {
+                            finishReason = event.finishReason
+                            usage = event.usage
+                        }
+
                         is StreamEvent.Error -> throw event.cause
                     }
                 }
 
                 val finalCalls: List<ToolCall> = callOrder.map { id ->
-                    val argsText = argumentsBuffers[id]?.toString().orEmpty()
-                    val parsed = if (argsText.isNotBlank())
-                        Json.parseToJsonElement(argsText)
-                    else JsonNull
+                    val arguments = argumentsBuffers[id]?.toString()
+                        ?.let { Json.parseToJsonElement(it) }
+                        ?: JsonNull
                     ToolCall(
                         id = id,
                         name = callNames[id]!!,
-                        arguments = parsed
+                        arguments = arguments
                     )
                 }
                 ChatResponse(
@@ -76,9 +84,8 @@ public class ReActAgent internal constructor(
                         content = accumulatedText.toString(),
                         toolCalls = finalCalls,
                     ),
-                    usage = null,
-                    finishReason = finishReason
-                        ?: if (finalCalls.isNotEmpty()) FinishReason.ToolCalls else FinishReason.Stop,
+                    usage = usage,
+                    finishReason = finishReason!!
                 )
             },
             emit = { emit(it) },
@@ -110,6 +117,7 @@ public class ReActAgent internal constructor(
                         message = response.message,
                         iterations = iterations,
                         toolCalls = toolCalls.toList(),
+                        usage = response.usage,
                     )
                     invokeHooks(config.hooks) { onRunFinished(result) }
                     emit(AgentEvent.Final(result))
@@ -132,10 +140,12 @@ public class ReActAgent internal constructor(
                         timestamp = java.time.Instant.now()
                     )
                     toolCalls += record
-                    config.memory.add(ChatMessage.ToolResult(
-                        toolCallId = call.id, toolName = call.name,
-                        content = callResult.content, isError = callResult.isError
-                    ))
+                    config.memory.add(
+                        ChatMessage.ToolResult(
+                            toolCallId = call.id, toolName = call.name,
+                            content = callResult.content, isError = callResult.isError
+                        )
+                    )
                     emit(AgentEvent.ToolCallFinished(call.id, callResult))
                 }
             }

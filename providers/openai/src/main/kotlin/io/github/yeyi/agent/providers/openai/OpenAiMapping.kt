@@ -62,7 +62,8 @@ internal fun mapToOpenAi(model: String, request: ChatRequest, stream: Boolean): 
         temperature = request.temperature,
         maxTokens = request.maxTokens,
         stop = request.stopSequences.takeIf { it.isNotEmpty() },
-        stream = if (stream) true else null
+        stream = if (stream) true else null,
+        streamOptions = if (stream) OpenAiStreamOptions(includeUsage = true) else null
     )
 }
 

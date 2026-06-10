@@ -1,6 +1,7 @@
 package io.github.yeyi.agent
 
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.serialization.json.JsonElement
 import java.time.Instant
@@ -9,6 +10,7 @@ public data class AgentResult(
     public val message: ChatMessage.Assistant,
     public val iterations: Int,
     public val toolCalls: List<ToolCallRecord>,
+    public val usage: Usage? = null,
 ) {
     public data class ToolCallRecord(
         public val callId: String,

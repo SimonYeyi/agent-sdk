@@ -12,7 +12,13 @@ internal data class OpenAiChatRequest(
     val temperature: Double? = null,
     @SerialName("max_tokens") val maxTokens: Int? = null,
     val stop: List<String>? = null,
-    val stream: Boolean? = null
+    val stream: Boolean? = null,
+    @SerialName("stream_options") val streamOptions: OpenAiStreamOptions? = null
+)
+
+@Serializable
+internal data class OpenAiStreamOptions(
+    @SerialName("include_usage") val includeUsage: Boolean
 )
 
 @Serializable

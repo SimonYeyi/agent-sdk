@@ -9,6 +9,7 @@ import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.Role
 import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.llm.ToolCall
+import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
@@ -288,6 +289,23 @@ class ReActAgentTest {
         val events = agent.runStream("hi").toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
         assertSame(boom, failed.cause)
+    }
+
+    @Test
+    fun `runStream propagates Done usage to assistant ChatResponse`() = runTest {
+        val expectedUsage = Usage(promptTokens = 12, completionTokens = 7, totalTokens = 19)
+        val client = FakeLlmClient(
+            streamScripts = listOf(
+                listOf(
+                    StreamEvent.ContentDelta("hi"),
+                    StreamEvent.Done(usage = expectedUsage, finishReason = FinishReason.Stop)
+                )
+            )
+        )
+        val agent = ReActAgent(AgentConfig("", client, emptyList(), InMemoryMemory(), 5, hooks = emptyList()))
+        val events = agent.runStream("ping").toList()
+        val final = events.filterIsInstance<AgentEvent.Final>().single()
+        assertEquals(expectedUsage, final.result.usage)
     }
 
     @Test
