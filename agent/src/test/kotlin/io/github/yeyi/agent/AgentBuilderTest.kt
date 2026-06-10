@@ -4,7 +4,6 @@ import io.github.yeyi.agent.fakes.FakeLlmClient
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
-import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -27,7 +26,7 @@ class AgentBuilderTest {
             llmClient = fakeClient()
         } as ReActAgent
         assertEquals(10, a.maxIterations)
-        assertTrue(a.tools.names().isEmpty())
+        assertTrue(a.toolRegistry.names().isEmpty())
         assertEquals("", a.systemPrompt)
     }
 

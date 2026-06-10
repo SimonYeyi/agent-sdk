@@ -30,16 +30,16 @@ public class AgentBuilder {
     public var llmClient: LlmClient? = null
     public var maxIterations: Int = 10
 
-    private val tools = ToolRegistry()
+    private val toolRegistry = ToolRegistry()
     private var memory: Memory = InMemoryMemory()
     private val hooks: MutableList<AgentHook> = mutableListOf()
 
     public fun tool(t: Tool) {
-        tools.register(t)
+        toolRegistry.register(t)
     }
 
     public fun tools(ts: Iterable<Tool>) {
-        tools.registerAll(ts)
+        toolRegistry.registerAll(ts)
     }
 
     public fun memory(m: Memory) {
@@ -62,7 +62,7 @@ public class AgentBuilder {
     public fun build(): Agent {
         val client = requireNotNull(llmClient) { "llmClient must be set" }
 
-        if (systemPrompt.isBlank() && tools.names().isEmpty()) {
+        if (systemPrompt.isBlank() && toolRegistry.names().isEmpty()) {
             Logging.warn(
                 "AgentBuilder",
                 "Agent has no system prompt and no tools; useful only for pure chat."
@@ -72,7 +72,7 @@ public class AgentBuilder {
         return ReActAgent(
             systemPrompt = systemPrompt,
             llmClient = client,
-            tools = tools,
+            toolRegistry = toolRegistry,
             memory = memory,
             maxIterations = maxIterations,
             hooks = hooks.toList(),

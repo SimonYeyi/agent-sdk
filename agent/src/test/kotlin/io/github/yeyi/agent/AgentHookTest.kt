@@ -59,7 +59,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, tools = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 5, hooks = listOf(hook)
+            systemPrompt = "", llmClient = client, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 5, hooks = listOf(hook)
         )
         agent.run("hi").awaitResult()
         assertEquals(
@@ -93,7 +93,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, tools = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 5, hooks = listOf(hook)
+            systemPrompt = "", llmClient = client, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 5, hooks = listOf(hook)
         )
         agent.runStream("hi").awaitResult()
         assertEquals(
@@ -123,7 +123,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, tools = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hooks = listOf(throwingHook)
+            systemPrompt = "", llmClient = client, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hooks = listOf(throwingHook)
         )
         val result = agent.run("hi").awaitResult()
         assertEquals("ok", result.message.content)
@@ -149,7 +149,7 @@ class AgentHookTest {
         )
         // maxIterations=1,会立刻 emit Failed(MaxIterations)
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, tools = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 1, hooks = listOf(errorHook)
+            systemPrompt = "", llmClient = client, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 1, hooks = listOf(errorHook)
         )
         agent.run("hi").toList()
         assertTrue(errorHook.errors.size == 1)
@@ -168,7 +168,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, tools = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hooks = listOf(throwingHook)
+            systemPrompt = "", llmClient = client, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hooks = listOf(throwingHook)
         )
         val result = agent.run("hi").awaitResult()
         assertEquals("ok", result.message.content)
@@ -193,7 +193,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, tools = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 5, hooks = listOf(throwingHook)
+            systemPrompt = "", llmClient = client, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 5, hooks = listOf(throwingHook)
         )
         val result = agent.run("hi").awaitResult()
         assertEquals("final", result.message.content)
@@ -216,7 +216,7 @@ class AgentHookTest {
             override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, tools = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hooks = listOf(errorHook)
+            systemPrompt = "", llmClient = client, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hooks = listOf(errorHook)
         )
         agent.run("hi").toList()
         assertEquals(1, errorHook.errors.size)
@@ -239,7 +239,7 @@ class AgentHookTest {
             override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, tools = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hooks = listOf(errorHook)
+            systemPrompt = "", llmClient = client, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hooks = listOf(errorHook)
         )
         try { agent.run("hi").toList() } catch (t: Throwable) {
             assertTrue(t is kotlinx.coroutines.CancellationException)

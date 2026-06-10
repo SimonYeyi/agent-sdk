@@ -22,7 +22,7 @@ import kotlin.coroutines.coroutineContext
 public class ReActAgent internal constructor(
     internal val systemPrompt: String,
     internal val llmClient: LlmClient,
-    internal val tools: ToolRegistry,
+    internal val toolRegistry: ToolRegistry,
     internal val memory: Memory,
     internal val maxIterations: Int,
     internal val hooks: List<AgentHook>,
@@ -133,7 +133,7 @@ public class ReActAgent internal constructor(
                     invokeHooks(hooks) { beforeToolCall(call) }
                     emit(AgentEvent.ToolCallStarted(call.id, call.name))
                     val startMs = System.currentTimeMillis()
-                    val callResult = tools.execute(call, ToolContext())
+                    val callResult = toolRegistry.execute(call, ToolContext())
                     val durMs = System.currentTimeMillis() - startMs
                     invokeHooks(hooks) { afterToolCall(call, callResult, durMs) }
 
@@ -168,7 +168,7 @@ public class ReActAgent internal constructor(
             if (systemPrompt.isNotBlank()) add(ChatMessage.System(systemPrompt))
             addAll(memory.history())
         },
-        tools = tools.definitions()
+        tools = toolRegistry.definitions()
     )
 
     private suspend inline fun invokeHooks(
