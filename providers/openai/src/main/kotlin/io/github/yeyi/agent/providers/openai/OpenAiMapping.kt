@@ -87,7 +87,7 @@ internal fun mapFromOpenAi(resp: OpenAiChatResponse): ChatResponse {
     // response it is always present. Treating null and any unknown string as Stop is the
     // "unknown = safe default" rule shared across all 4 finishReason-mapping paths.
     val reason = when (choice.finishReason) {
-        "stop", null -> FinishReason.Stop
+        "stop" -> FinishReason.Stop
         "tool_calls", "function_call" -> FinishReason.ToolCalls
         "length" -> FinishReason.Length
         else -> FinishReason.Stop

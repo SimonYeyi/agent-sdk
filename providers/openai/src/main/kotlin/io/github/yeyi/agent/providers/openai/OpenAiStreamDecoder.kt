@@ -80,7 +80,7 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow
  *   `AgentException` 路径上处理,不在 finishReason 维度重复出口
  */
 private fun mapFinishReason(s: String?): FinishReason = when (s) {
-    "stop", null -> FinishReason.Stop
+    "stop" -> FinishReason.Stop
     "tool_calls", "function_call" -> FinishReason.ToolCalls
     "length" -> FinishReason.Length
     else -> FinishReason.Stop
