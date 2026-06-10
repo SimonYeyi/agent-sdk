@@ -1,6 +1,6 @@
 package io.github.yeyi.agent
 
-import io.github.yeyi.agent.error.AgentException
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.internal.Logging
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest

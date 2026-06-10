@@ -1,4 +1,4 @@
-package io.github.yeyi.agent.error
+package io.github.yeyi.agent
 
 public sealed class AgentException(message: String, cause: Throwable? = null) : RuntimeException(message, cause) {
     public class MaxIterations(public val max: Int) :

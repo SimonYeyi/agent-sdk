@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.error
 
+import io.github.yeyi.agent.AgentException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue

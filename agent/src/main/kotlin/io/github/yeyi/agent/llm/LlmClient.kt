@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.Flow
  *   terminal event:
  *     - [StreamEvent.Done] on successful completion (carries `usage` and `finishReason` when available), or
  *     - [StreamEvent.Error] on parse / protocol failure.
- * - Implementations SHOULD throw [io.github.yeyi.agent.error.AgentException] subtypes
+ * - Implementations SHOULD throw [io.github.yeyi.agent.AgentException] subtypes
  *   for transport / protocol errors rather than raw Ktor exceptions.
  * - For multi-tool-call streams, each tool call MUST begin with a [StreamEvent.ToolCallStart]
  *   (id, name), followed by one or more [StreamEvent.ToolCallDelta] events.

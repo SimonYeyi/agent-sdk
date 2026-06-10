@@ -2,7 +2,7 @@ package io.github.yeyi.agent
 
 import io.github.yeyi.agent.fakes.EchoTool
 import io.github.yeyi.agent.fakes.FakeLlmClient
-import io.github.yeyi.agent.error.AgentException
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
