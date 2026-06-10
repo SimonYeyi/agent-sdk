@@ -23,12 +23,12 @@ class AgentBuilderTest {
 
     @Test
     fun `agent DSL builds an agent with defaults`() {
-        val a = agent {
+        val a: ReActAgent = agent {
             llmClient = fakeClient()
-        }
-        assertEquals(10, a.config.maxIterations)
-        assertTrue(a.config.tools.names().isEmpty())
-        assertEquals("", a.config.systemPrompt)
+        } as ReActAgent
+        assertEquals(10, a.maxIterations)
+        assertTrue(a.tools.names().isEmpty())
+        assertEquals("", a.systemPrompt)
     }
 
     @Test
@@ -50,23 +50,23 @@ class AgentBuilderTest {
     @Test
     fun `hooks list is captured into config`() {
         val h = object : AgentHook {}
-        val a = agent {
+        val a: ReActAgent = agent {
             llmClient = fakeClient()
             hook(h)
-        }
-        assertEquals(1, a.config.hooks.size)
+        } as ReActAgent
+        assertEquals(1, a.hooks.size)
     }
 
     @Test
     fun `memory is captured in config`() {
-        val a = agent {
+        val a: ReActAgent = agent {
             llmClient = fakeClient()
             memory(CountingMemory)
-        }
+        } as ReActAgent
         assertSame(
             CountingMemory,
-            a.config.memory,
-            "config.memory should be the instance passed to memory()"
+            a.memory,
+            "memory should be the instance passed to memory()"
         )
     }
 
@@ -75,13 +75,13 @@ class AgentBuilderTest {
         val h1 = object : AgentHook {}
         val h2 = object : AgentHook {}
         val h3 = object : AgentHook {}
-        val a = agent {
+        val a: ReActAgent = agent {
             llmClient = fakeClient()
             hook(h1)
             hook(h2)
             hook(h3)
-        }
-        assertEquals(listOf<AgentHook>(h1, h2, h3), a.config.hooks)
+        } as ReActAgent
+        assertEquals(listOf<AgentHook>(h1, h2, h3), a.hooks)
     }
 
     // Note: the "empty systemPrompt with no tools produces warning" scenario is

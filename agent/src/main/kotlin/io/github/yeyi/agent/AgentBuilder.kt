@@ -51,11 +51,11 @@ public class AgentBuilder {
     }
 
     /**
-     * Terminal operation: snapshots the current builder state into an [AgentConfig] and returns
-     * a fresh [ReActAgent] bound to that config.
+     * Terminal operation: snapshots the current builder state and returns a fresh [ReActAgent].
      *
      * Re-calling `build()` on the same builder produces two independent agents (the captured
-     * config is copied, not shared), so the builder is safe to call `build()` on multiple times.
+     * tool registry, memory, and hook list are passed through by reference, so reusing
+     * the builder after build will not affect previously built agents via this code path).
      *
      * @throws IllegalArgumentException if [llmClient] has not been set.
      */
@@ -69,15 +69,14 @@ public class AgentBuilder {
             )
         }
 
-        val config = AgentConfig(
+        return ReActAgent(
             systemPrompt = systemPrompt,
             llmClient = client,
             tools = tools,
             memory = memory,
             maxIterations = maxIterations,
-            hooks = hooks.toList()
+            hooks = hooks.toList(),
         )
-        return ReActAgent(config)
     }
 }
 
