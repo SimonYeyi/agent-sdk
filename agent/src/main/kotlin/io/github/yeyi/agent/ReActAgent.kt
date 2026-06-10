@@ -8,10 +8,8 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.llm.ToolCall
-import io.github.yeyi.agent.llm.ToolDefinition
 import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.tool.ToolContext
-import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -128,7 +126,7 @@ public class ReActAgent internal constructor(
                     invokeHooks(config.hooks) { beforeToolCall(call) }
                     emit(AgentEvent.ToolCallStarted(call.id, call.name))
                     val startMs = System.currentTimeMillis()
-                    val callResult = invokeTool(call)
+                    val callResult = config.tools.execute(call, ToolContext())
                     val durMs = System.currentTimeMillis() - startMs
                     invokeHooks(config.hooks) { afterToolCall(call, callResult, durMs) }
 
@@ -158,29 +156,12 @@ public class ReActAgent internal constructor(
         }
     }
 
-    private suspend fun invokeTool(call: ToolCall): ToolExecutionResult {
-        val tool = config.tools.find { it.name == call.name }
-            ?: return ToolExecutionResult(
-                content = "Tool '${call.name}' not found. Available: ${config.tools.joinToString { it.name }}",
-                isError = true
-            )
-        return try {
-            tool.execute(call.arguments, ToolContext())
-        } catch (t: Throwable) {
-            if (t is kotlinx.coroutines.CancellationException) throw t
-            ToolExecutionResult(
-                content = "Tool error: ${t.message}",
-                isError = true
-            )
-        }
-    }
-
     private suspend fun buildRequest(): ChatRequest = ChatRequest(
         messages = buildList {
             if (config.systemPrompt.isNotBlank()) add(ChatMessage.System(config.systemPrompt))
             addAll(config.memory.history())
         },
-        tools = config.tools.map { ToolDefinition(it.name, it.description, it.parametersSchema) }
+        tools = config.tools.definitions()
     )
 
     private suspend inline fun invokeHooks(

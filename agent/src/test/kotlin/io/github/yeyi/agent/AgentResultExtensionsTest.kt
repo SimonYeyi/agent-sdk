@@ -1,6 +1,7 @@
 package io.github.yeyi.agent
 
 import io.github.yeyi.agent.fakes.FakeLlmClient
+import io.github.yeyi.agent.fakes.registryOf
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
@@ -20,7 +21,7 @@ class AgentResultExtensionsTest {
                 ChatResponse(ChatMessage.Assistant(content = "hi"), finishReason = FinishReason.Stop)
             )
         )
-        val agent = ReActAgent(AgentConfig("", client, emptyList(), InMemoryMemory(), 5, hooks = emptyList()))
+        val agent = ReActAgent(AgentConfig("", client, registryOf(), InMemoryMemory(), 5, hooks = emptyList()))
         val result = agent.run("hello").awaitResult()
         assertEquals("hi", result.message.content)
         assertEquals(1, result.iterations)

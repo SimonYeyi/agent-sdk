@@ -2,6 +2,7 @@ package io.github.yeyi.agent
 
 import io.github.yeyi.agent.fakes.EchoTool
 import io.github.yeyi.agent.fakes.FakeLlmClient
+import io.github.yeyi.agent.fakes.registryOf
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
@@ -58,7 +59,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            AgentConfig("", client, listOf(EchoTool()), InMemoryMemory(), 5, hooks = listOf(hook))
+            AgentConfig("", client, registryOf(EchoTool()),InMemoryMemory(), 5, hooks = listOf(hook))
         )
         agent.run("hi").awaitResult()
         assertEquals(
@@ -92,7 +93,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            AgentConfig("", client, listOf(EchoTool()), InMemoryMemory(), 5, hooks = listOf(hook))
+            AgentConfig("", client, registryOf(EchoTool()),InMemoryMemory(), 5, hooks = listOf(hook))
         )
         agent.runStream("hi").awaitResult()
         assertEquals(
@@ -122,7 +123,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            AgentConfig("", client, emptyList(), InMemoryMemory(), 5, hooks = listOf(throwingHook))
+            AgentConfig("", client, registryOf(),InMemoryMemory(), 5, hooks = listOf(throwingHook))
         )
         val result = agent.run("hi").awaitResult()
         assertEquals("ok", result.message.content)
@@ -148,7 +149,7 @@ class AgentHookTest {
         )
         // maxIterations=1,会立刻 emit Failed(MaxIterations)
         val agent = ReActAgent(
-            AgentConfig("", client, listOf(EchoTool()), InMemoryMemory(), 1, hooks = listOf(errorHook))
+            AgentConfig("", client, registryOf(EchoTool()),InMemoryMemory(), 1, hooks = listOf(errorHook))
         )
         agent.run("hi").toList()
         assertTrue(errorHook.errors.size == 1)
@@ -167,7 +168,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            AgentConfig("", client, emptyList(), InMemoryMemory(), 5, hooks = listOf(throwingHook))
+            AgentConfig("", client, registryOf(),InMemoryMemory(), 5, hooks = listOf(throwingHook))
         )
         val result = agent.run("hi").awaitResult()
         assertEquals("ok", result.message.content)
@@ -192,7 +193,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            AgentConfig("", client, listOf(EchoTool()), InMemoryMemory(), 5, hooks = listOf(throwingHook))
+            AgentConfig("", client, registryOf(EchoTool()),InMemoryMemory(), 5, hooks = listOf(throwingHook))
         )
         val result = agent.run("hi").awaitResult()
         assertEquals("final", result.message.content)
@@ -215,7 +216,7 @@ class AgentHookTest {
             override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
-            AgentConfig("", client, emptyList(), InMemoryMemory(), 5, hooks = listOf(errorHook))
+            AgentConfig("", client, registryOf(),InMemoryMemory(), 5, hooks = listOf(errorHook))
         )
         agent.run("hi").toList()
         assertEquals(1, errorHook.errors.size)
@@ -238,7 +239,7 @@ class AgentHookTest {
             override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
-            AgentConfig("", client, emptyList(), InMemoryMemory(), 5, hooks = listOf(errorHook))
+            AgentConfig("", client, registryOf(),InMemoryMemory(), 5, hooks = listOf(errorHook))
         )
         try { agent.run("hi").toList() } catch (t: Throwable) {
             assertTrue(t is kotlinx.coroutines.CancellationException)

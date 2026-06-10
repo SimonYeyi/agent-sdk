@@ -4,63 +4,42 @@ import io.github.yeyi.agent.internal.Logging
 import io.github.yeyi.agent.llm.LlmClient
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
-import io.github.yeyi.agent.skill.Skill
 import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.tool.ToolRegistry
 
 /**
  * DSL builder for [Agent]. Obtain an instance via the top-level [agent] factory function.
  *
  * `build()` produces a [ReActAgent] configured from the current builder state.
  *
- * ## Tool merge order
- *
- * Tools are flattened into a single ordered list as: `tools + skills.flatMap { it.tools }`.
- * Concretely, all tools added via [tool] / [tools] appear first in declaration order, followed
- * by each skill's tools in skill declaration order. The resulting order is preserved into
- * [AgentConfig.tools] and forwarded to the LLM as the tool list, so callers that care about
- * the order in which the model sees tools can rely on this contract.
- *
- * If any two tools (across both direct calls and skill contributions) share the same [Tool.name],
- * `build()` throws [IllegalArgumentException] — duplicate tool names would otherwise be
- * ambiguous when the LLM dispatches a tool call.
- *
- * ## systemPrompt concatenation
- *
- * The final [AgentConfig.systemPrompt] is the concatenation of the user-supplied [systemPrompt]
- * followed by every non-blank `systemPromptFragment` from each declared [Skill], with each
- * non-blank fragment preceded by a `"\n\n"` separator. Blank fragments (empty string or
- * whitespace-only) are skipped entirely, so they neither contribute a separator nor a payload.
- *
  * ## Validation
  *
  * - [llmClient] must be set before calling [build]; otherwise [IllegalArgumentException] is thrown.
- * - A warning is logged when the agent is built with an empty [systemPrompt], no tools, and no
- *   skills — such an agent can only do pure chat and is usually a misconfiguration.
+ * - Registering two tools with the same name throws [IllegalArgumentException] at registration
+ *   time (the [ToolRegistry] rejects duplicates eagerly so an ambiguous name can never reach
+ *   the LLM).
+ * - A warning is logged when the agent is built with an empty [systemPrompt] and no tools —
+ *   such an agent can only do pure chat and is usually a misconfiguration.
+ *
+ * Skills are NOT built in here: that concept is a higher-level composition (see the `skill`
+ * module's `AgentBuilder.skill(s)` extension). The core builder only deals with raw tools,
+ * memory, hooks, and the LLM client.
  */
 public class AgentBuilder {
     public var systemPrompt: String = ""
     public var llmClient: LlmClient? = null
     public var maxIterations: Int = 10
 
-    private val tools: MutableList<Tool> = mutableListOf()
-    private val skills: MutableList<Skill> = mutableListOf()
+    private val tools = ToolRegistry()
     private var memory: Memory = InMemoryMemory()
     private val hooks: MutableList<AgentHook> = mutableListOf()
 
     public fun tool(t: Tool) {
-        tools += t
+        tools.register(t)
     }
 
     public fun tools(ts: Iterable<Tool>) {
-        tools += ts
-    }
-
-    public fun skill(s: Skill) {
-        skills += s
-    }
-
-    public fun skills(ss: Iterable<Skill>) {
-        skills += ss
+        tools.registerAll(ts)
     }
 
     public fun memory(m: Memory) {
@@ -78,39 +57,22 @@ public class AgentBuilder {
      * Re-calling `build()` on the same builder produces two independent agents (the captured
      * config is copied, not shared), so the builder is safe to call `build()` on multiple times.
      *
-     * @throws IllegalArgumentException if [llmClient] has not been set, or if duplicate tool
-     *   names are detected after flattening direct tools with skill tools.
+     * @throws IllegalArgumentException if [llmClient] has not been set.
      */
     public fun build(): Agent {
         val client = requireNotNull(llmClient) { "llmClient must be set" }
 
-        if (systemPrompt.isBlank() && tools.isEmpty() && skills.isEmpty()) {
+        if (systemPrompt.isBlank() && tools.names().isEmpty()) {
             Logging.warn(
                 "AgentBuilder",
-                "Agent has no system prompt, no tools, and no skills; useful only for pure chat."
+                "Agent has no system prompt and no tools; useful only for pure chat."
             )
         }
 
-        // Skill 展开为 systemPrompt + tools
-        val combinedPrompt = buildString {
-            append(systemPrompt)
-            for (s in skills) {
-                if (s.systemPromptFragment.isNotBlank()) {
-                    if (isNotEmpty()) append("\n\n")
-                    append(s.systemPromptFragment)
-                }
-            }
-        }
-        val allTools: List<Tool> = tools + skills.flatMap { it.tools }
-        val byName = allTools.groupBy { it.name }
-        require(byName.all { it.value.size == 1 }) {
-            "Duplicate tool names after flattening: ${byName.filter { it.value.size > 1 }.keys}"
-        }
-
         val config = AgentConfig(
-            systemPrompt = combinedPrompt,
+            systemPrompt = systemPrompt,
             llmClient = client,
-            tools = allTools,
+            tools = tools,
             memory = memory,
             maxIterations = maxIterations,
             hooks = hooks.toList()
@@ -129,14 +91,12 @@ public class AgentBuilder {
  *     systemPrompt = "You are a helpful assistant."
  *     llmClient = openAIClient
  *     tool(WeatherTool())
- *     skill(weatherSkill)
  * }
  * ```
  *
  * @param block configuration block executed against a fresh [AgentBuilder].
  * @return a new [Agent] (specifically a [ReActAgent]) ready to run.
- * @throws IllegalArgumentException if [AgentBuilder.llmClient] is not set inside [block], or if
- *   duplicate tool names are detected after merging direct tools with skill-provided tools.
+ * @throws IllegalArgumentException if [AgentBuilder.llmClient] is not set inside [block].
  */
 public fun agent(block: AgentBuilder.() -> Unit): Agent =
     AgentBuilder().apply(block).build()
