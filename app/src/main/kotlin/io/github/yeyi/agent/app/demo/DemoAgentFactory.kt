@@ -3,9 +3,13 @@ package io.github.yeyi.agent.app.demo
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.app.BuildConfig
+import io.github.yeyi.agent.app.demo.skills.WeatherSkill
 import io.github.yeyi.agent.app.demo.tools.CalculatorTool
 import io.github.yeyi.agent.app.demo.tools.GetCurrentTimeTool
+import io.github.yeyi.agent.app.demo.tools.GetLocationTool
+import io.github.yeyi.agent.app.demo.tools.GetWeatherTool
 import io.github.yeyi.agent.app.demo.tools.WebSearchMockTool
+import io.github.yeyi.agent.skill.skill
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
 import io.github.yeyi.agent.providers.openai.OpenAiProvider
@@ -62,6 +66,9 @@ object DemoAgentFactory {
             tool(GetCurrentTimeTool())
             tool(CalculatorTool())
             tool(WebSearchMockTool())
+            skill(WeatherSkill())
+            tool(GetLocationTool())
+            tool(GetWeatherTool())
             maxIterations = 8
         }
     }

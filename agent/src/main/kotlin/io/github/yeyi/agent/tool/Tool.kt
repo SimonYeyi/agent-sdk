@@ -6,5 +6,5 @@ public interface Tool {
     public val name: String
     public val description: String
     public val parametersSchema: ToolParameters
-    public suspend fun execute(args: JsonElement, ctx: ToolContext): ToolExecutionResult
+    public suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult
 }
