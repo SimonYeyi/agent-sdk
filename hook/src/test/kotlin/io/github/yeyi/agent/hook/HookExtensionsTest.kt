@@ -211,6 +211,92 @@ class HookExtensionsTest {
         assertSame(rawAgentHook, b.hook)
     }
 
+    // --- hooks() batch extension ---
+
+    @Test
+    fun `hooks() with empty list does nothing`() = runTest {
+        val b = AgentBuilder()
+        b.hooks(emptyList())
+        // Should not change the default hook
+        assertEquals(false, b.hook is CompositeHook)
+    }
+
+    @Test
+    fun `hooks() with single hook stores it directly (no CompositeHook wrapping)`() = runTest {
+        val h = RecordingHook("a")
+        val b = AgentBuilder().apply { hooks(listOf(h)) }
+        assertSame(h, b.hook)
+    }
+
+    @Test
+    fun `hooks() with multiple hooks produces a CompositeHook in order`() = runTest {
+        val h1 = RecordingHook("a")
+        val h2 = RecordingHook("b")
+        val h3 = RecordingHook("c")
+        val b = AgentBuilder().apply { hooks(listOf(h1, h2, h3)) }
+        val composite = assertIs<CompositeHook>(b.hook)
+        assertEquals(listOf<Hook>(h1, h2, h3), composite.hooks)
+    }
+
+    @Test
+    fun `hooks() after existing hooks appends to CompositeHook`() = runTest {
+        val h1 = RecordingHook("a")
+        val h2 = RecordingHook("b")
+        val h3 = RecordingHook("c")
+        val b = AgentBuilder().apply {
+            hook(h1)
+            hooks(listOf(h2, h3))
+        }
+        val composite = assertIs<CompositeHook>(b.hook)
+        assertEquals(listOf<Hook>(h1, h2, h3), composite.hooks)
+    }
+
+    @Test
+    fun `hooks() on existing CompositeHook flattens into one level`() = runTest {
+        val h1 = RecordingHook("a")
+        val h2 = RecordingHook("b")
+        val h3 = RecordingHook("c")
+        val h4 = RecordingHook("d")
+        val b = AgentBuilder().apply {
+            hook(h1)
+            hook(h2)
+            hooks(listOf(h3, h4))
+        }
+        val composite = assertIs<CompositeHook>(b.hook)
+        assertEquals(4, composite.hooks.size)
+        assertEquals(listOf<Hook>(h1, h2, h3, h4), composite.hooks)
+        // Verify no nesting
+        composite.hooks.forEach { assertIs<RecordingHook>(it) }
+    }
+
+    @Test
+    fun `mixing hook() and hooks() preserves registration order`() = runTest {
+        val h1 = RecordingHook("a")
+        val h2 = RecordingHook("b")
+        val h3 = RecordingHook("c")
+        val h4 = RecordingHook("d")
+        val b = AgentBuilder().apply {
+            hook(h1)
+            hooks(listOf(h2, h3))
+            hook(h4)
+        }
+        val composite = assertIs<CompositeHook>(b.hook)
+        assertEquals(listOf<Hook>(h1, h2, h3, h4), composite.hooks)
+    }
+
+    @Test
+    fun `hooks() after raw AgentHook assignment replaces it`() = runTest {
+        val rawAgentHook = object : AgentHook {}
+        val h1 = RecordingHook("a")
+        val h2 = RecordingHook("b")
+        val b = AgentBuilder().apply {
+            hook = rawAgentHook
+            hooks(listOf(h1, h2))
+        }
+        val composite = assertIs<CompositeHook>(b.hook)
+        assertEquals(listOf<Hook>(h1, h2), composite.hooks)
+    }
+
     // --- Interaction with build() ---
 
     @Test
