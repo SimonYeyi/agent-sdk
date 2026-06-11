@@ -32,7 +32,7 @@ public class AgentBuilder {
 
     private val toolRegistry = ToolRegistry()
     private var memory: Memory = InMemoryMemory()
-    private val hooks: MutableList<AgentHook> = mutableListOf()
+    private var hook: AgentHook = NoOpAgentHook
 
     public fun tool(t: Tool) {
         toolRegistry.register(t)
@@ -46,15 +46,19 @@ public class AgentBuilder {
         memory = m
     }
 
+    /**
+     * 设置 agent 的 [hook]。每次调用会**替换**之前的 hook(不追加)。
+     * 如需挂载多个 hook,使用 `:hook` 模块的 `CompositeAgentHook` 组合后再调用本方法。
+     */
     public fun hook(h: AgentHook) {
-        hooks += h
+        hook = h
     }
 
     /**
      * Terminal operation: snapshots the current builder state and returns a fresh [ReActAgent].
      *
      * Re-calling `build()` on the same builder produces two independent agents (the captured
-     * tool registry, memory, and hook list are passed through by reference, so reusing
+     * tool registry, memory, and hook are passed through by reference, so reusing
      * the builder after build will not affect previously built agents via this code path).
      *
      * @throws IllegalArgumentException if [llmClient] has not been set.
@@ -75,7 +79,7 @@ public class AgentBuilder {
             toolRegistry = toolRegistry,
             memory = memory,
             maxIterations = maxIterations,
-            hooks = hooks.toList(),
+            hook = hook,
         )
     }
 }

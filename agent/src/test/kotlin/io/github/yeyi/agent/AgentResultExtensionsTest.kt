@@ -21,7 +21,7 @@ class AgentResultExtensionsTest {
                 ChatResponse(ChatMessage.Assistant(content = "hi"), finishReason = FinishReason.Stop)
             )
         )
-        val agent = ReActAgent(systemPrompt = "", llmClient = client, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hooks = emptyList())
+        val agent = ReActAgent(systemPrompt = "", llmClient = client, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5)
         val result = agent.run("hello").awaitResult()
         assertEquals("hi", result.message.content)
         assertEquals(1, result.iterations)

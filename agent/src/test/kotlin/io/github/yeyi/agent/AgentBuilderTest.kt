@@ -47,13 +47,33 @@ class AgentBuilderTest {
     }
 
     @Test
-    fun `hooks list is captured into config`() {
+    fun `single hook is captured into config`() {
         val h = object : AgentHook {}
         val a: ReActAgent = agent {
             llmClient = fakeClient()
             hook(h)
         } as ReActAgent
-        assertEquals(1, a.hooks.size)
+        assertSame(h, a.hook)
+    }
+
+    @Test
+    fun `default hook is NoOpAgentHook when none set`() {
+        val a: ReActAgent = agent {
+            llmClient = fakeClient()
+        } as ReActAgent
+        assertSame(NoOpAgentHook, a.hook)
+    }
+
+    @Test
+    fun `hook replaces previous instead of appending`() {
+        val h1 = object : AgentHook {}
+        val h2 = object : AgentHook {}
+        val a: ReActAgent = agent {
+            llmClient = fakeClient()
+            hook(h1)
+            hook(h2)
+        } as ReActAgent
+        assertSame(h2, a.hook)
     }
 
     @Test
@@ -67,20 +87,6 @@ class AgentBuilderTest {
             a.memory,
             "memory should be the instance passed to memory()"
         )
-    }
-
-    @Test
-    fun `hooks are captured in declaration order`() {
-        val h1 = object : AgentHook {}
-        val h2 = object : AgentHook {}
-        val h3 = object : AgentHook {}
-        val a: ReActAgent = agent {
-            llmClient = fakeClient()
-            hook(h1)
-            hook(h2)
-            hook(h3)
-        } as ReActAgent
-        assertEquals(listOf<AgentHook>(h1, h2, h3), a.hooks)
     }
 
     // Note: the "empty systemPrompt with no tools produces warning" scenario is
