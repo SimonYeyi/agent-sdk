@@ -65,20 +65,20 @@ class CompositeHookTest {
 
     @Test
     fun `of(emptyList) returns empty CompositeHook`() {
-        val composite = CompositeHook.of(emptyList())
+        val composite = CompositeHook(emptyList())
         assertEquals(emptyList<Hook>(), composite.hooks)
     }
 
     @Test
     fun `of(no args) returns empty CompositeHook`() {
-        val composite = CompositeHook.of()
+        val composite = CompositeHook(emptyList())
         assertEquals(emptyList<Hook>(), composite.hooks)
     }
 
     @Test
     fun `of(single hook) wraps into CompositeHook`() {
         val h = RecordingHook("a")
-        val composite = CompositeHook.of(h)
+        val composite = CompositeHook(listOf(h))
         assertEquals(listOf<Hook>(h), composite.hooks)
     }
 
@@ -87,7 +87,7 @@ class CompositeHookTest {
         val a = RecordingHook("a")
         val b = RecordingHook("b")
         val c = RecordingHook("c")
-        val composite = CompositeHook.of(listOf(a, b, c))
+        val composite = CompositeHook(listOf(a, b, c))
         assertEquals(listOf<Hook>(a, b, c), composite.hooks)
     }
 
@@ -97,7 +97,7 @@ class CompositeHookTest {
     fun `lifecycle hooks fan out in registration order`() = runTest {
         val a = RecordingHook("a")
         val b = RecordingHook("b")
-        val composite = CompositeHook.of(a, b)
+        val composite = CompositeHook(listOf(a, b))
         val r = emptyResponse()
         composite.beforeLlmCall(1, emptyList())
         composite.afterLlmResponse(1, r)
@@ -128,7 +128,7 @@ class CompositeHookTest {
         val a = RecordingHook("a").apply { nextSynthetic = ToolExecutionResult("from-a") }
         val b = RecordingHook("b").apply { nextSynthetic = ToolExecutionResult("from-b") }
         val c = RecordingHook("c")
-        val composite = CompositeHook.of(a, b, c)
+        val composite = CompositeHook(listOf(a, b, c))
         val r = composite.beforeToolCall(toolCall())
         assertEquals("from-a", r!!.content)
         // a was called, b was called (returned non-null, so a's value is shadowed by b's first-wins)
@@ -143,7 +143,7 @@ class CompositeHookTest {
         val a = RecordingHook("a")  // returns null
         val b = RecordingHook("b")  // returns null
         val c = RecordingHook("c").apply { nextSynthetic = ToolExecutionResult("from-c") }
-        val composite = CompositeHook.of(a, b, c)
+        val composite = CompositeHook(listOf(a, b, c))
         val r = composite.beforeToolCall(toolCall())
         assertEquals("from-c", r!!.content)
         assertEquals(listOf("a:beforeToolCall(x)", "b:beforeToolCall(x)", "c:beforeToolCall(x)"),
@@ -163,10 +163,10 @@ class CompositeHookTest {
         val a = RecordingHook("a").apply { nextRewritten = ToolExecutionResult("a-out") }
         val b = RecordingHook("b").apply { nextRewritten = ToolExecutionResult("b-out") }
         val c = RecordingHook("c")  // leaves result alone
-        val composite = CompositeHook.of(a, b, c)
+        val composite = CompositeHook(listOf(a, b, c))
         val initial = ToolExecutionResult("raw")
         val final = composite.afterToolCall(toolCall(), initial, 5)
-        assertEquals("b-out", final.content, "c didn't rewrite → a→b→c final is b's output")
+        assertEquals("b-out", final.content, "c didn't rewrite 鈫?a鈫抌鈫抍 final is b's output")
         // a saw raw
         assertEquals(listOf("a:afterToolCall(x,raw)"), a.events)
         // b saw a's output
@@ -193,7 +193,7 @@ class CompositeHookTest {
             }
         }
         val b = RecordingHook("b")
-        val composite = CompositeHook.of(throwing, b)
+        val composite = CompositeHook(listOf(throwing, b))
         composite.beforeLlmCall(1, emptyList())
         assertEquals(listOf("b:beforeLlmCall(1)"), b.events)
     }
@@ -206,7 +206,7 @@ class CompositeHookTest {
             }
         }
         val b = RecordingHook("b")
-        val composite = CompositeHook.of(throwing, b)
+        val composite = CompositeHook(listOf(throwing, b))
         composite.afterLlmResponse(1, emptyResponse())
         assertEquals(listOf("b:afterLlmResponse(1)"), b.events)
     }
@@ -219,7 +219,7 @@ class CompositeHookTest {
             }
         }
         val b = RecordingHook("b")
-        val composite = CompositeHook.of(throwing, b)
+        val composite = CompositeHook(listOf(throwing, b))
         composite.onError(1, RuntimeException("orig"))
         assertEquals(listOf("b:onError(1,RuntimeException)"), b.events)
     }
@@ -232,7 +232,7 @@ class CompositeHookTest {
             }
         }
         val b = RecordingHook("b")
-        val composite = CompositeHook.of(throwing, b)
+        val composite = CompositeHook(listOf(throwing, b))
         val r = emptyResponse()
         composite.onRunFinished(AgentResult(r.message, 1, emptyList(), null))
         assertEquals(listOf("b:onRunFinished(iter=1)"), b.events)
@@ -246,7 +246,7 @@ class CompositeHookTest {
             }
         }
         val b = RecordingHook("b").apply { nextSynthetic = ToolExecutionResult("from-b") }
-        val composite = CompositeHook.of(throwing, b)
+        val composite = CompositeHook(listOf(throwing, b))
         val r = composite.beforeToolCall(toolCall())
         assertEquals("from-b", r!!.content, "throwing hook's exception should be swallowed, b wins")
     }
@@ -261,7 +261,7 @@ class CompositeHookTest {
             ): ToolExecutionResult = throw RuntimeException("oops")
         }
         val b = RecordingHook("b").apply { nextRewritten = ToolExecutionResult("b-out") }
-        val composite = CompositeHook.of(throwing, b)
+        val composite = CompositeHook(listOf(throwing, b))
         val input = ToolExecutionResult("raw")
         val out = composite.afterToolCall(toolCall(), input, 5)
         assertEquals("b-out", out.content)
@@ -275,7 +275,7 @@ class CompositeHookTest {
             }
         }
         val b = RecordingHook("b")
-        val composite = CompositeHook.of(throwing, b)
+        val composite = CompositeHook(listOf(throwing, b))
         var caught: Throwable? = null
         try {
             composite.beforeLlmCall(1, emptyList())
@@ -294,7 +294,7 @@ class CompositeHookTest {
             }
         }
         val b = RecordingHook("b")
-        val composite = CompositeHook.of(throwing, b)
+        val composite = CompositeHook(listOf(throwing, b))
         var caught: Throwable? = null
         try {
             composite.beforeToolCall(toolCall())
@@ -315,7 +315,7 @@ class CompositeHookTest {
             ): ToolExecutionResult = throw CancellationException("cancelled")
         }
         val b = RecordingHook("b")
-        val composite = CompositeHook.of(throwing, b)
+        val composite = CompositeHook(listOf(throwing, b))
         var caught: Throwable? = null
         try {
             composite.afterToolCall(toolCall(), ToolExecutionResult("x"), 5)

@@ -26,11 +26,27 @@ import io.github.yeyi.agent.AgentBuilder
  *
  * 覆盖行为:此扩展是**累加**,不是替换;若想替换,直接对 `builder.hook` 赋值。
  */
-public fun AgentBuilder.hook(h: Hook) {
-    hook = when (val current = hook) {
-        is CompositeHook -> CompositeHook(current.hooks + h)
-        is Hook -> CompositeHook(listOf(current, h))
+public fun AgentBuilder.hook(hook: Hook) {
+    this@hook.hook = when (val current = this@hook.hook) {
+        is CompositeHook -> CompositeHook(current.hooks + hook)
+        is Hook -> CompositeHook(listOf(current, hook))
         // current 是个非 Hook 的 AgentHook(默认空实现 / 直接赋值过来的)— 没法并入 Hook 列表,直接覆盖
-        else -> h
+        else -> hook
+    }
+}
+
+/**
+ * DSL 扩展:批量挂载多个 [Hook] 到 [AgentBuilder]。
+ *
+ * 等价于对每个 hook 依次调用 [hook],但语义上表达"一次性注册一组 hook":
+ * ```kotlin
+ * agent {
+ *     hooks(listOf(LoggingHook(), MyMetricsHook()))
+ * }
+ * ```
+ */
+public fun AgentBuilder.hooks(hooks: Iterable<Hook>) {
+    for (h in hooks) {
+        hook(h)
     }
 }
