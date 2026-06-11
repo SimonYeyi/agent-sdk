@@ -17,6 +17,14 @@ import kotlin.test.assertTrue
 
 class SkillExtensionsTest {
 
+    private class FixedSkill(
+        override val name: String,
+        override val description: String,
+        private val content: String,
+    ) : Skill {
+        override fun load(): String = content
+    }
+
     /** A minimal LlmClient that records every request and returns a stop response. */
     private class RecordingLlm : LlmClient {
         override val providerName: String = "recording"
@@ -40,7 +48,7 @@ class SkillExtensionsTest {
     fun `skill() makes a skill_ prefixed tool visible to the LLM`() = runTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmClient = llm }
-        b.skill(Skill(name = "weather", description = "d", instructions = "B"))
+        b.skill(FixedSkill(name = "weather", description = "d", content = "B"))
         b.build().run("hi").toList()
         val req = llm.recorded.single()
         val toolNames = req.tools.map { it.name }
@@ -51,7 +59,7 @@ class SkillExtensionsTest {
     fun `skill() does NOT register any tools other than skill_ handle`() = runTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmClient = llm }
-        b.skill(Skill(name = "weather", description = "d", instructions = "use get_weather"))
+        b.skill(FixedSkill(name = "weather", description = "d", content = "use get_weather"))
         b.build().run("hi").toList()
         val toolNames = llm.recorded.single().tools.map { it.name }
         // The skill mentions a tool name in instructions, but it is NOT auto-registered.
@@ -64,8 +72,8 @@ class SkillExtensionsTest {
         val b = AgentBuilder().apply { llmClient = llm }
         b.skills(
             listOf(
-                Skill("a", "d", "BODY_A"),
-                Skill("b", "d", "BODY_B"),
+                FixedSkill("a", "d", "BODY_A"),
+                FixedSkill("b", "d", "BODY_B"),
             )
         )
         b.build().run("hi").toList()
@@ -79,17 +87,17 @@ class SkillExtensionsTest {
     @Test
     fun `duplicate skill name throws on second registration`() {
         val b = AgentBuilder()
-        b.skill(Skill(name = "dup", description = "", instructions = "B"))
+        b.skill(FixedSkill(name = "dup", description = "", content = "B"))
         assertFailsWith<IllegalArgumentException> {
-            b.skill(Skill(name = "dup", description = "", instructions = "B2"))
+            b.skill(FixedSkill(name = "dup", description = "", content = "B2"))
         }
     }
 
     @Test
-    fun `invoking the registered SkillTool returns the skill instructions`() = runTest {
+    fun `invoking the registered SkillTool calls load() and returns the result`() = runTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmClient = llm }
-        b.skill(Skill(name = "weather", description = "d", instructions = "## Weather\nStep 1"))
+        b.skill(FixedSkill(name = "weather", description = "d", content = "## Weather\nStep 1"))
         b.build().run("hi").toList()
         // The LLM-visible tool list contains the SkillTool with the Skill's description.
         val toolDef = llm.recorded.single().tools.single { it.name == "skill_weather" }
