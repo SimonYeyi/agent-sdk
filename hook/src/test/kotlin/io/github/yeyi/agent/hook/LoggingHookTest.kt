@@ -54,7 +54,7 @@ class LoggingHookTest {
         val h = LoggingHook()
         h.beforeLlmCall(3, listOf(ChatMessage.User("hi"), ChatMessage.User("again")))
         val out = stderr()
-        assertTrue(out.contains("LoggingHook"), "should tag with class name")
+        assertTrue(out.contains("hook"), "should tag with hook")
         assertTrue(out.contains("iter=3"))
         assertTrue(out.contains("messages=2"))
     }
@@ -158,7 +158,7 @@ class LoggingHookTest {
         h.beforeLlmCall(1, emptyList())
         // base method should still run for non-overridden hooks
         val out = captured.toString(Charsets.UTF_8)
-        assertTrue(out.contains("LoggingHook"))
+        assertTrue(out.contains("hook"))
         assertTrue(out.contains("iter=1"))
     }
 

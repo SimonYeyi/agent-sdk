@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.hook
 
 import io.github.yeyi.agent.AgentResult
-import io.github.yeyi.agent.internal.Logging
+import io.github.yeyi.agent.log.Logging
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ToolCall
@@ -20,25 +20,18 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  */
 public open class LoggingHook : Hook {
 
+    private val log = Logging.hook()
+
     override suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {
-        Logging.warn(
-            "LoggingHook",
-            "iter=$iteration beforeLlmCall messages=${messages.size}",
-        )
+        log.warn("iter=$iteration beforeLlmCall messages=${messages.size}")
     }
 
     override suspend fun afterLlmResponse(iteration: Int, response: ChatResponse) {
-        Logging.warn(
-            "LoggingHook",
-            "iter=$iteration afterLlmResponse toolCalls=${response.message.toolCalls.size}",
-        )
+        log.warn("iter=$iteration afterLlmResponse toolCalls=${response.message.toolCalls.size}")
     }
 
     override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? {
-        Logging.warn(
-            "LoggingHook",
-            "beforeToolCall id=${call.id} name=${call.name}",
-        )
+        log.warn("beforeToolCall id=${call.id} name=${call.name}")
         return null
     }
 
@@ -47,24 +40,15 @@ public open class LoggingHook : Hook {
         result: ToolExecutionResult,
         durationMs: Long,
     ): ToolExecutionResult {
-        Logging.warn(
-            "LoggingHook",
-            "afterToolCall id=${call.id} name=${call.name} dur=${durationMs}ms isError=${result.isError}",
-        )
+        log.warn("afterToolCall id=${call.id} name=${call.name} dur=${durationMs}ms isError=${result.isError}")
         return result
     }
 
     override suspend fun onError(iteration: Int, cause: Throwable) {
-        Logging.warn(
-            "LoggingHook",
-            "iter=$iteration onError: ${cause::class.simpleName}: ${cause.message}",
-        )
+        log.warn("iter=$iteration onError: ${cause::class.simpleName}: ${cause.message}")
     }
 
     override suspend fun onRunFinished(result: AgentResult) {
-        Logging.warn(
-            "LoggingHook",
-            "onRunFinished iter=${result.iterations} toolCalls=${result.toolCalls.size}",
-        )
+        log.warn("onRunFinished iter=${result.iterations} toolCalls=${result.toolCalls.size}")
     }
 }

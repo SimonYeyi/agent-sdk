@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.hook
 
 import io.github.yeyi.agent.AgentHook
-import io.github.yeyi.agent.internal.Logging
+import io.github.yeyi.agent.log.Logging
 
 /**
  * 标记接口:这个 hook 是 `:hook` 模块"全局 hook 系统"的一部分。
@@ -39,10 +39,7 @@ internal suspend inline fun <T> Hook.safeInvoke(
     } catch (t: kotlinx.coroutines.CancellationException) {
         throw t
     } catch (t: Throwable) {
-        Logging.warn(
-            "Hook",
-            "${this::class.simpleName} threw ${t::class.simpleName}: ${t.message}",
-        )
+        Logging.hook().warn("${this::class.simpleName} threw ${t::class.simpleName}: ${t.message}")
         null
     }
 }

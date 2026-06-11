@@ -1,9 +1,10 @@
 package io.github.yeyi.agent
 
-import io.github.yeyi.agent.internal.Logging
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ToolCall
+import io.github.yeyi.agent.log.Logging
+import io.github.yeyi.agent.log.agent
 import io.github.yeyi.agent.tool.ToolExecutionResult
 
 /**
@@ -78,7 +79,7 @@ internal object NoOpAgentHook : AgentHook
  * 行为:
  * - [action] 正常完成 → 返回其结果(类型 [T])
  * - [action] 抛 [kotlinx.coroutines.CancellationException] → 原样抛出(尊重结构化并发)
- * - [action] 抛其他 [Throwable] → 被吞掉,通过 [Logging] 记一行 WARN,返回 `null`
+ * - [action] 抛其他 [Throwable] → 被吞掉,通过 [io.github.yeyi.agent.log.Logging] 记一行 WARN,返回 `null`
  *
  * 返回类型 [T?] 让调用方在 hook 抛异常时统一处理 `null`(典型做法:fallback 到某个默认值)。
  * ReActAgent 对每个 hook 回调点都用此扩展,保证单个 hook 抛异常不会破坏 agent 主流程。
@@ -93,7 +94,7 @@ internal suspend inline fun <T> AgentHook.safeInvoke(
     } catch (t: kotlinx.coroutines.CancellationException) {
         throw t
     } catch (t: Throwable) {
-        Logging.warn("AgentHook", "${this::class.simpleName} threw ${t::class.simpleName}: ${t.message}")
+        Logging.agent().warn("${this::class.simpleName} threw ${t::class.simpleName}: ${t.message}")
         null
     }
 }

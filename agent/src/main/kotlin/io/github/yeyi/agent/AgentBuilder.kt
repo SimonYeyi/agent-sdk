@@ -1,7 +1,8 @@
 package io.github.yeyi.agent
 
-import io.github.yeyi.agent.internal.Logging
 import io.github.yeyi.agent.llm.LlmClient
+import io.github.yeyi.agent.log.Logging
+import io.github.yeyi.agent.log.agent
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.tool.Tool
@@ -42,16 +43,16 @@ public class AgentBuilder {
     private val toolRegistry = ToolRegistry()
     private var memory: Memory = InMemoryMemory()
 
-    public fun tool(t: Tool) {
-        toolRegistry.register(t)
+    public fun tool(tool: Tool) {
+        toolRegistry.register(tool)
     }
 
-    public fun tools(ts: Iterable<Tool>) {
-        toolRegistry.registerAll(ts)
+    public fun tools(tools: Iterable<Tool>) {
+        toolRegistry.registerAll(tools)
     }
 
-    public fun memory(m: Memory) {
-        memory = m
+    public fun memory(memory: Memory) {
+        this@AgentBuilder.memory = memory
     }
 
     /**
@@ -67,10 +68,7 @@ public class AgentBuilder {
         val client = requireNotNull(llmClient) { "llmClient must be set" }
 
         if (systemPrompt.isBlank() && toolRegistry.names().isEmpty()) {
-            Logging.warn(
-                "AgentBuilder",
-                "Agent has no system prompt and no tools; useful only for pure chat."
-            )
+            Logging.agent().warn("Agent has no system prompt and no tools; useful only for pure chat.")
         }
 
         return ReActAgent(

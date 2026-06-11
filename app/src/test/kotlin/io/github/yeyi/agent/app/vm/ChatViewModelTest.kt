@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.app.vm
 
 import io.github.yeyi.agent.Agent
-import io.github.yeyi.agent.agent
+import io.github.yeyi.agent.log.agent
 import io.github.yeyi.agent.fakes.FakeLlmClient
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
