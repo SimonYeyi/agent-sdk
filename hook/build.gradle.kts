@@ -6,7 +6,7 @@ group = "io.github.yeyi.agent"
 version = "0.1.0-SNAPSHOT"
 
 kotlin {
-    jvmToolchain(17)
+    jvmToolchain(21)
     explicitApi()
 }
 
