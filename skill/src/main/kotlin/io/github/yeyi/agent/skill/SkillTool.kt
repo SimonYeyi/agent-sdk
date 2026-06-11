@@ -9,9 +9,9 @@ import kotlinx.serialization.json.JsonElement
 /**
  * Adapter that exposes a [Skill] as a [Tool] for the LLM.
  *
- * The tool's [execute] returns the skill's body as the tool result. The tool's [name] is
- * `skill_<skill.name>` so the LLM sees a clear, namespaced handle and the body is loaded
- * only when the model explicitly invokes the skill.
+ * The tool's [execute] returns the skill's [Skill.instructions] as the tool result. The
+ * tool's [name] is `skill_<skill.name>` so the LLM sees a clear, namespaced handle and
+ * the body is loaded only when the model explicitly invokes the skill.
  */
 public class SkillTool internal constructor(
     private val skill: Skill,
@@ -21,5 +21,5 @@ public class SkillTool internal constructor(
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
     override suspend fun execute(args: JsonElement, ctx: ToolContext): ToolExecutionResult =
-        ToolExecutionResult(content = skill.body, isError = false)
+        ToolExecutionResult(content = skill.instructions, isError = false)
 }
