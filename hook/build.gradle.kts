@@ -1,0 +1,25 @@
+plugins {
+    alias(libs.plugins.kotlin.jvm)
+}
+
+group = "io.github.yeyi.agent"
+version = "0.1.0-SNAPSHOT"
+
+kotlin {
+    jvmToolchain(17)
+    explicitApi()
+}
+
+dependencies {
+    api(project(":agent"))
+
+    testImplementation(libs.kotlin.test)
+    testImplementation(libs.kotlin.test.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.junit)
+    testImplementation(testFixtures(project(":agent")))
+}
+
+tasks.test {
+    useJUnit()
+}
