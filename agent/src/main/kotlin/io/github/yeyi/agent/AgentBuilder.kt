@@ -30,9 +30,17 @@ public class AgentBuilder {
     public var llmClient: LlmClient? = null
     public var maxIterations: Int = 10
 
+    /**
+     * agent 实际使用的 hook。
+     *
+     * - 默认是 agent 模块内部的空实现(无副作用)
+     * - 这里是**挂载点**(挂单个 hook,或挂一个已组合好的 hook 树);
+     * - 直接赋值会**替换**之前的 hook
+     */
+    public var hook: AgentHook = NoOpAgentHook
+
     private val toolRegistry = ToolRegistry()
     private var memory: Memory = InMemoryMemory()
-    private var hook: AgentHook = NoOpAgentHook
 
     public fun tool(t: Tool) {
         toolRegistry.register(t)
@@ -44,14 +52,6 @@ public class AgentBuilder {
 
     public fun memory(m: Memory) {
         memory = m
-    }
-
-    /**
-     * 设置 agent 的 [hook]。每次调用会**替换**之前的 hook(不追加)。
-     * 如需挂载多个 hook,使用 `:hook` 模块的 `CompositeAgentHook` 组合后再调用本方法。
-     */
-    public fun hook(h: AgentHook) {
-        hook = h
     }
 
     /**

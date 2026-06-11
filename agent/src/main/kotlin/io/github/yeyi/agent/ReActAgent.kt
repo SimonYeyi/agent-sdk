@@ -1,6 +1,5 @@
 package io.github.yeyi.agent
 
-import io.github.yeyi.agent.internal.Logging
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
@@ -113,9 +112,9 @@ public class ReActAgent internal constructor(
                 coroutineContext.ensureActive()
 
                 val request = buildRequest()
-                invokeHook { beforeLlmCall(iterations, request.messages) }
+                hook.safeInvoke { beforeLlmCall(iterations, request.messages) }
                 val response = llmCall(request)
-                invokeHook { afterLlmResponse(iterations, response) }
+                hook.safeInvoke { afterLlmResponse(iterations, response) }
                 memory.add(response.message)
 
                 if (response.message.toolCalls.isEmpty()) {
@@ -125,24 +124,25 @@ public class ReActAgent internal constructor(
                         toolCalls = toolCalls.toList(),
                         usage = response.usage,
                     )
-                    invokeHook { onRunFinished(result) }
+                    hook.safeInvoke { onRunFinished(result) }
                     emit(AgentEvent.Final(result))
                     return
                 }
 
                 for (call in response.message.toolCalls) {
-                    val synthetic = invokeHookReturning { beforeToolCall(call) }
+                    val synthetic = hook.safeInvoke { beforeToolCall(call) }
                     if (synthetic != null) {
-                        // 工具被 hook 短路:跳过实际执行,但 synthetic result 仍写进 memory,
-                        // 模型下一轮"看到"的是 hook 决定的内容。Started 事件不发,只发 Finished。
-                        recordAndEmit(call, synthetic, emit, toolCalls)
+                        // 工具被 hook 短路:跳过实际执行,synthetic result 写进 memory,
+                        // **不** emit ToolCallStarted / ToolCallFinished(工具压根没被调用)。
+                        recordToMemory(call, synthetic.copy(isError = true), toolCalls)
                     } else {
                         emit(AgentEvent.ToolCallStarted(call.id, call.name))
                         val startMs = System.currentTimeMillis()
                         val raw = toolRegistry.execute(call, ToolContext())
                         val durMs = System.currentTimeMillis() - startMs
-                        val final = invokeHookReturning { afterToolCall(call, raw, durMs) } ?: raw
-                        recordAndEmit(call, final, emit, toolCalls)
+                        val final = hook.safeInvoke { afterToolCall(call, raw, durMs) } ?: raw
+                        recordToMemory(call, final, toolCalls)
+                        emit(AgentEvent.ToolCallFinished(call.id, final))
                     }
                 }
             }
@@ -150,32 +150,29 @@ public class ReActAgent internal constructor(
         } catch (t: kotlinx.coroutines.CancellationException) {
             throw t
         } catch (t: Throwable) {
-            invokeHook { onError(iterations, t) }
+            hook.safeInvoke { onError(iterations, t) }
             emit(AgentEvent.Failed(t))
         }
     }
 
-    private suspend fun recordAndEmit(
+    private suspend fun recordToMemory(
         call: ToolCall,
         callResult: ToolExecutionResult,
-        emit: suspend (AgentEvent) -> Unit,
         toolCalls: MutableList<AgentResult.ToolCallRecord>,
     ) {
-        val record = AgentResult.ToolCallRecord(
+        toolCalls += AgentResult.ToolCallRecord(
             callId = call.id,
             toolName = call.name,
             arguments = call.arguments,
             result = callResult,
             timestamp = java.time.Instant.now(),
         )
-        toolCalls += record
         memory.add(
             ChatMessage.ToolResult(
                 toolCallId = call.id, toolName = call.name,
                 content = callResult.content, isError = callResult.isError,
             )
         )
-        emit(AgentEvent.ToolCallFinished(call.id, callResult))
     }
 
     private suspend fun buildRequest(): ChatRequest = ChatRequest(
@@ -185,29 +182,4 @@ public class ReActAgent internal constructor(
         },
         tools = toolRegistry.definitions()
     )
-
-    private suspend inline fun invokeHook(crossinline action: suspend AgentHook.() -> Unit) {
-        try {
-            hook.action()
-        } catch (t: kotlinx.coroutines.CancellationException) {
-            throw t
-        } catch (t: Throwable) {
-            Logging.warn("AgentHook", "Hook ${hook::class.simpleName} threw: ${t.message}")
-        }
-    }
-
-    /**
-     * 调用一个返回值的 hook 方法。返回值为 null 时,如果 hook 自身抛异常则回退为 null;
-     * 真实返回 null 则如实返回。
-     */
-    private suspend inline fun <T> invokeHookReturning(
-        crossinline action: suspend AgentHook.() -> T,
-    ): T? = try {
-        hook.action()
-    } catch (t: kotlinx.coroutines.CancellationException) {
-        throw t
-    } catch (t: Throwable) {
-        Logging.warn("AgentHook", "Hook ${hook::class.simpleName} threw: ${t.message}")
-        null
-    }
 }

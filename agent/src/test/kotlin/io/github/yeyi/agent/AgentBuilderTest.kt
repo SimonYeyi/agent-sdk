@@ -51,7 +51,7 @@ class AgentBuilderTest {
         val h = object : AgentHook {}
         val a: ReActAgent = agent {
             llmClient = fakeClient()
-            hook(h)
+            hook = h
         } as ReActAgent
         assertSame(h, a.hook)
     }
@@ -65,13 +65,13 @@ class AgentBuilderTest {
     }
 
     @Test
-    fun `hook replaces previous instead of appending`() {
+    fun `hook assignment replaces previous instead of appending`() {
         val h1 = object : AgentHook {}
         val h2 = object : AgentHook {}
         val a: ReActAgent = agent {
             llmClient = fakeClient()
-            hook(h1)
-            hook(h2)
+            hook = h1
+            hook = h2
         } as ReActAgent
         assertSame(h2, a.hook)
     }

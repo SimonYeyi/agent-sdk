@@ -20,7 +20,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -260,7 +259,7 @@ class AgentHookTest {
     }
 
     @Test
-    fun `beforeToolCall returning non-null short-circuits tool execution`() = runTest {
+    fun `beforeToolCall returning non-null short-circuits tool execution and emits no tool events`() = runTest {
         val events: MutableList<String> = mutableListOf()
         val shortCircuit = ToolExecutionResult("synthetic-from-hook", isError = false)
         val hook = object : AgentHook {
@@ -286,12 +285,37 @@ class AgentHookTest {
         )
         val events2 = agent.run("hi").toList()
         // EchoTool was registered but never invoked: hook short-circuited it.
-        // Verify by inspecting emitted events: ToolCallStarted must NOT appear, ToolCallFinished MUST.
+        // No ToolCallStarted / ToolCallFinished must be emitted (the tool was never called).
         assertTrue(events2.none { it is AgentEvent.ToolCallStarted }, "short-circuited call must not emit ToolCallStarted")
-        val finished = events2.filterIsInstance<AgentEvent.ToolCallFinished>()
-        assertEquals(1, finished.size)
-        assertEquals("synthetic-from-hook", finished[0].result.content)
-        assertFalse(finished[0].result.isError)
+        assertTrue(events2.none { it is AgentEvent.ToolCallFinished }, "short-circuited call must not emit ToolCallFinished")
+    }
+
+    @Test
+    fun `beforeToolCall short-circuit still records the synthetic result into AgentResult`() = runTest {
+        val hook = object : AgentHook {
+            override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? =
+                ToolExecutionResult("synthetic-from-hook", isError = false)
+        }
+        val client = FakeLlmClient(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    ChatMessage.Assistant(toolCalls = listOf(
+                        ToolCall("c1", "echo", JsonObject(mapOf("text" to JsonPrimitive("x"))))
+                    )),
+                    finishReason = FinishReason.ToolCalls
+                ),
+                ChatResponse(ChatMessage.Assistant(content = "final"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = ReActAgent(
+            systemPrompt = "", llmClient = client, toolRegistry = registryOf(EchoTool()),
+            memory = InMemoryMemory(), maxIterations = 5, hook = hook
+        )
+        val result = agent.run("hi").awaitResult()
+        // The synthetic result MUST land in toolCalls (so AgentResult consumers see the call)
+        // even though no events were emitted.
+        assertEquals(1, result.toolCalls.size)
+        assertEquals("synthetic-from-hook", result.toolCalls[0].result.content)
     }
 
     @Test
