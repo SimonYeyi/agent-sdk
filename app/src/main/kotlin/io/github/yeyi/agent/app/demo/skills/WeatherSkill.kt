@@ -9,8 +9,8 @@ import io.github.yeyi.agent.skill.Skill
  */
 class WeatherSkill : Skill {
     override val name: String = "weather"
-    override val description: String = "天气查询助手：使用当前地点查询天气"
-    
+    override val description: String = "当需要查询无明确地点的天气情况时，你必须使用该技能。如：今天天气如何、明天天气怎样等无明确地点的情况。"
+
     override fun load(): String = """
         # 天气查询助手
         

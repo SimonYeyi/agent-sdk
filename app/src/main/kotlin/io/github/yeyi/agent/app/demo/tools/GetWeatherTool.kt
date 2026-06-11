@@ -15,7 +15,7 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 class GetWeatherTool : Tool {
     override val name: String = "get_weather"
-    override val description: String = "查询指定城市在特定时间的天气情况"
+    override val description: String = "当需要查询指定地点的天气情况时使用"
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         schema = """
             {
