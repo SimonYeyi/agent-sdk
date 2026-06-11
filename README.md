@@ -11,13 +11,13 @@
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.awaitResult
 import io.github.yeyi.agent.memory.InMemoryMemory
-import io.github.yeyi.agent.providers.openai.OpenAiClient
+import io.github.yeyi.agent.providers.openai.OpenAiProvider
 
-val client = OpenAiClient(apiKey = "...", model = "gpt-4o-mini")
+val provider = OpenAiProvider(apiKey = "...", model = "gpt-4o-mini")
 
 val agent = agent {
     systemPrompt = "你是一个 helpful 助手。"
-    llmClient = client
+    llmProvider = provider
     tool(GetCurrentTimeTool())
     tool(CalculatorTool())
     maxIterations = 8
@@ -52,7 +52,7 @@ println(result.message.content)
 - **Hook 生命周期**:`AgentHook` 允许在 `beforeLlmCall` / `afterLlmResponse` /
   `beforeToolCall` / `afterToolCall` / `onError` / `onRunFinished` 六个时点插入横切逻辑
   (日志、监控、安全审计等);`run` 和 `runStream` 路径均触发。
-- **多协议 Provider**:OpenAI 与 Anthropic 均实现同一 `LlmClient` 接口,二者都支持
+- **多协议 Provider**:OpenAI 与 Anthropic 均实现同一 `LlmProvider` 接口,二者都支持
   非流式 `chat()` 与 SSE 流式 `chatStream()`。
 
 ## v1.1 新增
@@ -67,7 +67,7 @@ println(result.message.content)
 
 ```text
 agent-sdk/
-├── agent/                # 抽象层:LlmClient / Tool / Memory / Agent / AgentHook / Skill
+├── agent/                # 抽象层:LlmProvider / Tool / Memory / Agent / AgentHook / Skill
 ├── providers/
 │   ├── openai/           # OpenAI 协议实现 (chat + SSE 流式)
 │   └── anthropic/        # Anthropic 协议实现 (chat + SSE 流式)

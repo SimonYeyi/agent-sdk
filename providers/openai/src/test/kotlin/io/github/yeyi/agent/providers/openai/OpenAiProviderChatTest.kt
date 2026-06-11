@@ -13,7 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class OpenAiClientChatTest {
+class OpenAiProviderChatTest {
 
     @Test
     fun `chat returns parsed ChatResponse`() = runTest {
@@ -26,10 +26,10 @@ class OpenAiClientChatTest {
               "usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}
             }
         """.trimIndent()
-        val client = OpenAiClient(
+        val provider = OpenAiProvider(
             apiKey = "test",
             model = "gpt-4o-mini",
-            baseUrl = OpenAiClient.DEFAULT_BASE_URL,
+            baseUrl = OpenAiProvider.DEFAULT_BASE_URL,
             httpClient = mockOpenAiHttpClient { _ ->
                 respond(
                     content = raw,
@@ -38,7 +38,7 @@ class OpenAiClientChatTest {
                 )
             },
         )
-        val resp = client.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+        val resp = provider.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
         assertEquals("hello", resp.message.content)
         assertEquals(FinishReason.Stop, resp.finishReason)
         assertEquals(5, resp.usage?.totalTokens)
@@ -46,10 +46,10 @@ class OpenAiClientChatTest {
 
     @Test
     fun `chat throws LlmError on HTTP 500`() = runTest {
-        val client = OpenAiClient(
+        val provider = OpenAiProvider(
             apiKey = "test",
             model = "gpt-4o-mini",
-            baseUrl = OpenAiClient.DEFAULT_BASE_URL,
+            baseUrl = OpenAiProvider.DEFAULT_BASE_URL,
             httpClient = mockOpenAiHttpClient { _ ->
                 respond(
                     content = "server error",
@@ -58,7 +58,7 @@ class OpenAiClientChatTest {
             },
         )
         try {
-            client.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+            provider.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
             error("should have thrown")
         } catch (e: AgentException.LlmError) {
             assertTrue(e.message!!.contains("LLM call failed"))

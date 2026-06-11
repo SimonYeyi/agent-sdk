@@ -4,7 +4,7 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
-import io.github.yeyi.agent.llm.LlmClient
+import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
@@ -21,7 +21,7 @@ import kotlin.coroutines.coroutineContext
 
 public class ReActAgent internal constructor(
     private val systemPrompt: String,
-    private val llmClient: LlmClient,
+    private val llmProvider: LlmProvider,
     private val toolRegistry: ToolRegistry,
     private val memory: Memory,
     private val maxIterations: Int,
@@ -31,7 +31,7 @@ public class ReActAgent internal constructor(
     override fun run(input: String): Flow<AgentEvent> = flow {
         loop(
             input = input,
-            llmCall = { req -> llmClient.chat(req) },
+            llmCall = { req -> llmProvider.chat(req) },
             emit = { emit(it) },
         )
     }
@@ -47,7 +47,7 @@ public class ReActAgent internal constructor(
                 var finishReason: FinishReason? = null
                 var usage: Usage? = null
 
-                llmClient.chatStream(req).collect { event ->
+                llmProvider.chatStream(req).collect { event ->
                     when (event) {
                         is StreamEvent.ContentDelta -> {
                             accumulatedText.append(event.text)

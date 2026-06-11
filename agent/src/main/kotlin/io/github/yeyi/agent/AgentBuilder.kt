@@ -1,6 +1,6 @@
 package io.github.yeyi.agent
 
-import io.github.yeyi.agent.llm.LlmClient
+import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.log.Logging
 import io.github.yeyi.agent.log.agent
 import io.github.yeyi.agent.memory.InMemoryMemory
@@ -15,7 +15,7 @@ import io.github.yeyi.agent.tool.ToolRegistry
  *
  * ## Validation
  *
- * - [llmClient] must be set before calling [build]; otherwise [IllegalArgumentException] is thrown.
+ * - [llmProvider] must be set before calling [build]; otherwise [IllegalArgumentException] is thrown.
  * - Registering two tools with the same name throws [IllegalArgumentException] at registration
  *   time (the [ToolRegistry] rejects duplicates eagerly so an ambiguous name can never reach
  *   the LLM).
@@ -24,11 +24,11 @@ import io.github.yeyi.agent.tool.ToolRegistry
  *
  * Skills are NOT built in here: that concept is a higher-level composition (see the `skill`
  * module's `AgentBuilder.skill(s)` extension). The core builder only deals with raw tools,
- * memory, hooks, and the LLM client.
+ * memory, hooks, and the LLM provider.
  */
 public class AgentBuilder {
     public var systemPrompt: String = ""
-    public var llmClient: LlmClient? = null
+    public var llmProvider: LlmProvider? = null
     public var maxIterations: Int = 10
 
     /**
@@ -62,10 +62,10 @@ public class AgentBuilder {
      * tool registry, memory, and hook are passed through by reference, so reusing
      * the builder after build will not affect previously built agents via this code path).
      *
-     * @throws IllegalArgumentException if [llmClient] has not been set.
+     * @throws IllegalArgumentException if [llmProvider] has not been set.
      */
     public fun build(): Agent {
-        val client = requireNotNull(llmClient) { "llmClient must be set" }
+        val provider = requireNotNull(llmProvider) { "llmProvider must be set" }
 
         if (systemPrompt.isBlank() && toolRegistry.names().isEmpty()) {
             Logging.agent().warn("Agent has no system prompt and no tools; useful only for pure chat.")
@@ -73,7 +73,7 @@ public class AgentBuilder {
 
         return ReActAgent(
             systemPrompt = systemPrompt,
-            llmClient = client,
+            llmProvider = provider,
             toolRegistry = toolRegistry,
             memory = memory,
             maxIterations = maxIterations,
@@ -90,14 +90,14 @@ public class AgentBuilder {
  * ```kotlin
  * val a = agent {
  *     systemPrompt = "You are a helpful assistant."
- *     llmClient = openAIClient
+ *     llmProvider = openAiProvider
  *     tool(WeatherTool())
  * }
  * ```
  *
  * @param block configuration block executed against a fresh [AgentBuilder].
  * @return a new [Agent] (specifically a [ReActAgent]) ready to run.
- * @throws IllegalArgumentException if [AgentBuilder.llmClient] is not set inside [block].
+ * @throws IllegalArgumentException if [AgentBuilder.llmProvider] is not set inside [block].
  */
 public fun agent(block: AgentBuilder.() -> Unit): Agent =
     AgentBuilder().apply(block).build()

@@ -49,27 +49,27 @@
 | Spec 节 | 状态 | 证据 |
 |---|---|---|
 | **§0 元信息** (包名 / 语言 / 平台) | Implemented | `agent` namespace `io.github.yeyi.agent`；`providers/openai`、`providers/anthropic`、`app` 一致；Kotlin 2.2.0 / Android 7.0+ |
-| **§1.1–1.2 核心目标** | Implemented | 4 个核心接口 `LlmClient` / `Tool` / `Memory` / `Agent` 全部 public、稳定 |
+| **§1.1–1.2 核心目标** | Implemented | 4 个核心接口 `LlmProvider` / `Tool` / `Memory` / `Agent` 全部 public、稳定 |
 | **§1.3 非目标** | Implemented | 无持久化、无 token 截断、无 auto-discovery、无 MCP、无 Plan-Execute、无结构化输出、无 Session、无可观测性 |
 | **§2 关键概念区分** | Implemented | Provider/Tool/Memory/Agent/Skill 与 spec 一致；Tool 是用户职责、SDK 只提供 `Tool` 接口 |
 | **§3 模块结构** (1+1+n) | Implemented | `agent` / `providers/openai` / `providers/anthropic` / `app` 四个 module；`agent` 不依赖 provider、HTTP client、Android SDK |
 | **§4.1 ChatMessage** (4 variants) | Implemented | `agent/.../llm/ChatMessage.kt` — `System` / `User` / `Assistant` / `ToolResult` 四个 data class；`Role` enum 4 值；`ToolCall(id, name, arguments: JsonElement)` |
-| **§4.2 LlmClient + ChatRequest/Response/StreamEvent/Usage/FinishReason** | Implemented (with additive extension) | `LlmClient.kt` — `providerName` + `chat()` + `chatStream()`；`ChatRequest` / `ChatResponse` / `Usage` / `FinishReason` (4 values) 全部对位。**注:** `StreamEvent` 多了 `ToolCallStart(id, name)` 子类型，详见"已知偏差"节 |
+| **§4.2 LlmProvider + ChatRequest/Response/StreamEvent/Usage/FinishReason** | Implemented (with additive extension) | `LlmProvider.kt` — `name` + `chat()` + `chatStream()`；`ChatRequest` / `ChatResponse` / `Usage` / `FinishReason` (4 values) 全部对位。**注:** `StreamEvent` 多了 `ToolCallStart(id, name)` 子类型，详见"已知偏差"节 |
 | **§4.3 Tool + ToolParameters + ToolContext + ToolExecutionResult** | Implemented | `Tool` interface 4 成员；`ToolParameters` sealed (`Empty` / `JsonSchema`)；`ToolExecutionResult(content, isError=false)`；`ToolContext(invocationId, metadata)` |
 | **§4.4 Memory + InMemoryMemory** | Implemented | `Memory` interface 3 方法；`InMemoryMemory` 用 `Mutex.withLock` 保护，线程安全 |
 | **§4.5 Agent + AgentConfig + AgentResult + ToolCallRecord + AgentEvent + AgentHook + NoOpAgentHook** | Implemented (v1.1 additive) | `Agent` 两方法全部返回 `Flow<AgentEvent>` (`run` / `runStream`,无 per-call memory 参数,v1.1 删除 `run(input, memory)` / `runStream(input, memory)` 重载);`AgentConfig` 6 字段(`memory: Memory` 单实例,替换原 `memoryFactory: () -> Memory` 工厂);`AgentResult` 3 字段(`message` / `iterations` / `toolCalls`,无 `memory`,caller 通过 `AgentConfig` 共享引用);`AgentResult.ToolCallRecord` 5 字段(SDK 内部审计类型,作为 `AgentResult` 嵌套类,完整 record 仅出现在 `AgentResult.toolCalls`);`AgentEvent` **5 变体** (v1.1 收敛为 `Final(val result: AgentResult)` 直接包装,数据单一来源,`Final` 旧字段与 `ToolCallRecorded` 事件均删除);`AgentHook` **6 回调** (beforeLlmCall / afterLlmResponse / beforeToolCall / afterToolCall / onError / onRunFinished);`NoOpAgentHook` object;扩展 `Flow<AgentEvent>.awaitResult()` |
-| **§4.6 AgentBuilder DSL** | Implemented | `agent { }` 顶层函数 + `AgentBuilder` class；包含 `systemPrompt` / `llmClient` / `maxIterations` / `tool()` / `tools()` / `skill()` / `skills()` / `memory(Memory)` / `hook()`；Skill 展开为 systemPrompt + tools；重复 tool name 检测 |
+| **§4.6 AgentBuilder DSL** | Implemented | `agent { }` 顶层函数 + `AgentBuilder` class；包含 `systemPrompt` / `llmProvider` / `maxIterations` / `tool()` / `tools()` / `skill()` / `skills()` / `memory(Memory)` / `hook()`；Skill 展开为 systemPrompt + tools；重复 tool name 检测 |
 | **§4.7 Skill 数据类 + DSL** | Implemented | `Skill(name, description, systemPromptFragment, tools)` data class；`SkillBuilder` + `skill(name) { }` 顶层函数；`description` 默认空、`systemPromptFragment` 默认空、`tools` 默认空 |
-| **§5.1 ReAct 非流式算法** | Implemented (v1.1 重构) | `ReActAgent.run(input)` 返回 `Flow<AgentEvent>`；与 `runStream` 共享 `loop` 内核，差别仅在传入的 `llmCall = { req -> config.llmClient.chat(req) }`(loop 内部统一从 `config.memory` 读写历史)。`ensureActive()`、`invokeTool` 吞业务异常不吞 `CancellationException`；业务异常触发 `onError` hook + emit `Failed` |
+| **§5.1 ReAct 非流式算法** | Implemented (v1.1 重构) | `ReActAgent.run(input)` 返回 `Flow<AgentEvent>`；与 `runStream` 共享 `loop` 内核，差别仅在传入的 `llmCall = { req -> config.llmProvider.chat(req) }`(loop 内部统一从 `config.memory` 读写历史)。`ensureActive()`、`invokeTool` 吞业务异常不吞 `CancellationException`；业务异常触发 `onError` hook + emit `Failed` |
 | **§5.2 ReAct 流式算法** | Implemented (v1.1 重构) | `ReActAgent.runStream(input)` 返回 `Flow<AgentEvent>`；共享 `loop` 内核，差别在 `llmCall` 内部消费 `chatStream()`、累积 `TextDelta`、把 `ToolCallStart` 作为流式解码边界事件处理；emit `TextDelta` / `ToolCallStarted` / `ToolCallFinished` / `Final` / `Failed`；tool not found 转 `isError=true` |
 | **§5.3 取消与错误语义** | Implemented | `coroutineContext.ensureActive()`；`CancellationException` 在多处重新抛出；LLM 错误抛 `LlmError`；格式错误抛 `InvalidResponse`；超 maxIter 抛 `MaxIterations` |
 | **§5.4 线程安全契约** | Implemented | `ReActAgent` 不可变（只持 `config`），并发 `run` / `runStream` 安全；`InMemoryMemory` 用 `Mutex` 保护 |
 | **§5.5 Tool 取消契约** | Implemented (契约由 Tool 实现者保证) | 工具 `suspend fun execute(args, ctx)` 自动响应协程取消；SDK 在 `invokeTool` 中正确处理 `CancellationException` |
 | **§5.6 Hook 集成点** | **Implemented (v1.1 修复)** | `run()` 和 `runStream()` 路径**均**触发全部 6 个 hook；底层共享 `loop` 内核统一触发 |
-| **§6.1 HTTP 客户端选型 (Ktor 3.x + CIO)** | Implemented | `OpenAiClient` / `AnthropicClient` 均用 `HttpClient(CIO)` |
+| **§6.1 HTTP 客户端选型 (Ktor 3.x + CIO)** | Implemented | `OpenAiProvider` / `AnthropicProvider` 均用 `HttpClient(CIO)` |
 | **§6.2 Provider 共用层 (`internal object ProviderSupport`)** | **Gap (minor)** | `agent/.../providers/ProviderSupport` **未创建**。每个 provider 各自在 `companion object` / 顶层函数中实现等价 `defaultHttpClient { install(ContentNegotiation); install(HttpTimeout) }`。功能等价、违反 spec 的"共用层"结构意图 |
-| **§6.3 OpenAI Provider** | Implemented | `OpenAiClient(apiKey, model, baseUrl, httpClient)`；`chat()` + `chatStream()`；OpenAI 兼容服务（DeepSeek/DashScope 等）可换 `baseUrl` |
-| **§6.4 Anthropic Provider** | Implemented | `AnthropicClient(apiKey, model, baseUrl, httpClient)`；`chat()` + `chatStream()`；`x-api-key` / `anthropic-version: 2023-06-01` headers；`tools[].input_schema` 字段映射；tool_result 块以 `role=user` 回灌 |
+| **§6.3 OpenAI Provider** | Implemented | `OpenAiProvider(apiKey, model, baseUrl, httpClient)`；`chat()` + `chatStream()`；OpenAI 兼容服务（DeepSeek/DashScope 等）可换 `baseUrl` |
+| **§6.4 Anthropic Provider** | Implemented | `AnthropicProvider(apiKey, model, baseUrl, httpClient)`；`chat()` + `chatStream()`；`x-api-key` / `anthropic-version: 2023-06-01` headers；`tools[].input_schema` 字段映射；tool_result 块以 `role=user` 回灌 |
 | **§6.5 流式事件映射** | Implemented | `AnthropicStreamDecoder` 处理 message_start / content_block_start / content_block_delta(text_delta) → `ContentDelta` / content_block_delta(input_json_delta) → `ToolCallDelta(argumentsDelta)` / content_block_stop / message_delta / message_stop → `Done(usage, finishReason)` |
 | **§7.1 版本矩阵** | Implemented | Gradle 9.2.1-bin / AGP 8.9.1（实际 8.9.1 而非 spec 草拟的 9.1.1；功能等价）/ Kotlin 2.2.0 / coroutines 1.10.1 / serialization 1.9.0 / Ktor 3.0.3 / Compose BOM 2025.04.00 / minSdk 26 (v1.2 bump,java.time 原生支持) / targetSdk 36 / JVM 17 |
 | **§7.2 Version Catalog** | Implemented | `gradle/libs.versions.toml` 含所有必要坐标 + plugins |
@@ -79,7 +79,7 @@
 | **§9 Sample App** | Implemented | `app` module 完整结构：MainActivity / Compose UI (`ChatScreen` / `MessageBubble` / `ToolCallIndicator`) / `ChatViewModel` (持 Agent + Memory) / `DemoAgentFactory` (注册 3 tool) / 3 个 demo tool (`GetCurrentTime` / `Calculator` / `WebSearchMock`) |
 | **§9.3 ViewModel 核心** | **Implemented (v1.1 修复)** | `ChatViewModel` 完整实现 5 事件 handler：`TextDelta` 实时累积 + `Final` 时提交；`ToolCallStarted` / `ToolCallFinished` 渲染 `ToolInProgress` / `ToolExecution` UiMessage；`Failed` 显示错误。新增 `STREAM` / `BATCH` 模式切换，共享同一套事件渲染逻辑。`UiMessage.ToolExecution` 持有 `(callId, toolName, result: ToolExecutionResult)`,不依赖 SDK 内部 `ToolCallRecord` 审计类型 |
 | **§9.4 3 个演示 Tool 纯 Kotlin** | Implemented | `GetCurrentTimeTool` / `CalculatorTool` / `WebSearchMockTool` 全部纯 Kotlin（`java.time.Instant` / `javax.script` / `kotlinx.coroutines.delay`），零 Android 依赖 |
-| **§10 v1 稳定性承诺** | Implemented | 6 个公共接口（`LlmClient` / `Tool` / `Memory` / `Agent` / `AgentHook` / `Skill`）public、`explicitApi()` 强制可见性；`internal` 保护所有实现细节（`Logging` / `ReActAgent` 构造器 / 测试 fakes 不在主 module） |
+| **§10 v1 稳定性承诺** | Implemented | 6 个公共接口（`LlmProvider` / `Tool` / `Memory` / `Agent` / `AgentHook` / `Skill`）public、`explicitApi()` 强制可见性；`internal` 保护所有实现细节（`Logging` / `ReActAgent` 构造器 / 测试 fakes 不在主 module） |
 | **§10.2 内部 API 隔离** | Implemented (partial) | `agent/.../internal/Logging` 存在并 `internal`；`internal object ProviderSupport` **不存在**（同 §6.2 gap） |
 | **§10.3 数据类稳定性** | Implemented | `data class` 字段均带默认值；新增字段可后向兼容 |
 | **§10.4 Skill 稳定性** | Implemented | `Skill` 4 字段全部带默认值；v1 不引入 `interface Skill` |
@@ -142,8 +142,8 @@ data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta:
 > ```
 
 **实际行为:**
-- `providers/openai/.../OpenAiClient.kt:32-39` `companion object { fun defaultHttpClient() }`
-- `providers/anthropic/.../AnthropicClient.kt:82-90` `fun defaultAnthropicHttpClient()`
+- `providers/openai/.../OpenAiProvider.kt:32-39` `companion object { fun defaultHttpClient() }`
+- `providers/anthropic/.../AnthropicProvider.kt:82-90` `fun defaultAnthropicHttpClient()`
 
 两处各自实现 ContentNegotiation + HttpTimeout 默认值。
 
@@ -193,12 +193,12 @@ data class ToolCallDelta(val id: String?, val name: String?, val argumentsDelta:
 | Anthropic SSE 解析 | 手写 byte-by-byte (25 行) | `readUTF8Line` 行级 API |
 | 错误处理 | OpenAI 包装,Anthropic 原始 Ktor 异常 | 两端统一包 `AgentException` |
 | 测试 | OpenAI `mockHttpClient` 私有,Anthropic 内联 | 两端 helper 统一 + Anthropic 补 4 个测试 |
-| LlmClient / StreamEvent KDoc | 零文档 | 完整契约文档 |
+| LlmProvider / StreamEvent KDoc | 零文档 | 完整契约文档 |
 | ProviderSupport 共用层 | 未抽取 | **用户决定不抽**(详见偏差 3) |
 
 **未解决项** (跨文件,本审计范围外):
 - `providers/anthropic/build.gradle.kts:20` 仍有 `ktor.client.logging` 依赖,现未使用
-- `OpenAiClient.chat()` 缺少 `CancellationException` 重抛守卫(Anthropic 已有)
+- `OpenAiProvider.chat()` 缺少 `CancellationException` 重抛守卫(Anthropic 已有)
 - `AnthropicDtos.AnthropicErrorResponse` / `AnthropicErrorBody` 仍为死代码
 
 **测试增量**: 22 → 26(本审计新增 4 个测试)

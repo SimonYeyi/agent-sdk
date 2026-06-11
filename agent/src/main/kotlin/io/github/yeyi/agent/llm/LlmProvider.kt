@@ -18,8 +18,8 @@ import kotlinx.coroutines.flow.Flow
  *   for filling it on continuation chunks (the consumer trusts the id is stable). The `name`
  *   field is non-null only on the first delta for a given id and may be null on continuation chunks.
  */
-public interface LlmClient {
-    public val providerName: String
+public interface LlmProvider {
+    public val name: String
 
     public suspend fun chat(request: ChatRequest): ChatResponse
     public fun chatStream(request: ChatRequest): Flow<StreamEvent>

@@ -5,7 +5,7 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
-import io.github.yeyi.agent.llm.LlmClient
+import io.github.yeyi.agent.llm.LlmProvider
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
@@ -25,9 +25,9 @@ class SkillExtensionsTest {
         override fun load(): String = content
     }
 
-    /** A minimal LlmClient that records every request and returns a stop response. */
-    private class RecordingLlm : LlmClient {
-        override val providerName: String = "recording"
+    /** A minimal LlmProvider that records every request and returns a stop response. */
+    private class RecordingLlm : LlmProvider {
+        override val name: String = "recording"
         val recorded: MutableList<ChatRequest> = mutableListOf()
 
         override suspend fun chat(request: ChatRequest): ChatResponse {
@@ -47,7 +47,7 @@ class SkillExtensionsTest {
     @Test
     fun `skill() makes a skill_ prefixed tool visible to the LLM`() = runTest {
         val llm = RecordingLlm()
-        val b = AgentBuilder().apply { llmClient = llm }
+        val b = AgentBuilder().apply { llmProvider = llm }
         b.skill(FixedSkill(name = "weather", description = "d", content = "B"))
         b.build().run("hi").toList()
         val req = llm.recorded.single()
@@ -58,7 +58,7 @@ class SkillExtensionsTest {
     @Test
     fun `skill() does NOT register any tools other than skill_ handle`() = runTest {
         val llm = RecordingLlm()
-        val b = AgentBuilder().apply { llmClient = llm }
+        val b = AgentBuilder().apply { llmProvider = llm }
         b.skill(FixedSkill(name = "weather", description = "d", content = "use get_weather"))
         b.build().run("hi").toList()
         val toolNames = llm.recorded.single().tools.map { it.name }
@@ -69,7 +69,7 @@ class SkillExtensionsTest {
     @Test
     fun `skills(list) registers all in iteration order`() = runTest {
         val llm = RecordingLlm()
-        val b = AgentBuilder().apply { llmClient = llm }
+        val b = AgentBuilder().apply { llmProvider = llm }
         b.skills(
             listOf(
                 FixedSkill("a", "d", "BODY_A"),
@@ -96,7 +96,7 @@ class SkillExtensionsTest {
     @Test
     fun `invoking the registered SkillTool calls load() and returns the result`() = runTest {
         val llm = RecordingLlm()
-        val b = AgentBuilder().apply { llmClient = llm }
+        val b = AgentBuilder().apply { llmProvider = llm }
         b.skill(FixedSkill(name = "weather", description = "d", content = "## Weather\nStep 1"))
         b.build().run("hi").toList()
         // The LLM-visible tool list contains the SkillTool with the Skill's description.

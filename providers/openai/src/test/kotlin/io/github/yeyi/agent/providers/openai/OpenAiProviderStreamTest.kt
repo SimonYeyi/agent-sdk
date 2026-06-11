@@ -18,7 +18,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class OpenAiClientStreamTest {
+class OpenAiProviderStreamTest {
 
     @Test
     fun `chatStream emits TextDelta and Done`() = runTest {
@@ -28,13 +28,13 @@ class OpenAiClientStreamTest {
             data: [DONE]
 
         """.trimIndent()
-        val client = OpenAiClient(
+        val provider = OpenAiProvider(
             apiKey = "k",
-            model = OpenAiClient.DEFAULT_MODEL,
-            baseUrl = OpenAiClient.DEFAULT_BASE_URL,
+            model = OpenAiProvider.DEFAULT_MODEL,
+            baseUrl = OpenAiProvider.DEFAULT_BASE_URL,
             httpClient = mockOpenAiHttpClient { respond(sseBody, HttpStatusCode.OK, sseHeaders) },
         )
-        val events = client.chatStream(
+        val events = provider.chatStream(
             ChatRequest(messages = listOf(ChatMessage.User("hi")))
         ).toList()
         val deltas = events.filterIsInstance<StreamEvent.ContentDelta>()
@@ -46,16 +46,16 @@ class OpenAiClientStreamTest {
     fun `chatStream request body includes stream_options include_usage true`() = runTest {
         val sseBody = """data: [DONE]"""
         var capturedBody: String? = null
-        val client = OpenAiClient(
+        val provider = OpenAiProvider(
             apiKey = "k",
-            model = OpenAiClient.DEFAULT_MODEL,
-            baseUrl = OpenAiClient.DEFAULT_BASE_URL,
+            model = OpenAiProvider.DEFAULT_MODEL,
+            baseUrl = OpenAiProvider.DEFAULT_BASE_URL,
             httpClient = mockOpenAiHttpClient { request ->
                 capturedBody = captureTextBody(request)
                 respond(sseBody, HttpStatusCode.OK, sseHeaders)
             },
         )
-        client.chatStream(ChatRequest(messages = listOf(ChatMessage.User("hi")))).toList()
+        provider.chatStream(ChatRequest(messages = listOf(ChatMessage.User("hi")))).toList()
         assertTrue(capturedBody != null, "request body should have been captured")
         val json = Json.parseToJsonElement(capturedBody!!).jsonObject
         val streamOptions = json["stream_options"]?.jsonObject
@@ -66,16 +66,16 @@ class OpenAiClientStreamTest {
     @Test
     fun `chat (non-stream) request body omits stream_options`() = runTest {
         var capturedBody: String? = null
-        val client = OpenAiClient(
+        val provider = OpenAiProvider(
             apiKey = "k",
-            model = OpenAiClient.DEFAULT_MODEL,
-            baseUrl = OpenAiClient.DEFAULT_BASE_URL,
+            model = OpenAiProvider.DEFAULT_MODEL,
+            baseUrl = OpenAiProvider.DEFAULT_BASE_URL,
             httpClient = mockOpenAiHttpClient { request ->
                 capturedBody = captureTextBody(request)
                 respond("""{"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}""", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
             },
         )
-        client.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+        provider.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
         assertTrue(capturedBody != null, "request body should have been captured")
         val json = Json.parseToJsonElement(capturedBody!!).jsonObject
         // 非流式请求不应带 stream_options(避免污染非流式客户端)

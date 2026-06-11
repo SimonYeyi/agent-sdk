@@ -6,12 +6,12 @@ import io.github.yeyi.agent.app.BuildConfig
 import io.github.yeyi.agent.app.demo.tools.CalculatorTool
 import io.github.yeyi.agent.app.demo.tools.GetCurrentTimeTool
 import io.github.yeyi.agent.app.demo.tools.WebSearchMockTool
-import io.github.yeyi.agent.llm.LlmClient
-import io.github.yeyi.agent.providers.anthropic.AnthropicClient
-import io.github.yeyi.agent.providers.openai.OpenAiClient
+import io.github.yeyi.agent.llm.LlmProvider
+import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
+import io.github.yeyi.agent.providers.openai.OpenAiProvider
 
 /**
- * 构造一个配好演示 Tool 与默认 LLM Client 的 Agent。
+ * 构造一个配好演示 Tool 与默认 LLM Provider 的 Agent。
  *
  * **配置来源**:从 `local.properties` 的 `MODEL_PROVIDER` / `MODEL_BASE_URL` /
  * `MODEL_API_KEY` / `MODEL_NAME` 读取(经由 `BuildConfig` 注入)。值由用户
@@ -25,7 +25,7 @@ import io.github.yeyi.agent.providers.openai.OpenAiClient
  *
  * **核心配置校验**:`MODEL_API_KEY` / `MODEL_BASE_URL` / `MODEL_NAME` 必填,
  * 任一为空 → 抛 [IllegalStateException];`MODEL_PROVIDER` 显式给了非法值
- * 也抛。`baseUrl` 是不是合法 URL、API key 是不是有效,留给 LLM client 运行时
+ * 也抛。`baseUrl` 是不是合法 URL、API key 是不是有效,留给 LLM provider 运行时
  * 暴露,工厂不做猜测性校验。
  */
 object DemoAgentFactory {
@@ -51,14 +51,14 @@ object DemoAgentFactory {
             else -> PROVIDER_OPENAI
         }
 
-        val client: LlmClient = if (provider == PROVIDER_ANTHROPIC) {
-            AnthropicClient(apiKey = apiKey, model = model, baseUrl = baseUrl)
+        val llm: LlmProvider = if (provider == PROVIDER_ANTHROPIC) {
+            AnthropicProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
         } else {
-            OpenAiClient(apiKey = apiKey, model = model, baseUrl = baseUrl)
+            OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
         }
         return agent {
             systemPrompt = "你是一个 helpful 助手。优先使用工具完成任务。"
-            llmClient = client
+            llmProvider = llm
             tool(GetCurrentTimeTool())
             tool(CalculatorTool())
             tool(WebSearchMockTool())

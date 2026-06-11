@@ -3,7 +3,7 @@ package io.github.yeyi.agent.providers.anthropic
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
-import io.github.yeyi.agent.llm.LlmClient
+import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
 import io.ktor.client.*
 import io.ktor.client.call.*
@@ -20,13 +20,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 
-public class AnthropicClient(
+public class AnthropicProvider(
     private val apiKey: String,
     private val model: String,
     private val baseUrl: String,
     private val httpClient: HttpClient = defaultAnthropicHttpClient(),
-) : LlmClient {
-    override val providerName: String = "anthropic"
+) : LlmProvider {
+    override val name: String = "anthropic"
 
     public companion object {
         public const val DEFAULT_MODEL: String = "claude-sonnet-4-6"
@@ -43,7 +43,7 @@ public class AnthropicClient(
         public fun official(
             apiKey: String,
             httpClient: HttpClient = defaultAnthropicHttpClient(),
-        ): AnthropicClient = AnthropicClient(
+        ): AnthropicProvider = AnthropicProvider(
             apiKey = apiKey,
             model = DEFAULT_MODEL,
             baseUrl = DEFAULT_BASE_URL,
@@ -78,7 +78,7 @@ public class AnthropicClient(
     }
 
     override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow {
-        val anthropicReq = mapToAnthropic(this@AnthropicClient.model, request).copy(stream = true)
+        val anthropicReq = mapToAnthropic(this@AnthropicProvider.model, request).copy(stream = true)
         try {
             httpClient.preparePost("$baseUrl/v1/messages") {
                 header("x-api-key", apiKey)

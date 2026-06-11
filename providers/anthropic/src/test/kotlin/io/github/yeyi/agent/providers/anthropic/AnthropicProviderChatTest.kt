@@ -13,7 +13,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class AnthropicClientChatTest {
+class AnthropicProviderChatTest {
 
     @Test
     fun `chat sends x-api-key and anthropic-version headers`() = runTest {
@@ -28,13 +28,13 @@ class AnthropicClientChatTest {
                 headers = headersOf(HttpHeaders.ContentType, "application/json"),
             )
         }
-        val client = AnthropicClient(
+        val provider = AnthropicProvider(
             apiKey = "sk-ant-xxx",
             model = "claude-sonnet-4-6",
-            baseUrl = AnthropicClient.DEFAULT_BASE_URL,
+            baseUrl = AnthropicProvider.DEFAULT_BASE_URL,
             httpClient = http,
         )
-        client.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+        provider.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
         assertEquals("sk-ant-xxx", capturedHeaders?.get("x-api-key"))
         assertEquals("2023-06-01", capturedHeaders?.get("anthropic-version"))
     }
@@ -52,13 +52,13 @@ class AnthropicClientChatTest {
                 headers = headersOf(HttpHeaders.ContentType, "application/json"),
             )
         }
-        val client = AnthropicClient(
+        val provider = AnthropicProvider(
             apiKey = "k",
             model = "claude-sonnet-4-6",
-            baseUrl = AnthropicClient.DEFAULT_BASE_URL,
+            baseUrl = AnthropicProvider.DEFAULT_BASE_URL,
             httpClient = http,
         )
-        client.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+        provider.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
         assertTrue(capturedUrl!!.endsWith("/v1/messages"), "expected /v1/messages, got $capturedUrl")
     }
 
@@ -73,13 +73,13 @@ class AnthropicClientChatTest {
                 headers = headersOf(HttpHeaders.ContentType, "application/json"),
             )
         }
-        val client = AnthropicClient(
+        val provider = AnthropicProvider(
             apiKey = "k",
-            model = AnthropicClient.DEFAULT_MODEL,
-            baseUrl = AnthropicClient.DEFAULT_BASE_URL,
+            model = AnthropicProvider.DEFAULT_MODEL,
+            baseUrl = AnthropicProvider.DEFAULT_BASE_URL,
             httpClient = http,
         )
-        val response = client.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+        val response = provider.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
         assertEquals("hello back", response.message.content)
         assertEquals(0, response.message.toolCalls.size)
     }
@@ -92,14 +92,14 @@ class AnthropicClientChatTest {
                 status = HttpStatusCode.InternalServerError,
             )
         }
-        val client = AnthropicClient(
+        val provider = AnthropicProvider(
             apiKey = "k",
             model = "m",
-            baseUrl = AnthropicClient.DEFAULT_BASE_URL,
+            baseUrl = AnthropicProvider.DEFAULT_BASE_URL,
             httpClient = http,
         )
         try {
-            client.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+            provider.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
             error("should have thrown")
         } catch (e: AgentException.LlmError) {
             assertTrue(

@@ -2,7 +2,7 @@ package io.github.yeyi.agent.app.vm
 
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.agent
-import io.github.yeyi.agent.fakes.FakeLlmClient
+import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
@@ -21,10 +21,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 /**
- * Integration test for [ChatViewModel] using [FakeLlmClient] (via the public `agent { }` DSL).
+ * Integration test for [ChatViewModel] using [FakeLlmProvider] (via the public `agent { }` DSL).
  *
  * ChatViewModel uses [Agent.runStream], so the fake must be scripted via
- * [FakeLlmClient.streamScripts] (StreamEvent list), not nonStreamResponses.
+ * [FakeLlmProvider.streamScripts] (StreamEvent list), not nonStreamResponses.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModelTest {
@@ -43,7 +43,7 @@ class ChatViewModelTest {
 
     @Test
     fun `sendUserInput appends user message and assistant reply`() = runTest {
-        val client = FakeLlmClient(
+        val provider = FakeLlmProvider(
             streamScripts = listOf(
                 listOf(
                     StreamEvent.ContentDelta("hello "),
@@ -54,7 +54,7 @@ class ChatViewModelTest {
         )
         val agent: Agent = agent {
             systemPrompt = "you are helpful"
-            llmClient = client
+            llmProvider = provider
             maxIterations = 5
         }
         val vm = ChatViewModel(agent)
@@ -73,24 +73,24 @@ class ChatViewModelTest {
 
     @Test
     fun `sendUserInput uses batch mode when RunMode is BATCH`() = runTest {
-        // FakeLlmClient 配 nonStreamResponses (BATCH 路径走 chat())
-        val client = FakeLlmClient(
+        // FakeLlmProvider �?nonStreamResponses (BATCH 路径�?chat())
+        val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(ChatMessage.Assistant(content = "batch-reply"), finishReason = FinishReason.Stop)
             )
         )
         val agent: Agent = agent {
             systemPrompt = "you are helpful"
-            llmClient = client
+            llmProvider = provider
             maxIterations = 5
         }
         val vm = ChatViewModel(agent)
         vm.setMode(RunMode.BATCH)
         vm.sendUserInput("hi")
         advanceUntilIdle()
-        // BATCH 路径走 chat():通过 recordedRequests 验证
-        assertEquals(1, client.recordedRequests.size, "BATCH mode should call chat() exactly once")
-        // 两种 mode 都应渲染同样的消息结构 [User, Assistant]
+        // BATCH 路径�?chat():通过 recordedRequests 验证
+        assertEquals(1, provider.recordedRequests.size, "BATCH mode should call chat() exactly once")
+        // 两种 mode 都应渲染同样的消息结�?[User, Assistant]
         val messages = vm.messages.value
         assertEquals(2, messages.size, "expected [User, Assistant], got $messages")
         assertTrue(messages[0] is UiMessage.User)
@@ -102,7 +102,7 @@ class ChatViewModelTest {
 
     @Test
     fun `mode toggle does not affect UI logic`() = runTest {
-        val client = FakeLlmClient(
+        val provider = FakeLlmProvider(
             streamScripts = listOf(
                 listOf(
                     StreamEvent.ContentDelta("streamed"),
@@ -115,7 +115,7 @@ class ChatViewModelTest {
         )
         val agent: Agent = agent {
             systemPrompt = ""
-            llmClient = client
+            llmProvider = provider
             maxIterations = 5
         }
         val vm = ChatViewModel(agent)
@@ -132,8 +132,7 @@ class ChatViewModelTest {
         val batchMessages = vm2.messages.value.map { it::class.simpleName }
         val batchTexts = vm2.messages.value.map { (it as? UiMessage.Assistant)?.text }
 
-        // 模式切换不改变 UI 消息结构与文本
-        assertEquals(streamMessages, batchMessages, "STREAM and BATCH should produce same message shapes")
+        // 模式切换不改�?UI 消息结构与文�?        assertEquals(streamMessages, batchMessages, "STREAM and BATCH should produce same message shapes")
         assertEquals(streamTexts, batchTexts, "STREAM and BATCH should produce same final text")
         assertEquals(false, vm.isProcessing.value)
         assertEquals(false, vm2.isProcessing.value)

@@ -12,7 +12,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
-class AnthropicClientStreamTest {
+class AnthropicProviderStreamTest {
 
     @Test
     fun `chatStream returns ContentDelta events from SSE`() = runTest {
@@ -34,13 +34,13 @@ class AnthropicClientStreamTest {
 
         """.trimIndent()
         val http = mockAnthropicHttpClient { respond(sseBody, HttpStatusCode.OK, sseHeaders) }
-        val client = AnthropicClient(
+        val provider = AnthropicProvider(
             apiKey = "k",
-            model = AnthropicClient.DEFAULT_MODEL,
-            baseUrl = AnthropicClient.DEFAULT_BASE_URL,
+            model = AnthropicProvider.DEFAULT_MODEL,
+            baseUrl = AnthropicProvider.DEFAULT_BASE_URL,
             httpClient = http,
         )
-        val events = client.chatStream(
+        val events = provider.chatStream(
             ChatRequest(messages = listOf(ChatMessage.User("hi")))
         ).toList()
         val deltas = events.filterIsInstance<StreamEvent.ContentDelta>()
@@ -65,13 +65,13 @@ class AnthropicClientStreamTest {
 
         """.trimIndent()
         val http = mockAnthropicHttpClient { respond(sseBody, HttpStatusCode.OK, sseHeaders) }
-        val client = AnthropicClient(
+        val provider = AnthropicProvider(
             apiKey = "k",
-            model = AnthropicClient.DEFAULT_MODEL,
-            baseUrl = AnthropicClient.DEFAULT_BASE_URL,
+            model = AnthropicProvider.DEFAULT_MODEL,
+            baseUrl = AnthropicProvider.DEFAULT_BASE_URL,
             httpClient = http,
         )
-        val events = client.chatStream(
+        val events = provider.chatStream(
             ChatRequest(messages = listOf(ChatMessage.User("hi")))
         ).toList()
         val done = events.filterIsInstance<StreamEvent.Done>()
@@ -103,13 +103,13 @@ class AnthropicClientStreamTest {
             data: {"type":"message_stop"}
 
         """.trimIndent()
-        val client = AnthropicClient(
+        val provider = AnthropicProvider(
             apiKey = "k",
             model = "m",
-            baseUrl = AnthropicClient.DEFAULT_BASE_URL,
+            baseUrl = AnthropicProvider.DEFAULT_BASE_URL,
             httpClient = mockAnthropicHttpClient { respond(sse, HttpStatusCode.OK, sseHeaders) },
         )
-        val events = client.chatStream(ChatRequest(messages = listOf(ChatMessage.User("hi")))).toList()
+        val events = provider.chatStream(ChatRequest(messages = listOf(ChatMessage.User("hi")))).toList()
         val starts = events.filterIsInstance<StreamEvent.ToolCallStart>()
         val deltas = events.filterIsInstance<StreamEvent.ToolCallDelta>()
         val done = events.filterIsInstance<StreamEvent.Done>().last()

@@ -76,7 +76,7 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow
  * - 协议已经走到 Done 事件,流正常结束是确定事实
  * - 未识别值按"安全默认"处理为正常停止,而不是错误;
  *   若需要为 `content_filter` 等已知错误条件单独识别,加显式 case
- * - 真正的错误(网络、解析)在 [StreamEvent.Error] 与 LlmClient 抛
+ * - 真正的错误(网络、解析)在 [StreamEvent.Error] 与 LlmProvider 抛
  *   `AgentException` 路径上处理,不在 finishReason 维度重复出口
  */
 private fun mapFinishReason(s: String?): FinishReason = when (s) {

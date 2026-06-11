@@ -1,13 +1,13 @@
 package io.github.yeyi.agent
 
 import io.github.yeyi.agent.fakes.EchoTool
-import io.github.yeyi.agent.fakes.FakeLlmClient
+import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.fakes.registryOf
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
-import io.github.yeyi.agent.llm.LlmClient
+import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.memory.InMemoryMemory
@@ -53,7 +53,7 @@ class AgentHookTest {
     @Test
     fun `hook receives events in correct order`() = runTest {
         val hook = RecordingHook()
-        val client = FakeLlmClient(
+        val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(
                     ChatMessage.Assistant(toolCalls = listOf(
@@ -65,7 +65,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 5, hook = hook
+            systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 5, hook = hook
         )
         agent.run("hi").awaitResult()
         assertEquals(
@@ -85,7 +85,7 @@ class AgentHookTest {
     @Test
     fun `runStream also fires all hooks in order`() = runTest {
         val hook = RecordingHook()
-        val client = FakeLlmClient(
+        val provider = FakeLlmProvider(
             streamScripts = listOf(
                 listOf(
                     StreamEvent.ToolCallStart(id = "c1", name = "echo"),
@@ -99,7 +99,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 5, hook = hook
+            systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 5, hook = hook
         )
         agent.runStream("hi").awaitResult()
         assertEquals(
@@ -123,13 +123,13 @@ class AgentHookTest {
                 throw RuntimeException("hook fail")
             }
         }
-        val client = FakeLlmClient(
+        val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hook = throwingHook
+            systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hook = throwingHook
         )
         val result = agent.run("hi").awaitResult()
         assertEquals("ok", result.message.content)
@@ -143,7 +143,7 @@ class AgentHookTest {
                 errors += cause
             }
         }
-        val client = FakeLlmClient(
+        val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(
                     ChatMessage.Assistant(toolCalls = listOf(
@@ -153,9 +153,9 @@ class AgentHookTest {
                 )
             )
         )
-        // maxIterations=1,会立刻 emit Failed(MaxIterations)
+        // maxIterations=1,浼氱珛鍒?emit Failed(MaxIterations)
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 1, hook = errorHook
+            systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 1, hook = errorHook
         )
         agent.run("hi").toList()
         assertTrue(errorHook.errors.size == 1)
@@ -168,13 +168,13 @@ class AgentHookTest {
                 throw RuntimeException("afterLlm fail")
             }
         }
-        val client = FakeLlmClient(
+        val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hook = throwingHook
+            systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hook = throwingHook
         )
         val result = agent.run("hi").awaitResult()
         assertEquals("ok", result.message.content)
@@ -191,7 +191,7 @@ class AgentHookTest {
                 throw RuntimeException("afterTool fail")
             }
         }
-        val client = FakeLlmClient(
+        val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(
                     ChatMessage.Assistant(toolCalls = listOf(
@@ -203,7 +203,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 5, hook = throwingHook
+            systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxIterations = 5, hook = throwingHook
         )
         val result = agent.run("hi").awaitResult()
         assertEquals("final", result.message.content)
@@ -211,7 +211,7 @@ class AgentHookTest {
     }
 
     @Test
-    fun `onError fires for LLM client throw (not just MaxIterations)`() = runTest {
+    fun `onError fires for LLM provider throw (not just MaxIterations)`() = runTest {
         val boom = RuntimeException("llm unavailable")
         val errorHook = object : AgentHook {
             val errors: MutableList<Throwable> = mutableListOf()
@@ -219,14 +219,14 @@ class AgentHookTest {
                 errors += cause
             }
         }
-        // Custom LLM client that throws on first chat() call
-        val client = object : LlmClient {
-            override val providerName: String = "throwing"
+        // Custom LLM provider that throws on first chat() call
+        val provider = object : LlmProvider {
+            override val name: String = "throwing"
             override suspend fun chat(request: ChatRequest): ChatResponse = throw boom
             override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hook = errorHook
+            systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hook = errorHook
         )
         agent.run("hi").toList()
         assertEquals(1, errorHook.errors.size)
@@ -241,15 +241,15 @@ class AgentHookTest {
                 errors += cause
             }
         }
-        // Custom LLM client that throws CancellationException
-        val client = object : LlmClient {
-            override val providerName: String = "cancelling"
+        // Custom LLM provider that throws CancellationException
+        val provider = object : LlmProvider {
+            override val name: String = "cancelling"
             override suspend fun chat(request: ChatRequest): ChatResponse =
                 throw kotlinx.coroutines.CancellationException("cancelled")
             override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hook = errorHook
+            systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5, hook = errorHook
         )
         try { agent.run("hi").toList() } catch (t: Throwable) {
             assertTrue(t is kotlinx.coroutines.CancellationException)
@@ -268,7 +268,7 @@ class AgentHookTest {
                 return shortCircuit
             }
         }
-        val client = FakeLlmClient(
+        val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(
                     ChatMessage.Assistant(toolCalls = listOf(
@@ -280,7 +280,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, toolRegistry = registryOf(EchoTool()),
+            systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), maxIterations = 5, hook = hook
         )
         val events2 = agent.run("hi").toList()
@@ -296,7 +296,7 @@ class AgentHookTest {
             override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? =
                 ToolExecutionResult("synthetic-from-hook", isError = false)
         }
-        val client = FakeLlmClient(
+        val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(
                     ChatMessage.Assistant(toolCalls = listOf(
@@ -308,7 +308,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, toolRegistry = registryOf(EchoTool()),
+            systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), maxIterations = 5, hook = hook
         )
         val result = agent.run("hi").awaitResult()
@@ -324,7 +324,7 @@ class AgentHookTest {
             override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? =
                 ToolExecutionResult("blocked by hook", isError = true)
         }
-        val client = FakeLlmClient(
+        val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(
                     ChatMessage.Assistant(toolCalls = listOf(
@@ -336,7 +336,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, toolRegistry = registryOf(EchoTool()),
+            systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), maxIterations = 5, hook = hook
         )
         val result = agent.run("hi").awaitResult()
@@ -357,7 +357,7 @@ class AgentHookTest {
                 durationMs: Long,
             ): ToolExecutionResult = rewritten
         }
-        val client = FakeLlmClient(
+        val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(
                     ChatMessage.Assistant(toolCalls = listOf(
@@ -369,7 +369,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, toolRegistry = registryOf(EchoTool()),
+            systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), maxIterations = 5, hook = hook
         )
         val result = agent.run("hi").awaitResult()
@@ -385,7 +385,7 @@ class AgentHookTest {
                 throw RuntimeException("oops")
             }
         }
-        val client = FakeLlmClient(
+        val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(
                     ChatMessage.Assistant(toolCalls = listOf(
@@ -397,11 +397,11 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            systemPrompt = "", llmClient = client, toolRegistry = registryOf(EchoTool()),
+            systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), maxIterations = 5, hook = hook
         )
         val result = agent.run("hi").awaitResult()
-        // exception in beforeToolCall → tool runs as if no hook short-circuited
+        // exception in beforeToolCall 鈫?tool runs as if no hook short-circuited
         assertEquals("final", result.message.content)
         assertEquals(1, result.toolCalls.size)
     }

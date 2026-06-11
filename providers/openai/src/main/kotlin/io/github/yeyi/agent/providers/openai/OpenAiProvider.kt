@@ -3,7 +3,7 @@ package io.github.yeyi.agent.providers.openai
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
-import io.github.yeyi.agent.llm.LlmClient
+import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
 import io.ktor.client.*
 import io.ktor.client.call.*
@@ -20,14 +20,13 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 
-public class OpenAiClient(
+public class OpenAiProvider(
     private val apiKey: String,
     private val model: String,
     private val baseUrl: String,
     private val httpClient: HttpClient = defaultHttpClient()
-) : LlmClient {
-
-    override val providerName: String = "openai"
+) : LlmProvider {
+    override val name: String = "openai"
 
     public companion object {
         public const val DEFAULT_MODEL: String = "gpt-4o-mini"
@@ -44,7 +43,7 @@ public class OpenAiClient(
         public fun official(
             apiKey: String,
             httpClient: HttpClient = defaultHttpClient(),
-        ): OpenAiClient = OpenAiClient(
+        ): OpenAiProvider = OpenAiProvider(
             apiKey = apiKey,
             model = DEFAULT_MODEL,
             baseUrl = DEFAULT_BASE_URL,
