@@ -1,8 +1,6 @@
 package io.github.yeyi.agent.hook
 
-import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentResult
-import io.github.yeyi.agent.internal.Logging
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ToolCall
@@ -57,7 +55,7 @@ public class CompositeHook(
 
     override suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {
         for (h in hooks) {
-            h.safeInvoke { beforeLlmCall(iteration, messages) }
+            this.safeInvoke { beforeLlmCall(iteration, messages) }
         }
     }
 
@@ -110,25 +108,4 @@ public class CompositeHook(
     }
 }
 
-/**
- * hook 模块自己的 [AgentHook.safeInvoke] 扩展。
- *
- * 与 agent 模块的同名扩展**故意分开**:
- * - agent 模块的版本 `internal` 可见,只供 ReActAgent 内部使用
- * - 本扩展是 hook 模块私有的(可被模块内代码访问,跨模块不可见),语义相同但用本模块的日志 tag
- */
-internal suspend inline fun <T> AgentHook.safeInvoke(
-    crossinline action: suspend AgentHook.() -> T,
-): T? {
-    return try {
-        action()
-    } catch (t: kotlinx.coroutines.CancellationException) {
-        throw t
-    } catch (t: Throwable) {
-        Logging.warn(
-            "CompositeHook",
-            "${this::class.simpleName} threw ${t::class.simpleName}: ${t.message}",
-        )
-        null
-    }
-}
+

@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.hook
 
 import io.github.yeyi.agent.AgentHook
+import io.github.yeyi.agent.internal.Logging
 
 /**
  * 标记接口:这个 hook 是 `:hook` 模块"全局 hook 系统"的一部分。
@@ -16,3 +17,32 @@ import io.github.yeyi.agent.AgentHook
  * - 实现者无需在本接口新增任何方法;[AgentHook] 的方法集就是 hook 回调的完整契约
  */
 public interface Hook : AgentHook
+
+/**
+ * 调用 hook 方法的统一异常隔离包装。
+ *
+ * 行为:
+ * - [action] 正常完成 → 返回其结果(类型 [T])
+ * - [action] 抛 [kotlinx.coroutines.CancellationException] → 原样抛出(尊重结构化并发)
+ * - [action] 抛其他 [Throwable] → 被吞掉,通过 [Logging] 记一行 WARN,返回 `null`
+ *
+ * 返回类型 [T?] 让调用方在 hook 抛异常时统一处理 `null`(典型做法:fallback 到某个默认值)。
+ * CompositeHook 对每个 hook 回调点都用此扩展,保证单个 hook 抛异常不会破坏主流程。
+ *
+ * 模块级 `internal` 可见:仅供 hook 模块内部使用。
+ */
+internal suspend inline fun <T> Hook.safeInvoke(
+    crossinline action: suspend Hook.() -> T,
+): T? {
+    return try {
+        action()
+    } catch (t: kotlinx.coroutines.CancellationException) {
+        throw t
+    } catch (t: Throwable) {
+        Logging.warn(
+            "Hook",
+            "${this::class.simpleName} threw ${t::class.simpleName}: ${t.message}",
+        )
+        null
+    }
+}
