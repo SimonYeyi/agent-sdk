@@ -20,12 +20,12 @@ import kotlinx.serialization.json.JsonNull
 import kotlin.coroutines.coroutineContext
 
 public class ReActAgent internal constructor(
-    internal val systemPrompt: String,
-    internal val llmClient: LlmClient,
-    internal val toolRegistry: ToolRegistry,
-    internal val memory: Memory,
-    internal val maxIterations: Int,
-    internal val hook: AgentHook = NoOpAgentHook,
+    private val systemPrompt: String,
+    private val llmClient: LlmClient,
+    private val toolRegistry: ToolRegistry,
+    private val memory: Memory,
+    private val maxIterations: Int,
+    private val hook: AgentHook = NoOpAgentHook,
 ) : Agent {
 
     override fun run(input: String): Flow<AgentEvent> = flow {

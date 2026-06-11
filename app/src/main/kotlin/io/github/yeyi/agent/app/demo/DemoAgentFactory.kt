@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.app.demo
 
 import io.github.yeyi.agent.Agent
-import io.github.yeyi.agent.log.agent
+import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.app.BuildConfig
 import io.github.yeyi.agent.app.demo.tools.CalculatorTool
 import io.github.yeyi.agent.app.demo.tools.GetCurrentTimeTool
