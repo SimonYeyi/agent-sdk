@@ -20,6 +20,6 @@ public class SkillTool internal constructor(
     override val description: String = skill.description
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    override suspend fun execute(args: JsonElement, ctx: ToolContext): ToolExecutionResult =
+    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
         ToolExecutionResult(content = skill.load(), isError = false)
 }

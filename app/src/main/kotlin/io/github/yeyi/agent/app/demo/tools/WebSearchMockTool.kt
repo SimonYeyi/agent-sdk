@@ -35,7 +35,7 @@ class WebSearchMockTool : Tool {
         """.trimIndent()
     )
 
-    override suspend fun execute(arguments: JsonElement, ctx: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         val query = (arguments as JsonObject)["query"]?.jsonPrimitive?.content
             ?: return ToolExecutionResult(content = "ERROR: missing 'query' field", isError = true)
         delay(1500) // 模拟网络耗时

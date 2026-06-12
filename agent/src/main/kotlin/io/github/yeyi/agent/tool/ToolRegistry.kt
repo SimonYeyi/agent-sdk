@@ -50,14 +50,14 @@ public class ToolRegistry {
      * - Tool throws a [CancellationException] → rethrown, never swallowed
      *   (structured concurrency contract).
      */
-    public suspend fun execute(call: ToolCall, ctx: ToolContext): ToolExecutionResult {
+    public suspend fun execute(call: ToolCall, context: ToolContext): ToolExecutionResult {
         val tool = byName[call.name]
             ?: return ToolExecutionResult(
                 content = "Tool '${call.name}' not found. Available: ${names().joinToString()}",
                 isError = true,
             )
         return try {
-            tool.execute(call.arguments, ctx)
+            tool.execute(call.arguments, context)
         } catch (t: CancellationException) {
             throw t
         } catch (t: Throwable) {

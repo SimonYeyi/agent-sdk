@@ -119,7 +119,7 @@ class ReActAgentTest {
             override val name = "boom"
             override val description = "always fails"
             override val parametersSchema = ToolParameters.Empty
-            override suspend fun execute(args: JsonElement, ctx: ToolContext): ToolExecutionResult {
+            override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
                 throw RuntimeException("kaboom")
             }
         }
@@ -183,7 +183,7 @@ class ReActAgentTest {
             override val name = "wait"
             override val description = ""
             override val parametersSchema = ToolParameters.Empty
-            override suspend fun execute(args: JsonElement, ctx: ToolContext): ToolExecutionResult {
+            override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
                 throw kotlinx.coroutines.CancellationException("cancelled inside tool")
             }
         }
@@ -248,7 +248,7 @@ class ReActAgentTest {
 
     @Test
     fun `ToolCallStarted event is emitted before tool invocation`() = runTest {
-        // 验证事件时序:Started 必须�?invokeTool 之前发出,Finished 之后
+        // 验证事件时序:Started 必须�?invokeTool 之前发出,Finished 之后
         val echo = EchoTool()
         val provider = FakeLlmProvider(
             streamScripts = listOf(

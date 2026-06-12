@@ -31,7 +31,7 @@ class CalculatorTool : Tool {
         """.trimIndent()
     )
 
-    override suspend fun execute(arguments: JsonElement, ctx: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         val expr = (arguments as JsonObject)["expression"]?.jsonPrimitive?.content
             ?: return ToolExecutionResult(content = "ERROR: missing 'expression' field", isError = true)
         return try {

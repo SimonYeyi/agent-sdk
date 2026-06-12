@@ -22,8 +22,8 @@ class AllToolsTest {
     @Test
     fun `CalculatorTool computes simple expression`() = runTest {
         val tool = CalculatorTool()
-        val args = buildJsonObject { put("expression", JsonPrimitive("(3+5)*7")) }
-        val result = tool.execute(args, ToolContext())
+        val arguments = buildJsonObject { put("expression", JsonPrimitive("(3+5)*7")) }
+        val result = tool.execute(arguments, ToolContext())
         assertEquals("(3+5)*7 = 56", result.content)
         assertFalse(result.isError)
     }
@@ -31,16 +31,16 @@ class AllToolsTest {
     @Test
     fun `CalculatorTool returns error on invalid input`() = runTest {
         val tool = CalculatorTool()
-        val args = buildJsonObject { put("expression", JsonPrimitive("abc")) }
-        val result = tool.execute(args, ToolContext())
+        val arguments = buildJsonObject { put("expression", JsonPrimitive("abc")) }
+        val result = tool.execute(arguments, ToolContext())
         assertTrue(result.isError, "expected error result, got: ${result.content}")
     }
 
     @Test
     fun `WebSearchMockTool returns mock result with delay`() = runTest {
         val tool = WebSearchMockTool()
-        val args = buildJsonObject { put("query", JsonPrimitive("kotlin coroutines")) }
-        val result = tool.execute(args, ToolContext())
+        val arguments = buildJsonObject { put("query", JsonPrimitive("kotlin coroutines")) }
+        val result = tool.execute(arguments, ToolContext())
         assertTrue(result.content.contains("kotlin coroutines"), "got: ${result.content}")
         assertFalse(result.isError)
     }

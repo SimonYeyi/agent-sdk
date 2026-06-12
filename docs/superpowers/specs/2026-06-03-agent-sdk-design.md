@@ -221,7 +221,7 @@ interface Tool {
     val name: String
     val description: String
     val parametersSchema: ToolParameters
-    suspend fun execute(args: JsonElement, ctx: ToolContext): ToolExecutionResult
+    suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult
 }
 
 sealed interface ToolParameters {

@@ -56,13 +56,13 @@ class AnthropicMappingTest {
 
     @Test
     fun `Assistant tool call is mapped to tool_use content block`() {
-        val args = buildJsonObject { put("city", JsonPrimitive("Beijing")) }
+        val arguments = buildJsonObject { put("city", JsonPrimitive("Beijing")) }
         val req = ChatRequest(
             messages = listOf(
                 ChatMessage.User("weather?"),
                 ChatMessage.Assistant(
                     content = null,
-                    toolCalls = listOf(ToolCall("call_1", "get_weather", args)),
+                    toolCalls = listOf(ToolCall("call_1", "get_weather", arguments)),
                 ),
             ),
         )
@@ -71,7 +71,7 @@ class AnthropicMappingTest {
         assertEquals("assistant", assistantMsg.role)
         assertEquals(1, assistantMsg.content.size)
         val block = assistantMsg.content[0]
-        assertEquals(AnthropicContentBlock.ToolUse("call_1", "get_weather", args), block)
+        assertEquals(AnthropicContentBlock.ToolUse("call_1", "get_weather", arguments), block)
     }
 
     @Test
@@ -141,13 +141,13 @@ class AnthropicMappingTest {
 
     @Test
     fun `mapToCore converts tool_use content block to ToolCall`() {
-        val args = buildJsonObject { put("city", JsonPrimitive("Beijing")) }
+        val arguments = buildJsonObject { put("city", JsonPrimitive("Beijing")) }
         val resp = AnthropicChatResponse(
             id = "msg_1",
             model = "claude-sonnet-4-6",
             content = listOf(
                 AnthropicContentBlock.Text("let me check"),
-                AnthropicContentBlock.ToolUse("toolu_1", "get_weather", args),
+                AnthropicContentBlock.ToolUse("toolu_1", "get_weather", arguments),
             ),
             stopReason = "tool_use",
             usage = null,
@@ -157,7 +157,7 @@ class AnthropicMappingTest {
         val call = core.message.toolCalls[0]
         assertEquals("toolu_1", call.id)
         assertEquals("get_weather", call.name)
-        assertEquals(args, call.arguments)
+        assertEquals(arguments, call.arguments)
         assertEquals(FinishReason.ToolCalls, core.finishReason)
     }
 }

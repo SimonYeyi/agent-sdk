@@ -17,7 +17,7 @@ class GetCurrentTimeTool : Tool {
 
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    override suspend fun execute(arguments: JsonElement, ctx: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         val now = Instant.now().toString()
         return ToolExecutionResult(content = "Current UTC time: $now")
     }

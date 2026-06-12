@@ -16,10 +16,10 @@ class EchoTool(
     )
 ) : Tool {
     val invocations: MutableList<JsonElement> = mutableListOf()
-    override suspend fun execute(args: JsonElement, ctx: ToolContext): ToolExecutionResult {
-        invocations += args
-        val text = (args as? JsonObject)?.get("text")
-            ?.let { it as? JsonPrimitive }?.content ?: args.toString()
+    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+        invocations += arguments
+        val text = (arguments as? JsonObject)?.get("text")
+            ?.let { it as? JsonPrimitive }?.content ?: arguments.toString()
         return ToolExecutionResult(content = text)
     }
 }

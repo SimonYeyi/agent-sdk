@@ -64,7 +64,7 @@
 | **§5.2 ReAct 流式算法** | Implemented (v1.1 重构) | `ReActAgent.runStream(input)` 返回 `Flow<AgentEvent>`；共享 `loop` 内核，差别在 `llmCall` 内部消费 `chatStream()`、累积 `TextDelta`、把 `ToolCallStart` 作为流式解码边界事件处理；emit `TextDelta` / `ToolCallStarted` / `ToolCallFinished` / `Final` / `Failed`；tool not found 转 `isError=true` |
 | **§5.3 取消与错误语义** | Implemented | `coroutineContext.ensureActive()`；`CancellationException` 在多处重新抛出；LLM 错误抛 `LlmError`；格式错误抛 `InvalidResponse`；超 maxIter 抛 `MaxIterations` |
 | **§5.4 线程安全契约** | Implemented | `ReActAgent` 不可变（只持 `config`），并发 `run` / `runStream` 安全；`InMemoryMemory` 用 `Mutex` 保护 |
-| **§5.5 Tool 取消契约** | Implemented (契约由 Tool 实现者保证) | 工具 `suspend fun execute(args, ctx)` 自动响应协程取消；SDK 在 `invokeTool` 中正确处理 `CancellationException` |
+| **§5.5 Tool 取消契约** | Implemented (契约由 Tool 实现者保证) | 工具 `suspend fun execute(arguments, context)` 自动响应协程取消；SDK 在 `invokeTool` 中正确处理 `CancellationException` |
 | **§5.6 Hook 集成点** | **Implemented (v1.1 修复)** | `run()` 和 `runStream()` 路径**均**触发全部 6 个 hook；底层共享 `loop` 内核统一触发 |
 | **§6.1 HTTP 客户端选型 (Ktor 3.x + CIO)** | Implemented | `OpenAiProvider` / `AnthropicProvider` 均用 `HttpClient(CIO)` |
 | **§6.2 Provider 共用层 (`internal object ProviderSupport`)** | **Gap (minor)** | `agent/.../providers/ProviderSupport` **未创建**。每个 provider 各自在 `companion object` / 顶层函数中实现等价 `defaultHttpClient { install(ContentNegotiation); install(HttpTimeout) }`。功能等价、违反 spec 的"共用层"结构意图 |
