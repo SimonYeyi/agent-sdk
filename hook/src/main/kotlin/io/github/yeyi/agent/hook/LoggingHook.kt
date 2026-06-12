@@ -21,15 +21,15 @@ public class LoggingHook : Hook {
     private val log = Logging.hook()
 
     override suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {
-        log.warn("iter=$iteration beforeLlmCall messages=${messages.size}")
+        log.debug("iter=$iteration beforeLlmCall messages=${messages.size}")
     }
 
     override suspend fun afterLlmResponse(iteration: Int, response: ChatResponse) {
-        log.warn("iter=$iteration afterLlmResponse toolCalls=${response.message.toolCalls.size}")
+        log.debug("iter=$iteration afterLlmResponse toolCalls=${response.message.toolCalls.size}")
     }
 
     override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? {
-        log.warn("beforeToolCall id=${call.id} name=${call.name}")
+        log.debug("beforeToolCall id=${call.id} name=${call.name}")
         return null
     }
 
@@ -38,7 +38,7 @@ public class LoggingHook : Hook {
         result: ToolExecutionResult,
         durationMs: Long,
     ): ToolExecutionResult {
-        log.warn("afterToolCall id=${call.id} name=${call.name} dur=${durationMs}ms isError=${result.isError}")
+        log.debug("afterToolCall id=${call.id} name=${call.name} dur=${durationMs}ms isError=${result.isError}")
         return result
     }
 
@@ -47,6 +47,6 @@ public class LoggingHook : Hook {
     }
 
     override suspend fun onRunFinished(result: AgentResult) {
-        log.warn("onRunFinished iter=${result.iterations} toolCalls=${result.toolCalls.size}")
+        log.info("onRunFinished iter=${result.iterations} toolCalls=${result.toolCalls.size}")
     }
 }
