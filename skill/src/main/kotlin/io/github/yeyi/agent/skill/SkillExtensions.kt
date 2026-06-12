@@ -20,6 +20,13 @@ public fun AgentBuilder.skill(s: Skill) {
  * Register multiple [Skill]s in iteration order. Equivalent to calling [skill] for each.
  */
 public fun AgentBuilder.skills(skills: Iterable<Skill>) {
-    skills.forEach { skill(it) }
-}
+    val registry = SkillRegistry().apply { register(skills) }
+    tool(LoadSkillTool(registry))
+    val skillSystemPrompt = """
+        你可以使用以下技能：
+        ${registry.buildIndexPrompt()}
 
+        当需要使用某个技能时，先调用 ${LoadSkillTool.NAME} 工具获取详细指令。
+    """.trimIndent()
+    systemPrompt(skillSystemPrompt)
+}

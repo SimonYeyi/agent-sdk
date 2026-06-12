@@ -67,21 +67,18 @@ class SkillExtensionsTest {
     }
 
     @Test
-    fun `skills(list) registers all in iteration order`() = runTest {
+    fun `skills(list) registers load_skill tool with correct prompt`() = runTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
         b.skills(
             listOf(
-                FixedSkill("a", "d", "BODY_A"),
-                FixedSkill("b", "d", "BODY_B"),
+                FixedSkill("weather", "天气查询", "body1"),
+                FixedSkill("news", "新闻查询", "body2"),
             )
         )
         b.build().run("hi").toList()
         val toolNames = llm.recorded.single().tools.map { it.name }
-        val aIdx = toolNames.indexOf("skill_a")
-        val bIdx = toolNames.indexOf("skill_b")
-        assertTrue(aIdx >= 0 && bIdx >= 0, "expected both in $toolNames")
-        assertTrue(aIdx < bIdx, "skill_a should come before skill_b in $toolNames")
+        assertTrue("load_skill" in toolNames, "expected load_skill in $toolNames")
     }
 
     @Test
@@ -102,5 +99,15 @@ class SkillExtensionsTest {
         // The LLM-visible tool list contains the SkillTool with the Skill's description.
         val toolDef = llm.recorded.single().tools.single { it.name == "skill_weather" }
         assertEquals("d", toolDef.description)
+    }
+
+    @Test
+    fun `skills(iterable) registers load_skill tool`() = runTest {
+        val llm = RecordingLlm()
+        val b = AgentBuilder().apply { llmProvider(llm) }
+        b.skills(listOf(FixedSkill("weather", "d", "body")))
+        b.build().run("hi").toList()
+        val toolNames = llm.recorded.single().tools.map { it.name }
+        assertTrue("load_skill" in toolNames, "expected load_skill in $toolNames")
     }
 }

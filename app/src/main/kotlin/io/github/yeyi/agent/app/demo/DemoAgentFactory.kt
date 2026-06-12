@@ -11,10 +11,10 @@ import io.github.yeyi.agent.app.demo.tools.GetWeatherTool
 import io.github.yeyi.agent.app.demo.tools.WebSearchMockTool
 import io.github.yeyi.agent.hook.LoggingHook
 import io.github.yeyi.agent.hook.hook
-import io.github.yeyi.agent.skill.skill
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
 import io.github.yeyi.agent.providers.openai.OpenAiProvider
+import io.github.yeyi.agent.skill.skills
 
 /**
  * 构造一个配好演示 Tool 与默认 LLM Provider 的 Agent。
@@ -68,7 +68,7 @@ object DemoAgentFactory {
             tool(GetCurrentTimeTool())
             tool(CalculatorTool())
             tool(WebSearchMockTool())
-            skill(WeatherSkill())
+            skills(listOf(WeatherSkill()))
             tool(GetLocationTool())
             tool(GetWeatherTool())
             hook(LoggingHook())
