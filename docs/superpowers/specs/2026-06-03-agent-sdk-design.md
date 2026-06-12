@@ -312,7 +312,7 @@ sealed interface AgentEvent {
     data class ToolCallStarted(val callId: String, val toolName: String) : AgentEvent
     data class ToolCallFinished(val callId: String, val result: ToolExecutionResult) : AgentEvent
     data class Final(val result: AgentResult) : AgentEvent   // v1.1 收敛:终态事件直接包装 AgentResult
-    data class Failed(val cause: Throwable) : AgentEvent
+    data class Failed(val cause: AgentException) : AgentEvent  // v1.1:cause 收窄为 AgentException,边界处统一包装
 }
 
 /**
@@ -323,13 +323,16 @@ sealed interface AgentEvent {
  * 2. Hook 不应阻塞或 sleep——可能影响 agent 整体延迟
  * 3. Hook 不能修改 `AgentConfig`/`Memory`——只读视图
  * 4. Hook 调用顺序：BeforeLlmCall → LlmCall → AfterLlmResponse → (BeforeToolCall → ToolCall → AfterToolCall)* → AfterRun
+ * 5. **v1.1 错误契约**：`onError(cause)` 的 `cause` 一定为 [AgentException] 家族成员(非 AgentException
+ *    已被 Agent 边界通过 [AgentException.wrap] 抬升);`onError` **不**传出 iteration 计数——
+ *    该计数是 Agent 内部业务细节,Hook 不应关心
  */
 interface AgentHook {
     suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {}
     suspend fun afterLlmResponse(iteration: Int, response: ChatResponse) {}
     suspend fun beforeToolCall(call: ToolCall) {}
     suspend fun afterToolCall(call: ToolCall, result: ToolExecutionResult, durationMs: Long) {}
-    suspend fun onError(iteration: Int, cause: Throwable) {}
+    suspend fun onError(cause: AgentException) {}            // v1.1:去掉 iteration,cause 收窄为 AgentException
     suspend fun onRunFinished(result: AgentResult) {}
 }
 
@@ -627,7 +630,7 @@ override fun runStream(input: String): Flow<AgentEvent> = flow {
   - 每次 LLM 响应后：`afterLlmResponse(iteration, response)`
   - 每次 Tool 调用前：`beforeToolCall(call)`
   - 每次 Tool 调用后：`afterToolCall(call, result, durationMs)`
-  - 错误发生时：`onError(iteration, cause)`
+  - 错误发生时：`onError(cause)`(v1.1 起;cause 一定为 AgentException,不再传 iteration)
   - Run 结束时：`onRunFinished(result)`
 - Hook 异常被吞掉并通过 SDK 内部 logger 记录（不向主流程传播,但 `CancellationException` 必须重新抛出）
 
@@ -867,6 +870,12 @@ sealed class AgentException(message: String, cause: Throwable? = null) : Runtime
     class ToolNotFound(name: String, available: List<String>) :
         AgentException("Tool '$name' not found. Available: $available")
     class Cancelled : AgentException("Agent run was cancelled")
+
+    companion object {
+        // v1.1:边界兜底工厂——任何 Throwable 通过 wrap() 抬升为 AgentException。
+        // 已是 AgentException → 原样返回(无重复包装);其他 → 包装为内部 Wrap 实例。
+        fun wrap(cause: Throwable): AgentException = cause as? AgentException ?: Wrap(cause)
+    }
 }
 ```
 
@@ -881,6 +890,7 @@ sealed class AgentException(message: String, cause: Throwable? = null) : Runtime
 | 超过 max iterations | 抛 `MaxIterations` | ✅ |
 | Coroutine 取消 | 传播 `CancellationException` | ✅ |
 | LLM 返回 `finishReason=Length`（被截断） | 视为终态，返回当前 message | ❌（调用方判断） |
+| v1.1:Agent 边界漏出的非 `AgentException`(NPE 等) | 通过 `AgentException.wrap()` 抬升,emit `Failed` | ❌(边界统一处理) |
 
 **设计哲学**：**LLM 能自我纠正的错误不抛**（Tool 错误、未找到），**LLM 解决不了的错误抛**（网络挂、格式错、无限循环）。
 

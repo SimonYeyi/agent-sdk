@@ -25,10 +25,12 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  *   支持逐 hook 链式改写
  *
  * 错误语义:
- * - onError 在主流程抛出前调用;iteration 为错误发生的迭代编号(若发生在 LLM 调用前则为 0)
+ * - onError 在主流程 emit `Failed` 事件前调用;cause 一定为 [AgentException] 家族成员
+ *   (非 AgentException 已被 Agent 边界通过 [AgentException.wrap] 抬升)
  * - onError 不接收 CancellationException(由结构化并发保证)
  * - 工具执行错误若被 SDK 转换为 ToolExecutionResult(isError=true)不会触发 onError;只有真正
  *   抛出的异常才会触发
+ * - **不**传出迭代次数:该计数是 Agent 内部业务细节,Hook 不应关心
  *
  * 终止语义:
  * - onRunFinished 仅在成功完成时触发(对应 AgentResult 正常返回)
@@ -62,7 +64,7 @@ public interface AgentHook {
         durationMs: Long,
     ): ToolExecutionResult = result
 
-    public suspend fun onError(iteration: Int, cause: Throwable) {}
+    public suspend fun onError(cause: AgentException) {}
     public suspend fun onRunFinished(result: AgentResult) {}
 }
 

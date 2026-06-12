@@ -46,7 +46,7 @@ class AgentResultExtensionsTest {
 
     @Test
     fun `awaitResult throws when no Final event present`() = runTest {
-        val flow = flowOf<AgentEvent>(AgentEvent.Failed(RuntimeException("boom")))
+        val flow = flowOf<AgentEvent>(AgentEvent.Failed(AgentException.LlmError(RuntimeException("boom"))))
         assertFailsWith<NoSuchElementException> {
             flow.awaitResult()
         }

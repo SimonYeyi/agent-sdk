@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.hook
 
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.log.Logging
 import io.github.yeyi.agent.llm.ChatMessage
@@ -44,8 +45,8 @@ public open class LoggingHook : Hook {
         return result
     }
 
-    override suspend fun onError(iteration: Int, cause: Throwable) {
-        log.warn("iter=$iteration onError: ${cause::class.simpleName}: ${cause.message}")
+    override suspend fun onError(cause: AgentException) {
+        log.warn("onError: ${cause::class.simpleName}: ${cause.message}")
     }
 
     override suspend fun onRunFinished(result: AgentResult) {

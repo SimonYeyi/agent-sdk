@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.hook
 
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
@@ -42,8 +43,8 @@ class CompositeHookTest {
             events += "$name:afterToolCall(${call.name},${result.content})"
             return nextRewritten ?: result
         }
-        override suspend fun onError(iteration: Int, cause: Throwable) {
-            events += "$name:onError($iteration,${cause::class.simpleName})"
+        override suspend fun onError(cause: AgentException) {
+            events += "$name:onError(${cause::class.simpleName})"
         }
         override suspend fun onRunFinished(result: AgentResult) {
             events += "$name:onRunFinished(iter=${result.iterations})"
@@ -101,7 +102,7 @@ class CompositeHookTest {
         val r = emptyResponse()
         composite.beforeLlmCall(1, emptyList())
         composite.afterLlmResponse(1, r)
-        composite.onError(1, RuntimeException("x"))
+        composite.onError(AgentException.LlmError(RuntimeException("x")))
         composite.onRunFinished(AgentResult(r.message, 1, emptyList(), null))
         // CompositeHook processes ALL hooks for a single callback method,
         // then moves to the next callback. So per-hook events accumulate by hook,
@@ -110,11 +111,11 @@ class CompositeHookTest {
             listOf(
                 "a:beforeLlmCall(1)",
                 "a:afterLlmResponse(1)",
-                "a:onError(1,RuntimeException)",
+                "a:onError(LlmError)",
                 "a:onRunFinished(iter=1)",
                 "b:beforeLlmCall(1)",
                 "b:afterLlmResponse(1)",
-                "b:onError(1,RuntimeException)",
+                "b:onError(LlmError)",
                 "b:onRunFinished(iter=1)",
             ),
             a.events + b.events
@@ -214,14 +215,14 @@ class CompositeHookTest {
     @Test
     fun `exception in onError is swallowed and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
-            override suspend fun onError(iteration: Int, cause: Throwable) {
+            override suspend fun onError(cause: AgentException) {
                 throw RuntimeException("oops")
             }
         }
         val b = RecordingHook("b")
         val composite = CompositeHook(listOf(throwing, b))
-        composite.onError(1, RuntimeException("orig"))
-        assertEquals(listOf("b:onError(1,RuntimeException)"), b.events)
+        composite.onError(AgentException.LlmError(RuntimeException("orig")))
+        assertEquals(listOf("b:onError(LlmError)"), b.events)
     }
 
     @Test

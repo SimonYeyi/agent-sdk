@@ -288,7 +288,8 @@ class ReActAgentTest {
         val agent = ReActAgent(systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxIterations = 5)
         val events = agent.runStream("hi").toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
-        assertSame(boom, failed.cause)
+        // 边界处把非 AgentException 通过 wrap() 抬升;原 throwable 挂在 cause.cause
+        assertSame(boom, failed.cause.cause)
     }
 
     @Test

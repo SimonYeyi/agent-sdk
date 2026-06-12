@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.hook
 
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
@@ -106,10 +107,9 @@ class LoggingHookTest {
     @Test
     fun `onError writes a warn line with class and message`() = runTest {
         val h = LoggingHook()
-        h.onError(4, RuntimeException("boom"))
+        h.onError(AgentException.LlmError(RuntimeException("boom")))
         val out = stderr()
-        assertTrue(out.contains("iter=4"))
-        assertTrue(out.contains("RuntimeException"))
+        assertTrue(out.contains("LlmError"))
         assertTrue(out.contains("boom"))
     }
 
@@ -179,7 +179,7 @@ class LoggingHookTest {
         h.afterLlmResponse(1, emptyResponse())
         h.beforeToolCall(toolCall())
         h.afterToolCall(toolCall(), ToolExecutionResult("x"), 1)
-        h.onError(1, RuntimeException("e"))
+        h.onError(AgentException.LlmError(RuntimeException("e")))
         h.onRunFinished(
             AgentResult(
                 message = ChatMessage.Assistant(content = "ok"),

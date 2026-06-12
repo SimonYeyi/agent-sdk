@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.hook
 
 import io.github.yeyi.agent.AgentBuilder
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.llm.ChatMessage
@@ -38,8 +39,8 @@ class HookExtensionsTest {
             events += "$name:afterToolCall(${call.name})"
             return result
         }
-        override suspend fun onError(iteration: Int, cause: Throwable) {
-            events += "$name:onError($iteration)"
+        override suspend fun onError(cause: AgentException) {
+            events += "$name:onError"
         }
         override suspend fun onRunFinished(result: AgentResult) {
             events += "$name:onRunFinished(iter=${result.iterations})"

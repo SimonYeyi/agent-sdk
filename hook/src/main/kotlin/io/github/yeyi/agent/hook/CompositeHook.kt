@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.hook
 
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
@@ -69,9 +70,9 @@ internal class CompositeHook(val hooks: List<Hook>) : Hook {
         return current
     }
 
-    override suspend fun onError(iteration: Int, cause: Throwable) {
+    override suspend fun onError(cause: AgentException) {
         for (hook in hooks) {
-            hook.safeInvoke { onError(iteration, cause) }
+            hook.safeInvoke { onError(cause) }
         }
     }
 
