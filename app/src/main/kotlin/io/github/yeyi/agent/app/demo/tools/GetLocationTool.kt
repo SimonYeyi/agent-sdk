@@ -13,7 +13,7 @@ import kotlinx.serialization.json.buildJsonObject
  */
 class GetLocationTool : Tool {
     override val name: String = "get_location"
-    override val description: String = "获取用户当前的地理位置信息"
+    override val description: String = "技能配套工具，必须在skill_weather的指导下使用"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
