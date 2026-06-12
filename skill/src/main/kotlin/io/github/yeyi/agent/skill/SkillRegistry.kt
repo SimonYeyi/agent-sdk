@@ -14,7 +14,7 @@ internal class SkillRegistry {
         skills.forEach { register(it) }
     }
 
-    fun load(name: String): String? = skills[name]?.load()
+    fun load(name: String, context: SkillContext): String? = skills[name]?.load(context)
 
     fun buildIndexPrompt(): String = skills.values.joinToString("\n") {
         "    - ${it.name}: ${it.description}"

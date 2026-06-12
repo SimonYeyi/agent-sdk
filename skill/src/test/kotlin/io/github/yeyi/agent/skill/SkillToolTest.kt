@@ -15,7 +15,7 @@ class SkillToolTest {
         override val description: String,
         private val content: String,
     ) : Skill {
-        override fun load(): String = content
+        override fun load(context: SkillContext): String = content
     }
 
     @Test
@@ -50,7 +50,7 @@ class SkillToolTest {
         val s = object : Skill {
             override val name = "x"
             override val description = "d"
-            override fun load(): String {
+            override fun load(context: SkillContext): String {
                 calls++
                 return "v$calls"
             }

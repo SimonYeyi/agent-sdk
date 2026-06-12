@@ -17,7 +17,8 @@ public fun AgentBuilder.skill(s: Skill) {
 }
 
 /**
- * Register multiple [Skill]s in iteration order. Equivalent to calling [skill] for each.
+ * Register multiple [Skill]s in iteration order via [LoadSkillTool].
+ * The LLM should call [LoadSkillTool.NAME] with the skill_name to load detailed instructions.
  */
 public fun AgentBuilder.skills(skills: Iterable<Skill>) {
     val registry = SkillRegistry().apply { register(skills) }

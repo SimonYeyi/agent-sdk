@@ -24,7 +24,7 @@ package io.github.yeyi.agent.skill
  * class WeatherSkill : Skill {
  *     override val name = "weather"
  *     override val description = "天气查询助手"
- *     override fun load() = "你是天气助手,使用 get_weather / get_forecast 工具回答问题。"
+ *     override fun load(context: SkillContext) = "你是天气助手,使用 get_weather / get_forecast 工具回答问题。"
  * }
  * ```
  *
@@ -35,5 +35,5 @@ package io.github.yeyi.agent.skill
 public interface Skill {
     public val name: String
     public val description: String
-    public fun load(): String
+    public fun load(context: SkillContext): String
 }

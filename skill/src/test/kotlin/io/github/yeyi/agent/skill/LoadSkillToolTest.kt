@@ -16,7 +16,7 @@ class LoadSkillToolTest {
         override val description: String,
         private val content: String,
     ) : Skill {
-        override fun load(): String = content
+        override fun load(context: SkillContext): String = content
     }
 
     @Test

@@ -1,5 +1,7 @@
 package io.github.yeyi.agent.skill
 
+import io.github.yeyi.agent.tool.ToolContext
+import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -13,14 +15,28 @@ class SkillRegistryTest {
         override val description: String,
         private val content: String,
     ) : Skill {
-        override fun load(): String = content
+        override fun load(context: SkillContext): String = content
     }
+
+    private class ContextualSkill(
+        override val name: String,
+        override val description: String,
+        private val baseContent: String,
+    ) : Skill {
+        override fun load(context: SkillContext): String =
+            "$baseContent [invocation=${context.toolContext.invocationId}]"
+    }
+
+    private fun emptyContext(): SkillContext = SkillContext(
+        arguments = buildJsonObject { },
+        toolContext = ToolContext(),
+    )
 
     @Test
     fun `register adds skill to registry`() {
         val registry = SkillRegistry()
         registry.register(FixedSkill("weather", "天气查询", "body"))
-        assertEquals("body", registry.load("weather"))
+        assertEquals("body", registry.load("weather", emptyContext()))
     }
 
     @Test
@@ -28,8 +44,8 @@ class SkillRegistryTest {
         val registry = SkillRegistry()
         registry.register(FixedSkill("a", "d1", "b1"))
         registry.register(FixedSkill("b", "d2", "b2"))
-        assertEquals("b1", registry.load("a"))
-        assertEquals("b2", registry.load("b"))
+        assertEquals("b1", registry.load("a", emptyContext()))
+        assertEquals("b2", registry.load("b", emptyContext()))
     }
 
     @Test
@@ -39,8 +55,8 @@ class SkillRegistryTest {
             FixedSkill("x", "d1", "b1"),
             FixedSkill("y", "d2", "b2"),
         ))
-        assertEquals("b1", registry.load("x"))
-        assertEquals("b2", registry.load("y"))
+        assertEquals("b1", registry.load("x", emptyContext()))
+        assertEquals("b2", registry.load("y", emptyContext()))
     }
 
     @Test
@@ -53,16 +69,16 @@ class SkillRegistryTest {
     }
 
     @Test
-    fun `load returns skill content`() {
+    fun `load with context returns skill content`() {
         val registry = SkillRegistry()
         registry.register(FixedSkill("weather", "d", "## weather body"))
-        assertEquals("## weather body", registry.load("weather"))
+        assertEquals("## weather body", registry.load("weather", emptyContext()))
     }
 
     @Test
     fun `load returns null for unknown skill`() {
         val registry = SkillRegistry()
-        assertNull(registry.load("unknown"))
+        assertNull(registry.load("unknown", emptyContext()))
     }
 
     @Test
@@ -73,5 +89,24 @@ class SkillRegistryTest {
         val prompt = registry.buildIndexPrompt()
         assertTrue("    - weather: 天气查询助手" in prompt)
         assertTrue("    - news: 新闻查询助手" in prompt)
+    }
+
+    @Test
+    fun `load with context passes context to skill`() {
+        val registry = SkillRegistry()
+        registry.register(ContextualSkill("weather", "d", "base"))
+        val ctx = SkillContext(
+            arguments = buildJsonObject { },
+            toolContext = ToolContext(invocationId = "test-id"),
+        )
+        val result = registry.load("weather", ctx)
+        assertEquals("base [invocation=test-id]", result)
+    }
+
+    @Test
+    fun `load falls back to load without context`() {
+        val registry = SkillRegistry()
+        registry.register(FixedSkill("weather", "d", "body"))
+        assertEquals("body", registry.load("weather", emptyContext()))
     }
 }

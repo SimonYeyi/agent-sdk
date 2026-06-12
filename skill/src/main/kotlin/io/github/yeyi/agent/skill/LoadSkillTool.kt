@@ -31,8 +31,13 @@ internal class LoadSkillTool(
             ?.let { (it as? JsonPrimitive)?.content }
             ?: return ToolExecutionResult(content = "Missing skill_name", isError = true)
 
-        return registry.load(skillName)
-            ?.let { ToolExecutionResult(content = it, isError = false) }
+        val skillContext = SkillContext(
+            arguments = arguments,
+            toolContext = context,
+        )
+
+        return registry.load(skillName, skillContext)
+            ?.let { ToolExecutionResult(content = it) }
             ?: ToolExecutionResult(content = "Skill not found: $skillName", isError = true)
     }
 }
