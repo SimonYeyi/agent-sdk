@@ -20,14 +20,14 @@ class AgentBuilderTest {
     @Test
     fun `missing llmProvider throws`() {
         assertFailsWith<IllegalArgumentException> {
-            agent { systemPrompt = "x" }
+            agent { systemPrompt("x") }
         }
     }
 
     @Test
     fun `agent built via DSL can actually run`() = runTest {
         val a = agent {
-            llmProvider = fakeProvider()
+            llmProvider(fakeProvider())
         }
         val r = a.run("hi").awaitResult()
         assertEquals("ok", r.message.content)

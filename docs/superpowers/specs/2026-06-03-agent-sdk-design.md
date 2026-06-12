@@ -408,13 +408,13 @@ fun agent(block: AgentBuilder.() -> Unit): Agent = AgentBuilder().apply(block).b
 **典型用法**：
 ```kotlin
 val myAgent = agent {
-    systemPrompt = "You are a helpful Android assistant."
-    llmClient = OpenAiClient(
+    systemPrompt("You are a helpful Android assistant.")
+    llmProvider(OpenAiProvider(
         apiKey = BuildConfig.OPENAI_API_KEY,
         baseUrl = "https://api.openai.com/v1",
         model = "gpt-4o-mini"
-    )
-    maxIterations = 8
+    ))
+    maxIterations(8)
 
     // 方式 1：直接注册 Tool
     tool(MyOrderTool(orderApi))
@@ -483,8 +483,8 @@ val weatherAssistant = skill("weather_assistant") {
 
 // 拼装 Agent
 val myAgent = agent {
-    systemPrompt = "You are a multi-purpose assistant."   // 基础 prompt
-    llmClient = llm
+    systemPrompt("You are a multi-purpose assistant.")   // 基础 prompt
+    llmProvider(llm)
     skill(codeReviewer)                                  // 追加提示 + 工具
     skill(weatherAssistant)
 }

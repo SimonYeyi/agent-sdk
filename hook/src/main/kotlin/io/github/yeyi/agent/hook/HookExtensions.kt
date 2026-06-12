@@ -44,7 +44,7 @@ public fun AgentBuilder.hooks(hooks: Iterable<Hook>) {
     val hooksList = hooks.toList()
     if (hooksList.isEmpty()) return
 
-    this@hooks.hook = when (val current = this@hooks.hook) {
+    hook = when (val current = hook) {
         is CompositeHook -> CompositeHook(current.hooks + hooksList)
         is Hook -> CompositeHook(listOf(current) + hooksList)
         else -> if (hooksList.size == 1) hooksList.first() else CompositeHook(hooksList)

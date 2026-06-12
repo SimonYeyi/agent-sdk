@@ -27,21 +27,34 @@ import io.github.yeyi.agent.tool.ToolRegistry
  * memory, hooks, and the LLM provider.
  */
 public class AgentBuilder {
-    public var systemPrompt: String = ""
-    public var llmProvider: LlmProvider? = null
-    public var maxIterations: Int = 10
+    private var maxIterations: Int = 10
+    private var systemPrompt: String = ""
+    private var llmProvider: LlmProvider? = null
+    private var memory: Memory = InMemoryMemory()
+    private val toolRegistry = ToolRegistry()
 
     /**
-     * agent 实际使用的 hook。
-     *
-     * - 默认是 agent 模块内部的空实现(无副作用)
-     * - 这里是**挂载点**(挂单个 hook,或挂一个已组合好的 hook 树);
-     * - 直接赋值会**替换**之前的 hook
+     * 挂单个 hook，或挂一个已组合好的 hook 树。直接赋值会**替换**之前的 hook
      */
     public var hook: AgentHook = NoOpAgentHook
 
-    private val toolRegistry = ToolRegistry()
-    private var memory: Memory = InMemoryMemory()
+    public fun maxIterations(iterations: Int) {
+        require(iterations > 0) { "maxIterations must be positive" }
+        maxIterations = iterations
+    }
+
+    public fun systemPrompt(prompt: String) {
+        if (prompt.isBlank()) return
+        systemPrompt = if (systemPrompt.isEmpty()) prompt else "$systemPrompt\n\n$prompt"
+    }
+
+    public fun llmProvider(provider: LlmProvider) {
+        llmProvider = provider
+    }
+
+    public fun memory(memory: Memory) {
+        this.memory = memory
+    }
 
     public fun tool(tool: Tool) {
         toolRegistry.register(tool)
@@ -49,10 +62,6 @@ public class AgentBuilder {
 
     public fun tools(tools: Iterable<Tool>) {
         toolRegistry.registerAll(tools)
-    }
-
-    public fun memory(memory: Memory) {
-        this@AgentBuilder.memory = memory
     }
 
     /**
@@ -89,8 +98,8 @@ public class AgentBuilder {
  * Usage:
  * ```kotlin
  * val a = agent {
- *     systemPrompt = "You are a helpful assistant."
- *     llmProvider = openAiProvider
+ *     systemPrompt("You are a helpful assistant.")
+ *     llmProvider(openAiProvider)
  *     tool(WeatherTool())
  * }
  * ```

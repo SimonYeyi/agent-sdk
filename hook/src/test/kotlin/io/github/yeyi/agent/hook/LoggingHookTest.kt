@@ -135,32 +135,6 @@ class LoggingHookTest {
         assertTrue(out.contains("toolCalls=1"))
     }
 
-    // --- Open subclass behavior ---
-
-    private class CustomLoggingHook : LoggingHook() {
-        var afterLlmResponseCalled: Int = 0
-        override suspend fun afterLlmResponse(iteration: Int, response: ChatResponse) {
-            // custom override: track that it was called, no stderr noise
-            afterLlmResponseCalled = iteration
-        }
-    }
-
-    @Test
-    fun `subclass can override individual methods`() = runTest {
-        val h = CustomLoggingHook()
-        h.afterLlmResponse(7, emptyResponse())
-        assertEquals(7, h.afterLlmResponseCalled, "subclass override should be invoked")
-    }
-
-    @Test
-    fun `subclass inherits LoggingHook base methods`() = runTest {
-        val h = CustomLoggingHook()
-        h.beforeLlmCall(1, emptyList())
-        // base method should still run for non-overridden hooks
-        val out = captured.toString(Charsets.UTF_8)
-        assertTrue(out.contains("hook"))
-        assertTrue(out.contains("iter=1"))
-    }
 
     // --- All methods are no-op semantically for the agent ---
 

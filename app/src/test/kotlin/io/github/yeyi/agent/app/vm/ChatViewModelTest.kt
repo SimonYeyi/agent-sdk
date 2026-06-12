@@ -53,9 +53,9 @@ class ChatViewModelTest {
             )
         )
         val agent: Agent = agent {
-            systemPrompt = "you are helpful"
-            llmProvider = provider
-            maxIterations = 5
+            systemPrompt("you are helpful")
+            llmProvider(provider)
+            maxIterations(5)
         }
         val vm = ChatViewModel(agent)
 
@@ -73,24 +73,24 @@ class ChatViewModelTest {
 
     @Test
     fun `sendUserInput uses batch mode when RunMode is BATCH`() = runTest {
-        // FakeLlmProvider �?nonStreamResponses (BATCH 路径�?chat())
+        // FakeLlmProvider �?nonStreamResponses (BATCH 路径�?chat())
         val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(ChatMessage.Assistant(content = "batch-reply"), finishReason = FinishReason.Stop)
             )
         )
         val agent: Agent = agent {
-            systemPrompt = "you are helpful"
-            llmProvider = provider
-            maxIterations = 5
+            systemPrompt("you are helpful")
+            llmProvider(provider)
+            maxIterations(5)
         }
         val vm = ChatViewModel(agent)
         vm.setMode(RunMode.BATCH)
         vm.sendUserInput("hi")
         advanceUntilIdle()
-        // BATCH 路径�?chat():通过 recordedRequests 验证
+        // BATCH 路径�?chat():通过 recordedRequests 验证
         assertEquals(1, provider.recordedRequests.size, "BATCH mode should call chat() exactly once")
-        // 两种 mode 都应渲染同样的消息结�?[User, Assistant]
+        // 两种 mode 都应渲染同样的消息结�?[User, Assistant]
         val messages = vm.messages.value
         assertEquals(2, messages.size, "expected [User, Assistant], got $messages")
         assertTrue(messages[0] is UiMessage.User)
@@ -114,9 +114,9 @@ class ChatViewModelTest {
             )
         )
         val agent: Agent = agent {
-            systemPrompt = ""
-            llmProvider = provider
-            maxIterations = 5
+            systemPrompt("")
+            llmProvider(provider)
+            maxIterations(5)
         }
         val vm = ChatViewModel(agent)
         vm.setMode(RunMode.STREAM)
@@ -132,7 +132,7 @@ class ChatViewModelTest {
         val batchMessages = vm2.messages.value.map { it::class.simpleName }
         val batchTexts = vm2.messages.value.map { (it as? UiMessage.Assistant)?.text }
 
-        // 模式切换不改�?UI 消息结构与文�?        assertEquals(streamMessages, batchMessages, "STREAM and BATCH should produce same message shapes")
+        // 模式切换不改�?UI 消息结构与文�?        assertEquals(streamMessages, batchMessages, "STREAM and BATCH should produce same message shapes")
         assertEquals(streamTexts, batchTexts, "STREAM and BATCH should produce same final text")
         assertEquals(false, vm.isProcessing.value)
         assertEquals(false, vm2.isProcessing.value)

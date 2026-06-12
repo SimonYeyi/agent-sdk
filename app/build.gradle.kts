@@ -54,6 +54,7 @@ android {
 dependencies {
     implementation(project(":agent"))
     implementation(project(":skill"))
+    implementation(project(":hook"))
     implementation(project(":providers:openai"))
     implementation(project(":providers:anthropic"))
 

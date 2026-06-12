@@ -16,11 +16,11 @@ import io.github.yeyi.agent.providers.openai.OpenAiProvider
 val provider = OpenAiProvider(apiKey = "...", model = "gpt-4o-mini")
 
 val agent = agent {
-    systemPrompt = "你是一个 helpful 助手。"
-    llmProvider = provider
+    systemPrompt("你是一个 helpful 助手。")
+    llmProvider(provider)
     tool(GetCurrentTimeTool())
     tool(CalculatorTool())
-    maxIterations = 8
+    maxIterations(8)
 }
 
 // 流式：观察中间事件

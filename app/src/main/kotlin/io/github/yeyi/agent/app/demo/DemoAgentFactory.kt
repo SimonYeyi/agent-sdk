@@ -9,6 +9,8 @@ import io.github.yeyi.agent.app.demo.tools.GetCurrentTimeTool
 import io.github.yeyi.agent.app.demo.tools.GetLocationTool
 import io.github.yeyi.agent.app.demo.tools.GetWeatherTool
 import io.github.yeyi.agent.app.demo.tools.WebSearchMockTool
+import io.github.yeyi.agent.hook.LoggingHook
+import io.github.yeyi.agent.hook.hook
 import io.github.yeyi.agent.skill.skill
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
@@ -55,21 +57,21 @@ object DemoAgentFactory {
             else -> PROVIDER_OPENAI
         }
 
-        val llm: LlmProvider = if (provider == PROVIDER_ANTHROPIC) {
+        val llmProvider: LlmProvider = if (provider == PROVIDER_ANTHROPIC) {
             AnthropicProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
         } else {
             OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
         }
         return agent {
-            systemPrompt = "你是一个 helpful 助手。优先使用工具完成任务。"
-            llmProvider = llm
+            systemPrompt("你是一个 helpful 助手。优先使用工具完成任务。")
+            llmProvider(llmProvider)
             tool(GetCurrentTimeTool())
             tool(CalculatorTool())
             tool(WebSearchMockTool())
             skill(WeatherSkill())
             tool(GetLocationTool())
             tool(GetWeatherTool())
-            maxIterations = 8
+            hook(LoggingHook())
         }
     }
 

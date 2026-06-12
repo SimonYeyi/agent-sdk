@@ -47,7 +47,7 @@ class SkillExtensionsTest {
     @Test
     fun `skill() makes a skill_ prefixed tool visible to the LLM`() = runTest {
         val llm = RecordingLlm()
-        val b = AgentBuilder().apply { llmProvider = llm }
+        val b = AgentBuilder().apply { llmProvider(llm) }
         b.skill(FixedSkill(name = "weather", description = "d", content = "B"))
         b.build().run("hi").toList()
         val req = llm.recorded.single()
@@ -58,7 +58,7 @@ class SkillExtensionsTest {
     @Test
     fun `skill() does NOT register any tools other than skill_ handle`() = runTest {
         val llm = RecordingLlm()
-        val b = AgentBuilder().apply { llmProvider = llm }
+        val b = AgentBuilder().apply { llmProvider(llm) }
         b.skill(FixedSkill(name = "weather", description = "d", content = "use get_weather"))
         b.build().run("hi").toList()
         val toolNames = llm.recorded.single().tools.map { it.name }
@@ -69,7 +69,7 @@ class SkillExtensionsTest {
     @Test
     fun `skills(list) registers all in iteration order`() = runTest {
         val llm = RecordingLlm()
-        val b = AgentBuilder().apply { llmProvider = llm }
+        val b = AgentBuilder().apply { llmProvider(llm) }
         b.skills(
             listOf(
                 FixedSkill("a", "d", "BODY_A"),
@@ -96,7 +96,7 @@ class SkillExtensionsTest {
     @Test
     fun `invoking the registered SkillTool calls load() and returns the result`() = runTest {
         val llm = RecordingLlm()
-        val b = AgentBuilder().apply { llmProvider = llm }
+        val b = AgentBuilder().apply { llmProvider(llm) }
         b.skill(FixedSkill(name = "weather", description = "d", content = "## Weather\nStep 1"))
         b.build().run("hi").toList()
         // The LLM-visible tool list contains the SkillTool with the Skill's description.
