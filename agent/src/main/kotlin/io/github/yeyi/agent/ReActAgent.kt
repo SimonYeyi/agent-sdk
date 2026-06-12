@@ -12,12 +12,10 @@ import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolRegistry
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
-import kotlin.coroutines.coroutineContext
 
 public class ReActAgent internal constructor(
     private val systemPrompt: String,
@@ -37,62 +35,64 @@ public class ReActAgent internal constructor(
     }
 
     override fun runStream(input: String): Flow<AgentEvent> = flow {
+        val llmCall: suspend (ChatRequest) -> ChatResponse = { req ->
+            val accumulatedText = StringBuilder()
+            val callOrder: LinkedHashSet<String> = linkedSetOf()
+            val callNames: MutableMap<String, String> = mutableMapOf()
+            val argumentsBuffers: MutableMap<String, StringBuilder> = mutableMapOf()
+            var finishReason: FinishReason? = null
+            var usage: Usage? = null
+
+            llmProvider.chatStream(req).collect { event ->
+                when (event) {
+                    is StreamEvent.ContentDelta -> {
+                        accumulatedText.append(event.text)
+                        emit(AgentEvent.TextDelta(event.text))
+                    }
+
+                    is StreamEvent.ToolCallStart -> {
+                        callOrder.add(event.id) // LinkedHashSet: idempotent + preserves first-seen order
+                        callNames[event.id] = event.name
+                        argumentsBuffers.getOrPut(event.id) { StringBuilder() }
+                    }
+
+                    is StreamEvent.ToolCallDelta -> {
+                        // LlmProvider 契约:Delta.id 必非空(continuation chunk 由 provider 填充)。
+                        // 若违反,静默丢弃会导致 arguments JSON 损坏,fail-fast 更安全。
+                        argumentsBuffers[event.id!!]?.append(event.argumentsDelta)
+                    }
+
+                    is StreamEvent.Done -> {
+                        finishReason = event.finishReason
+                        usage = event.usage
+                    }
+
+                    is StreamEvent.Error -> throw event.cause
+                }
+            }
+
+            val toolCalls: List<ToolCall> = callOrder.map { id ->
+                val arguments = argumentsBuffers[id]?.toString()
+                    ?.let { Json.parseToJsonElement(it) }
+                    ?: JsonNull
+                ToolCall(
+                    id = id,
+                    name = callNames[id]!!,
+                    arguments = arguments
+                )
+            }
+            ChatResponse(
+                message = ChatMessage.Assistant(
+                    content = accumulatedText.toString(),
+                    toolCalls = toolCalls,
+                ),
+                usage = usage,
+                finishReason = finishReason!!
+            )
+        }
         loop(
             input = input,
-            llmCall = { req ->
-                val accumulatedText = StringBuilder()
-                val callOrder: LinkedHashSet<String> = linkedSetOf()
-                val callNames: MutableMap<String, String> = mutableMapOf()
-                val argumentsBuffers: MutableMap<String, StringBuilder> = mutableMapOf()
-                var finishReason: FinishReason? = null
-                var usage: Usage? = null
-
-                llmProvider.chatStream(req).collect { event ->
-                    when (event) {
-                        is StreamEvent.ContentDelta -> {
-                            accumulatedText.append(event.text)
-                            emit(AgentEvent.TextDelta(event.text))
-                        }
-
-                        is StreamEvent.ToolCallStart -> {
-                            callOrder.add(event.id) // LinkedHashSet: idempotent + preserves first-seen order
-                            callNames[event.id] = event.name
-                            argumentsBuffers.getOrPut(event.id) { StringBuilder() }
-                        }
-
-                        is StreamEvent.ToolCallDelta -> {
-                            val id = event.id ?: return@collect
-                            argumentsBuffers[id]?.append(event.argumentsDelta)
-                        }
-
-                        is StreamEvent.Done -> {
-                            finishReason = event.finishReason
-                            usage = event.usage
-                        }
-
-                        is StreamEvent.Error -> throw event.cause
-                    }
-                }
-
-                val toolCalls: List<ToolCall> = callOrder.map { id ->
-                    val arguments = argumentsBuffers[id]?.toString()
-                        ?.let { Json.parseToJsonElement(it) }
-                        ?: JsonNull
-                    ToolCall(
-                        id = id,
-                        name = callNames[id]!!,
-                        arguments = arguments
-                    )
-                }
-                ChatResponse(
-                    message = ChatMessage.Assistant(
-                        content = accumulatedText.toString(),
-                        toolCalls = toolCalls,
-                    ),
-                    usage = usage,
-                    finishReason = finishReason!!
-                )
-            },
+            llmCall = llmCall,
             emit = { emit(it) },
         )
     }
@@ -109,7 +109,6 @@ public class ReActAgent internal constructor(
         try {
             while (iterations < maxIterations) {
                 iterations++
-                coroutineContext.ensureActive()
 
                 val request = buildRequest()
                 hook.safeInvoke { beforeLlmCall(iterations, request.messages) }
@@ -147,9 +146,8 @@ public class ReActAgent internal constructor(
                 }
             }
             throw AgentException.MaxIterations(maxIterations)
-        } catch (t: kotlinx.coroutines.CancellationException) {
-            throw t
         } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
             // 边界处统一抬升为 AgentException:对外只暴露领域异常家族。
             // wrap() 对已是 AgentException 的返回同一实例,避免重复包装。
             val cause = AgentException.wrap(t)

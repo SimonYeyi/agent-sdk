@@ -869,12 +869,11 @@ sealed class AgentException(message: String, cause: Throwable? = null) : Runtime
     class InvalidResponse(reason: String) : AgentException("Invalid LLM response: $reason")
     class ToolNotFound(name: String, available: List<String>) :
         AgentException("Tool '$name' not found. Available: $available")
-    class Cancelled : AgentException("Agent run was cancelled")
 
     companion object {
         // v1.1:边界兜底工厂——任何 Throwable 通过 wrap() 抬升为 AgentException。
-        // 已是 AgentException → 原样返回(无重复包装);其他 → 包装为内部 Wrap 实例。
-        fun wrap(cause: Throwable): AgentException = cause as? AgentException ?: Wrap(cause)
+        // 已是 AgentException → 原样返回(无重复包装);其他 → 包装为内部 Wrapped 实例。
+        fun wrap(cause: Throwable): AgentException = cause as? AgentException ?: Wrapped(cause)
     }
 }
 ```

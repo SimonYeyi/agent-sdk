@@ -36,12 +36,6 @@ class AgentExceptionTest {
     }
 
     @Test
-    fun `Cancelled has fixed message`() {
-        val ex = AgentException.Cancelled()
-        assertTrue(ex.message!!.contains("cancelled"))
-    }
-
-    @Test
     fun `wrap returns same instance when cause is already AgentException`() {
         val original = AgentException.MaxIterations(5)
         val wrapped = AgentException.wrap(original)

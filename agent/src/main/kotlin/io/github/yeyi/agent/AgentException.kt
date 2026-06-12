@@ -13,8 +13,6 @@ public sealed class AgentException(message: String, cause: Throwable? = null) : 
     public class ToolNotFound(public val name: String, public val available: List<String>) :
         AgentException("Tool '$name' not found. Available: $available")
 
-    public class Cancelled : AgentException("Agent run was cancelled")
-
     public companion object {
         /**
          * 边界处把任意 [Throwable] 抬升为 [AgentException]:
@@ -30,7 +28,6 @@ public sealed class AgentException(message: String, cause: Throwable? = null) : 
     /**
      * 内部包装类型,仅通过 [wrap] 工厂构造。
      *
-     * 命名对齐家族成员的"过去分词作名词"约定([Cancelled] / [Wrapped])。
      * 消费者拿到的是 [AgentException] 引用,无需关心此实现。
      */
     private class Wrapped(cause: Throwable) :
