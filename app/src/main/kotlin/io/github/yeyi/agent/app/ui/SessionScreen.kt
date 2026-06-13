@@ -9,6 +9,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,6 +27,8 @@ public fun SessionScreen(
     onBack: () -> Unit
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
@@ -33,47 +36,50 @@ public fun SessionScreen(
         }
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
-        // Top bar
-        TopAppBar(
-            title = { Text("Sessions") },
-            navigationIcon = {
-                TextButton(onClick = onBack) {
-                    Text("Back")
-                }
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet {
+                SessionDrawerContent(
+                    sessions = uiState.sessions,
+                    currentSessionId = uiState.currentSession?.id,
+                    onSelect = {
+                        viewModel.selectSession(it)
+                        kotlinx.coroutines.runBlocking { drawerState.close() }
+                    },
+                    onDelete = { viewModel.deleteSession(it) },
+                    onCreate = { viewModel.createSession(it) },
+                    modifier = Modifier.width(300.dp)
+                )
             }
-        )
-
-        Row(modifier = Modifier.fillMaxSize()) {
-            // Session list
-            SessionList(
-                sessions = uiState.sessions,
-                currentSessionId = uiState.currentSession?.id,
-                onSelect = { viewModel.selectSession(it) },
-                onDelete = { viewModel.deleteSession(it) },
-                onCreate = { viewModel.createSession(it) },
-                modifier = Modifier
-                    .width(200.dp)
-                    .fillMaxHeight()
-            )
-
-            VerticalDivider()
-
-            // Chat area
+        }
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(uiState.currentSession?.name?.ifEmpty { "Chat" } ?: "Sessions") },
+                    navigationIcon = {
+                        IconButton(onClick = { kotlinx.coroutines.runBlocking { drawerState.open() } }) {
+                            Icon(Icons.Default.Menu, contentDescription = "Menu")
+                        }
+                    }
+                )
+            }
+        ) { padding ->
             ChatArea(
                 uiState = uiState,
                 onInputChange = { viewModel.updateInput(it) },
                 onSend = { viewModel.sendMessage() },
                 modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
+                    .fillMaxSize()
+                    .padding(padding)
             )
         }
     }
 }
 
 @Composable
-private fun SessionList(
+private fun SessionDrawerContent(
     sessions: List<io.github.yeyi.agent.session.Session>,
     currentSessionId: String?,
     onSelect: (String) -> Unit,
