@@ -4,6 +4,7 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.memory.Memory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
@@ -32,6 +33,18 @@ public class JsonlBackedMemory(
     @Volatile
     private var cachedMessages: MutableList<ChatMessage>? = null
 
+    private val writeChannel = Channel<ChatMessage>(Channel.UNLIMITED)
+
+    init {
+        scope.launch {
+            for (msg in writeChannel) {
+                FileOutputStream(file, true).use {
+                    it.write((json.encodeToString(msg) + "\n").toByteArray())
+                }
+            }
+        }
+    }
+
     private fun loadToCache(): MutableList<ChatMessage> {
         if (cachedMessages != null) return cachedMessages!!
         val messages = if (file.exists()) {
@@ -51,9 +64,7 @@ public class JsonlBackedMemory(
         synchronized(this) {
             messages.add(message)
         }
-        scope.launch {
-            FileOutputStream(file, true).use { it.write((json.encodeToString(message) + "\n").toByteArray()) }
-        }
+        writeChannel.send(message)
     }
 
     override suspend fun history(): List<ChatMessage> {
