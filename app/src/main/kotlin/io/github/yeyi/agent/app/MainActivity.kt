@@ -29,9 +29,7 @@ class MainActivity : ComponentActivity() {
         ChatViewModelFactory(agent)
     }
 
-    private val sessionViewModel: SessionViewModel by viewModels {
-        SessionViewModelFactory(this.filesDir)
-    }
+    private val sessionViewModel: SessionViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -68,14 +66,5 @@ private fun MainApp(
                 onBack = { currentScreen = "chat" }
             )
         }
-    }
-}
-
-private class SessionViewModelFactory(
-    private val sessionDir: java.io.File
-) : androidx.lifecycle.ViewModelProvider.Factory {
-    @Suppress("UNCHECKED_CAST")
-    override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-        return SessionViewModel.create(sessionDir) as T
     }
 }

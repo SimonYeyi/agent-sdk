@@ -1,8 +1,10 @@
 package io.github.yeyi.agent.app.vm
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.app.demo.DemoAgentFactory
+import io.github.yeyi.agent.hook.CompositeHook
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.session.SessionManager
@@ -10,7 +12,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import java.io.File
 import java.util.UUID
 
 public data class SessionUiState(
@@ -23,11 +24,9 @@ public data class SessionUiState(
     val liveBubble: LiveBubble? = null
 )
 
-public class SessionViewModel(
-    private val sessionDir: File
-) : ViewModel() {
-
-    private val sessionManager = SessionManager(sessionDir)
+public class SessionViewModel(application: Application) : AndroidViewModel(application) {
+    private val hook = CompositeHook(logging = true)
+    private val sessionManager = SessionManager(application.filesDir,  hook)
     private val _uiState = MutableStateFlow(SessionUiState())
     public val uiState: StateFlow<SessionUiState> = _uiState.asStateFlow()
 
@@ -95,7 +94,7 @@ public class SessionViewModel(
 
         viewModelScope.launch {
             try {
-                val agent = DemoAgentFactory.create(currentSession.memory)
+                val agent = DemoAgentFactory.create(currentSession.memory, hook)
                 agent.runStream(inputText).collect { event ->
                     when (event) {
                         is io.github.yeyi.agent.AgentEvent.Initial -> {
@@ -173,12 +172,6 @@ public class SessionViewModel(
 
     public fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
-    }
-
-    public companion object {
-        public fun create(sessionDir: File): SessionViewModel {
-            return SessionViewModel(sessionDir)
-        }
     }
 }
 
