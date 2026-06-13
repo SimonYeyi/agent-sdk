@@ -1,6 +1,7 @@
 package io.github.yeyi.agent
 
-public sealed class AgentException(message: String, cause: Throwable? = null) : RuntimeException(message, cause) {
+public sealed class AgentException(message: String, cause: Throwable? = null) :
+    RuntimeException(message, cause) {
     public class MaxIterations(public val max: Int) :
         AgentException("Reached max iterations ($max) without final answer")
 
@@ -13,23 +14,10 @@ public sealed class AgentException(message: String, cause: Throwable? = null) : 
     public class ToolNotFound(public val name: String, public val available: List<String>) :
         AgentException("Tool '$name' not found. Available: $available")
 
-    public companion object {
-        /**
-         * 边界处把任意 [Throwable] 抬升为 [AgentException]:
-         * - 已是 [AgentException] → 原样返回(同一实例,无重复包装)
-         * - 其他 → 包装为 [Wrapped] 内部子类(私有,不出现在对外 API 中)
-         *
-         * 用于 Agent 边界(loop catch 块)统一兜底,确保对外只暴露 [AgentException] 家族。
-         */
-        public fun wrap(cause: Throwable): AgentException =
-            cause as? AgentException ?: Wrapped(cause)
-    }
+    public class Unknown(cause: Throwable) :
+        AgentException(cause.message ?: cause::class.simpleName ?: "Unknown", cause)
+}
 
-    /**
-     * 内部包装类型,仅通过 [wrap] 工厂构造。
-     *
-     * 消费者拿到的是 [AgentException] 引用,无需关心此实现。
-     */
-    private class Wrapped(cause: Throwable) :
-        AgentException("Wrapped exception: ${cause.message ?: cause::class.simpleName}", cause)
+internal fun Throwable.toAgentException(): AgentException {
+    return this as? AgentException ?: AgentException.Unknown(this)
 }

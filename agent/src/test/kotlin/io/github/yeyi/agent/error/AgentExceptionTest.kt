@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.error
 
 import io.github.yeyi.agent.AgentException
+import io.github.yeyi.agent.toAgentException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertSame
@@ -36,16 +37,16 @@ class AgentExceptionTest {
     }
 
     @Test
-    fun `wrap returns same instance when cause is already AgentException`() {
+    fun `toAgentException returns same instance when cause is already AgentException`() {
         val original = AgentException.MaxIterations(5)
-        val wrapped = AgentException.wrap(original)
+        val wrapped = original.toAgentException()
         assertSame(original, wrapped)
     }
 
     @Test
-    fun `wrap lifts non-AgentException throwable into AgentException family`() {
+    fun `toAgentException lifts non-AgentException throwable into AgentException family`() {
         val cause = IllegalStateException("boom")
-        val wrapped = AgentException.wrap(cause)
+        val wrapped = cause.toAgentException()
         assertEquals(cause, wrapped.cause)
         assertTrue(wrapped.message!!.contains("boom"))
     }

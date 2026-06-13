@@ -26,7 +26,7 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  *
  * 错误语义:
  * - onError 在主流程 emit `Failed` 事件前调用;cause 一定为 [AgentException] 家族成员
- *   (非 AgentException 已被 Agent 边界通过 [AgentException.wrap] 抬升)
+ *   (非 AgentException 已被 Agent 边界通过 [toAgentException] 抬升)
  * - onError 不接收 CancellationException(由结构化并发保证)
  * - 工具执行错误若被 SDK 转换为 ToolExecutionResult(isError=true)不会触发 onError;只有真正
  *   抛出的异常才会触发

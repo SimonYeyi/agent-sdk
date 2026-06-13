@@ -333,7 +333,7 @@ sealed interface AgentEvent {
  * 3. Hook 不能修改 `AgentConfig`/`Memory`——只读视图
  * 4. Hook 调用顺序：BeforeLlmCall → LlmCall → AfterLlmResponse → (BeforeToolCall → ToolCall → AfterToolCall)* → AfterRun
  * 5. **v1.1 错误契约**：`onError(cause)` 的 `cause` 一定为 [AgentException] 家族成员(非 AgentException
- *    已被 Agent 边界通过 [AgentException.wrap] 抬升);`onError` **不**传出 iteration 计数——
+ *    已被 Agent 边界通过 [toAgentException] 抬升);`onError` **不**传出 iteration 计数——
  *    该计数是 Agent 内部业务细节,Hook 不应关心
  */
 interface AgentHook {
@@ -898,7 +898,7 @@ sealed class AgentException(message: String, cause: Throwable? = null) : Runtime
 | 超过 max iterations | 抛 `MaxIterations` | ✅ |
 | Coroutine 取消 | 传播 `CancellationException` | ✅ |
 | LLM 返回 `finishReason=Length`（被截断） | 视为终态，返回当前 message | ❌（调用方判断） |
-| v1.1:Agent 边界漏出的非 `AgentException`(NPE 等) | 通过 `AgentException.wrap()` 抬升,emit `Failed` | ❌(边界统一处理) |
+| v1.1:Agent 边界漏出的非 `AgentException`(NPE 等) | 通过 `toAgentException()` 抬升,emit `Failed` | ❌(边界统一处理) |
 
 **设计哲学**：**LLM 能自我纠正的错误不抛**（Tool 错误、未找到），**LLM 解决不了的错误抛**（网络挂、格式错、无限循环）。
 

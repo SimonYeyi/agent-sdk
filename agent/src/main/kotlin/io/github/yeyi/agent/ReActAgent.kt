@@ -102,12 +102,12 @@ public class ReActAgent internal constructor(
         llmCall: suspend (ChatRequest) -> ChatResponse,
         emit: suspend (AgentEvent) -> Unit,
     ) {
-        memory.add(ChatMessage.User(input))
-        val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
-        var iterations = 0
-
         try {
+            memory.add(ChatMessage.User(input))
             emit(AgentEvent.Initial(input))
+
+            val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
+            var iterations = 0
 
             while (iterations < maxIterations) {
                 iterations++
@@ -156,7 +156,7 @@ public class ReActAgent internal constructor(
             if (t is kotlinx.coroutines.CancellationException) throw t
             // 边界处统一抬升为 AgentException:对外只暴露领域异常家族。
             // wrap() 对已是 AgentException 的返回同一实例,避免重复包装。
-            val cause = AgentException.wrap(t)
+            val cause = t.toAgentException()
             hook.safeInvoke { onError(cause) }
             emit(AgentEvent.Failed(cause))
         }
