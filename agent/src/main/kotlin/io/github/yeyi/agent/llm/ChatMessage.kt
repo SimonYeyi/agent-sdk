@@ -15,14 +15,17 @@ public data class ToolCall(
 public sealed interface ChatMessage {
     public val role: Role
 
+    @Serializable
     public data class System(public val content: String) : ChatMessage {
         override val role: Role = Role.System
     }
 
+    @Serializable
     public data class User(public val content: String) : ChatMessage {
         override val role: Role = Role.User
     }
 
+    @Serializable
     public data class Assistant(
         public val content: String? = null,
         public val toolCalls: List<ToolCall> = emptyList()
@@ -30,6 +33,7 @@ public sealed interface ChatMessage {
         override val role: Role = Role.Assistant
     }
 
+    @Serializable
     public data class ToolResult(
         public val toolCallId: String,
         public val toolName: String,

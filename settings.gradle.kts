@@ -23,6 +23,7 @@ dependencyResolutionManagement {
 rootProject.name = "agent-sdk"
 
 include(":agent")
+include(":session")
 include(":skill")
 include(":hook")
 include(":providers:openai")
