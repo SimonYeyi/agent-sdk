@@ -10,6 +10,7 @@ import io.github.yeyi.agent.app.demo.tools.GetLocationTool
 import io.github.yeyi.agent.app.demo.tools.GetWeatherTool
 import io.github.yeyi.agent.app.demo.tools.WebSearchMockTool
 import io.github.yeyi.agent.hook.CompositeHook
+import io.github.yeyi.agent.hook.Hook
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
@@ -39,7 +40,7 @@ object DemoAgentFactory {
     private const val PROVIDER_OPENAI = "openai"
     private const val PROVIDER_ANTHROPIC = "anthropic"
 
-    fun create(memory: Memory? = null): Agent {
+    fun create(memory: Memory? = null, hook: Hook? = null): Agent {
         val providerRaw = BuildConfig.MODEL_PROVIDER
         val apiKey = BuildConfig.MODEL_API_KEY.requireNonEmpty("MODEL_API_KEY")
         val baseUrl = BuildConfig.MODEL_BASE_URL.requireNonEmpty("MODEL_BASE_URL")
@@ -72,7 +73,7 @@ object DemoAgentFactory {
             skills(listOf(WeatherSkill()))
             tool(GetLocationTool())
             tool(GetWeatherTool())
-            hook(CompositeHook(logging = true))
+            hook(hook?: CompositeHook(logging = true))
         }
     }
 

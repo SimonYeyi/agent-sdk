@@ -24,9 +24,10 @@ public data class SessionUiState(
 )
 
 public class SessionViewModel(
-    private val sessionManager: SessionManager
+    private val sessionDir: File
 ) : ViewModel() {
 
+    private val sessionManager = SessionManager(sessionDir)
     private val _uiState = MutableStateFlow(SessionUiState())
     public val uiState: StateFlow<SessionUiState> = _uiState.asStateFlow()
 
@@ -176,7 +177,7 @@ public class SessionViewModel(
 
     public companion object {
         public fun create(sessionDir: File): SessionViewModel {
-            return SessionViewModel(SessionManager(sessionDir))
+            return SessionViewModel(sessionDir)
         }
     }
 }

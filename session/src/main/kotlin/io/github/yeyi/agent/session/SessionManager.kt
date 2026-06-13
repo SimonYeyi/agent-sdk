@@ -4,11 +4,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 
-public class SessionManager(
-    sessionParent: File,
-    private val hook: SessionHook = NoOpAgentHook
-) {
-
+public class SessionManager(sessionParent: File, private val hook: SessionHook = NoOpAgentHook) {
     private val repository = SessionRepository(sessionParent)
     private val mutex = Mutex()
 
