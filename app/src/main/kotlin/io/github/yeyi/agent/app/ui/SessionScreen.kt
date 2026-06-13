@@ -12,6 +12,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.activity.compose.BackHandler
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -34,6 +35,14 @@ public fun SessionScreen(
     LaunchedEffect(uiState.error) {
         uiState.error?.let {
             // Handle error display
+        }
+    }
+
+    BackHandler {
+        if (drawerState.isOpen) {
+            scope.launch { drawerState.close() }
+        } else {
+            onBack()
         }
     }
 
