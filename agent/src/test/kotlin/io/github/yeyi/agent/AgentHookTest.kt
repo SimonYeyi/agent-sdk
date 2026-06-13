@@ -286,8 +286,8 @@ class AgentHookTest {
         val events2 = agent.run("hi").toList()
         // EchoTool was registered but never invoked: hook short-circuited it.
         // No ToolCallStarted / ToolCallFinished must be emitted (the tool was never called).
-        assertTrue(events2.none { it is AgentEvent.ToolCallStarted }, "short-circuited call must not emit ToolCallStarted")
-        assertTrue(events2.none { it is AgentEvent.ToolCallFinished }, "short-circuited call must not emit ToolCallFinished")
+        assertTrue(events2.none { it is AgentEvent.ToolCallStart }, "short-circuited call must not emit ToolCallStarted")
+        assertTrue(events2.none { it is AgentEvent.ToolCallEnd }, "short-circuited call must not emit ToolCallFinished")
     }
 
     @Test

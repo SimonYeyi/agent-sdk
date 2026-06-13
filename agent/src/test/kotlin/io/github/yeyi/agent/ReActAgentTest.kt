@@ -240,8 +240,8 @@ class ReActAgentTest {
         )
         val agent = ReActAgent(systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), maxIterations = 5)
         val events = agent.runStream("hi").toList()
-        assertTrue(events.any { it is AgentEvent.ToolCallStarted && it.toolName == "echo" })
-        assertTrue(events.any { it is AgentEvent.ToolCallFinished })
+        assertTrue(events.any { it is AgentEvent.ToolCallStart && it.toolName == "echo" })
+        assertTrue(events.any { it is AgentEvent.ToolCallEnd })
         assertTrue(events.any { it is AgentEvent.Final })
         assertEquals(1, echo.invocations.size)
     }
@@ -266,8 +266,8 @@ class ReActAgentTest {
         val agent = ReActAgent(systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), maxIterations = 5)
         val events = agent.runStream("hi").toList()
 
-        val startedIdx = events.indexOfFirst { it is AgentEvent.ToolCallStarted }
-        val finishedIdx = events.indexOfFirst { it is AgentEvent.ToolCallFinished }
+        val startedIdx = events.indexOfFirst { it is AgentEvent.ToolCallStart }
+        val finishedIdx = events.indexOfFirst { it is AgentEvent.ToolCallEnd }
         assertTrue(startedIdx >= 0, "ToolCallStarted must be emitted")
         assertTrue(finishedIdx >= 0, "ToolCallFinished must be emitted")
         assertTrue(startedIdx < finishedIdx, "ToolCallStarted must precede ToolCallFinished")

@@ -65,7 +65,7 @@ public class SessionViewModel(
                 val messages = session.memory.history()
                     .filter { msg ->
                         msg is ChatMessage.User ||
-                        (msg is ChatMessage.Assistant && msg.toolCalls.isEmpty())
+                        (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank())
                     }
                     .map { it.toUiMessage() }
                 _uiState.value = _uiState.value.copy(
@@ -87,13 +87,9 @@ public class SessionViewModel(
         val inputText = _uiState.value.inputText.trim()
         if (inputText.isEmpty()) return
 
-        // Immediately show user message in UI
-        val userMsg = UiMessage.User(inputText, id = nextUiId())
         _uiState.value = _uiState.value.copy(
             inputText = "",
-            isLoading = true,
-            messages = _uiState.value.messages + userMsg,
-            liveBubble = null
+            isLoading = true
         )
 
         viewModelScope.launch {
@@ -101,6 +97,18 @@ public class SessionViewModel(
                 val agent = DemoAgentFactory.create(currentSession.memory)
                 agent.runStream(inputText).collect { event ->
                     when (event) {
+                        is io.github.yeyi.agent.AgentEvent.Initial -> {
+                            _uiState.value = _uiState.value.copy(
+                                messages = _uiState.value.messages + UiMessage.User(event.userInput, id = nextUiId()),
+                                liveBubble = null
+                            )
+                        }
+                        is io.github.yeyi.agent.AgentEvent.Reasoning -> {
+                            _uiState.value = _uiState.value.copy(
+                                messages = _uiState.value.messages + UiMessage.Assistant(event.text, id = nextUiId()),
+                                liveBubble = null
+                            )
+                        }
                         is io.github.yeyi.agent.AgentEvent.TextDelta -> {
                             _uiState.value = _uiState.value.copy(
                                 liveBubble = _uiState.value.liveBubble?.let {
@@ -108,33 +116,27 @@ public class SessionViewModel(
                                 } ?: LiveBubble(nextUiId(), event.text)
                             )
                         }
-                        is io.github.yeyi.agent.AgentEvent.ToolCallStarted -> {
-                            // Commit current bubble before tool execution
+                        is io.github.yeyi.agent.AgentEvent.ToolCallStart -> {
                             val live = _uiState.value.liveBubble
-                            if (live != null && live.text.isNotEmpty()) {
+                            if (live != null) {
                                 _uiState.value = _uiState.value.copy(
                                     messages = _uiState.value.messages + UiMessage.Assistant(live.text, id = live.id),
                                     liveBubble = null
                                 )
                             }
                         }
-                        is io.github.yeyi.agent.AgentEvent.ToolCallFinished -> {
+                        is io.github.yeyi.agent.AgentEvent.ToolCallEnd -> {
                             // Do nothing, wait for next text delta
                         }
                         is io.github.yeyi.agent.AgentEvent.Final -> {
-                            val live = _uiState.value.liveBubble
-                            if (live != null && live.text.isNotEmpty()) {
-                                _uiState.value = _uiState.value.copy(
-                                    messages = _uiState.value.messages + UiMessage.Assistant(live.text, id = live.id),
-                                    liveBubble = null
-                                )
-                            } else {
-                                _uiState.value = _uiState.value.copy(liveBubble = null)
-                            }
+                            _uiState.value = _uiState.value.copy(
+                                messages = _uiState.value.messages + UiMessage.Assistant(event.result.message.content ?: "", id = nextUiId()),
+                                liveBubble = null
+                            )
                         }
                         is io.github.yeyi.agent.AgentEvent.Failed -> {
                             _uiState.value = _uiState.value.copy(
-                                error = event.cause.message,
+                                messages = _uiState.value.messages + UiMessage.Error(event.cause.message ?: "Unknown error", id = nextUiId()),
                                 liveBubble = null
                             )
                         }

@@ -51,8 +51,6 @@ class ChatViewModel(
 
     fun sendUserInput(text: String) {
         if (text.isBlank() || _isProcessing.value) return
-        _messages.update { it + UiMessage.User(text, id = nextUiId()) }
-        _liveBubble.value = null
         _isProcessing.value = true
 
         viewModelScope.launch {
@@ -76,18 +74,31 @@ class ChatViewModel(
 
     private fun handleEvent(event: AgentEvent) {
         when (event) {
+            is AgentEvent.Initial -> {
+                _messages.update { it + UiMessage.User(event.userInput, id = nextUiId()) }
+                _liveBubble.value = null
+            }
+            is AgentEvent.Reasoning -> {
+                _messages.update { it + UiMessage.Assistant(event.text, id = nextUiId()) }
+                _liveBubble.value = null
+            }
             is AgentEvent.TextDelta -> {
                 _liveBubble.update { current ->
                     val next = (current?.text ?: "") + event.text
                     if (current == null) LiveBubble(nextUiId(), next) else current.copy(text = next)
                 }
             }
-            is AgentEvent.ToolCallStarted -> {
+            is AgentEvent.ToolCallStart -> {
+                val live = _liveBubble.value
+                if (live != null) {
+                    _messages.update { it + UiMessage.Assistant(live.text, id = live.id) }
+                    _liveBubble.value = null
+                }
                 val msg = UiMessage.ToolInProgress(event.callId, event.toolName)
                 inProgressByCallId[event.callId] = msg
                 _messages.update { it + msg }
             }
-            is AgentEvent.ToolCallFinished -> {
+            is AgentEvent.ToolCallEnd -> {
                 val started = inProgressByCallId.remove(event.callId)
                 _messages.update {
                     it + UiMessage.ToolExecution(
@@ -98,13 +109,7 @@ class ChatViewModel(
                 }
             }
             is AgentEvent.Final -> {
-                val live = _liveBubble.value
-                val text = live?.text?.takeIf { it.isNotEmpty() }
-                    ?: event.result.message.content.orEmpty()
-                if (text.isNotEmpty()) {
-                    val id = live?.id ?: nextUiId()
-                    _messages.update { it + UiMessage.Assistant(text, id = id) }
-                }
+                _messages.update { it + UiMessage.Assistant(event.result.message.content ?: "", id = nextUiId()) }
                 _liveBubble.value = null
             }
             is AgentEvent.Failed -> {

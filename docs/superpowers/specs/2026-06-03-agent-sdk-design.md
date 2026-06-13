@@ -308,9 +308,18 @@ data class AgentResult(
 }
 
 sealed interface AgentEvent {
+    /** 用户输入事件,首次循环前发出 */
+    data class Initial(val userInput: String) : AgentEvent
+
+    /**
+     * 推理文本事件。
+     * 仅在 LLM 决定调用工具且存在推理文本时发出。
+     */
+    data class Reasoning(val text: String) : AgentEvent
+
     data class TextDelta(val text: String) : AgentEvent
-    data class ToolCallStarted(val callId: String, val toolName: String) : AgentEvent
-    data class ToolCallFinished(val callId: String, val result: ToolExecutionResult) : AgentEvent
+    data class ToolCallStart(val callId: String, val toolName: String) : AgentEvent
+    data class ToolCallEnd(val callId: String, val result: ToolExecutionResult) : AgentEvent
     data class Final(val result: AgentResult) : AgentEvent   // v1.1 收敛:终态事件直接包装 AgentResult
     data class Failed(val cause: AgentException) : AgentEvent  // v1.1:cause 收窄为 AgentException,边界处统一包装
 }
@@ -535,7 +544,7 @@ override fun run(input: String): Flow<AgentEvent> = flow {
 - 循环顶部 `coroutineContext.ensureActive()` 响应取消
 - 每次 LLM 调用前后统一触发 `beforeLlmCall` / `afterLlmResponse` hook
 - `invokeTool` 内部吞业务异常转 `ToolExecutionResult(isError=true)` 喂回 LLM,**不吞 `CancellationException`**
-- 工具结果回写 `memory` 后,emit `ToolCallStarted` / `ToolCallFinished` 两个事件
+- 工具结果回写 `memory` 后,emit `ToolCallStart` / `ToolCallEnd` 两个事件
 - 终态 emit `Final(AgentResult(message, iterations, toolCalls))`,并触发 `onRunFinished` hook
 - 超过 `maxIterations` 抛 `AgentException.MaxIterations`
 
@@ -950,17 +959,17 @@ class ChatViewModel(private val agent: Agent) : ViewModel() {
     }
 
     private fun handleEvent(event: AgentEvent) = when (event) {
-        is AgentEvent.TextDelta       -> { /* 累积到 currentAssistantText,Final 时提交 */ }
-        is AgentEvent.ToolCallStarted -> { _messages.update { it + UiMessage.ToolInProgress(...) } }
-        is AgentEvent.ToolCallFinished-> { _messages.update { it + UiMessage.ToolExecution(callId, toolName, result) } }
-        is AgentEvent.Final           -> { /* 提交 Assistant 消息,优先用累积的 TextDelta;BATCH 模式回退到 event.message.content */ }
-        is AgentEvent.Failed          -> { _messages.update { it + UiMessage.Error(event.cause.message ?: "") } }
+        is AgentEvent.TextDelta      -> { /* 累积到 currentAssistantText,Final 时提交 */ }
+        is AgentEvent.ToolCallStart  -> { _messages.update { it + UiMessage.ToolInProgress(...) } }
+        is AgentEvent.ToolCallEnd    -> { _messages.update { it + UiMessage.ToolExecution(callId, toolName, result) } }
+        is AgentEvent.Final          -> { /* 提交 Assistant 消息,优先用累积的 TextDelta;BATCH 模式回退到 event.message.content */ }
+        is AgentEvent.Failed         -> { _messages.update { it + UiMessage.Error(event.cause.message ?: "") } }
     }
 }
 ```
 
 **关键设计**:
-- **5 事件全部消费**:`TextDelta` 累积、`ToolCallStarted`/`ToolCallFinished` 渲染工具指示器、`Final` 提交消息(`result.message.content` + 完整 `result.toolCalls`)、`Failed` 显示错误
+- **5 事件全部消费**:`TextDelta` 累积、`ToolCallStart`/`ToolCallEnd` 渲染工具指示器、`Final` 提交消息(`result.message.content` + 完整 `result.toolCalls`)、`Failed` 显示错误
 - **UiMessage 与 SDK 内部 record 解耦**:`UiMessage.ToolExecution` 持有 `(callId, toolName, result: ToolExecutionResult)`,不 import SDK 内部审计类型 `AgentResult.ToolCallRecord`(完整 record 仍出现在 `AgentResult.toolCalls` 给审计/回放用)
 - **STREAM/BATCH 模式**:通过 `RunMode` 切换上游调用 (`runStream` vs `run`),UI 渲染逻辑不变——`Final` handler 同时支持"累积 TextDelta 优先 + `event.result.message.content` 回退"
 - **每次 run 独立 `InMemoryMemory`**:Demo App 的简化决策,v1.1 维持(真实业务应持有 ViewModel scope memory)

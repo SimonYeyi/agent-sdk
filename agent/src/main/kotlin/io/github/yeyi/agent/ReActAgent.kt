@@ -107,6 +107,8 @@ public class ReActAgent internal constructor(
         var iterations = 0
 
         try {
+            emit(AgentEvent.Initial(input))
+
             while (iterations < maxIterations) {
                 iterations++
 
@@ -128,6 +130,10 @@ public class ReActAgent internal constructor(
                     return
                 }
 
+                response.message.content?.takeIf { it.isNotBlank() }?.let {
+                    emit(AgentEvent.Reasoning(it))
+                }
+
                 for (call in response.message.toolCalls) {
                     val synthetic = hook.safeInvoke { beforeToolCall(call) }
                     if (synthetic != null) {
@@ -135,13 +141,13 @@ public class ReActAgent internal constructor(
                         // **不** emit ToolCallStarted / ToolCallFinished(工具压根没被调用)。
                         recordToMemory(call, synthetic.copy(isError = true), toolCalls)
                     } else {
-                        emit(AgentEvent.ToolCallStarted(call.id, call.name))
+                        emit(AgentEvent.ToolCallStart(call.id, call.name))
                         val startMs = System.currentTimeMillis()
                         val raw = toolRegistry.execute(call, ToolContext())
                         val durMs = System.currentTimeMillis() - startMs
                         val final = hook.safeInvoke { afterToolCall(call, raw, durMs) } ?: raw
                         recordToMemory(call, final, toolCalls)
-                        emit(AgentEvent.ToolCallFinished(call.id, final))
+                        emit(AgentEvent.ToolCallEnd(call.id, final))
                     }
                 }
             }
