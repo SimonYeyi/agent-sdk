@@ -19,6 +19,7 @@ import io.github.yeyi.agent.app.vm.UiMessage
 import io.github.yeyi.agent.app.vm.SessionUiState
 import io.github.yeyi.agent.app.vm.SessionViewModel
 import io.github.yeyi.agent.llm.ChatMessage
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -45,7 +46,7 @@ public fun SessionScreen(
                     currentSessionId = uiState.currentSession?.id,
                     onSelect = {
                         viewModel.selectSession(it)
-                        kotlinx.coroutines.runBlocking { drawerState.close() }
+                        scope.launch { drawerState.close() }
                     },
                     onDelete = { viewModel.deleteSession(it) },
                     onCreate = { viewModel.createSession(it) },
@@ -59,7 +60,7 @@ public fun SessionScreen(
                 TopAppBar(
                     title = { Text(uiState.currentSession?.name?.ifEmpty { "Chat" } ?: "Sessions") },
                     navigationIcon = {
-                        IconButton(onClick = { kotlinx.coroutines.runBlocking { drawerState.open() } }) {
+                        IconButton(onClick = { scope.launch { drawerState.open() } }) {
                             Icon(Icons.Default.Menu, contentDescription = "Menu")
                         }
                     }
