@@ -189,4 +189,8 @@ public class ReActAgent internal constructor(
         },
         tools = toolRegistry.definitions()
     )
+
+    override suspend fun clearMemory() {
+        memory.clear()
+    }
 }

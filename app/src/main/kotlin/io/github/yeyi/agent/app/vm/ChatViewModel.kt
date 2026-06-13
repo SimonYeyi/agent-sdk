@@ -31,6 +31,13 @@ class ChatViewModel(
         _mode.value = m
     }
 
+    fun clearMessages() {
+        _messages.value = emptyList()
+        _liveBubble.value = null
+        inProgressByCallId.clear()
+        viewModelScope.launch { agent.clearMemory() }
+    }
+
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages.asStateFlow()
 

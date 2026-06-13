@@ -79,8 +79,18 @@ fun ChatScreen(
                     enabled = !isProcessing,
                 )
             }
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             OutlinedButton(onClick = onNavigateToSession) {
                 Text("Sessions")
+            }
+            Spacer(modifier = Modifier.width(8.dp))
+            OutlinedButton(onClick = { viewModel.clearMessages() }) {
+                Text("Clear")
             }
         }
         Spacer(modifier = Modifier.height(8.dp))

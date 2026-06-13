@@ -8,4 +8,7 @@ public interface Agent {
 
     /** 流式:使用 [io.github.yeyi.agent.memory.Memory] 维护历史,内部调用 [io.github.yeyi.agent.llm.LlmProvider.chatStream] 推送 TextDelta */
     public fun runStream(input: String): Flow<AgentEvent>
+
+    /** 清空会话历史 */
+    public suspend fun clearMemory()
 }
