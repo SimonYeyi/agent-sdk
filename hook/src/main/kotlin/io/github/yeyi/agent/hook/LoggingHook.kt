@@ -6,6 +6,7 @@ import io.github.yeyi.agent.log.Logging
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ToolCall
+import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.tool.ToolExecutionResult
 
 /**
@@ -48,5 +49,13 @@ public class LoggingHook : Hook {
 
     override suspend fun onRunFinished(result: AgentResult) {
         log.info("onRunFinished iter=${result.iterations} toolCalls=${result.toolCalls.size}")
+    }
+
+    override suspend fun onSessionCreated(session: Session) {
+        log.info("onSessionCreated id=${session.id} name=${session.name}")
+    }
+
+    override suspend fun onSessionDeleted(userId: String, sessionId: String) {
+        log.info("onSessionDeleted userId=$userId sessionId=$sessionId")
     }
 }

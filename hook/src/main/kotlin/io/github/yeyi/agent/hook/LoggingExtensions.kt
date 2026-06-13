@@ -11,4 +11,4 @@ import io.github.yeyi.agent.log.LoggingTagged
  * Logging.hook().warn("something happened")
  * ```
  */
-public fun Logging.hook(): LoggingTagged = LoggingTagged("hook")
+internal fun Logging.hook(): LoggingTagged = LoggingTagged("hook")

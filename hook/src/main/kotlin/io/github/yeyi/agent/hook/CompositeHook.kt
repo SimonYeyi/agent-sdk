@@ -82,6 +82,18 @@ internal class CompositeHook(val hooks: List<Hook>) : Hook {
         }
     }
 
+    override suspend fun onSessionCreated(session: io.github.yeyi.agent.session.Session) {
+        for (hook in hooks) {
+            hook.safeInvoke { onSessionCreated(session) }
+        }
+    }
+
+    override suspend fun onSessionDeleted(userId: String, sessionId: String) {
+        for (hook in hooks) {
+            hook.safeInvoke { onSessionDeleted(userId, sessionId) }
+        }
+    }
+
 }
 
 

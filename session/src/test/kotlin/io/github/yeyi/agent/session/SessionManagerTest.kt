@@ -105,4 +105,77 @@ class SessionManagerTest {
 
         assertTrue(memory.history().isEmpty())
     }
+
+    // --- SessionHook tests ---
+
+    @Test
+    fun `hook onSessionCreated is called when creating session`() = runTest {
+        val events = mutableListOf<String>()
+        val hook = object : SessionHook {
+            override suspend fun onSessionCreated(session: Session) {
+                events.add("onSessionCreated(${session.id},${session.name})")
+            }
+        }
+        val manager = SessionManager(tempDir, hook)
+        val session = manager.create("user1", "my session")
+        assertEquals(listOf("onSessionCreated(${session.id},my session)"), events)
+    }
+
+    @Test
+    fun `hook onSessionDeleted is called when deleting session`() = runTest {
+        val events = mutableListOf<String>()
+        val hook = object : SessionHook {
+            override suspend fun onSessionDeleted(userId: String, sessionId: String) {
+                events.add("onSessionDeleted($userId,$sessionId)")
+            }
+        }
+        val manager = SessionManager(tempDir, hook)
+        val session = manager.create("user1", "my session")
+        manager.delete("user1", session.id)
+        assertEquals(listOf("onSessionDeleted(user1,${session.id})"), events)
+    }
+
+    @Test
+    fun `exception in hook does not crash create`() = runTest {
+        val hook = object : SessionHook {
+            override suspend fun onSessionCreated(session: Session) {
+                throw RuntimeException("hook fail")
+            }
+        }
+        val manager = SessionManager(tempDir, hook)
+        val session = manager.create("user1", "my session")
+        assertNotNull(session.id)
+    }
+
+    @Test
+    fun `exception in hook does not crash delete`() = runTest {
+        val hook = object : SessionHook {
+            override suspend fun onSessionDeleted(userId: String, sessionId: String) {
+                throw RuntimeException("hook fail")
+            }
+        }
+        val manager = SessionManager(tempDir, hook)
+        val session = manager.create("user1", "my session")
+        manager.delete("user1", session.id)
+        assertTrue(manager.list("user1").isEmpty())
+    }
+
+    @Test
+    fun `get and list do NOT trigger hooks`() = runTest {
+        val events = mutableListOf<String>()
+        val hook = object : SessionHook {
+            override suspend fun onSessionCreated(session: Session) {
+                events.add("onSessionCreated")
+            }
+            override suspend fun onSessionDeleted(userId: String, sessionId: String) {
+                events.add("onSessionDeleted")
+            }
+        }
+        val manager = SessionManager(tempDir, hook)
+        manager.create("user1", "my session")
+        events.clear()
+        manager.get("user1", manager.list("user1").first().id)
+        manager.list("user1")
+        assertTrue("get/list should not trigger hooks", events.isEmpty())
+    }
 }

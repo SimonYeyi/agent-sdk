@@ -6,6 +6,7 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
+import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
@@ -48,6 +49,12 @@ class CompositeHookTest {
         }
         override suspend fun onRunFinished(result: AgentResult) {
             events += "$name:onRunFinished(iter=${result.iterations})"
+        }
+        override suspend fun onSessionCreated(session: Session) {
+            events += "$name:onSessionCreated(${session.id})"
+        }
+        override suspend fun onSessionDeleted(userId: String, sessionId: String) {
+            events += "$name:onSessionDeleted($userId,$sessionId)"
         }
     }
 
@@ -337,5 +344,53 @@ class CompositeHookTest {
         for ((i, h) in hooks.withIndex()) {
             assertEquals(listOf("h$i:beforeLlmCall(1)"), h.events, "hook $i should be called in order")
         }
+    }
+
+    // --- SessionHook tests ---
+
+    @Test
+    fun `onSessionCreated fans out to all hooks`() = runTest {
+        val a = RecordingHook("a")
+        val b = RecordingHook("b")
+        val composite = CompositeHook(listOf(a, b))
+        val session = Session("s1", "u1", "test", kotlinx.datetime.Clock.System.now(), kotlinx.datetime.Clock.System.now())
+        composite.onSessionCreated(session)
+        assertEquals(listOf("a:onSessionCreated(s1)", "b:onSessionCreated(s1)"), a.events + b.events)
+    }
+
+    @Test
+    fun `onSessionDeleted fans out to all hooks`() = runTest {
+        val a = RecordingHook("a")
+        val b = RecordingHook("b")
+        val composite = CompositeHook(listOf(a, b))
+        composite.onSessionDeleted("u1", "s1")
+        assertEquals(listOf("a:onSessionDeleted(u1,s1)", "b:onSessionDeleted(u1,s1)"), a.events + b.events)
+    }
+
+    @Test
+    fun `exception in onSessionCreated is swallowed and remaining hooks still called`() = runTest {
+        val throwing = object : Hook {
+            override suspend fun onSessionCreated(session: Session) {
+                throw RuntimeException("oops")
+            }
+        }
+        val b = RecordingHook("b")
+        val composite = CompositeHook(listOf(throwing, b))
+        val session = Session("s1", "u1", "test", kotlinx.datetime.Clock.System.now(), kotlinx.datetime.Clock.System.now())
+        composite.onSessionCreated(session)
+        assertEquals(listOf("b:onSessionCreated(s1)"), b.events)
+    }
+
+    @Test
+    fun `exception in onSessionDeleted is swallowed and remaining hooks still called`() = runTest {
+        val throwing = object : Hook {
+            override suspend fun onSessionDeleted(userId: String, sessionId: String) {
+                throw RuntimeException("oops")
+            }
+        }
+        val b = RecordingHook("b")
+        val composite = CompositeHook(listOf(throwing, b))
+        composite.onSessionDeleted("u1", "s1")
+        assertEquals(listOf("b:onSessionDeleted(u1,s1)"), b.events)
     }
 }
