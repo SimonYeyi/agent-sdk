@@ -12,6 +12,7 @@ import io.github.yeyi.agent.app.demo.tools.WebSearchMockTool
 import io.github.yeyi.agent.hook.LoggingHook
 import io.github.yeyi.agent.hook.hook
 import io.github.yeyi.agent.llm.LlmProvider
+import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
 import io.github.yeyi.agent.providers.openai.OpenAiProvider
 import io.github.yeyi.agent.skill.skills
@@ -39,7 +40,7 @@ object DemoAgentFactory {
     private const val PROVIDER_OPENAI = "openai"
     private const val PROVIDER_ANTHROPIC = "anthropic"
 
-    fun create(): Agent {
+    fun create(memory: Memory? = null): Agent {
         val providerRaw = BuildConfig.MODEL_PROVIDER
         val apiKey = BuildConfig.MODEL_API_KEY.requireNonEmpty("MODEL_API_KEY")
         val baseUrl = BuildConfig.MODEL_BASE_URL.requireNonEmpty("MODEL_BASE_URL")
@@ -63,6 +64,7 @@ object DemoAgentFactory {
             OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
         }
         return agent {
+            if (memory != null) memory(memory)
             systemPrompt("你是一个 helpful 助手。优先使用工具完成任务。")
             llmProvider(llmProvider)
             tool(GetCurrentTimeTool())

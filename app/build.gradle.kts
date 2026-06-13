@@ -53,6 +53,7 @@ android {
 
 dependencies {
     implementation(project(":agent"))
+    implementation(project(":session"))
     implementation(project(":skill"))
     implementation(project(":hook"))
     implementation(project(":providers:openai"))
