@@ -69,36 +69,6 @@ class CompositeHookTest {
         arguments = JsonObject(mapOf("k" to JsonPrimitive("v")))
     )
 
-    // --- Factory: of() ---
-
-    @Test
-    fun `of(emptyList) returns empty CompositeHook`() {
-        val composite = CompositeHook(emptyList())
-        assertEquals(emptyList<Hook>(), composite.hooks)
-    }
-
-    @Test
-    fun `of(no args) returns empty CompositeHook`() {
-        val composite = CompositeHook(emptyList())
-        assertEquals(emptyList<Hook>(), composite.hooks)
-    }
-
-    @Test
-    fun `of(single hook) wraps into CompositeHook`() {
-        val h = RecordingHook("a")
-        val composite = CompositeHook(listOf(h))
-        assertEquals(listOf<Hook>(h), composite.hooks)
-    }
-
-    @Test
-    fun `of(iterable) preserves order`() {
-        val a = RecordingHook("a")
-        val b = RecordingHook("b")
-        val c = RecordingHook("c")
-        val composite = CompositeHook(listOf(a, b, c))
-        assertEquals(listOf<Hook>(a, b, c), composite.hooks)
-    }
-
     // --- Fan-out: void callbacks ---
 
     @Test

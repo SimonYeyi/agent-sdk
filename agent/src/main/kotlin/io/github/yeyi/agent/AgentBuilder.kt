@@ -33,10 +33,7 @@ public class AgentBuilder {
     private var memory: Memory = InMemoryMemory()
     private val toolRegistry = ToolRegistry()
 
-    /**
-     * 挂单个 hook，或挂一个已组合好的 hook 树。直接赋值会**替换**之前的 hook
-     */
-    public var hook: AgentHook = NoOpAgentHook
+    private var hook: AgentHook = NoOpAgentHook
 
     public fun maxIterations(iterations: Int) {
         require(iterations > 0) { "maxIterations must be positive" }
@@ -62,6 +59,13 @@ public class AgentBuilder {
 
     public fun tools(tools: Iterable<Tool>) {
         toolRegistry.registerAll(tools)
+    }
+
+    /**
+     * @param hook 挂单个 hook，或挂一个已组合好的 hook 树。
+     */
+    public fun hook(hook: AgentHook) {
+        this.hook = hook
     }
 
     /**

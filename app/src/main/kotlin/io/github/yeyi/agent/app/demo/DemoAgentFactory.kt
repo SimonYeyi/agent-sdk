@@ -9,8 +9,7 @@ import io.github.yeyi.agent.app.demo.tools.GetCurrentTimeTool
 import io.github.yeyi.agent.app.demo.tools.GetLocationTool
 import io.github.yeyi.agent.app.demo.tools.GetWeatherTool
 import io.github.yeyi.agent.app.demo.tools.WebSearchMockTool
-import io.github.yeyi.agent.hook.LoggingHook
-import io.github.yeyi.agent.hook.hook
+import io.github.yeyi.agent.hook.CompositeHook
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
@@ -73,7 +72,7 @@ object DemoAgentFactory {
             skills(listOf(WeatherSkill()))
             tool(GetLocationTool())
             tool(GetWeatherTool())
-            hook(LoggingHook())
+            hook(CompositeHook(logging = true))
         }
     }
 

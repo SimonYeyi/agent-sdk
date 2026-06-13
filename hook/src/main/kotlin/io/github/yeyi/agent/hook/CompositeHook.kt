@@ -32,11 +32,14 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  * ### Example
  * ```kotlin
  * val composite = CompositeHook(
- *     listOf(LoggingHook(), MyMetricsHook(), MyAuditHook())
+ *     listOf(MyMetricsHook(), MyAuditHook()),
+ *     logging = true
  * )
  * ```
  */
-internal class CompositeHook(val hooks: List<Hook>) : Hook {
+public class CompositeHook(hooks: List<Hook> = emptyList(), logging: Boolean = false) : Hook {
+
+    private val hooks: List<Hook> = if (logging) listOf(LoggingHook()) + hooks else hooks
 
     override suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {
         for (hook in hooks) {

@@ -17,7 +17,7 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  * - **永远不**改写工具结果([afterToolCall] 永远原样返回 input `result`)
  * - 在 [CompositeHook] 中组合时,放在前/后位置决定日志输出的相对顺序
  */
-public class LoggingHook : Hook {
+internal class LoggingHook : Hook {
 
     private val log = Logging.hook()
 
