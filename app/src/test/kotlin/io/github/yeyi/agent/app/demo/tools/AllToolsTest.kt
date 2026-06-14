@@ -14,7 +14,7 @@ class AllToolsTest {
     @Test
     fun `GetCurrentTimeTool returns ISO-8601 string`() = runTest {
         val tool = GetCurrentTimeTool()
-        val result = tool.execute(buildJsonObject {}, ToolContext())
+        val result = tool.execute(buildJsonObject {}, ToolContext(toolCallId = "test-call-id"))
         assertTrue(result.content.startsWith("Current UTC time: "), "got: ${result.content}")
         assertFalse(result.isError)
     }
@@ -23,7 +23,7 @@ class AllToolsTest {
     fun `CalculatorTool computes simple expression`() = runTest {
         val tool = CalculatorTool()
         val arguments = buildJsonObject { put("expression", JsonPrimitive("(3+5)*7")) }
-        val result = tool.execute(arguments, ToolContext())
+        val result = tool.execute(arguments, ToolContext(toolCallId = "test-call-id"))
         assertEquals("(3+5)*7 = 56", result.content)
         assertFalse(result.isError)
     }
@@ -32,7 +32,7 @@ class AllToolsTest {
     fun `CalculatorTool returns error on invalid input`() = runTest {
         val tool = CalculatorTool()
         val arguments = buildJsonObject { put("expression", JsonPrimitive("abc")) }
-        val result = tool.execute(arguments, ToolContext())
+        val result = tool.execute(arguments, ToolContext(toolCallId = "test-call-id"))
         assertTrue(result.isError, "expected error result, got: ${result.content}")
     }
 
@@ -40,7 +40,7 @@ class AllToolsTest {
     fun `WebSearchMockTool returns mock result with delay`() = runTest {
         val tool = WebSearchMockTool()
         val arguments = buildJsonObject { put("query", JsonPrimitive("kotlin coroutines")) }
-        val result = tool.execute(arguments, ToolContext())
+        val result = tool.execute(arguments, ToolContext(toolCallId = "test-call-id"))
         assertTrue(result.content.contains("kotlin coroutines"), "got: ${result.content}")
         assertFalse(result.isError)
     }

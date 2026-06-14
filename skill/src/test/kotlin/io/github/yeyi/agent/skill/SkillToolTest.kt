@@ -39,7 +39,7 @@ class SkillToolTest {
     @Test
     fun `SkillTool execute returns skill load() as content and isError false`() = runTest {
         val s = FixedSkill(name = "x", description = "d", content = "## My skill body\nStep 1...")
-        val result = SkillTool(s).execute(JsonNull, ToolContext())
+        val result = SkillTool(s).execute(JsonNull, ToolContext(toolCallId = "test-call-id"))
         assertEquals("## My skill body\nStep 1...", result.content)
         assertFalse(result.isError)
     }
@@ -56,17 +56,17 @@ class SkillToolTest {
             }
         }
         val tool = SkillTool(s)
-        assertEquals("v1", tool.execute(JsonNull, ToolContext()).content)
-        assertEquals("v2", tool.execute(JsonNull, ToolContext()).content)
+        assertEquals("v1", tool.execute(JsonNull, ToolContext(toolCallId = "test-call-id")).content)
+        assertEquals("v2", tool.execute(JsonNull, ToolContext(toolCallId = "test-call-id")).content)
     }
 
     @Test
     fun `SkillTool execute is independent of args`() = runTest {
         val s = FixedSkill(name = "x", description = "d", content = "body")
-        val r1 = SkillTool(s).execute(JsonNull, ToolContext())
+        val r1 = SkillTool(s).execute(JsonNull, ToolContext(toolCallId = "test-call-id"))
         val r2 = SkillTool(s).execute(
             kotlinx.serialization.json.JsonPrimitive("ignored"),
-            ToolContext(),
+            ToolContext(toolCallId = "test-call-id"),
         )
         assertEquals(r1.content, r2.content)
     }

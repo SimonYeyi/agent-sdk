@@ -17,7 +17,7 @@ class SkillTest {
 
     private fun emptyContext(): SkillContext = SkillContext(
         arguments = buildJsonObject { },
-        toolContext = ToolContext(),
+        toolContext = ToolContext(toolCallId = "test-call-id"),
     )
 
     @Test

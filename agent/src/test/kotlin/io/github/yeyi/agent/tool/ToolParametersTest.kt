@@ -26,9 +26,9 @@ class ToolParametersTest {
     }
 
     @Test
-    fun `ToolContext generates id and empty metadata by default`() {
-        val context = ToolContext()
-        assertTrue(context.invocationId.isNotEmpty())
+    fun `ToolContext requires toolCallId and defaults metadata to empty`() {
+        val context = ToolContext(toolCallId = "call-123")
+        assertEquals("call-123", context.toolCallId)
         assertTrue(context.metadata.isEmpty())
     }
 }

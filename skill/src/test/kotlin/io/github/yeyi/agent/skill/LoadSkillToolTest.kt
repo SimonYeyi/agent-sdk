@@ -45,7 +45,7 @@ class LoadSkillToolTest {
         val tool = LoadSkillTool(registry)
         val result = tool.execute(
             buildJsonObject { put("skill_name", kotlinx.serialization.json.JsonPrimitive("weather")) },
-            ToolContext(),
+            ToolContext(toolCallId = "test-call-id"),
         )
         assertEquals("## weather body", result.content)
         assertFalse(result.isError)
@@ -57,7 +57,7 @@ class LoadSkillToolTest {
         val tool = LoadSkillTool(registry)
         val result = tool.execute(
             buildJsonObject { put("skill_name", kotlinx.serialization.json.JsonPrimitive("unknown")) },
-            ToolContext(),
+            ToolContext(toolCallId = "test-call-id"),
         )
         assertTrue(result.isError)
         assertTrue("Skill not found" in result.content)
@@ -67,7 +67,7 @@ class LoadSkillToolTest {
     fun `execute returns error for missing skill_name`() = runTest {
         val registry = SkillRegistry()
         val tool = LoadSkillTool(registry)
-        val result = tool.execute(buildJsonObject { }, ToolContext())
+        val result = tool.execute(buildJsonObject { }, ToolContext(toolCallId = "test-call-id"))
         assertTrue(result.isError)
         assertTrue("Missing skill_name" in result.content)
     }

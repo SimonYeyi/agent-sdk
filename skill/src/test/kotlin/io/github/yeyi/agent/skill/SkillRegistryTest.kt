@@ -24,12 +24,12 @@ class SkillRegistryTest {
         private val baseContent: String,
     ) : Skill {
         override fun load(context: SkillContext): String =
-            "$baseContent [invocation=${context.toolContext.invocationId}]"
+            "$baseContent [toolCallId=${context.toolContext.toolCallId}]"
     }
 
     private fun emptyContext(): SkillContext = SkillContext(
         arguments = buildJsonObject { },
-        toolContext = ToolContext(),
+        toolContext = ToolContext(toolCallId = "test-call-id"),
     )
 
     @Test
@@ -97,10 +97,10 @@ class SkillRegistryTest {
         registry.register(ContextualSkill("weather", "d", "base"))
         val ctx = SkillContext(
             arguments = buildJsonObject { },
-            toolContext = ToolContext(invocationId = "test-id"),
+            toolContext = ToolContext(toolCallId = "test-id"),
         )
         val result = registry.load("weather", ctx)
-        assertEquals("base [invocation=test-id]", result)
+        assertEquals("base [toolCallId=test-id]", result)
     }
 
     @Test
