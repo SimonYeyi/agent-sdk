@@ -21,7 +21,9 @@ public data class SessionUiState(
     val inputText: String = "",
     val isLoading: Boolean = false,
     val error: String? = null,
-    val liveBubble: LiveBubble? = null
+    val liveBubble: LiveBubble? = null,
+    val pendingMessage: String? = null,
+    val isNewSessionPending: Boolean = false
 )
 
 public class SessionViewModel(application: Application) : AndroidViewModel(application) {
@@ -58,6 +60,16 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    public fun createSessionAndSelect(name: String) {
+        // 只是标记为待创建状态，不真正创建会话
+        _uiState.value = _uiState.value.copy(
+            currentSession = null,
+            messages = emptyList(),
+            inputText = "",
+            isNewSessionPending = true
+        )
+    }
+
     public fun selectSession(sessionId: String) {
         viewModelScope.launch {
             try {
@@ -83,10 +95,44 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     }
 
     public fun sendMessage() {
-        val currentSession = _uiState.value.currentSession ?: return
+        val currentSession = _uiState.value.currentSession
         val inputText = _uiState.value.inputText.trim()
         if (inputText.isEmpty()) return
 
+        if (_uiState.value.isNewSessionPending || currentSession == null) {
+            // 真正的会话在发送时才创建，用第一个问题作为会话名
+            _uiState.value = _uiState.value.copy(
+                pendingMessage = inputText,
+                inputText = "",
+                isNewSessionPending = false
+            )
+            createSessionAndSend(inputText)
+        } else {
+            sendMessageInternal(currentSession, inputText)
+        }
+    }
+
+    private fun createSessionAndSend(name: String) {
+        viewModelScope.launch {
+            try {
+                val session = sessionManager.create(userId, name)
+                loadSessions()
+                _uiState.value = _uiState.value.copy(
+                    currentSession = session,
+                    messages = emptyList()
+                )
+                val pending = _uiState.value.pendingMessage
+                if (pending != null) {
+                    _uiState.value = _uiState.value.copy(pendingMessage = null)
+                    sendMessageInternal(session, pending)
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(error = e.message)
+            }
+        }
+    }
+
+    private fun sendMessageInternal(session: Session, inputText: String) {
         _uiState.value = _uiState.value.copy(
             inputText = "",
             isLoading = true
@@ -94,7 +140,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
 
         viewModelScope.launch {
             try {
-                val agent = DemoAgentFactory.create(currentSession.memory, hook)
+                val agent = DemoAgentFactory.create(session.memory, hook)
                 agent.runStream(inputText).collect { event ->
                     when (event) {
                         is io.github.yeyi.agent.AgentEvent.Initial -> {

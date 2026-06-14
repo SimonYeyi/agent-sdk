@@ -38,6 +38,12 @@ public fun SessionScreen(
         }
     }
 
+    LaunchedEffect(uiState.currentSession) {
+        if (uiState.currentSession != null && drawerState.isOpen) {
+            drawerState.close()
+        }
+    }
+
     BackHandler {
         if (drawerState.isOpen) {
             scope.launch { drawerState.close() }
@@ -59,6 +65,7 @@ public fun SessionScreen(
                     },
                     onDelete = { viewModel.deleteSession(it) },
                     onCreate = { viewModel.createSession(it) },
+                    onCreateAndSelect = { viewModel.createSessionAndSelect(it) },
                     modifier = Modifier.width(300.dp)
                 )
             }
@@ -95,14 +102,18 @@ private fun SessionDrawerContent(
     onSelect: (String) -> Unit,
     onDelete: (String) -> Unit,
     onCreate: (String) -> Unit,
+    onCreateAndSelect: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var showDialog by remember { mutableStateOf(false) }
-    var newSessionName by remember { mutableStateOf("") }
+    val scope = rememberCoroutineScope()
 
     Column(modifier = modifier.padding(8.dp)) {
         Button(
-            onClick = { showDialog = true },
+            onClick = {
+                scope.launch {
+                    onCreateAndSelect("")
+                }
+            },
             modifier = Modifier.fillMaxWidth()
         ) {
             Icon(Icons.Default.Add, contentDescription = null)
@@ -122,36 +133,6 @@ private fun SessionDrawerContent(
                 )
             }
         }
-    }
-
-    if (showDialog) {
-        AlertDialog(
-            onDismissRequest = { showDialog = false },
-            title = { Text("Create Session") },
-            text = {
-                OutlinedTextField(
-                    value = newSessionName,
-                    onValueChange = { newSessionName = it },
-                    label = { Text("Session Name") }
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        onCreate(newSessionName)
-                        newSessionName = ""
-                        showDialog = false
-                    }
-                ) {
-                    Text("Create")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDialog = false }) {
-                    Text("Cancel")
-                }
-            }
-        )
     }
 }
 
@@ -212,16 +193,7 @@ private fun ChatArea(
     }
 
     Column(modifier = modifier) {
-        if (uiState.currentSession == null) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text("Select a session to start chatting")
-            }
-        } else {
+        if (uiState.currentSession != null) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier
@@ -232,6 +204,15 @@ private fun ChatArea(
                 items(displayItems, key = { it.id }) { message ->
                     MessageBubble(message)
                 }
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("输入您的问题开始对话")
             }
         }
 
@@ -247,15 +228,15 @@ private fun ChatArea(
                 value = uiState.inputText,
                 onValueChange = onInputChange,
                 modifier = Modifier.weight(1f),
-                placeholder = { Text("Type a message...") },
-                enabled = uiState.currentSession != null && !uiState.isLoading
+                placeholder = { Text("输入您的问题...") },
+                enabled = !uiState.isLoading
             )
 
             Spacer(modifier = Modifier.width(8.dp))
 
             IconButton(
                 onClick = onSend,
-                enabled = uiState.currentSession != null && !uiState.isLoading && uiState.inputText.isNotBlank()
+                enabled = !uiState.isLoading && uiState.inputText.isNotBlank()
             ) {
                 Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "Send")
             }
