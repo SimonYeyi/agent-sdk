@@ -137,10 +137,10 @@ class LoggingHookTest {
             ),
             usage = null,
         )
-        h.onRunFinished(context(), r)
+        h.onRunFinished(context(iter = 5), r)
         val out = stderr()
-        assertTrue(out.contains("iter=5"))
         assertTrue(out.contains("toolCalls=1"))
+        assertTrue(out.contains("iter=5/5"))
     }
 
 

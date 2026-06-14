@@ -1,7 +1,6 @@
 package io.github.yeyi.agent
 
 import io.github.yeyi.agent.memory.Memory
-import io.github.yeyi.agent.memory.ReadOnlyMemory
 
 /**
  * Agent 运行时上下文，供 [AgentHook] 使用。
@@ -18,4 +17,11 @@ public class AgentContext(
     public val currentIteration: Int,
     public val memory: Memory,
     public val metadata: MutableMap<String, String> = mutableMapOf()
-)
+) {
+    override fun toString(): String = buildString {
+        append("iter=$currentIteration/$maxIterations")
+        if (metadata.isNotEmpty()) {
+            append(" metadata=$metadata")
+        }
+    }
+}
