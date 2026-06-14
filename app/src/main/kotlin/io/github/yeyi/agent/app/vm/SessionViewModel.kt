@@ -103,11 +103,13 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                                 liveBubble = null
                             )
                         }
-                        is io.github.yeyi.agent.AgentEvent.Reasoning -> {
-                            _uiState.value = _uiState.value.copy(
-                                messages = _uiState.value.messages + UiMessage.Assistant(event.text, id = nextUiId()),
-                                liveBubble = null
-                            )
+                        is io.github.yeyi.agent.AgentEvent.ToolCallExplanation -> {
+                            event.text?.let { text ->
+                                _uiState.value = _uiState.value.copy(
+                                    messages = _uiState.value.messages + UiMessage.Assistant(text, id = nextUiId()),
+                                    liveBubble = null
+                                )
+                            }
                         }
                         is io.github.yeyi.agent.AgentEvent.TextDelta -> {
                             _uiState.value = _uiState.value.copy(
@@ -117,13 +119,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                             )
                         }
                         is io.github.yeyi.agent.AgentEvent.ToolCallStart -> {
-                            val live = _uiState.value.liveBubble
-                            if (live != null) {
-                                _uiState.value = _uiState.value.copy(
-                                    messages = _uiState.value.messages + UiMessage.Assistant(live.text, id = live.id),
-                                    liveBubble = null
-                                )
-                            }
+                            // 信号，不做消息提交
                         }
                         is io.github.yeyi.agent.AgentEvent.ToolCallEnd -> {
                             // Do nothing, wait for next text delta

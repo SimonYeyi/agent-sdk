@@ -85,8 +85,10 @@ class ChatViewModel(
                 _messages.update { it + UiMessage.User(event.userInput, id = nextUiId()) }
                 _liveBubble.value = null
             }
-            is AgentEvent.Reasoning -> {
-                _messages.update { it + UiMessage.Assistant(event.text, id = nextUiId()) }
+            is AgentEvent.ToolCallExplanation -> {
+                event.text?.let { text ->
+                    _messages.update { it + UiMessage.Assistant(text, id = nextUiId()) }
+                }
                 _liveBubble.value = null
             }
             is AgentEvent.TextDelta -> {
@@ -96,11 +98,6 @@ class ChatViewModel(
                 }
             }
             is AgentEvent.ToolCallStart -> {
-                val live = _liveBubble.value
-                if (live != null) {
-                    _messages.update { it + UiMessage.Assistant(live.text, id = live.id) }
-                    _liveBubble.value = null
-                }
                 val msg = UiMessage.ToolInProgress(event.callId, event.toolName)
                 inProgressByCallId[event.callId] = msg
                 _messages.update { it + msg }

@@ -312,10 +312,11 @@ sealed interface AgentEvent {
     data class Initial(val userInput: String) : AgentEvent
 
     /**
-     * 推理文本事件。
-     * 仅在 LLM 决定调用工具且存在推理文本时发出。
+     * 工具调用说明事件。
+     * 在 ToolCallStart 之前发出，是 LLM 决定调用工具前对用户的解释性说明。
+     * 有工具调用时一定发此事件（text 可能为 null，表示无说明）。
      */
-    data class Reasoning(val text: String) : AgentEvent
+    data class ToolCallExplanation(val text: String?) : AgentEvent
 
     data class TextDelta(val text: String) : AgentEvent
     data class ToolCallStart(val callId: String, val toolName: String) : AgentEvent

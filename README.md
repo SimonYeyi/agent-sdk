@@ -28,7 +28,7 @@ val memory = InMemoryMemory()
 agent.runStream("现在几点？", memory).collect { event ->
     when (event) {
         is AgentEvent.Initial -> println("用户: ${event.userInput}")
-        is AgentEvent.Reasoning -> println("推理: ${event.text}")
+        is AgentEvent.ToolCallExplanation -> println("工具调用说明: ${event.text}")
         is AgentEvent.TextDelta -> print(event.text)            // 实时输出文本
         is AgentEvent.ToolCallStart -> println("→ ${event.toolName}")
         is AgentEvent.ToolCallEnd -> println("✓ ${event.result.content}")
@@ -48,7 +48,7 @@ println(result.message.content)
 - **统一 Flow API**:`run` / `runStream` 三个入口均返回 `Flow<AgentEvent>`,共享同一个 `loop` 内核;只需 `.awaitResult()` 即可获得最终 `AgentResult`。
 - **工具调用 (Tool)**:`Tool` 接口描述 JSON Schema 入参与返回值,由 Agent 在循环中按需分发。
 - **多轮 Memory**:`Memory` 抽象当前默认实现为 `InMemoryMemory`,可被自定义工厂替换。
-- **Streaming**:消费 7 个 `AgentEvent` 变体 (`Initial` / `Reasoning` / `TextDelta` / `ToolCallStart` / `ToolCallEnd` / `Final` / `Failed`)。`Final` 直接包装 `AgentResult`,审计 record 走 `result.toolCalls`。
+- **Streaming**:消费 7 个 `AgentEvent` 变体 (`Initial` / `ToolCallExplanation` / `TextDelta` / `ToolCallStart` / `ToolCallEnd` / `Final` / `Failed`)。`Final` 直接包装 `AgentResult`,审计 record 走 `result.toolCalls`。
 - **Skill 加载**:一组 `systemPromptFragment + tools` 的可复用包,通过 `skill(...)` 注入,
   展开为最终 systemPrompt 与工具列表(详见 `agent/src/main/kotlin/io/github/yeyi/agent/skill/Skill.kt`)。
 - **Hook 生命周期**:`AgentHook` 允许在 `beforeLlmCall` / `afterLlmResponse` /
@@ -64,8 +64,8 @@ println(result.message.content)
 - **`awaitResult` 扩展**:`suspend fun Flow<AgentEvent>.awaitResult(): AgentResult` —— 只关心结果时的便捷入口
 - **`Final` 事件收敛**:`AgentEvent.Final` 改为 `Final(val result: AgentResult)` 直接包装终态结果,作为 `AgentResult` 数据的单一来源
 - **Demo App 模式切换**:`ChatViewModel` 暴露 `STREAM` / `BATCH` 切换,共享同一套 7 事件 UI 渲染逻辑
-- **新增 `Initial` / `Reasoning` 事件**:`Initial` 携带用户输入,`Reasoning` 携带推理文本,统一 UI 处理入口
-- **流式推理文本**:`runStream` 在 `ToolCallStart` 时发出 `Reasoning` 事件,实时显示推理过程
+- **新增 `Initial` / `ToolCallExplanation` 事件**:`Initial` 携带用户输入,`ToolCallExplanation` 携带工具调用说明文本,统一 UI 处理入口
+- **流式说明文本**:`runStream` 实时推送 `TextDelta`,`ToolCallExplanation` 分隔提交完整说明文本
 
 ## 模块结构
 

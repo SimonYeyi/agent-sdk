@@ -133,8 +133,8 @@ public class ReActAgent internal constructor(
                     return
                 }
 
-                response.message.content?.takeIf { it.isNotBlank() }?.let {
-                    emit(AgentEvent.Reasoning(it))
+                response.message.content.takeIf { it != "" }.let {
+                    emit(AgentEvent.ToolCallExplanation(it))
                 }
 
                 for (call in response.message.toolCalls) {
