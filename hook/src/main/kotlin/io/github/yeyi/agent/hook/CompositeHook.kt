@@ -1,10 +1,12 @@
 package io.github.yeyi.agent.hook
 
+import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ToolCall
+import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.tool.ToolExecutionResult
 
 /**
@@ -41,47 +43,48 @@ public class CompositeHook(hooks: List<Hook> = emptyList(), logging: Boolean = f
 
     private val hooks: List<Hook> = if (logging) listOf(LoggingHook()) + hooks else hooks
 
-    override suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {
+    override suspend fun beforeLlmCall(context: AgentContext) {
         for (hook in hooks) {
-            hook.safeInvoke { beforeLlmCall(iteration, messages) }
+            hook.safeInvoke { beforeLlmCall(context) }
         }
     }
 
-    override suspend fun afterLlmResponse(iteration: Int, response: ChatResponse) {
+    override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
         for (hook in hooks) {
-            hook.safeInvoke { afterLlmResponse(iteration, response) }
+            hook.safeInvoke { afterLlmResponse(context, response) }
         }
     }
 
-    override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? {
+    override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
         for (hook in hooks) {
-            val r = hook.safeInvoke { beforeToolCall(call) }
+            val r = hook.safeInvoke { beforeToolCall(context, call) }
             if (r != null) return r
         }
         return null
     }
 
     override suspend fun afterToolCall(
+        context: AgentContext,
         call: ToolCall,
         result: ToolExecutionResult,
         durationMs: Long,
     ): ToolExecutionResult {
         var current = result
         for (hook in hooks) {
-            current = hook.safeInvoke { afterToolCall(call, current, durationMs) } ?: current
+            current = hook.safeInvoke { afterToolCall(context, call, current, durationMs) } ?: current
         }
         return current
     }
 
-    override suspend fun onError(cause: AgentException) {
+    override suspend fun onError(context: AgentContext, cause: AgentException) {
         for (hook in hooks) {
-            hook.safeInvoke { onError(cause) }
+            hook.safeInvoke { onError(context, cause) }
         }
     }
 
-    override suspend fun onRunFinished(result: AgentResult) {
+    override suspend fun onRunFinished(context: AgentContext, result: AgentResult) {
         for (hook in hooks) {
-            hook.safeInvoke { onRunFinished(result) }
+            hook.safeInvoke { onRunFinished(context, result) }
         }
     }
 
@@ -98,5 +101,3 @@ public class CompositeHook(hooks: List<Hook> = emptyList(), logging: Boolean = f
     }
 
 }
-
-

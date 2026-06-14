@@ -1,11 +1,13 @@
 package io.github.yeyi.agent.hook
 
+import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
+import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
@@ -24,6 +26,13 @@ class LoggingHookTest {
 
     private lateinit var originalErr: PrintStream
     private lateinit var captured: ByteArrayOutputStream
+
+    private fun context(iter: Int = 1) = AgentContext(
+        systemPrompt = "",
+        maxIterations = 5,
+        currentIteration = iter,
+        memory = InMemoryMemory(),
+    )
 
     @BeforeTest
     fun captureStderr() {
@@ -51,13 +60,12 @@ class LoggingHookTest {
     )
 
     @Test
-    fun `beforeLlmCall writes a warn line with iter and message count`() = runTest {
+    fun `beforeLlmCall writes a warn line with iter`() = runTest {
         val h = LoggingHook()
-        h.beforeLlmCall(3, listOf(ChatMessage.User("hi"), ChatMessage.User("again")))
+        h.beforeLlmCall(context(3))
         val out = stderr()
         assertTrue(out.contains("hook"), "should tag with hook")
         assertTrue(out.contains("iter=3"))
-        assertTrue(out.contains("messages=2"))
     }
 
     @Test
@@ -70,7 +78,7 @@ class LoggingHookTest {
             ),
             finishReason = FinishReason.ToolCalls
         )
-        h.afterLlmResponse(2, r)
+        h.afterLlmResponse(context(2), r)
         val out = stderr()
         assertTrue(out.contains("iter=2"))
         assertTrue(out.contains("toolCalls=2"))
@@ -79,7 +87,7 @@ class LoggingHookTest {
     @Test
     fun `beforeToolCall always returns null and logs id+name`() = runTest {
         val h = LoggingHook()
-        val r = h.beforeToolCall(toolCall())
+        val r = h.beforeToolCall(context(), toolCall())
         assertNull(r, "LoggingHook must never short-circuit")
         val out = stderr()
         assertTrue(out.contains("id=c1"))
@@ -90,7 +98,7 @@ class LoggingHookTest {
     fun `afterToolCall returns input unchanged and logs duration and isError`() = runTest {
         val h = LoggingHook()
         val input = ToolExecutionResult("payload", isError = true)
-        val out1 = h.afterToolCall(toolCall(), input, 42)
+        val out1 = h.afterToolCall(context(), toolCall(), input, 42)
         assertSame(input, out1, "LoggingHook must not rewrite results")
         val log = stderr()
         assertTrue(log.contains("dur=42ms"))
@@ -100,14 +108,14 @@ class LoggingHookTest {
     @Test
     fun `afterToolCall with isError=false logs isError=false`() = runTest {
         val h = LoggingHook()
-        h.afterToolCall(toolCall(), ToolExecutionResult("ok", isError = false), 1)
+        h.afterToolCall(context(), toolCall(), ToolExecutionResult("ok", isError = false), 1)
         assertTrue(stderr().contains("isError=false"))
     }
 
     @Test
     fun `onError writes a warn line with class and message`() = runTest {
         val h = LoggingHook()
-        h.onError(AgentException.LlmError(RuntimeException("boom")))
+        h.onError(context(), AgentException.LlmError(RuntimeException("boom")))
         val out = stderr()
         assertTrue(out.contains("LlmError"))
         assertTrue(out.contains("boom"))
@@ -129,7 +137,7 @@ class LoggingHookTest {
             ),
             usage = null,
         )
-        h.onRunFinished(r)
+        h.onRunFinished(context(), r)
         val out = stderr()
         assertTrue(out.contains("iter=5"))
         assertTrue(out.contains("toolCalls=1"))
@@ -149,12 +157,13 @@ class LoggingHookTest {
     @Test
     fun `all LoggingHook callbacks produce exactly one warn line per call`() = runTest {
         val h = LoggingHook()
-        h.beforeLlmCall(1, emptyList())
-        h.afterLlmResponse(1, emptyResponse())
-        h.beforeToolCall(toolCall())
-        h.afterToolCall(toolCall(), ToolExecutionResult("x"), 1)
-        h.onError(AgentException.LlmError(RuntimeException("e")))
+        h.beforeLlmCall(context())
+        h.afterLlmResponse(context(), emptyResponse())
+        h.beforeToolCall(context(), toolCall())
+        h.afterToolCall(context(), toolCall(), ToolExecutionResult("x"), 1)
+        h.onError(context(), AgentException.LlmError(RuntimeException("e")))
         h.onRunFinished(
+            context(),
             AgentResult(
                 message = ChatMessage.Assistant(content = "ok"),
                 iterations = 1,

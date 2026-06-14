@@ -13,7 +13,7 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  * 契约:
  * 1. Hook 抛异常不影响主流程,会被 SDK 吞掉并 log
  * 2. Hook 不应阻塞/sleep,可能影响 agent 延迟
- * 3. Hook 不能修改 config/memory(应只读使用)
+ * 3. Hook 不能修改 memory([AgentContext.memory] 是只读包装器,调用 add/clear 会抛异常)
  * 4. 调用顺序: beforeLlmCall → afterLlmResponse → (beforeToolCall → afterToolCall)* → onRunFinished
  *
  * 工具调用拦截语义(v1.1):
@@ -30,7 +30,6 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  * - onError 不接收 CancellationException(由结构化并发保证)
  * - 工具执行错误若被 SDK 转换为 ToolExecutionResult(isError=true)不会触发 onError;只有真正
  *   抛出的异常才会触发
- * - **不**传出迭代次数:该计数是 Agent 内部业务细节,Hook 不应关心
  *
  * 终止语义:
  * - onRunFinished 仅在成功完成时触发(对应 AgentResult 正常返回)
@@ -44,28 +43,29 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  *   使用 `hook` 模块的 `CompositeHook` 组合
  */
 public interface AgentHook {
-    public suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {}
-    public suspend fun afterLlmResponse(iteration: Int, response: ChatResponse) {}
+    public suspend fun beforeLlmCall(context: AgentContext) {}
+    public suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {}
 
     /**
      * 工具执行前的拦截点。
      * @return 非 null 表示跳过真实工具执行,把该返回值作为"合成结果"注入 memory;
      *         null 表示按正常流程执行工具。
      */
-    public suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? = null
+    public suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? = null
 
     /**
      * 工具执行后的改写点。
      * @return 主流程将使用该返回值(可与原 result 不同)。多个 hook 时按注册顺序链式改写。
      */
     public suspend fun afterToolCall(
+        context: AgentContext,
         call: ToolCall,
         result: ToolExecutionResult,
         durationMs: Long,
     ): ToolExecutionResult = result
 
-    public suspend fun onError(cause: AgentException) {}
-    public suspend fun onRunFinished(result: AgentResult) {}
+    public suspend fun onError(context: AgentContext, cause: AgentException) {}
+    public suspend fun onRunFinished(context: AgentContext, result: AgentResult) {}
 }
 
 /**

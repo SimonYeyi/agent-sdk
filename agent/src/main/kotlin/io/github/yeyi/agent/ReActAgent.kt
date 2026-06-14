@@ -9,6 +9,7 @@ import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.memory.ReadOnlyMemory
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -102,20 +103,22 @@ public class ReActAgent internal constructor(
         llmCall: suspend (ChatRequest) -> ChatResponse,
         emit: suspend (AgentEvent) -> Unit,
     ) {
-        try {
-            memory.add(ChatMessage.User(input))
-            emit(AgentEvent.Initial(input))
+        memory.add(ChatMessage.User(input))
 
-            val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
-            var iterations = 0
+        val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
+        var iterations = 0
+
+        try {
+            emit(AgentEvent.Initial(input))
 
             while (iterations < maxIterations) {
                 iterations++
+                val context = buildContext(iterations)
 
                 val request = buildRequest()
-                hook.safeInvoke { beforeLlmCall(iterations, request.messages) }
+                hook.safeInvoke { beforeLlmCall(context) }
                 val response = llmCall(request)
-                hook.safeInvoke { afterLlmResponse(iterations, response) }
+                hook.safeInvoke { afterLlmResponse(context, response) }
                 memory.add(response.message)
 
                 if (response.message.toolCalls.isEmpty()) {
@@ -125,7 +128,7 @@ public class ReActAgent internal constructor(
                         toolCalls = toolCalls.toList(),
                         usage = response.usage,
                     )
-                    hook.safeInvoke { onRunFinished(result) }
+                    hook.safeInvoke { onRunFinished(context, result) }
                     emit(AgentEvent.Final(result))
                     return
                 }
@@ -135,7 +138,7 @@ public class ReActAgent internal constructor(
                 }
 
                 for (call in response.message.toolCalls) {
-                    val synthetic = hook.safeInvoke { beforeToolCall(call) }
+                    val synthetic = hook.safeInvoke { beforeToolCall(context, call) }
                     if (synthetic != null) {
                         // 工具被 hook 短路:跳过实际执行,synthetic result 写进 memory,
                         // **不** emit ToolCallStarted / ToolCallFinished(工具压根没被调用)。
@@ -145,7 +148,8 @@ public class ReActAgent internal constructor(
                         val startMs = System.currentTimeMillis()
                         val raw = toolRegistry.execute(call, ToolContext(toolCallId = call.id))
                         val durMs = System.currentTimeMillis() - startMs
-                        val final = hook.safeInvoke { afterToolCall(call, raw, durMs) } ?: raw
+                        val final =
+                            hook.safeInvoke { afterToolCall(context, call, raw, durMs) } ?: raw
                         recordToMemory(call, final, toolCalls)
                         emit(AgentEvent.ToolCallEnd(call.id, final))
                     }
@@ -157,9 +161,13 @@ public class ReActAgent internal constructor(
             // 边界处统一抬升为 AgentException:对外只暴露领域异常家族。
             // wrap() 对已是 AgentException 的返回同一实例,避免重复包装。
             val cause = t.toAgentException()
-            hook.safeInvoke { onError(cause) }
+            hook.safeInvoke { onError(buildContext(iterations), cause) }
             emit(AgentEvent.Failed(cause))
         }
+    }
+
+    override suspend fun clearMemory() {
+        memory.clear()
     }
 
     private suspend fun recordToMemory(
@@ -190,7 +198,10 @@ public class ReActAgent internal constructor(
         tools = toolRegistry.definitions()
     )
 
-    override suspend fun clearMemory() {
-        memory.clear()
-    }
+    private fun buildContext(currentIteration: Int) = AgentContext(
+        systemPrompt = systemPrompt,
+        maxIterations = maxIterations,
+        currentIteration = currentIteration,
+        memory = ReadOnlyMemory(memory),
+    )
 }

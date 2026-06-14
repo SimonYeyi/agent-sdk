@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.hook
 
+import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.log.Logging
@@ -21,20 +22,21 @@ internal class LoggingHook : Hook {
 
     private val log = Logging.hook()
 
-    override suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {
-        log.debug("iter=$iteration beforeLlmCall messages=${messages.size}")
+    override suspend fun beforeLlmCall(context: AgentContext) {
+        log.debug("iter=${context.currentIteration} beforeLlmCall")
     }
 
-    override suspend fun afterLlmResponse(iteration: Int, response: ChatResponse) {
-        log.debug("iter=$iteration afterLlmResponse toolCalls=${response.message.toolCalls.size}")
+    override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
+        log.debug("iter=${context.currentIteration} afterLlmResponse toolCalls=${response.message.toolCalls.size}")
     }
 
-    override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? {
+    override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
         log.debug("beforeToolCall id=${call.id} name=${call.name}")
         return null
     }
 
     override suspend fun afterToolCall(
+        context: AgentContext,
         call: ToolCall,
         result: ToolExecutionResult,
         durationMs: Long,
@@ -43,11 +45,11 @@ internal class LoggingHook : Hook {
         return result
     }
 
-    override suspend fun onError(cause: AgentException) {
+    override suspend fun onError(context: AgentContext, cause: AgentException) {
         log.warn("onError: ${cause::class.simpleName}: ${cause.message}")
     }
 
-    override suspend fun onRunFinished(result: AgentResult) {
+    override suspend fun onRunFinished(context: AgentContext, result: AgentResult) {
         log.info("onRunFinished iter=${result.iterations} toolCalls=${result.toolCalls.size}")
     }
 

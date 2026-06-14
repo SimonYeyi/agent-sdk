@@ -235,3 +235,40 @@ v1.1 实际原子 commit 列表(详见 §v1.1 Release Notes):
 - `57a2b0f` test: 补全 v1.1 hooks 在 runStream 触发验证 + awaitResult + mode 切换
 - `7954d30` fix(app): Final handler falls back to event.message.content for BATCH mode
 - `<D commit>` docs: v1.1 文档同步
+
+---
+
+## v1.2 Release Notes (2026-06-14)
+
+| 维度 | 改动 |
+|------|------|
+| ToolContext | `invocationId` → `toolCallId`（与 callId 命名风格统一）；移除 UUID 默认值，改为必传参数；ReActAgent 正确传入 `call.id` |
+| AgentContext | **新增**：持有 `systemPrompt` / `maxIterations` / `currentIteration` / `memory` / `metadata`；所有 AgentHook 回调通过此上下文获取运行时信息 |
+| ReadOnlyMemory | **新增**：Memory 只读包装器，`add`/`clear` 抛 `UnsupportedOperationException`，防止 hooks 修改 memory |
+| AgentHook 回调签名 | 所有回调方法新增 `AgentContext` 参数；`beforeLlmCall` 移除 `messages` 参数（可通过 `context.memory.history()` 获取） |
+| metadata 共享 | `AgentContext.metadata` 为 `MutableMap`，hooks 间可自由写入供后续 hooks 使用 |
+
+**原子 commit 列表**:
+- `a75eff0` refactor(agent): ToolContext.toolCallId 必传并正确赋值
+- `7d370c9` feat(agent): 新增 AgentContext 传入 hooks，支持 metadata 扩展
+- `ee3302a` test(agent): 新增 metadata 共享测试和 ReadOnlyMemory 测试
+
+---
+
+## v1.2 Build Evidence
+
+- `./gradlew clean test` → **BUILD SUCCESSFUL**
+- **Total test entries: 120+** (含新增 metadata 共享测试 + ReadOnlyMemory 测试)
+
+---
+
+## v1.2 完成情况
+
+| 任务 | 状态 | 证据 |
+|---|---|---|
+| ToolContext.toolCallId 必传 | **DONE** | `ToolContext.kt` 移除默认值；所有测试同步更新 |
+| AgentContext 新增 | **DONE** | `AgentContext.kt` 持有 systemPrompt/maxIterations/currentIteration/memory/metadata |
+| ReadOnlyMemory 新增 | **DONE** | `ReadOnlyMemory.kt` add/clear 抛异常；`ReadOnlyMemoryTest` 验证 |
+| AgentHook 上下文传入 | **DONE** | `AgentHook` 所有方法新增 `AgentContext` 参数；ReActAgent 每次迭代创建并传入 |
+| metadata hooks 间共享 | **DONE** | `AgentContext.metadata: MutableMap`；`metadata is shared between hooks` 测试验证 |
+| beforeLlmCall 简化 | **DONE** | 移除 `messages` 参数（通过 `context.memory.history()` 可获取） |

@@ -1,11 +1,13 @@
 package io.github.yeyi.agent.hook
 
+import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
+import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.CancellationException
@@ -20,23 +22,31 @@ import kotlin.test.assertTrue
 
 class CompositeHookTest {
 
+    private fun context(iter: Int = 1) = AgentContext(
+        systemPrompt = "",
+        maxIterations = 5,
+        currentIteration = iter,
+        memory = InMemoryMemory(),
+    )
+
     /** Records every lifecycle call into [events] for assertion. Implements [Hook] so it can
      *  live inside a [CompositeHook] (which requires List<Hook>). */
     private class RecordingHook(val name: String) : Hook {
         val events: MutableList<String> = mutableListOf()
         var nextSynthetic: ToolExecutionResult? = null
         var nextRewritten: ToolExecutionResult? = null
-        override suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {
-            events += "$name:beforeLlmCall($iteration)"
+        override suspend fun beforeLlmCall(context: AgentContext) {
+            events += "$name:beforeLlmCall(${context.currentIteration})"
         }
-        override suspend fun afterLlmResponse(iteration: Int, response: ChatResponse) {
-            events += "$name:afterLlmResponse($iteration)"
+        override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
+            events += "$name:afterLlmResponse(${context.currentIteration})"
         }
-        override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? {
+        override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
             events += "$name:beforeToolCall(${call.name})"
             return nextSynthetic
         }
         override suspend fun afterToolCall(
+            context: AgentContext,
             call: ToolCall,
             result: ToolExecutionResult,
             durationMs: Long,
@@ -44,10 +54,10 @@ class CompositeHookTest {
             events += "$name:afterToolCall(${call.name},${result.content})"
             return nextRewritten ?: result
         }
-        override suspend fun onError(cause: AgentException) {
+        override suspend fun onError(context: AgentContext, cause: AgentException) {
             events += "$name:onError(${cause::class.simpleName})"
         }
-        override suspend fun onRunFinished(result: AgentResult) {
+        override suspend fun onRunFinished(context: AgentContext, result: AgentResult) {
             events += "$name:onRunFinished(iter=${result.iterations})"
         }
         override suspend fun onSessionCreated(session: Session) {
@@ -77,10 +87,10 @@ class CompositeHookTest {
         val b = RecordingHook("b")
         val composite = CompositeHook(listOf(a, b))
         val r = emptyResponse()
-        composite.beforeLlmCall(1, emptyList())
-        composite.afterLlmResponse(1, r)
-        composite.onError(AgentException.LlmError(RuntimeException("x")))
-        composite.onRunFinished(AgentResult(r.message, 1, emptyList(), null))
+        composite.beforeLlmCall(context(1))
+        composite.afterLlmResponse(context(1), r)
+        composite.onError(context(1), AgentException.LlmError(RuntimeException("x")))
+        composite.onRunFinished(context(1), AgentResult(r.message, 1, emptyList(), null))
         // CompositeHook processes ALL hooks for a single callback method,
         // then moves to the next callback. So per-hook events accumulate by hook,
         // not by method: a's full sequence first, then b's full sequence.
@@ -107,7 +117,7 @@ class CompositeHookTest {
         val b = RecordingHook("b").apply { nextSynthetic = ToolExecutionResult("from-b") }
         val c = RecordingHook("c")
         val composite = CompositeHook(listOf(a, b, c))
-        val r = composite.beforeToolCall(toolCall())
+        val r = composite.beforeToolCall(context(), toolCall())
         assertEquals("from-a", r!!.content)
         // a was called, b was called (returned non-null, so a's value is shadowed by b's first-wins)
         // ... actually first-wins: a returns non-null, b and c are not called.
@@ -122,7 +132,7 @@ class CompositeHookTest {
         val b = RecordingHook("b")  // returns null
         val c = RecordingHook("c").apply { nextSynthetic = ToolExecutionResult("from-c") }
         val composite = CompositeHook(listOf(a, b, c))
-        val r = composite.beforeToolCall(toolCall())
+        val r = composite.beforeToolCall(context(), toolCall())
         assertEquals("from-c", r!!.content)
         assertEquals(listOf("a:beforeToolCall(x)", "b:beforeToolCall(x)", "c:beforeToolCall(x)"),
             a.events + b.events + c.events)
@@ -131,7 +141,7 @@ class CompositeHookTest {
     @Test
     fun `beforeToolCall returns null when all hooks return null`() = runTest {
         val composite = CompositeHook(listOf(RecordingHook("a"), RecordingHook("b")))
-        assertNull(composite.beforeToolCall(toolCall()))
+        assertNull(composite.beforeToolCall(context(), toolCall()))
     }
 
     // --- Chain: afterToolCall ---
@@ -143,7 +153,7 @@ class CompositeHookTest {
         val c = RecordingHook("c")  // leaves result alone
         val composite = CompositeHook(listOf(a, b, c))
         val initial = ToolExecutionResult("raw")
-        val final = composite.afterToolCall(toolCall(), initial, 5)
+        val final = composite.afterToolCall(context(), toolCall(), initial, 5)
         assertEquals("b-out", final.content, "c didn't rewrite 鈫?a鈫抌鈫抍 final is b's output")
         // a saw raw
         assertEquals(listOf("a:afterToolCall(x,raw)"), a.events)
@@ -157,7 +167,7 @@ class CompositeHookTest {
     fun `afterToolCall returns input when no hook rewrites`() = runTest {
         val composite = CompositeHook(listOf(RecordingHook("a"), RecordingHook("b")))
         val input = ToolExecutionResult("untouched")
-        val output = composite.afterToolCall(toolCall(), input, 5)
+        val output = composite.afterToolCall(context(), toolCall(), input, 5)
         assertSame(input, output)
     }
 
@@ -166,66 +176,66 @@ class CompositeHookTest {
     @Test
     fun `exception in beforeLlmCall is swallowed and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
-            override suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {
+            override suspend fun beforeLlmCall(context: AgentContext) {
                 throw RuntimeException("oops")
             }
         }
         val b = RecordingHook("b")
         val composite = CompositeHook(listOf(throwing, b))
-        composite.beforeLlmCall(1, emptyList())
+        composite.beforeLlmCall(context(1))
         assertEquals(listOf("b:beforeLlmCall(1)"), b.events)
     }
 
     @Test
     fun `exception in afterLlmResponse is swallowed and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
-            override suspend fun afterLlmResponse(iteration: Int, response: ChatResponse) {
+            override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
                 throw RuntimeException("oops")
             }
         }
         val b = RecordingHook("b")
         val composite = CompositeHook(listOf(throwing, b))
-        composite.afterLlmResponse(1, emptyResponse())
+        composite.afterLlmResponse(context(1), emptyResponse())
         assertEquals(listOf("b:afterLlmResponse(1)"), b.events)
     }
 
     @Test
     fun `exception in onError is swallowed and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
-            override suspend fun onError(cause: AgentException) {
+            override suspend fun onError(context: AgentContext, cause: AgentException) {
                 throw RuntimeException("oops")
             }
         }
         val b = RecordingHook("b")
         val composite = CompositeHook(listOf(throwing, b))
-        composite.onError(AgentException.LlmError(RuntimeException("orig")))
+        composite.onError(context(1), AgentException.LlmError(RuntimeException("orig")))
         assertEquals(listOf("b:onError(LlmError)"), b.events)
     }
 
     @Test
     fun `exception in onRunFinished is swallowed and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
-            override suspend fun onRunFinished(result: AgentResult) {
+            override suspend fun onRunFinished(context: AgentContext, result: AgentResult) {
                 throw RuntimeException("oops")
             }
         }
         val b = RecordingHook("b")
         val composite = CompositeHook(listOf(throwing, b))
         val r = emptyResponse()
-        composite.onRunFinished(AgentResult(r.message, 1, emptyList(), null))
+        composite.onRunFinished(context(1), AgentResult(r.message, 1, emptyList(), null))
         assertEquals(listOf("b:onRunFinished(iter=1)"), b.events)
     }
 
     @Test
     fun `exception in beforeToolCall is treated as null and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
-            override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? {
+            override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
                 throw RuntimeException("oops")
             }
         }
         val b = RecordingHook("b").apply { nextSynthetic = ToolExecutionResult("from-b") }
         val composite = CompositeHook(listOf(throwing, b))
-        val r = composite.beforeToolCall(toolCall())
+        val r = composite.beforeToolCall(context(), toolCall())
         assertEquals("from-b", r!!.content, "throwing hook's exception should be swallowed, b wins")
     }
 
@@ -233,6 +243,7 @@ class CompositeHookTest {
     fun `exception in afterToolCall keeps previous value and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
             override suspend fun afterToolCall(
+                context: AgentContext,
                 call: ToolCall,
                 result: ToolExecutionResult,
                 durationMs: Long,
@@ -241,14 +252,14 @@ class CompositeHookTest {
         val b = RecordingHook("b").apply { nextRewritten = ToolExecutionResult("b-out") }
         val composite = CompositeHook(listOf(throwing, b))
         val input = ToolExecutionResult("raw")
-        val out = composite.afterToolCall(toolCall(), input, 5)
+        val out = composite.afterToolCall(context(), toolCall(), input, 5)
         assertEquals("b-out", out.content)
     }
 
     @Test
     fun `CancellationException in beforeLlmCall propagates and stops fan-out`() = runTest {
         val throwing = object : Hook {
-            override suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {
+            override suspend fun beforeLlmCall(context: AgentContext) {
                 throw CancellationException("cancelled")
             }
         }
@@ -256,7 +267,7 @@ class CompositeHookTest {
         val composite = CompositeHook(listOf(throwing, b))
         var caught: Throwable? = null
         try {
-            composite.beforeLlmCall(1, emptyList())
+            composite.beforeLlmCall(context(1))
         } catch (t: Throwable) {
             caught = t
         }
@@ -267,7 +278,7 @@ class CompositeHookTest {
     @Test
     fun `CancellationException in beforeToolCall propagates immediately`() = runTest {
         val throwing = object : Hook {
-            override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? {
+            override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
                 throw CancellationException("cancelled")
             }
         }
@@ -275,7 +286,7 @@ class CompositeHookTest {
         val composite = CompositeHook(listOf(throwing, b))
         var caught: Throwable? = null
         try {
-            composite.beforeToolCall(toolCall())
+            composite.beforeToolCall(context(), toolCall())
         } catch (t: Throwable) {
             caught = t
         }
@@ -287,6 +298,7 @@ class CompositeHookTest {
     fun `CancellationException in afterToolCall propagates immediately`() = runTest {
         val throwing = object : Hook {
             override suspend fun afterToolCall(
+                context: AgentContext,
                 call: ToolCall,
                 result: ToolExecutionResult,
                 durationMs: Long,
@@ -296,7 +308,7 @@ class CompositeHookTest {
         val composite = CompositeHook(listOf(throwing, b))
         var caught: Throwable? = null
         try {
-            composite.afterToolCall(toolCall(), ToolExecutionResult("x"), 5)
+            composite.afterToolCall(context(), toolCall(), ToolExecutionResult("x"), 5)
         } catch (t: Throwable) {
             caught = t
         }
@@ -309,7 +321,7 @@ class CompositeHookTest {
     fun `register order is preserved across 5 hooks`() = runTest {
         val hooks = (0 until 5).map { RecordingHook("h$it") }
         val composite = CompositeHook(hooks.toList())
-        composite.beforeLlmCall(1, emptyList())
+        composite.beforeLlmCall(context(1))
         // All 5 must be called in order
         for ((i, h) in hooks.withIndex()) {
             assertEquals(listOf("h$i:beforeLlmCall(1)"), h.events, "hook $i should be called in order")

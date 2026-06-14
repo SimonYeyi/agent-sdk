@@ -11,6 +11,7 @@ import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.memory.ReadOnlyMemory
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -27,17 +28,18 @@ class AgentHookTest {
 
     private class RecordingHook : AgentHook {
         val events: MutableList<String> = mutableListOf()
-        override suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {
-            events += "beforeLlmCall($iteration)"
+        override suspend fun beforeLlmCall(context: AgentContext) {
+            events += "beforeLlmCall(${context.currentIteration})"
         }
-        override suspend fun afterLlmResponse(iteration: Int, response: ChatResponse) {
-            events += "afterLlmResponse($iteration)"
+        override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
+            events += "afterLlmResponse(${context.currentIteration})"
         }
-        override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? {
+        override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
             events += "beforeToolCall(${call.name})"
             return null
         }
         override suspend fun afterToolCall(
+            context: AgentContext,
             call: ToolCall,
             result: ToolExecutionResult,
             durationMs: Long,
@@ -45,7 +47,7 @@ class AgentHookTest {
             events += "afterToolCall(${call.name})"
             return result
         }
-        override suspend fun onRunFinished(result: AgentResult) {
+        override suspend fun onRunFinished(context: AgentContext, result: AgentResult) {
             events += "onRunFinished(iter=${result.iterations})"
         }
     }
@@ -119,7 +121,7 @@ class AgentHookTest {
     @Test
     fun `exception in hook does not crash agent`() = runTest {
         val throwingHook = object : AgentHook {
-            override suspend fun beforeLlmCall(iteration: Int, messages: List<ChatMessage>) {
+            override suspend fun beforeLlmCall(context: AgentContext) {
                 throw RuntimeException("hook fail")
             }
         }
@@ -139,7 +141,7 @@ class AgentHookTest {
     fun `onError fires when agent throws`() = runTest {
         val errorHook = object : AgentHook {
             val errors: MutableList<AgentException> = mutableListOf()
-            override suspend fun onError(cause: AgentException) {
+            override suspend fun onError(context: AgentContext, cause: AgentException) {
                 errors += cause
             }
         }
@@ -164,7 +166,7 @@ class AgentHookTest {
     @Test
     fun `exception in afterLlmResponse does not crash agent`() = runTest {
         val throwingHook = object : AgentHook {
-            override suspend fun afterLlmResponse(iteration: Int, response: ChatResponse) {
+            override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
                 throw RuntimeException("afterLlm fail")
             }
         }
@@ -184,6 +186,7 @@ class AgentHookTest {
     fun `exception in afterToolCall does not crash agent`() = runTest {
         val throwingHook = object : AgentHook {
             override suspend fun afterToolCall(
+                context: AgentContext,
                 call: ToolCall,
                 result: ToolExecutionResult,
                 durationMs: Long,
@@ -215,7 +218,7 @@ class AgentHookTest {
         val boom = AgentException.LlmError(RuntimeException("llm unavailable"))
         val errorHook = object : AgentHook {
             val errors: MutableList<AgentException> = mutableListOf()
-            override suspend fun onError(cause: AgentException) {
+            override suspend fun onError(context: AgentContext, cause: AgentException) {
                 errors += cause
             }
         }
@@ -237,7 +240,7 @@ class AgentHookTest {
     fun `CancellationException does not trigger onError`() = runTest {
         val errorHook = object : AgentHook {
             val errors: MutableList<AgentException> = mutableListOf()
-            override suspend fun onError(cause: AgentException) {
+            override suspend fun onError(context: AgentContext, cause: AgentException) {
                 errors += cause
             }
         }
@@ -263,7 +266,7 @@ class AgentHookTest {
         val events: MutableList<String> = mutableListOf()
         val shortCircuit = ToolExecutionResult("synthetic-from-hook", isError = false)
         val hook = object : AgentHook {
-            override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? {
+            override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
                 events += "beforeToolCall(${call.name})"
                 return shortCircuit
             }
@@ -293,7 +296,7 @@ class AgentHookTest {
     @Test
     fun `beforeToolCall short-circuit still records the synthetic result into AgentResult`() = runTest {
         val hook = object : AgentHook {
-            override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? =
+            override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? =
                 ToolExecutionResult("synthetic-from-hook", isError = false)
         }
         val provider = FakeLlmProvider(
@@ -321,7 +324,7 @@ class AgentHookTest {
     @Test
     fun `beforeToolCall returning isError=true feeds synthetic error into memory`() = runTest {
         val hook = object : AgentHook {
-            override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? =
+            override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? =
                 ToolExecutionResult("blocked by hook", isError = true)
         }
         val provider = FakeLlmProvider(
@@ -352,6 +355,7 @@ class AgentHookTest {
         val rewritten = ToolExecutionResult("rewritten-by-hook", isError = false)
         val hook = object : AgentHook {
             override suspend fun afterToolCall(
+                context: AgentContext,
                 call: ToolCall,
                 result: ToolExecutionResult,
                 durationMs: Long,
@@ -381,7 +385,7 @@ class AgentHookTest {
     @Test
     fun `exception in beforeToolCall is swallowed and tool runs normally`() = runTest {
         val hook = object : AgentHook {
-            override suspend fun beforeToolCall(call: ToolCall): ToolExecutionResult? {
+            override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
                 throw RuntimeException("oops")
             }
         }
@@ -404,5 +408,29 @@ class AgentHookTest {
         // exception in beforeToolCall 鈫?tool runs as if no hook short-circuited
         assertEquals("final", result.message.content)
         assertEquals(1, result.toolCalls.size)
+    }
+
+    @Test
+    fun `metadata is shared between hooks`() = runTest {
+        var capturedMetadata: Map<String, String>? = null
+        val hook = object : AgentHook {
+            override suspend fun beforeLlmCall(context: AgentContext) {
+                context.metadata["key"] = "value"
+            }
+            override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
+                capturedMetadata = context.metadata
+            }
+        }
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "final"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = ReActAgent(
+            systemPrompt = "", llmProvider = provider, toolRegistry = registryOf(),
+            memory = InMemoryMemory(), maxIterations = 5, hook = hook
+        )
+        agent.run("hi").awaitResult()
+        assertEquals("value", capturedMetadata?.get("key"))
     }
 }
