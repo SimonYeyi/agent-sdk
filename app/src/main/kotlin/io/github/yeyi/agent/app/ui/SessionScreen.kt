@@ -205,9 +205,9 @@ private fun ChatArea(
         else uiState.messages + UiMessage.Assistant(live.text, id = live.id)
     }
 
-    LaunchedEffect(displayItems.size) {
+    LaunchedEffect(uiState.liveBubble?.text, displayItems.size) {
         if (displayItems.isNotEmpty()) {
-            listState.animateScrollToItem(displayItems.size - 1)
+            listState.scrollToItem(displayItems.size - 1, Int.MAX_VALUE)
         }
     }
 
