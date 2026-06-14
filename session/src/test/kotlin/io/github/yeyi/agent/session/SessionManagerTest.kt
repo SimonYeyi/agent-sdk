@@ -94,18 +94,6 @@ class SessionManagerTest {
         assertEquals("Hello", (history[0] as ChatMessage.User).content)
     }
 
-    @Test
-    fun `memory clear should remove all messages`() = runTest {
-        val session = sessionManager.create("user1", "test session")
-        val memory = session.memory
-
-        memory.add(ChatMessage.User("Hello"))
-        memory.add(ChatMessage.Assistant(content = "Hi"))
-        memory.clear()
-
-        assertTrue(memory.history().isEmpty())
-    }
-
     // --- SessionHook tests ---
 
     @Test

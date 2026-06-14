@@ -29,16 +29,6 @@ class ReadOnlyMemoryTest {
     }
 
     @Test
-    fun `clear throws UnsupportedOperationException`() = runTest {
-        val delegate = InMemoryMemory()
-        delegate.add(ChatMessage.User("original"))
-        val readOnly = ReadOnlyMemory(delegate)
-        assertFailsWith<UnsupportedOperationException> {
-            readOnly.clear()
-        }
-    }
-
-    @Test
     fun `add does not affect delegate`() = runTest {
         val delegate = InMemoryMemory()
         delegate.add(ChatMessage.User("original"))

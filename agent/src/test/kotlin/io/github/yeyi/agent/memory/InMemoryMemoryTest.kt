@@ -22,14 +22,6 @@ class InMemoryMemoryTest {
     }
 
     @Test
-    fun `clear empties memory`() = runTest {
-        val mem = InMemoryMemory()
-        mem.add(ChatMessage.User("u1"))
-        mem.clear()
-        assertTrue(mem.history().isEmpty())
-    }
-
-    @Test
     fun `history returns a snapshot (not the internal list)`() = runTest {
         val mem = InMemoryMemory()
         mem.add(ChatMessage.User("u1"))

@@ -21,7 +21,7 @@ enum class RunMode { STREAM, BATCH }
 data class LiveBubble(val id: String, val text: String)
 
 class ChatViewModel(
-    private val agent: Agent,
+    private val agentFactory: () -> Agent,
 ) : ViewModel() {
 
     private val _mode = MutableStateFlow(RunMode.STREAM)
@@ -35,8 +35,10 @@ class ChatViewModel(
         _messages.value = emptyList()
         _liveBubble.value = null
         inProgressByCallId.clear()
-        viewModelScope.launch { agent.clearMemory() }
+        agent = agentFactory()
     }
+
+    private var agent: Agent = agentFactory()
 
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages.asStateFlow()
@@ -127,13 +129,13 @@ class ChatViewModel(
 }
 
 class ChatViewModelFactory(
-    private val agent: Agent,
+    private val agentFactory: () -> Agent,
 ) : androidx.lifecycle.ViewModelProvider.Factory {
     override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
         require(modelClass.isAssignableFrom(ChatViewModel::class.java)) {
             "Unknown ViewModel class: ${modelClass.name}"
         }
         @Suppress("UNCHECKED_CAST")
-        return ChatViewModel(agent) as T
+        return ChatViewModel(agentFactory) as T
     }
 }

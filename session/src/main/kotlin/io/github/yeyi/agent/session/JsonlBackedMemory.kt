@@ -50,13 +50,4 @@ public class JsonlBackedMemory(private val file: File) : Memory {
     override suspend fun history(): List<ChatMessage> {
         return loadToCache().toList()
     }
-
-    override suspend fun clear() {
-        synchronized(this) {
-            cachedMessages?.clear()
-            if (file.exists()) {
-                file.writeText("")
-            }
-        }
-    }
 }

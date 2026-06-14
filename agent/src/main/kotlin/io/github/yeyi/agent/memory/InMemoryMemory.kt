@@ -15,8 +15,4 @@ public class InMemoryMemory : Memory {
     override suspend fun history(): List<ChatMessage> = mutex.withLock {
         messages.toList()
     }
-
-    override suspend fun clear(): Unit = mutex.withLock {
-        messages.clear()
-    }
 }

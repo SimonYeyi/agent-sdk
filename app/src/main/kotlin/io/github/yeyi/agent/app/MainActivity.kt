@@ -19,14 +19,11 @@ import io.github.yeyi.agent.app.ui.SessionScreen
 import io.github.yeyi.agent.app.vm.ChatViewModel
 import io.github.yeyi.agent.app.vm.ChatViewModelFactory
 import io.github.yeyi.agent.app.vm.SessionViewModel
-import io.github.yeyi.agent.Agent
 
 class MainActivity : ComponentActivity() {
 
-    private val agent: Agent by lazy { DemoAgentFactory.create() }
-
     private val chatViewModel: ChatViewModel by viewModels {
-        ChatViewModelFactory(agent)
+        ChatViewModelFactory { DemoAgentFactory.create() }
     }
 
     private val sessionViewModel: SessionViewModel by viewModels()

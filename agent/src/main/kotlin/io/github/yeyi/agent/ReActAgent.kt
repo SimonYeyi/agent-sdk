@@ -166,10 +166,6 @@ public class ReActAgent internal constructor(
         }
     }
 
-    override suspend fun clearMemory() {
-        memory.clear()
-    }
-
     private suspend fun recordToMemory(
         call: ToolCall,
         callResult: ToolExecutionResult,
