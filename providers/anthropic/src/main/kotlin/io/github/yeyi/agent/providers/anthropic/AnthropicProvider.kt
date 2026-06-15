@@ -33,7 +33,12 @@ public class AnthropicProvider(
         public const val DEFAULT_BASE_URL: String = "https://api.anthropic.com"
 
         public fun defaultAnthropicHttpClient(): HttpClient = HttpClient(CIO) {
-            install(ContentNegotiation) { json(Json { ignoreUnknownKeys = true }) }
+            install(ContentNegotiation) {
+                json(Json {
+                    ignoreUnknownKeys = true
+                    encodeDefaults = true
+                })
+            }
             install(HttpTimeout) {
                 requestTimeoutMillis = 60_000
                 socketTimeoutMillis = 60_000
