@@ -24,6 +24,7 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow
     var lastUsage: Usage? = null
     var lastFinishReason: String? = null
     val seenToolCallIds = mutableSetOf<String>()
+    var doneEmitted = false
     lines.collect { rawLine ->
         val line = rawLine.trim()
         if (line.isEmpty() || line.startsWith(":")) return@collect
@@ -31,6 +32,7 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow
         val payload = line.removePrefix("data:").trim()
         if (payload.isEmpty()) return@collect
         if (payload == "[DONE]") {
+            doneEmitted = true
             emit(StreamEvent.Done(usage = lastUsage, finishReason = mapFinishReason(lastFinishReason)))
             return@collect
         }
@@ -65,6 +67,10 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow
                 ))
             }
         }
+    }
+    // 流正常结束但未收到 [DONE] 时，发送 Done 事件
+    if (!doneEmitted) {
+        emit(StreamEvent.Done(usage = lastUsage, finishReason = mapFinishReason(lastFinishReason)))
     }
 }
 
