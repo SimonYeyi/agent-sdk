@@ -8,6 +8,7 @@
 ## 快速开始
 
 ```kotlin
+import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.awaitResult
 import io.github.yeyi.agent.memory.InMemoryMemory
@@ -16,7 +17,7 @@ import io.github.yeyi.agent.providers.openai.OpenAiProvider
 val provider = OpenAiProvider(apiKey = "...", model = "gpt-4o-mini")
 
 val agent = agent {
-    systemPrompt("你是一个 helpful 助手。")
+    persona(Persona(role = "你是一个 helpful 助手。"))
     llmProvider(provider)
     tool(GetCurrentTimeTool())
     tool(CalculatorTool())
@@ -49,8 +50,8 @@ println(result.message.content)
 - **工具调用 (Tool)**:`Tool` 接口描述 JSON Schema 入参与返回值,由 Agent 在循环中按需分发。
 - **多轮 Memory**:`Memory` 抽象当前默认实现为 `InMemoryMemory`,可被自定义工厂替换。
 - **Streaming**:消费 7 个 `AgentEvent` 变体 (`Initial` / `ToolCallExplanation` / `TextDelta` / `ToolCallStart` / `ToolCallEnd` / `Final` / `Failed`)。`Final` 直接包装 `AgentResult`,审计 record 走 `result.toolCalls`。
-- **Skill 加载**:一组 `systemPromptFragment + tools` 的可复用包,通过 `skill(...)` 注入,
-  展开为最终 systemPrompt 与工具列表(详见 `agent/src/main/kotlin/io/github/yeyi/agent/skill/Skill.kt`)。
+- **Skill 加载**:一组 `skills(...)` 的可复用包,通过 Skill 扩展以 `persona.other(...)` 形式
+  注入索引到最终 persona，与 `LoadSkillTool` 工具配对注册（详见 `agent/src/main/kotlin/io/github/yeyi/agent/skill/Skill.kt`）。
 - **Hook 生命周期**:`AgentHook` 允许在 `beforeLlmCall` / `afterLlmResponse` /
   `beforeToolCall` / `afterToolCall` / `onError` / `onRunFinished` 六个时点插入横切逻辑
   (日志、监控、安全审计等);`run` 和 `runStream` 路径均触发。

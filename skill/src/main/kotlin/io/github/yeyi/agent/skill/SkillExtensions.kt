@@ -17,17 +17,9 @@ public fun AgentBuilder.skill(s: Skill) {
 }
 
 /**
- * Register multiple [Skill]s in iteration order via [LoadSkillTool].
- * The LLM should call [LoadSkillTool.NAME] with the skill_name to load detailed instructions.
+ * Register multiple [Skill]s by [SkillRegistry].
  */
-public fun AgentBuilder.skills(skills: Iterable<Skill>) {
-    val registry = SkillRegistry().apply { register(skills) }
-    tool(LoadSkillTool(registry))
-    val skillSystemPrompt = """
-        你可以使用以下技能：
-        ${registry.buildIndexPrompt()}
-
-        当需要使用某个技能时，先调用 ${LoadSkillTool.NAME} 工具获取详细指令。
-    """.trimIndent()
-    systemPrompt(skillSystemPrompt)
+public fun AgentBuilder.skills(registry: SkillRegistry) {
+    val persona = requireNotNull(persona) { "Persona must be set before registering skills by SkillRegistry." }
+    registry.enable(persona) { tool(it) }
 }

@@ -285,7 +285,7 @@ interface Agent {
 }
 
 data class AgentConfig(
-    val systemPrompt: String,
+    val systemPrompt: String,    // ⚠️ 自 2026-06-15 已废弃,由 Persona 替代;保留仅为历史参考
     val llmClient: LlmClient,
     val tools: List<Tool>,
     val memory: Memory,
@@ -363,7 +363,7 @@ suspend fun Flow<AgentEvent>.awaitResult(): AgentResult
 
 ```kotlin
 class AgentBuilder {
-    var systemPrompt: String = ""
+    var systemPrompt: String = ""    // ⚠️ 自 2026-06-15 已废弃,改用 var persona: Persona
     var llmClient: LlmClient? = null
     var maxIterations: Int = 10
     private val tools: MutableList<Tool> = mutableListOf()

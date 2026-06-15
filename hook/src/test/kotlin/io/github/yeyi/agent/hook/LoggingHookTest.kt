@@ -3,6 +3,7 @@ package io.github.yeyi.agent.hook
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentResult
+import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
@@ -28,7 +29,7 @@ class LoggingHookTest {
     private lateinit var captured: ByteArrayOutputStream
 
     private fun context(iter: Int = 1) = AgentContext(
-        systemPrompt = "",
+        persona = Persona(role = ""),
         maxIterations = 5,
         currentIteration = iter,
         memory = InMemoryMemory(),

@@ -667,7 +667,6 @@ import io.github.yeyi.agent.tool.ToolRegistry
  * - Registering two tools with the same name throws [IllegalArgumentException] at registration
  *   time (the [ToolRegistry] rejects duplicates eagerly so an ambiguous name can never reach
  *   the LLM).
- * - A warning is logged when the agent is built with an empty persona and no tools —
  *   such an agent can only do pure chat and is usually a misconfiguration.
  *
  * Skills are NOT built in here: that concept is a higher-level composition (see the `skill`
@@ -676,7 +675,7 @@ import io.github.yeyi.agent.tool.ToolRegistry
  */
 class AgentBuilder {
     private var maxIterations: Int = 10
-    var persona: Persona = Persona("你是一个 helpful 助手，优先使用工具完成任务。")
+    public var persona: Persona? = null
         private set
     private var llmProvider: LlmProvider? = null
     private var memory: Memory = InMemoryMemory()
@@ -727,13 +726,10 @@ class AgentBuilder {
      */
     fun build(): Agent {
         val provider = requireNotNull(llmProvider) { "llmProvider must be set" }
-
-        if (persona.toString().isBlank() && toolRegistry.names().isEmpty()) {
-            Logging.agent().warn("Agent has no system prompt and no tools; useful only for pure chat.")
-        }
-
+        val persona = requireNotNull(persona) { "persona must be set" }
+        
         return ReActAgent(
-            persona = persona,
+            persona = persona?: Persona("You are a helpful assistant."),
             llmProvider = provider,
             toolRegistry = toolRegistry,
             memory = memory,

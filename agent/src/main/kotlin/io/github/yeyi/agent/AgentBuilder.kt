@@ -1,7 +1,6 @@
 package io.github.yeyi.agent
 
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.log.Logging
 import io.github.yeyi.agent.log.agent
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
@@ -19,7 +18,6 @@ import io.github.yeyi.agent.tool.ToolRegistry
  * - Registering two tools with the same name throws [IllegalArgumentException] at registration
  *   time (the [ToolRegistry] rejects duplicates eagerly so an ambiguous name can never reach
  *   the LLM).
- * - A warning is logged when the agent is built with an empty [systemPrompt] and no tools —
  *   such an agent can only do pure chat and is usually a misconfiguration.
  *
  * Skills are NOT built in here: that concept is a higher-level composition (see the `skill`
@@ -28,7 +26,8 @@ import io.github.yeyi.agent.tool.ToolRegistry
  */
 public class AgentBuilder {
     private var maxIterations: Int = 10
-    private var systemPrompt: String = ""
+    public var persona: Persona? = null
+        private set
     private var llmProvider: LlmProvider? = null
     private var memory: Memory = InMemoryMemory()
     private val toolRegistry = ToolRegistry()
@@ -40,9 +39,8 @@ public class AgentBuilder {
         maxIterations = iterations
     }
 
-    public fun systemPrompt(prompt: String) {
-        if (prompt.isBlank()) return
-        systemPrompt = if (systemPrompt.isEmpty()) prompt else "$systemPrompt\n\n$prompt"
+    public fun persona(persona: Persona) {
+        this.persona = persona
     }
 
     public fun llmProvider(provider: LlmProvider) {
@@ -58,7 +56,7 @@ public class AgentBuilder {
     }
 
     public fun tools(tools: Iterable<Tool>) {
-        toolRegistry.registerAll(tools)
+        toolRegistry.register(tools)
     }
 
     /**
@@ -80,12 +78,8 @@ public class AgentBuilder {
     public fun build(): Agent {
         val provider = requireNotNull(llmProvider) { "llmProvider must be set" }
 
-        if (systemPrompt.isBlank() && toolRegistry.names().isEmpty()) {
-            Logging.agent().warn("Agent has no system prompt and no tools; useful only for pure chat.")
-        }
-
         return ReActAgent(
-            systemPrompt = systemPrompt,
+            persona = persona?: Persona("You are a helpful assistant."),
             llmProvider = provider,
             toolRegistry = toolRegistry,
             memory = memory,
@@ -102,7 +96,7 @@ public class AgentBuilder {
  * Usage:
  * ```kotlin
  * val a = agent {
- *     systemPrompt("You are a helpful assistant.")
+ *     persona(Persona(role = "You are a helpful assistant."))
  *     llmProvider(openAiProvider)
  *     tool(WeatherTool())
  * }

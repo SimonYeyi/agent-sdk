@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.app.demo
 
 import io.github.yeyi.agent.Agent
+import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.app.BuildConfig
 import io.github.yeyi.agent.app.demo.skills.WeatherSkill
@@ -15,6 +16,7 @@ import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
 import io.github.yeyi.agent.providers.openai.OpenAiProvider
+import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.skill.skills
 
 /**
@@ -64,15 +66,15 @@ object DemoAgentFactory {
             OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
         }
         return agent {
+            persona(Persona(role = "你是一个 helpful 助手，优先使用工具完成任务。"))
             if (memory != null) memory(memory)
-            systemPrompt("你是一个 helpful 助手。优先使用工具完成任务。")
             llmProvider(llmProvider)
             tool(GetCurrentTimeTool())
             tool(CalculatorTool())
             tool(WebSearchMockTool())
-            skills(listOf(WeatherSkill()))
             tool(GetLocationTool())
             tool(GetWeatherTool())
+            skills(SkillRegistry().register(WeatherSkill()))
             hook(hook?: CompositeHook(logging = true))
         }
     }

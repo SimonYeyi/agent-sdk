@@ -1,22 +1,35 @@
 package io.github.yeyi.agent.skill
 
+import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.tool.Tool
 import java.util.concurrent.ConcurrentHashMap
 
-internal class SkillRegistry {
+public class SkillRegistry {
     private val skills: MutableMap<String, Skill> = ConcurrentHashMap()
 
-    fun register(skill: Skill) {
+    public fun register(skill: Skill): SkillRegistry = apply {
         require(skill.name !in skills) { "Duplicate skill: ${skill.name}" }
         skills[skill.name] = skill
     }
 
-    fun register(skills: Iterable<Skill>) {
+    public fun register(skills: Iterable<Skill>): SkillRegistry = apply {
         skills.forEach { register(it) }
     }
 
-    fun load(name: String, context: SkillContext): String? = skills[name]?.load(context)
+    internal fun enable(persona: Persona, toolRegister: (tool: Tool) -> Unit) {
+        val indexPrompt = """
+            |你可以使用以下技能：
+            |${buildIndexPrompt()}
+            |
+            |当需要使用某个技能时，先调用 ${LoadSkillTool.NAME} 工具获取详细指令。
+        """.trimMargin()
+        persona.other(indexPrompt)
+        toolRegister.invoke(LoadSkillTool(this))
+    }
 
-    fun buildIndexPrompt(): String = skills.values.joinToString("\n") {
+    internal fun load(name: String, context: SkillContext): String? = skills[name]?.load(context)
+
+    private fun buildIndexPrompt(): String = skills.values.joinToString("\n") {
         "    - ${it.name}: ${it.description}"
     }
 }

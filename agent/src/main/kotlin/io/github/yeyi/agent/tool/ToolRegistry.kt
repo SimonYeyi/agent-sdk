@@ -36,7 +36,7 @@ public class ToolRegistry {
     }
 
     /** Register each tool in [tools] in iteration order. */
-    public fun registerAll(tools: Iterable<Tool>) {
+    public fun register(tools: Iterable<Tool>) {
         tools.forEach(::register)
     }
 
@@ -50,10 +50,10 @@ public class ToolRegistry {
      * - Tool throws a [CancellationException] → rethrown, never swallowed
      *   (structured concurrency contract).
      */
-    public suspend fun execute(call: ToolCall, context: ToolContext): ToolExecutionResult {
+    internal suspend fun execute(call: ToolCall, context: ToolContext): ToolExecutionResult {
         val tool = byName[call.name]
             ?: return ToolExecutionResult(
-                content = "Tool '${call.name}' not found. Available: ${names().joinToString()}",
+                content = "Tool '${call.name}' not found. Available: ${byName.keys.joinToString()}",
                 isError = true,
             )
         return try {
@@ -66,9 +66,6 @@ public class ToolRegistry {
     }
 
     /** Project registered tools to the LLM-facing [ToolDefinition] list, in declaration order. */
-    public fun definitions(): List<ToolDefinition> =
+    internal fun definitions(): List<ToolDefinition> =
         byName.values.map { ToolDefinition(it.name, it.description, it.parametersSchema) }
-
-    /** Registered tool names in declaration order. Used only for diagnostics / error messages. */
-    public fun names(): List<String> = byName.keys.toList()
 }

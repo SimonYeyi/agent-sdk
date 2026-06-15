@@ -8,4 +8,4 @@ import io.github.yeyi.agent.tool.ToolRegistry
  * Test-only convenience that preserves the same "tools as positional vararg" feel.
  */
 fun registryOf(vararg tools: Tool): ToolRegistry =
-    ToolRegistry().apply { registerAll(tools.toList()) }
+    ToolRegistry().apply { register(tools.toList()) }

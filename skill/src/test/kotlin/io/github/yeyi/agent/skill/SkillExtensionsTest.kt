@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.skill
 
 import io.github.yeyi.agent.AgentBuilder
+import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
@@ -38,10 +39,16 @@ class SkillExtensionsTest {
             )
         }
 
-        override fun chatStream(request: ChatRequest): Flow<io.github.yeyi.agent.llm.StreamEvent> = flow {
-            recorded += request
-            emit(io.github.yeyi.agent.llm.StreamEvent.Done(usage = null, finishReason = FinishReason.Stop))
-        }
+        override fun chatStream(request: ChatRequest): Flow<io.github.yeyi.agent.llm.StreamEvent> =
+            flow {
+                recorded += request
+                emit(
+                    io.github.yeyi.agent.llm.StreamEvent.Done(
+                        usage = null,
+                        finishReason = FinishReason.Stop
+                    )
+                )
+            }
     }
 
     @Test
@@ -67,13 +74,16 @@ class SkillExtensionsTest {
     }
 
     @Test
-    fun `skills(list) registers load_skill tool with correct prompt`() = runTest {
+    fun `skills(registry) registers load_skill tool with correct prompt`() = runTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
+        b.persona(Persona("x"))
         b.skills(
-            listOf(
-                FixedSkill("weather", "天气查询", "body1"),
-                FixedSkill("news", "新闻查询", "body2"),
+            SkillRegistry().register(
+                listOf(
+                    FixedSkill("weather", "天气查询", "body1"),
+                    FixedSkill("news", "新闻查询", "body2"),
+                )
             )
         )
         b.build().run("hi").toList()
@@ -105,7 +115,8 @@ class SkillExtensionsTest {
     fun `skills(iterable) registers load_skill tool`() = runTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
-        b.skills(listOf(FixedSkill("weather", "d", "body")))
+        b.persona(Persona("x"))
+        b.skills(SkillRegistry().register(listOf(FixedSkill("weather", "d", "body"))))
         b.build().run("hi").toList()
         val toolNames = llm.recorded.single().tools.map { it.name }
         assertTrue("load_skill" in toolNames, "expected load_skill in $toolNames")

@@ -19,7 +19,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 
 public class ReActAgent internal constructor(
-    private val systemPrompt: String,
+    private val persona: Persona,
     private val llmProvider: LlmProvider,
     private val toolRegistry: ToolRegistry,
     private val memory: Memory,
@@ -188,14 +188,14 @@ public class ReActAgent internal constructor(
 
     private suspend fun buildRequest(): ChatRequest = ChatRequest(
         messages = buildList {
-            if (systemPrompt.isNotBlank()) add(ChatMessage.System(systemPrompt))
+            add(ChatMessage.System(persona.toString()))
             addAll(memory.history())
         },
         tools = toolRegistry.definitions()
     )
 
     private fun buildContext(currentIteration: Int) = AgentContext(
-        systemPrompt = systemPrompt,
+        persona = persona,
         maxIterations = maxIterations,
         currentIteration = currentIteration,
         memory = ReadOnlyMemory(memory),
