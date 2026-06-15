@@ -4,12 +4,13 @@ import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.app.BuildConfig
+import io.github.yeyi.agent.app.demo.skills.NewsSkill
 import io.github.yeyi.agent.app.demo.skills.WeatherSkill
 import io.github.yeyi.agent.app.demo.tools.CalculatorTool
 import io.github.yeyi.agent.app.demo.tools.GetCurrentTimeTool
 import io.github.yeyi.agent.app.demo.tools.GetLocationTool
 import io.github.yeyi.agent.app.demo.tools.GetWeatherTool
-import io.github.yeyi.agent.app.demo.tools.WebSearchMockTool
+import io.github.yeyi.agent.app.demo.tools.WebSearchTool
 import io.github.yeyi.agent.hook.CompositeHook
 import io.github.yeyi.agent.hook.Hook
 import io.github.yeyi.agent.llm.LlmProvider
@@ -71,10 +72,10 @@ object DemoAgentFactory {
             llmProvider(llmProvider)
             tool(GetCurrentTimeTool())
             tool(CalculatorTool())
-            tool(WebSearchMockTool())
+            tool(WebSearchTool())
             tool(GetLocationTool())
             tool(GetWeatherTool())
-            skills(SkillRegistry().register(WeatherSkill()))
+            skills(SkillRegistry().register(WeatherSkill()).register(NewsSkill()))
             hook(hook?: CompositeHook(logging = true))
         }
     }

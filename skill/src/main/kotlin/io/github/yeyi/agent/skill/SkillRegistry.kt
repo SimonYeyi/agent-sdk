@@ -20,7 +20,6 @@ public class SkillRegistry {
         val indexPrompt = """
             |你可以使用以下技能：
             |${buildIndexPrompt()}
-            |
             |当需要使用某个技能时，先调用 ${LoadSkillTool.NAME} 工具获取详细指令。
         """.trimMargin()
         persona.other(indexPrompt)

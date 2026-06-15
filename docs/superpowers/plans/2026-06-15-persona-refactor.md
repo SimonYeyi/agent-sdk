@@ -828,7 +828,6 @@ fun AgentBuilder.skills(skills: Iterable<Skill>) {
     val skillSystemPrompt = """
         你可以使用以下技能：
         ${registry.buildIndexPrompt()}
-
         当需要使用某个技能时，先调用 ${LoadSkillTool.NAME} 工具获取详细指令。
     """.trimIndent()
     persona.other(skillSystemPrompt)
