@@ -21,5 +21,5 @@ public fun AgentBuilder.skill(s: Skill) {
  */
 public fun AgentBuilder.skills(registry: SkillRegistry) {
     val persona = requireNotNull(persona) { "Persona must be set before registering skills by SkillRegistry." }
-    registry.enable(persona) { tool(it) }
+    registry.activate(persona) { tool(it) }
 }

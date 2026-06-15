@@ -16,7 +16,7 @@ public class SkillRegistry {
         skills.forEach { register(it) }
     }
 
-    internal fun enable(persona: Persona, toolRegister: (tool: Tool) -> Unit) {
+    internal fun activate(persona: Persona, toolRegister: (tool: Tool) -> Unit) {
         val indexPrompt = """
             |你可以使用以下技能：
             |${buildIndexPrompt()}

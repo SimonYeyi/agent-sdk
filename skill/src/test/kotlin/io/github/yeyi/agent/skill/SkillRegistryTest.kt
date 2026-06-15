@@ -88,7 +88,7 @@ class SkillRegistryTest {
         registry.register(FixedSkill("weather", "天气查询助手", "body1"))
         registry.register(FixedSkill("news", "新闻查询助手", "body2"))
         val persona = Persona("")
-        registry.enable(persona) {}
+        registry.activate(persona) {}
         val prompt = persona.toString()
         assertTrue("    - weather: 天气查询助手" in prompt)
         assertTrue("    - news: 新闻查询助手" in prompt)
