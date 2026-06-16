@@ -52,8 +52,10 @@ fun ChatScreen(
         else messages + UiMessage.Assistant(live.text, id = live.id)
     }
 
-    LaunchedEffect(displayItems.size) {
-        if (displayItems.isNotEmpty()) listState.animateScrollToItem(displayItems.size - 1)
+    LaunchedEffect(liveBubble?.text, displayItems.size) {
+        if (displayItems.isNotEmpty()) {
+            listState.scrollToItem(displayItems.size - 1, Int.MAX_VALUE)
+        }
     }
 
     Column(Modifier.fillMaxSize().padding(16.dp)) {
