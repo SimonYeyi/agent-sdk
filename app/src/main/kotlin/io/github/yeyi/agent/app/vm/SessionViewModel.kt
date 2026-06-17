@@ -23,7 +23,8 @@ public data class SessionUiState(
     val error: String? = null,
     val liveBubble: LiveBubble? = null,
     val pendingMessage: String? = null,
-    val isNewSessionPending: Boolean = false
+    val isNewSessionPending: Boolean = false,
+    val isToolExecutionPending: Boolean = false
 )
 
 public class SessionViewModel(application: Application) : AndroidViewModel(application) {
@@ -146,14 +147,16 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                         is io.github.yeyi.agent.AgentEvent.Initial -> {
                             _uiState.value = _uiState.value.copy(
                                 messages = _uiState.value.messages + UiMessage.User(event.userInput, id = nextUiId()),
-                                liveBubble = null
+                                liveBubble = null,
+                                isToolExecutionPending = false
                             )
                         }
                         is io.github.yeyi.agent.AgentEvent.ToolCallExplanation -> {
                             event.text?.let { text ->
                                 _uiState.value = _uiState.value.copy(
                                     messages = _uiState.value.messages + UiMessage.Assistant(text, id = nextUiId()),
-                                    liveBubble = null
+                                    liveBubble = null,
+                                    isToolExecutionPending = true
                                 )
                             }
                         }
@@ -161,7 +164,8 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                             _uiState.value = _uiState.value.copy(
                                 liveBubble = _uiState.value.liveBubble?.let {
                                     it.copy(text = it.text + event.text)
-                                } ?: LiveBubble(nextUiId(), event.text)
+                                } ?: LiveBubble(nextUiId(), event.text),
+                                isToolExecutionPending = false
                             )
                         }
                         is io.github.yeyi.agent.AgentEvent.ToolCallStart -> {
@@ -179,7 +183,8 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                         is io.github.yeyi.agent.AgentEvent.Failed -> {
                             _uiState.value = _uiState.value.copy(
                                 messages = _uiState.value.messages + UiMessage.Error(event.cause.message ?: "Unknown error", id = nextUiId()),
-                                liveBubble = null
+                                liveBubble = null,
+                                isToolExecutionPending = false
                             )
                         }
                     }

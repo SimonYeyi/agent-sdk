@@ -186,9 +186,12 @@ private fun ChatArea(
         else uiState.messages + UiMessage.Assistant(live.text, id = live.id)
     }
 
-    LaunchedEffect(uiState.liveBubble?.text, displayItems.size) {
+    // loading 气泡作为单独 item,位于 displayItems 末尾之后。
+    // 滚动目标:有 loading 时为 displayItems.size,否则为最后一条消息
+    LaunchedEffect(uiState.liveBubble?.text, displayItems.size, uiState.isToolExecutionPending) {
         if (displayItems.isNotEmpty()) {
-            listState.scrollToItem(displayItems.size - 1, Int.MAX_VALUE)
+            val lastIndex = if (uiState.isToolExecutionPending) displayItems.size else displayItems.size - 1
+            listState.scrollToItem(lastIndex, Int.MAX_VALUE)
         }
     }
 
@@ -203,6 +206,11 @@ private fun ChatArea(
             ) {
                 items(displayItems, key = { it.id }) { message ->
                     MessageBubble(message)
+                }
+                if (uiState.isToolExecutionPending) {
+                    item(key = "loading-indicator") {
+                        LoadingBubble()
+                    }
                 }
             }
         } else {
