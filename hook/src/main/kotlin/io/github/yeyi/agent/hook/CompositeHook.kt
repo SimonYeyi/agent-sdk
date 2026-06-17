@@ -94,9 +94,9 @@ public class CompositeHook(hooks: List<Hook> = emptyList(), logging: Boolean = f
         }
     }
 
-    override suspend fun onSessionDeleted(userId: String, sessionId: String) {
+    override suspend fun onSessionDeleted(accountId: String, sessionId: String) {
         for (hook in hooks) {
-            hook.safeInvoke { onSessionDeleted(userId, sessionId) }
+            hook.safeInvoke { onSessionDeleted(accountId, sessionId) }
         }
     }
 

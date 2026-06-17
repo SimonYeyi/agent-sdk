@@ -33,7 +33,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     private val _uiState = MutableStateFlow(SessionUiState())
     public val uiState: StateFlow<SessionUiState> = _uiState.asStateFlow()
 
-    private val userId = "test_user"
+    private val accountId = "test_user"
 
     private var nextUiId: Int = 0
     private fun nextUiId(): String = (++nextUiId).toString()
@@ -44,7 +44,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
 
     public fun loadSessions() {
         viewModelScope.launch {
-            val sessions = sessionManager.list(userId)
+            val sessions = sessionManager.list(accountId)
             _uiState.value = _uiState.value.copy(sessions = sessions)
         }
     }
@@ -52,7 +52,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     public fun createSession(name: String) {
         viewModelScope.launch {
             try {
-                val session = sessionManager.create(userId, name)
+                val session = sessionManager.create(accountId, name)
                 loadSessions()
                 selectSession(session.id)
             } catch (e: Exception) {
@@ -74,7 +74,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     public fun selectSession(sessionId: String) {
         viewModelScope.launch {
             try {
-                val session = sessionManager.get(userId, sessionId)
+                val session = sessionManager.get(accountId, sessionId)
                 val messages = session.memory.history()
                     .filter { msg ->
                         msg is ChatMessage.User ||
@@ -116,7 +116,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     private fun createSessionAndSend(name: String) {
         viewModelScope.launch {
             try {
-                val session = sessionManager.create(userId, name)
+                val session = sessionManager.create(accountId, name)
                 loadSessions()
                 _uiState.value = _uiState.value.copy(
                     currentSession = session,
@@ -203,7 +203,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     public fun deleteSession(sessionId: String) {
         viewModelScope.launch {
             try {
-                sessionManager.delete(userId, sessionId)
+                sessionManager.delete(accountId, sessionId)
                 if (_uiState.value.currentSession?.id == sessionId) {
                     _uiState.value = _uiState.value.copy(
                         currentSession = null,

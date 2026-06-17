@@ -11,35 +11,35 @@ public class SessionRepository(sessionParent: File) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
-    private fun getUserDir(userId: String): File {
-        return File(baseDir, userId).also { it.mkdirs() }
+    private fun getUserDir(accountId: String): File {
+        return File(baseDir, accountId).also { it.mkdirs() }
     }
 
-    private fun getSessionsFile(userId: String): File {
-        return File(getUserDir(userId), "sessions.jsonl")
+    private fun getSessionsFile(accountId: String): File {
+        return File(getUserDir(accountId), "sessions.jsonl")
     }
 
-    private fun getMemoryFile(userId: String, sessionId: String): File {
-        return File(File(getUserDir(userId), "memories"), "$sessionId.jsonl").also {
+    private fun getMemoryFile(accountId: String, sessionId: String): File {
+        return File(File(getUserDir(accountId), "memories"), "$sessionId.jsonl").also {
             it.parentFile.mkdirs()
         }
     }
 
-    private fun readSessionsFromFile(userId: String): List<Session> {
-        val file = getSessionsFile(userId)
+    private fun readSessionsFromFile(accountId: String): List<Session> {
+        val file = getSessionsFile(accountId)
         if (!file.exists()) return emptyList()
         return file.readLines()
             .filter { it.isNotBlank() }
             .map { json.decodeFromString<Session>(it) }
     }
 
-    public fun createSession(userId: String, sessionName: String): Session {
+    public fun createSession(accountId: String, sessionName: String): Session {
         val now = Clock.System.now()
         val id = UUID.randomUUID().toString()
-        val memoryFile = getMemoryFile(userId, id)
+        val memoryFile = getMemoryFile(accountId, id)
         val session = Session(
             id = id,
-            userId = userId,
+            accountId = accountId,
             name = sessionName,
             createdAt = now,
             lastActiveAt = now,
@@ -49,19 +49,19 @@ public class SessionRepository(sessionParent: File) {
         return session
     }
 
-    public fun findSessions(userId: String): List<Session> {
-        return readSessionsFromFile(userId).map { session ->
-            session.copy(_memory = JsonlBackedMemory(getMemoryFile(userId, session.id)))
+    public fun findSessions(accountId: String): List<Session> {
+        return readSessionsFromFile(accountId).map { session ->
+            session.copy(_memory = JsonlBackedMemory(getMemoryFile(accountId, session.id)))
         }
     }
 
-    public fun findSession(userId: String, sessionId: String): Session? {
-        return findSessions(userId).find { it.id == sessionId }
+    public fun findSession(accountId: String, sessionId: String): Session? {
+        return findSessions(accountId).find { it.id == sessionId }
     }
 
     public fun saveSession(session: Session) {
-        val file = getSessionsFile(session.userId)
-        val sessions = readSessionsFromFile(session.userId).toMutableList()
+        val file = getSessionsFile(session.accountId)
+        val sessions = readSessionsFromFile(session.accountId).toMutableList()
         val index = sessions.indexOfFirst { it.id == session.id }
         if (index >= 0) {
             sessions[index] = session
@@ -71,13 +71,13 @@ public class SessionRepository(sessionParent: File) {
         file.writeText(sessions.joinToString("\n") { json.encodeToString(it) })
     }
 
-    public fun deleteSession(userId: String, sessionId: String) {
-        val filtered = readSessionsFromFile(userId).filter { it.id != sessionId }
+    public fun deleteSession(accountId: String, sessionId: String) {
+        val filtered = readSessionsFromFile(accountId).filter { it.id != sessionId }
 
-        val sessionsFile = getSessionsFile(userId)
+        val sessionsFile = getSessionsFile(accountId)
         sessionsFile.writeText(filtered.joinToString("\n") { json.encodeToString(it) })
 
-        val memoryFile = getMemoryFile(userId, sessionId)
+        val memoryFile = getMemoryFile(accountId, sessionId)
         if (memoryFile.exists()) {
             memoryFile.delete()
         }

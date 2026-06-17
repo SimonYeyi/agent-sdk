@@ -64,8 +64,8 @@ class CompositeHookTest {
         override suspend fun onSessionCreated(session: Session) {
             events += "$name:onSessionCreated(${session.id})"
         }
-        override suspend fun onSessionDeleted(userId: String, sessionId: String) {
-            events += "$name:onSessionDeleted($userId,$sessionId)"
+        override suspend fun onSessionDeleted(accountId: String, sessionId: String) {
+            events += "$name:onSessionDeleted($accountId,$sessionId)"
         }
     }
 
@@ -367,7 +367,7 @@ class CompositeHookTest {
     @Test
     fun `exception in onSessionDeleted is swallowed and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
-            override suspend fun onSessionDeleted(userId: String, sessionId: String) {
+            override suspend fun onSessionDeleted(accountId: String, sessionId: String) {
                 throw RuntimeException("oops")
             }
         }

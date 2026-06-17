@@ -7,7 +7,7 @@ import kotlinx.serialization.Transient
 @Serializable
 public data class Session(
     val id: String,
-    val userId: String,
+    val accountId: String,
     val name: String,
     val createdAt: kotlinx.datetime.Instant,
     val lastActiveAt: kotlinx.datetime.Instant,

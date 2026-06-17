@@ -8,31 +8,31 @@ public class SessionManager(sessionParent: File, private val hook: SessionHook =
     private val repository = SessionRepository(sessionParent)
     private val mutex = Mutex()
 
-    public suspend fun create(userId: String, sessionName: String): Session {
+    public suspend fun create(accountId: String, sessionName: String): Session {
         return mutex.withLock {
-            repository.createSession(userId, sessionName).also {
+            repository.createSession(accountId, sessionName).also {
                 hook.safeInvoke { hook.onSessionCreated(it) }
             }
         }
     }
 
-    public suspend fun get(userId: String, sessionId: String): Session {
+    public suspend fun get(accountId: String, sessionId: String): Session {
         return mutex.withLock {
-            repository.findSession(userId, sessionId)
+            repository.findSession(accountId, sessionId)
                 ?: throw NoSuchElementException("Session not found: $sessionId")
         }
     }
 
-    public suspend fun delete(userId: String, sessionId: String) {
+    public suspend fun delete(accountId: String, sessionId: String) {
         mutex.withLock {
-            repository.deleteSession(userId, sessionId)
-            hook.safeInvoke { hook.onSessionDeleted(userId, sessionId) }
+            repository.deleteSession(accountId, sessionId)
+            hook.safeInvoke { hook.onSessionDeleted(accountId, sessionId) }
         }
     }
 
-    public suspend fun list(userId: String): List<Session> {
+    public suspend fun list(accountId: String): List<Session> {
         return mutex.withLock {
-            repository.findSessions(userId)
+            repository.findSessions(accountId)
         }
     }
 }

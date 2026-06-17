@@ -57,7 +57,7 @@ internal class LoggingHook : Hook {
         log.info("onSessionCreated id=${session.id} name=${session.name}")
     }
 
-    override suspend fun onSessionDeleted(userId: String, sessionId: String) {
-        log.info("onSessionDeleted userId=$userId sessionId=$sessionId")
+    override suspend fun onSessionDeleted(accountId: String, sessionId: String) {
+        log.info("onSessionDeleted accountId=$accountId sessionId=$sessionId")
     }
 }

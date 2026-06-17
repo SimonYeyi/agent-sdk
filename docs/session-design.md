@@ -9,7 +9,7 @@
 ```
 {sessionParent}/
   sessions/
-    {userId}/
+    {accountId}/
       sessions.jsonl           # Session 元数据列表
       memories/
         {sessionId}.jsonl     # ChatMessage 列表
@@ -21,7 +21,7 @@
 @Serializable
 public data class Session(
     val id: String,
-    val userId: String,
+    val accountId: String,
     val name: String,
     val createdAt: Instant,
     val lastActiveAt: Instant,
@@ -45,11 +45,11 @@ public data class Session(
 
 ```kotlin
 public class SessionRepository(sessionParent: File) {
-    public fun createSession(userId: String, sessionName: String): Session
-    public fun findSessions(userId: String): List<Session>
-    public fun findSession(userId: String, sessionId: String): Session?
+    public fun createSession(accountId: String, sessionName: String): Session
+    public fun findSessions(accountId: String): List<Session>
+    public fun findSession(accountId: String, sessionId: String): Session?
     public fun saveSession(session: Session)
-    public fun deleteSession(userId: String, sessionId: String)
+    public fun deleteSession(accountId: String, sessionId: String)
 }
 ```
 
@@ -57,10 +57,10 @@ public class SessionRepository(sessionParent: File) {
 
 ```kotlin
 public class SessionManager(sessionParent: File) {
-    public suspend fun create(userId: String, sessionName: String): Session
-    public suspend fun get(userId: String, sessionId: String): Session
-    public suspend fun delete(userId: String, sessionId: String)
-    public suspend fun list(userId: String): List<Session>
+    public suspend fun create(accountId: String, sessionName: String): Session
+    public suspend fun get(accountId: String, sessionId: String): Session
+    public suspend fun delete(accountId: String, sessionId: String)
+    public suspend fun list(accountId: String): List<Session>
 }
 ```
 

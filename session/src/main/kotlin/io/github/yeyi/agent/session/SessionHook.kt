@@ -16,7 +16,7 @@ import io.github.yeyi.agent.log.Logging
  */
 public interface SessionHook {
     public suspend fun onSessionCreated(session: Session) {}
-    public suspend fun onSessionDeleted(userId: String, sessionId: String) {}
+    public suspend fun onSessionDeleted(accountId: String, sessionId: String) {}
 }
 
 internal object NoOpAgentHook : SessionHook

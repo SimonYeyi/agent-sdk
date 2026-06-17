@@ -30,7 +30,7 @@ class SessionManagerTest {
         val session = sessionManager.create("user1", "test session")
 
         assertNotNull(session.id)
-        assertEquals("user1", session.userId)
+        assertEquals("user1", session.accountId)
         assertEquals("test session", session.name)
         assertNotNull(session.memory)
         assertEquals(session.createdAt, session.lastActiveAt)
@@ -42,7 +42,7 @@ class SessionManagerTest {
         val retrieved = sessionManager.get("user1", created.id)
 
         assertEquals(created.id, retrieved.id)
-        assertEquals(created.userId, retrieved.userId)
+        assertEquals(created.accountId, retrieved.accountId)
         assertEquals(created.name, retrieved.name)
         assertNotNull(retrieved.memory)
     }
@@ -113,8 +113,8 @@ class SessionManagerTest {
     fun `hook onSessionDeleted is called when deleting session`() = runTest {
         val events = mutableListOf<String>()
         val hook = object : SessionHook {
-            override suspend fun onSessionDeleted(userId: String, sessionId: String) {
-                events.add("onSessionDeleted($userId,$sessionId)")
+            override suspend fun onSessionDeleted(accountId: String, sessionId: String) {
+                events.add("onSessionDeleted($accountId,$sessionId)")
             }
         }
         val manager = SessionManager(tempDir, hook)
@@ -138,7 +138,7 @@ class SessionManagerTest {
     @Test
     fun `exception in hook does not crash delete`() = runTest {
         val hook = object : SessionHook {
-            override suspend fun onSessionDeleted(userId: String, sessionId: String) {
+            override suspend fun onSessionDeleted(accountId: String, sessionId: String) {
                 throw RuntimeException("hook fail")
             }
         }
@@ -155,7 +155,7 @@ class SessionManagerTest {
             override suspend fun onSessionCreated(session: Session) {
                 events.add("onSessionCreated")
             }
-            override suspend fun onSessionDeleted(userId: String, sessionId: String) {
+            override suspend fun onSessionDeleted(accountId: String, sessionId: String) {
                 events.add("onSessionDeleted")
             }
         }
