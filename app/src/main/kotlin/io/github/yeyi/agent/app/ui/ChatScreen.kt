@@ -92,7 +92,7 @@ fun ChatScreen(
             }
             Spacer(modifier = Modifier.width(8.dp))
             OutlinedButton(onClick = { viewModel.clearMessages() }) {
-                Text("Clear")
+                Text("New")
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
