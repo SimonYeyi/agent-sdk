@@ -65,7 +65,10 @@ public fun SessionScreen(
                     },
                     onDelete = { viewModel.deleteSession(it) },
                     onCreate = { viewModel.createSession(it) },
-                    onCreateAndSelect = { viewModel.createSessionAndSelect(it) },
+                    onCreateAndSelect = {
+                        viewModel.createSessionAndSelect(it)
+                        scope.launch { drawerState.close() }
+                    },
                     modifier = Modifier.width(300.dp)
                 )
             }
