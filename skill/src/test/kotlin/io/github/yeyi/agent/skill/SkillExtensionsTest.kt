@@ -87,8 +87,13 @@ class SkillExtensionsTest {
             )
         )
         b.build().run("hi").toList()
-        val toolNames = llm.recorded.single().tools.map { it.name }
-        assertTrue("load_skill" in toolNames, "expected load_skill in $toolNames")
+        val req = llm.recorded.single()
+        val loadSkill = req.tools.single { it.name == "load_skill" }
+        // 重构后: 技能索引走 load_skill 的 description,而不是 persona.other
+        assertTrue("weather" in loadSkill.description, "expected 'weather' in load_skill description, got: ${loadSkill.description}")
+        assertTrue("天气查询" in loadSkill.description, "expected '天气查询' in load_skill description, got: ${loadSkill.description}")
+        assertTrue("news" in loadSkill.description, "expected 'news' in load_skill description, got: ${loadSkill.description}")
+        assertTrue("新闻查询" in loadSkill.description, "expected '新闻查询' in load_skill description, got: ${loadSkill.description}")
     }
 
     @Test
@@ -118,7 +123,18 @@ class SkillExtensionsTest {
         b.persona(Persona("x"))
         b.skills(SkillRegistry().register(listOf(FixedSkill("weather", "d", "body"))))
         b.build().run("hi").toList()
-        val toolNames = llm.recorded.single().tools.map { it.name }
-        assertTrue("load_skill" in toolNames, "expected load_skill in $toolNames")
+        val loadSkill = llm.recorded.single().tools.single { it.name == "load_skill" }
+        assertTrue("weather" in loadSkill.description, "expected 'weather' in load_skill description, got: ${loadSkill.description}")
+    }
+
+    @Test
+    fun `skills(registry) does not require persona`() = runTest {
+        val llm = RecordingLlm()
+        val b = AgentBuilder().apply { llmProvider(llm) }
+        // 故意不调 b.persona(...): skills() 不再依赖 persona 已在 builder 上
+        b.skills(SkillRegistry().register(listOf(FixedSkill("weather", "d", "body"))))
+        b.build().run("hi").toList()
+        val loadSkill = llm.recorded.single().tools.single { it.name == "load_skill" }
+        assertTrue("weather" in loadSkill.description, "expected 'weather' in load_skill description, got: ${loadSkill.description}")
     }
 }

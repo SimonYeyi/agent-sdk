@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.skill
 
-import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.tool.ToolContext
 import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
@@ -83,15 +82,14 @@ class SkillRegistryTest {
     }
 
     @Test
-    fun `buildIndexPrompt formats skills`() {
+    fun `buildDescription formats skills`() {
         val registry = SkillRegistry()
         registry.register(FixedSkill("weather", "天气查询助手", "body1"))
         registry.register(FixedSkill("news", "新闻查询助手", "body2"))
-        val persona = Persona("")
-        registry.activate(persona) {}
-        val prompt = persona.toString()
-        assertTrue("    - weather: 天气查询助手" in prompt)
-        assertTrue("    - news: 新闻查询助手" in prompt)
+
+        val prompt = registry.buildDescription()
+        assertTrue("- weather: 天气查询助手" in prompt)
+        assertTrue("- news: 新闻查询助手" in prompt)
     }
 
     @Test

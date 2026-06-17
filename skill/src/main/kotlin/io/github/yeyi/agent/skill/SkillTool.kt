@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonElement
  * tool's [name] is `skill_<skill.name>` so the LLM sees a clear, namespaced handle and
  * the body is loaded only when the model explicitly invokes the skill.
  */
-public class SkillTool internal constructor(
+internal class SkillTool internal constructor(
     private val skill: Skill,
 ) : Tool {
     override val name: String = "skill_${skill.name}"

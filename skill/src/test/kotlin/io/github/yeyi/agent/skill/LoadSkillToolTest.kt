@@ -5,6 +5,7 @@ import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
+import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
@@ -28,7 +29,19 @@ class LoadSkillToolTest {
     @Test
     fun `LoadSkillTool description`() {
         val registry = SkillRegistry()
-        assertEquals("加载技能详细指令", LoadSkillTool(registry).description)
+        assertContains(LoadSkillTool(registry).description, "当需要加载以下技能时,调用本工具")
+    }
+
+    @Test
+    fun `LoadSkillTool description includes registered skills`() {
+        val registry = SkillRegistry()
+        registry.register(FixedSkill("weather", "天气查询助手", "body"))
+        registry.register(FixedSkill("news", "新闻查询助手", "body2"))
+        val desc = LoadSkillTool(registry).description
+        assertTrue("weather" in desc, "expected skill name 'weather' in description, got: $desc")
+        assertTrue("天气查询助手" in desc, "expected skill description '天气查询助手' in description, got: $desc")
+        assertTrue("news" in desc, "expected skill name 'news' in description, got: $desc")
+        assertTrue("新闻查询助手" in desc, "expected skill description '新闻查询助手' in description, got: $desc")
     }
 
     @Test

@@ -20,6 +20,5 @@ public fun AgentBuilder.skill(s: Skill) {
  * Register multiple [Skill]s by [SkillRegistry].
  */
 public fun AgentBuilder.skills(registry: SkillRegistry) {
-    val persona = requireNotNull(persona) { "Persona must be set before registering skills by SkillRegistry." }
-    registry.activate(persona) { tool(it) }
+    tool(LoadSkillTool(registry))
 }

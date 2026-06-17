@@ -823,14 +823,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
  * The LLM should call [LoadSkillTool.NAME] with the skill_name to load detailed instructions.
  */
 fun AgentBuilder.skills(skills: Iterable<Skill>) {
-    val registry = SkillRegistry().apply { register(skills) }
-    tool(LoadSkillTool(registry))
-    val skillSystemPrompt = """
-        你可以使用以下技能：
-        ${registry.buildIndexPrompt()}
-        当需要使用某个技能时，先调用 ${LoadSkillTool.NAME} 工具获取详细指令。
-    """.trimIndent()
-    persona.other(skillSystemPrompt)
+    LoadSkillTool(registry)
 }
 ```
 
