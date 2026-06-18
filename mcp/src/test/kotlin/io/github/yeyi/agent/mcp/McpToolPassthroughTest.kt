@@ -46,7 +46,7 @@ class McpToolPassthroughTest {
         override suspend fun send(request: JsonRpcRequest): JsonRpcResponse<JsonElement> =
             error("not used")
         override suspend fun sendNotification(request: JsonRpcRequest) = Unit
-        override val notifications: Flow<JsonElement> = emptyFlow()
+        override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
         override suspend fun close() = Unit
     }
 

@@ -144,6 +144,35 @@ public data class JsonRpcResponse<T>(
 )
 
 /**
+ * JSON-RPC 2.0 notification message — server-to-client one-way message
+ * with no `id` and no response expected.
+ *
+ * The [params] type parameter carries the notification payload; callers
+ * decode to the typed structure via [kotlinx.serialization.json.decodeFromJsonElement].
+ * For example, `notifications/cancelled` decodes `params` to [CancelledNotificationParams].
+ */
+@Serializable
+public data class JsonRpcNotification<T>(
+    val jsonrpc: String,
+    val method: String,
+    val params: T? = null,
+)
+
+/**
+ * Notification params for `notifications/cancelled`.
+ */
+@Serializable
+public data class CancelledNotificationParams(
+    val requestId: Int,
+)
+
+/**
+ * Empty notification params — used when the spec does not define any params.
+ */
+@Serializable
+public object EmptyNotificationParams
+
+/**
  * MCP protocol `initialize` response — the `result` field the server returns
  * to a client's initialize request.
  */

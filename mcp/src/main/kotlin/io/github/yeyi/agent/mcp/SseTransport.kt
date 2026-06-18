@@ -51,8 +51,6 @@ public class SseTransport(
     private val client: HttpClient = SharedHttpClient
     private var sessionId: String? = null
 
-    override val notifications: Flow<JsonElement> = emptyFlow()
-
     override suspend fun send(request: JsonRpcRequest): JsonRpcResponse<JsonElement> {
         val body = json.encodeToString(request)
 
@@ -103,6 +101,8 @@ public class SseTransport(
             }
         }
     }
+
+    override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
 
     override suspend fun close() {
         // HttpClient is shared; do not close it here.

@@ -7,6 +7,8 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -193,6 +195,8 @@ public class StdioTransport(
             }
         }
     }
+
+    override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
 
     override suspend fun close() {
         withContext(Dispatchers.IO) {

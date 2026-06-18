@@ -37,8 +37,7 @@ public interface McpTransport {
      * an empty flow; transports with a real notification channel override
      * this.
      */
-    public val notifications: Flow<JsonElement>
-        get() = emptyFlow()
+    public val notifications: Flow<JsonRpcNotification<JsonElement>>
 
     /**
      * Release all resources held by this transport.
