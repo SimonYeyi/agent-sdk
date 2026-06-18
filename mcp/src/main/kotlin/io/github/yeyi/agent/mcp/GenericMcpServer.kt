@@ -49,10 +49,10 @@ public class GenericMcpServer(
         )
         val response = transport.send(request)
         if (response.error != null) {
-            throw MCPServerException(response.error)
+            throw MCPServerException(response.error.toString())
         }
         val resultElement = response.result
-            ?: throw RuntimeException("MCP listTools response missing result")
+            ?: throw MCPServerException("MCP listTools response missing result")
         return json.decodeFromJsonElement<ListToolsResult>(resultElement)
     }
 
@@ -67,15 +67,15 @@ public class GenericMcpServer(
         val response = transport.send(rpcRequest)
 
         if (response.error != null) {
-            throw MCPServerException(response.error)
+            throw MCPServerException(response.error.toString())
         }
 
         val resultElement = response.result
-            ?: throw RuntimeException("MCP callTool response missing result")
+            ?: throw MCPServerException("MCP callTool response missing result")
 
         val result = json.decodeFromJsonElement<CallToolResult>(resultElement)
         if (result.isError) {
-            throw MCPServerException(result.content ?: JsonObject(emptyMap()))
+            throw MCPServerException(result.content?.toString() ?: "MCP tool call returned error")
         }
 
         return result.content ?: JsonObject(emptyMap()) as JsonElement
@@ -113,18 +113,16 @@ public class GenericMcpServer(
         )
         val response = transport.send(request)
         if (response.error != null) {
-            throw MCPServerException(response.error)
+            throw MCPServerException(response.error.toString())
         }
         val resultElement = response.result
-            ?: throw RuntimeException("MCP initialize response missing result")
+            ?: throw MCPServerException("MCP initialize response missing result")
         val result = json.decodeFromJsonElement<InitializeResult>(resultElement)
 
         if (result.protocolVersion.isNotEmpty() &&
             result.protocolVersion != SUPPORTED_PROTOCOL_VERSION
         ) {
-            // Per spec, server MAY respond with a different version. We accept
-            // only the exact version we advertised; otherwise fail loud.
-            throw RuntimeException(
+            throw MCPServerException(
                 "MCP server protocol version '${result.protocolVersion}' is not supported " +
                     "(client supports $SUPPORTED_PROTOCOL_VERSION)"
             )
@@ -148,5 +146,5 @@ public class GenericMcpServer(
     }
 }
 
-internal class MCPServerException(jsonElement: JsonElement) :
-    RuntimeException("MCP Server Exception: $jsonElement")
+internal class MCPServerException(message: String) :
+    RuntimeException("MCP Server Exception: $message")

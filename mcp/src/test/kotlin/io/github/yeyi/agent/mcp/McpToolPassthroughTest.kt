@@ -47,7 +47,7 @@ class McpToolPassthroughTest {
         override suspend fun ping(): Boolean = true
         override suspend fun callTool(params: JsonElement): JsonElement {
             if (toolCallError) {
-                throw MCPServerException(toolCallResult)
+                throw MCPServerException(toolCallResult.toString())
             }
             return toolCallResult
         }
