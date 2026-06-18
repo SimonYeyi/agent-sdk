@@ -16,7 +16,6 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -117,7 +116,7 @@ public class StdioTransport(
         }
     }
 
-    override suspend fun send(request: JsonRpcRequest): JsonRpcResponse<JsonElement> {
+    override suspend fun <T> send(request: JsonRpcRequest<T>): JsonRpcResponse<JsonElement> {
         // The id is provided by the caller (GenericMcpServer). Transport
         // does not allocate IDs; it merely forwards the request and matches
         // the response back to the caller-provided id.
@@ -167,7 +166,7 @@ public class StdioTransport(
         }
     }
 
-    override suspend fun sendNotification(request: JsonRpcRequest) {
+    override suspend fun <T> sendNotification(request: JsonRpcRequest<T>) {
         withContext(Dispatchers.IO) {
             ensureStarted()
             requestMutex.withLock {
@@ -187,9 +186,7 @@ public class StdioTransport(
                     JsonRpcRequest(
                         id = 0,
                         method = McpMethods.NOTIFICATIONS_CANCELLED,
-                        params = buildJsonObject {
-                            put("requestId", requestId)
-                        },
+                        params = CancelledNotificationParams(requestId),
                     )
                 )
             }

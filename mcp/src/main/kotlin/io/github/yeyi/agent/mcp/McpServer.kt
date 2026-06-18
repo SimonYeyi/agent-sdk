@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.mcp
 
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
@@ -43,10 +44,18 @@ public interface McpServer {
      *
      * [cursor] is the pagination cursor from the previous page's
      * `nextCursor` field; pass `null` (the default) to fetch the first
-     * page. Returns the raw JSON-RPC result, e.g.
-     * `{"tools": [...], "nextCursor": "..."}`.
+     * page.
      */
-    public suspend fun listTools(cursor: String? = null): JsonElement
+    public suspend fun listTools(cursor: String? = null): ListToolsResult
+
+    /**
+     * MCP protocol `tools/call` — invoke a tool.
+     *
+     * [params] is the raw JSON-RPC params object (must include `name`
+     * and `arguments` per MCP spec). Returns the `content` field of the result.
+     * If the server returns `isError: true`, throws [MCPServerException].
+     */
+    public suspend fun callTool(params: JsonElement): JsonElement
 
     /**
      * MCP protocol `ping` — liveness check.
@@ -55,14 +64,6 @@ public interface McpServer {
      * `false` if it responds with an error.
      */
     public suspend fun ping(): Boolean
-
-    /**
-     * MCP protocol `tools/call` — invoke a tool.
-     *
-     * [params] is the raw JSON-RPC params object (must include `name`
-     * and `arguments` per MCP spec). Returns the raw JSON-RPC result.
-     */
-    public suspend fun callTool(params: JsonElement): JsonElement
 
     /**
      * Release all resources held by this server (process, connection,
@@ -113,17 +114,69 @@ public data class ServerInfo(
 /**
  * JSON-RPC 2.0 request message.
  *
- * For notifications (no response expected) the [id] field carries a value
- * the server is expected to ignore; transport implementations use the
- * [method] name (typically a `notifications/...` method) to decide whether
- * to expect a response.
+ * The type parameter [T] is the params structure. Callers pass typed params
+ * (e.g. [InitializeParams], [ListToolsParams]) and kotlinx.serialization
+ * handles JSON encoding automatically.
  */
 @Serializable
-public data class JsonRpcRequest(
+public data class JsonRpcRequest<T>(
     val jsonrpc: String = "2.0",
     val id: Int,
     val method: String,
-    val params: JsonElement? = null,
+    val params: T? = null,
+)
+
+/**
+ * `initialize` request params.
+ */
+@Serializable
+public data class InitializeParams(
+    val protocolVersion: String,
+    val capabilities: JsonObject = JsonObject(emptyMap()),
+    val clientInfo: ClientInfo,
+)
+
+/**
+ * `tools/list` request params.
+ */
+@Serializable
+public data class ListToolsParams(
+    val cursor: String? = null,
+)
+
+/**
+ * `tools/list` response result structure.
+ */
+@Serializable
+public data class ListToolsResult(
+    val tools: JsonArray,
+    val nextCursor: String? = null,
+)
+
+/**
+ * `ping` request params — typically empty.
+ */
+@Serializable
+public object EmptyParams
+
+/**
+ * `tools/call` request params structure reference (not used for serialization;
+ * arguments are passed through as raw [JsonElement] to avoid unnecessary
+ * deserialization-reserialization).
+ */
+@Serializable
+public data class CallToolParams(
+    val name: String,
+    val arguments: JsonObject = JsonObject(emptyMap()),
+)
+
+/**
+ * `tools/call` response result structure.
+ */
+@Serializable
+public data class CallToolResult(
+    val content: JsonElement? = null,
+    val isError: Boolean = false,
 )
 
 /**

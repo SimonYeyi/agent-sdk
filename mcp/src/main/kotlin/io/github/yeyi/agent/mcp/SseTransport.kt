@@ -51,7 +51,7 @@ public class SseTransport(
     private val client: HttpClient = SharedHttpClient
     private var sessionId: String? = null
 
-    override suspend fun send(request: JsonRpcRequest): JsonRpcResponse<JsonElement> {
+    override suspend fun <T> send(request: JsonRpcRequest<T>): JsonRpcResponse<JsonElement> {
         val body = json.encodeToString(request)
 
         return withContext(Dispatchers.IO) {
@@ -81,7 +81,7 @@ public class SseTransport(
         }
     }
 
-    override suspend fun sendNotification(request: JsonRpcRequest) {
+    override suspend fun <T> sendNotification(request: JsonRpcRequest<T>) {
         val body = json.encodeToString(request)
 
         withContext(Dispatchers.IO) {

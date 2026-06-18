@@ -5,10 +5,8 @@ import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * Tool for calling an MCP tool on a registered server.
@@ -53,22 +51,14 @@ internal class CallMcpTool(private val registry: McpServerRegistry) : Tool {
     ): ToolExecutionResult {
         val argsObj = arguments.jsonObject
 
-        val serverName = argsObj.jsonObject["server_name"]
-            ?.let { (it as? JsonPrimitive)?.content }
+        val serverName = argsObj["server_name"]
+            ?.jsonPrimitive?.content
             ?: throw IllegalArgumentException("Missing server_name")
 
         val params = requireNotNull(argsObj["params"]) { "Missing params" }
 
-        val result = registry.callTool(serverName, params)
+        val content = registry.callTool(serverName, params)
 
-        // Map MCP result.isError → SDK ToolExecutionResult.isError;
-        // pass through result.content as the tool output (per MCP spec,
-        // content is the canonical tool output channel).
-        val isError = result.jsonObject["isError"]
-            .let { (it as? JsonPrimitive)?.booleanOrNull }
-            ?: false
-        val content = result.jsonObject["content"]?.toString() ?: ""
-
-        return ToolExecutionResult(content = content, isError = isError)
+        return ToolExecutionResult(content = content.toString())
     }
 }

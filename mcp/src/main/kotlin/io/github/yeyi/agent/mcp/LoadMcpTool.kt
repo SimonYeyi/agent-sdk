@@ -43,6 +43,6 @@ internal class LoadMcpTool(private val registry: McpServerRegistry) : Tool {
 
         val result = registry.listAllTools(serverName)
 
-        return ToolExecutionResult(content = result.toString())
+        return ToolExecutionResult(content = result.tools.toString())
     }
 }

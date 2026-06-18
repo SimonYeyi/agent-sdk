@@ -5,11 +5,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
-import kotlinx.serialization.json.encodeToJsonElement
-import kotlinx.serialization.json.put
-import kotlinx.serialization.json.putJsonObject
 
 /**
  * Generic implementation of [McpServer] that delegates to a [McpTransport].
@@ -42,10 +38,10 @@ public class GenericMcpServer(
         encodeDefaults = true
     }
 
-    override suspend fun listTools(cursor: String?): JsonElement {
+    override suspend fun listTools(cursor: String?): ListToolsResult {
         initialize()
 
-        val params: JsonElement? = cursor?.let { buildJsonObject { put("cursor", it) } }
+        val params = cursor?.let { ListToolsParams(it) }
         val request = JsonRpcRequest(
             id = nextId.getAndIncrement(),
             method = McpMethods.TOOLS_LIST,
@@ -55,18 +51,9 @@ public class GenericMcpServer(
         if (response.error != null) {
             throw MCPServerException(response.error)
         }
-        return response.result ?: JsonObject(emptyMap())
-    }
-
-    override suspend fun ping(): Boolean {
-        initialize()
-        val request = JsonRpcRequest(
-            id = nextId.getAndIncrement(),
-            method = McpMethods.PING,
-            params = null,
-        )
-        val response = transport.send(request)
-        return response.error == null
+        val resultElement = response.result
+            ?: throw RuntimeException("MCP listTools response missing result")
+        return json.decodeFromJsonElement<ListToolsResult>(resultElement)
     }
 
     override suspend fun callTool(params: JsonElement): JsonElement {
@@ -83,7 +70,26 @@ public class GenericMcpServer(
             throw MCPServerException(response.error)
         }
 
-        return response.result ?: JsonObject(emptyMap())
+        val resultElement = response.result
+            ?: throw RuntimeException("MCP callTool response missing result")
+
+        val result = json.decodeFromJsonElement<CallToolResult>(resultElement)
+        if (result.isError) {
+            throw MCPServerException(result.content ?: JsonObject(emptyMap()))
+        }
+
+        return result.content ?: JsonObject(emptyMap()) as JsonElement
+    }
+
+    override suspend fun ping(): Boolean {
+        initialize()
+        val request = JsonRpcRequest(
+            id = nextId.getAndIncrement(),
+            method = McpMethods.PING,
+            params = EmptyParams,
+        )
+        val response = transport.send(request)
+        return response.error == null
     }
 
     override suspend fun close() {
@@ -95,18 +101,15 @@ public class GenericMcpServer(
     }
 
     private suspend fun doInitialize(): InitializeResult {
-        val params = buildJsonObject {
-            put("protocolVersion", SUPPORTED_PROTOCOL_VERSION)
-            putJsonObject("capabilities") {
-                // Client capabilities are intentionally empty for now: we don't
-                // expose roots, sampling, or elicitation to the server.
-            }
-            put("clientInfo", Json.encodeToJsonElement(clientInfo))
-        }
+        val params = InitializeParams(
+            protocolVersion = SUPPORTED_PROTOCOL_VERSION,
+            capabilities = JsonObject(emptyMap()),
+            clientInfo = clientInfo,
+        )
         val request = JsonRpcRequest(
             id = nextId.getAndIncrement(),
             method = McpMethods.INITIALIZE,
-            params = params
+            params = params,
         )
         val response = transport.send(request)
         if (response.error != null) {
@@ -131,7 +134,7 @@ public class GenericMcpServer(
         val notification = JsonRpcRequest(
             id = 0,
             method = McpMethods.NOTIFICATIONS_INITIALIZED,
-            params = null,
+            params = EmptyParams,
         )
         transport.sendNotification(notification)
 

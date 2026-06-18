@@ -3,11 +3,6 @@ package io.github.yeyi.agent.mcp
 import io.github.yeyi.agent.AgentBuilder
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.put
 
 /**
  * Register MCP servers with this builder by providing a [McpServerRegistry].
@@ -43,15 +38,13 @@ public fun AgentBuilder.mcp(registry: McpServerRegistry) {
  * [io.github.yeyi.agent.mcp.GenericMcpServer.listAllTools] for the
  * cached version.
  */
-public suspend fun McpServer.listAllTools(): JsonElement {
+public suspend fun McpServer.listAllTools(): ListToolsResult {
     val allTools = mutableListOf<JsonElement>()
     var cursor: String? = null
     do {
-        val page = listTools(cursor)
-        val pageObj = page as? JsonObject ?: break
-        val tools = (pageObj["tools"] as? JsonArray)?.toList() ?: emptyList()
-        allTools.addAll(tools)
-        cursor = (pageObj["nextCursor"] as? JsonPrimitive)?.contentOrNull
+        val result = listTools(cursor)
+        allTools.addAll(result.tools)
+        cursor = result.nextCursor
     } while (cursor != null)
-    return buildJsonObject { put("tools", JsonArray(allTools)) }
+    return ListToolsResult(tools = JsonArray(allTools))
 }
