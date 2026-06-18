@@ -12,9 +12,9 @@ import kotlinx.serialization.json.jsonObject
  * Tool for calling an MCP tool on a registered server.
  */
 internal class CallMcpTool(private val registry: McpServerRegistry) : Tool {
-    override val name: String = "call_mcp"
+    override val name: String = "call_mcp_tool"
 
-    override val description: String = "当需要调用MCP工具时通过本工具代理调用。"
+    override val description: String = "当需要调用 MCP 工具时通过本工具代理调用。"
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         schema = """
@@ -26,10 +26,18 @@ internal class CallMcpTool(private val registry: McpServerRegistry) : Tool {
                     "type": "object",
                     "description": "MCP protocol tools/call params",
                     "properties": {
-                        "name": { "type": "string" },
-                        "arguments": { "type": "object" }
+                        "name": {
+                            "type": "string",
+                            "minLength": 1,
+                            "description": "The exact registered name of the MCP tool to invoke on the target server (e.g. 'get_weather')."
+                        },
+                        "arguments": {
+                            "type": "object",
+                            "description": "Arguments object to pass to the tool. Its shape MUST match the target tool's input schema; pass an empty object {} if the tool takes no parameters."
+                        }
                     },
-                    "required": ["name", "arguments"]
+                    "required": ["name", "arguments"],
+                    "additionalProperties": false
                 }
             },
             "required": ["server_name", "params"]
@@ -43,15 +51,14 @@ internal class CallMcpTool(private val registry: McpServerRegistry) : Tool {
     ): ToolExecutionResult {
         val argsObj = arguments.jsonObject
 
-        val serverName = argsObj["server_name"]
+        val serverName = argsObj.jsonObject["server_name"]
             ?.let { (it as? JsonPrimitive)?.content }
-            ?: return ToolExecutionResult(content = "Missing server_name", isError = true)
+            ?: throw IllegalArgumentException("Missing server_name")
 
-        val params = argsObj["params"]
-            ?: return ToolExecutionResult(content = "Missing params", isError = true)
+        val params = requireNotNull(argsObj["params"]) { "Missing params" }
 
         val result = registry.callTool(serverName, params)
 
-        return ToolExecutionResult(content = result)
+        return ToolExecutionResult(content = result.toString())
     }
 }

@@ -10,18 +10,16 @@ public class McpServerRegistry {
     private val servers = ConcurrentHashMap<String, McpServer>()
 
     public fun register(server: McpServer): McpServerRegistry = apply {
-        require(!servers.containsKey(server.name)) { "Server with name '${server.name}' is already registered" }
+        require(!servers.containsKey(server.name)) { "MCP Server with name '${server.name}' is already registered" }
         servers[server.name] = server
     }
 
-    internal suspend fun listTools(serverName: String): String {
-        val server = servers[serverName] ?: return "Server not found: $serverName"
-        return server.listTools().toString()
+    internal suspend fun listTools(serverName: String): JsonElement {
+        return getServer(serverName).listTools()
     }
 
-    internal suspend fun callTool(serverName: String, params: JsonElement): String {
-        val server = servers[serverName] ?: return "Server not found: $serverName"
-        return server.callTool(params).toString()
+    internal suspend fun callTool(serverName: String, params: JsonElement): JsonElement {
+        return getServer(serverName).callTool(params)
     }
 
     public suspend fun closeAll() {
@@ -31,5 +29,9 @@ public class McpServerRegistry {
 
     internal fun buildDescription(): String = servers.values.joinToString("\n") {
         "- ${it.name}: ${it.description}"
+    }
+
+    private fun getServer(serverName: String): McpServer {
+        return servers[serverName] ?: throw RuntimeException("MCP Server not found: $serverName")
     }
 }

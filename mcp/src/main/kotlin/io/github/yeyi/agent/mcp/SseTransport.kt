@@ -30,6 +30,7 @@ public class SseTransport(
 
     override suspend fun send(request: JsonRpcRequest): JsonRpcResponse {
         val id = nextId.getAndIncrement()
+
         val paramsJson = request.params?.let { json.encodeToString(it) } ?: "null"
         val body = """{"jsonrpc":"2.0","id":$id,"method":"${request.method}","params":$paramsJson}"""
 
@@ -76,6 +77,6 @@ public class SseTransport(
     }
 
     override suspend fun close() {
-        client.close()
+        runCatching { client.close() }
     }
 }

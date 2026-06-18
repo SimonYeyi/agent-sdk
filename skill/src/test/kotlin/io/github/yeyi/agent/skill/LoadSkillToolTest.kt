@@ -29,7 +29,7 @@ class LoadSkillToolTest {
     @Test
     fun `LoadSkillTool description`() {
         val registry = SkillRegistry()
-        assertContains(LoadSkillTool(registry).description, "当需要加载以下技能时,调用本工具")
+        assertContains(LoadSkillTool(registry).description, "当需要加载以下技能时，调用本工具")
     }
 
     @Test

@@ -28,21 +28,21 @@ internal class LoadMcpTool(private val registry: McpServerRegistry) : Tool {
     """.trimIndent()
     )
 
+    private fun buildDescription(): String = """
+        |当需要激活以下MCP Server时，调用本工具：
+        |${registry.buildDescription()}
+    """.trimMargin()
+
     override suspend fun execute(
         arguments: JsonElement,
         context: ToolContext
     ): ToolExecutionResult {
         val serverName = arguments.jsonObject["server_name"]
             ?.let { (it as? JsonPrimitive)?.content }
-            ?: return ToolExecutionResult(content = "Missing server_name", isError = true)
+            ?: throw IllegalArgumentException("Missing server_name")
 
         val result = registry.listTools(serverName)
 
-        return ToolExecutionResult(content = "$serverName MCP server tools:\n$result")
+        return ToolExecutionResult(content = "$serverName MCP Server 已激活，可用工具如下：\n$result")
     }
-
-    private fun buildDescription(): String = """
-        |当需要激活以下MCP Server时，调用本工具：
-        |${registry.buildDescription()}
-    """.trimMargin()
 }

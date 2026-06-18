@@ -28,7 +28,7 @@ public class GenericMcpServer(
         val response = transport.send(request)
 
         if (response.error != null) {
-            return@withLock response.error
+            throw MCPServerException(response.error)
         }
 
         response.result?.let { result ->
@@ -47,7 +47,7 @@ public class GenericMcpServer(
         val response = transport.send(rpcRequest)
 
         if (response.error != null) {
-            return@withLock response.error
+            throw MCPServerException(response.error)
         }
 
         response.result ?: JsonObject(emptyMap())
@@ -60,3 +60,6 @@ public class GenericMcpServer(
         }
     }
 }
+
+internal class MCPServerException(jsonElement: JsonElement) :
+    RuntimeException("MCP Server Exception: $jsonElement")

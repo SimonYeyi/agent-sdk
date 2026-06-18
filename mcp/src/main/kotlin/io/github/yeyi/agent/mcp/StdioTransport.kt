@@ -5,6 +5,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.io.IOException
 import kotlinx.serialization.json.Json
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -57,41 +58,34 @@ public class StdioTransport(
         val id = nextId.getAndIncrement()
 
         val paramsJson = request.params?.let { json.encodeToString(it) } ?: "null"
-        val requestLine = """{"jsonrpc":"2.0","id":$id,"method":"${request.method}","params":$paramsJson}"""
+        val requestLine =
+            """{"jsonrpc":"2.0","id":$id,"method":"${request.method}","params":$paramsJson}"""
 
         return withContext(Dispatchers.IO) {
-            try {
-                ensureStarted()
-                requestMutex.withLock {
-                    stdin?.write(requestLine)
-                    stdin?.write("\n")
-                    stdin?.flush()
+            ensureStarted()
+            requestMutex.withLock {
+                stdin?.write(requestLine)
+                stdin?.write("\n")
+                stdin?.flush()
 
-                    val responseLine = stdout?.readLine()
-                        ?: throw RuntimeException("MCP server process terminated")
+                val responseLine = stdout?.readLine()
+                    ?: throw RuntimeException("MCP server process terminated")
 
-                    val response = json.decodeFromString<JsonRpcResponse>(responseLine)
-                    if (response.id != id) {
-                        throw RuntimeException("MCP response ID mismatch: expected $id, got ${response.id}")
-                    }
-                    response
+                val response = json.decodeFromString<JsonRpcResponse>(responseLine)
+                if (response.id != id) {
+                    throw RuntimeException("MCP response ID mismatch: expected $id, got ${response.id}")
                 }
-            } catch (e: CancellationException) {
-                throw e
-            } catch (t: Throwable) {
-                throw RuntimeException("MCP request failed: ${t.message}", t)
+                response
             }
         }
     }
 
     override suspend fun close() {
         withContext(Dispatchers.IO) {
-            try {
-                stdin?.close()
-                stdout?.close()
-                stderr?.close()
-                process?.destroyForcibly()
-            } catch (_: Exception) {}
+            runCatching { stdin?.close() }
+            runCatching { stdout?.close() }
+            runCatching { stderr?.close() }
+            runCatching { process?.destroyForcibly() }
         }
     }
 }

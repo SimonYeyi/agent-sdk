@@ -23,6 +23,11 @@ internal class LoadSkillTool(private val registry: SkillRegistry) : Tool {
     """.trimIndent()
     )
 
+    private fun buildDescription(): String = """
+        |当需要加载以下技能时，调用本工具:
+        |${registry.buildDescription()}
+    """.trimMargin()
+
     override suspend fun execute(
         arguments: JsonElement,
         context: ToolContext
@@ -40,9 +45,4 @@ internal class LoadSkillTool(private val registry: SkillRegistry) : Tool {
             ?.let { ToolExecutionResult(content = it) }
             ?: ToolExecutionResult(content = "Skill not found: $skillName", isError = true)
     }
-
-    private fun buildDescription(): String = """
-        |当需要加载以下技能时，调用本工具:
-        |${registry.buildDescription()}
-    """.trimMargin()
 }
