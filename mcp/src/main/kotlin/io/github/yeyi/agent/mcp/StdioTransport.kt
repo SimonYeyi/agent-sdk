@@ -1,91 +1,226 @@
 package io.github.yeyi.agent.mcp
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.io.IOException
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import java.io.BufferedReader
+import java.io.BufferedWriter
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
-import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.TimeUnit
 
 /**
  * Transport implementation using stdio (subprocess).
  *
- * This transport spawns a child process and communicates with it via stdin/stdout.
- * Used for local MCP servers that run as command-line tools.
+ * This transport spawns a child process and communicates with it via stdin/stdout
+ * per the MCP stdio spec: messages are newline-delimited UTF-8 JSON, stderr is
+ * used by the server for human-readable logging and must be drained continuously
+ * to prevent the OS pipe buffer from filling and deadlocking the child.
  *
- * The process is started lazily on first use.
+ * The process is started lazily on first use. [close] performs a graceful
+ * three-stage shutdown (close stdin → wait/SIGTERM → SIGKILL) per the spec.
+ *
+ * Resource ownership: the caller is responsible for invoking [close] when the
+ * transport is no longer needed. Parent coroutine cancellation does NOT
+ * automatically destroy the child process — [McpServerRegistry.closeAll] is
+ * the canonical cleanup path.
  */
 public class StdioTransport(
     private val command: List<String>,
     private val workingDirectory: String? = null,
+    private val requestTimeoutMillis: Long = 30_000,
+    private val stderrHandler: (String) -> Unit = {},
 ) : McpTransport {
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
 
-    private var process: Process? = null
-    private var stdin: OutputStreamWriter? = null
-    private var stdout: BufferedReader? = null
-    private var stderr: BufferedReader? = null
-
+    private val startMutex = Mutex()
     private val requestMutex = Mutex()
-    private val nextId = AtomicInteger(1)
 
-    private fun ensureStarted() {
-        if (process == null || process?.isAlive != true) {
+    private var process: Process? = null
+    private var stdinWriter: BufferedWriter? = null
+    private var stdoutReader: BufferedReader? = null
+    private var stderrReader: BufferedReader? = null
+    private var stderrJob: Job? = null
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Detached scope used to dispatch notifications/cancelled even after the
+    // caller's coroutine has been cancelled. Survives the caller's lifetime so
+    // the cancel notification can be flushed to the server.
+    private val cancellationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private suspend fun ensureStarted() = startMutex.withLock {
+        if (process?.isAlive != true) {
             startProcess()
         }
+        Unit
     }
 
     private fun startProcess() {
+        disposeCurrentProcess()
+
         val builder = ProcessBuilder(command)
         workingDirectory?.let { builder.directory(java.io.File(it)) }
         builder.redirectErrorStream(false)
 
-        process = builder.start()
-        stdin = OutputStreamWriter(process!!.outputStream, Charsets.UTF_8)
-        stdout = BufferedReader(InputStreamReader(process!!.inputStream, Charsets.UTF_8))
-        stderr = BufferedReader(InputStreamReader(process!!.errorStream, Charsets.UTF_8))
+        val newProcess = builder.start()
+        process = newProcess
+        stdinWriter = BufferedWriter(OutputStreamWriter(newProcess.outputStream, Charsets.UTF_8))
+        stdoutReader = BufferedReader(InputStreamReader(newProcess.inputStream, Charsets.UTF_8))
+        stderrReader = BufferedReader(InputStreamReader(newProcess.errorStream, Charsets.UTF_8))
+
+        startStderrDrain()
     }
 
-    override suspend fun send(request: JsonRpcRequest): JsonRpcResponse {
-        val id = nextId.getAndIncrement()
+    private fun disposeCurrentProcess() {
+        runCatching { stdinWriter?.close() }
+        runCatching { stdoutReader?.close() }
+        runCatching { stderrReader?.close() }
+        stderrJob?.cancel()
+        stderrJob = null
+        runCatching { process?.destroyForcibly() }
+        process = null
+        stdinWriter = null
+        stdoutReader = null
+        stderrReader = null
+    }
 
-        val paramsJson = request.params?.let { json.encodeToString(it) } ?: "null"
-        val requestLine =
-            """{"jsonrpc":"2.0","id":$id,"method":"${request.method}","params":$paramsJson}"""
+    private fun startStderrDrain() {
+        val reader = stderrReader ?: return
+        stderrJob = scope.launch {
+            try {
+                reader.useLines { lines ->
+                    lines.forEach(stderrHandler)
+                }
+            } catch (_: CancellationException) {
+                // expected when close() cancels the job
+            } catch (_: Throwable) {
+                // stderr drain errors are non-fatal
+            }
+        }
+    }
 
-        return withContext(Dispatchers.IO) {
+    override suspend fun send(request: JsonRpcRequest): JsonRpcResponse<JsonElement> {
+        // The id is provided by the caller (GenericMcpServer). Transport
+        // does not allocate IDs; it merely forwards the request and matches
+        // the response back to the caller-provided id.
+        val id = request.id
+
+        val requestLine = json.encodeToString(request)
+
+        return try {
+            withContext(Dispatchers.IO) {
+                ensureStarted()
+                requestMutex.withLock {
+                    val writer = stdinWriter
+                        ?: throw RuntimeException("MCP server process not started")
+                    val reader = stdoutReader
+                        ?: throw RuntimeException("MCP server process not started")
+
+                    try {
+                        withTimeout(requestTimeoutMillis) {
+                            writer.write(requestLine)
+                            writer.newLine()
+                            writer.flush()
+
+                            val responseLine = reader.readLine()
+                                ?: throw RuntimeException("MCP server process terminated")
+
+                            val response = json.decodeFromString<JsonRpcResponse<JsonElement>>(responseLine)
+                            if (response.id != id) {
+                                throw RuntimeException(
+                                    "MCP response ID mismatch: expected $id, got ${response.id}"
+                                )
+                            }
+                            response
+                        }
+                    } catch (e: TimeoutCancellationException) {
+                        throw RuntimeException(
+                            "MCP request timed out after ${requestTimeoutMillis}ms", e
+                        )
+                    }
+                }
+            }
+        } catch (e: CancellationException) {
+            // Caller (e.g. Agent loop) cancelled this request. Per MCP spec
+            // we should send notifications/cancelled so the server can free
+            // its in-flight resources, then propagate the cancellation.
+            notifyCancelledAsync(id)
+            throw e
+        }
+    }
+
+    override suspend fun sendNotification(request: JsonRpcRequest) {
+        withContext(Dispatchers.IO) {
             ensureStarted()
             requestMutex.withLock {
-                stdin?.write(requestLine)
-                stdin?.write("\n")
-                stdin?.flush()
+                val writer = stdinWriter
+                    ?: throw RuntimeException("MCP server process not started")
+                writer.write(json.encodeToString(request))
+                writer.newLine()
+                writer.flush()
+            }
+        }
+    }
 
-                val responseLine = stdout?.readLine()
-                    ?: throw RuntimeException("MCP server process terminated")
-
-                val response = json.decodeFromString<JsonRpcResponse>(responseLine)
-                if (response.id != id) {
-                    throw RuntimeException("MCP response ID mismatch: expected $id, got ${response.id}")
-                }
-                response
+    private fun notifyCancelledAsync(requestId: Int) {
+        cancellationScope.launch {
+            runCatching {
+                sendNotification(
+                    JsonRpcRequest(
+                        id = 0,
+                        method = McpMethods.NOTIFICATIONS_CANCELLED,
+                        params = buildJsonObject {
+                            put("requestId", requestId)
+                        },
+                    )
+                )
             }
         }
     }
 
     override suspend fun close() {
         withContext(Dispatchers.IO) {
-            runCatching { stdin?.close() }
-            runCatching { stdout?.close() }
-            runCatching { stderr?.close() }
-            runCatching { process?.destroyForcibly() }
+            // Stage 1: close stdin so the server can detect EOF and exit gracefully.
+            runCatching { stdinWriter?.close() }
+            stdinWriter = null
+
+            // Stage 2: wait briefly; if still alive, send SIGTERM and wait again.
+            val proc = process
+            if (proc != null && proc.isAlive) {
+                if (!proc.waitFor(5, TimeUnit.SECONDS)) {
+                    runCatching { proc.destroy() }
+                    if (!proc.waitFor(2, TimeUnit.SECONDS)) {
+                        // Stage 3: last resort, force-kill.
+                        runCatching { proc.destroyForcibly() }
+                    }
+                }
+            }
+            process = null
+
+            // Stop the stderr drain coroutine and release IO resources.
+            stderrJob?.cancel()
+            stderrJob = null
+            runCatching { stdoutReader?.close() }
+            runCatching { stderrReader?.close() }
+            stdoutReader = null
+            stderrReader = null
         }
+        scope.cancel()
     }
 }

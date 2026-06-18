@@ -10,7 +10,7 @@ import kotlinx.serialization.json.jsonObject
 
 internal class LoadSkillTool(private val registry: SkillRegistry) : Tool {
     override val name: String = "load_skill"
-    override val description: String = buildDescription()
+    override val description: String by lazy { buildDescription() }
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         schema = """
         {

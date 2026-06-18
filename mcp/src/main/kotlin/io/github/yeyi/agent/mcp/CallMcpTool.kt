@@ -5,7 +5,9 @@ import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
 
 /**
@@ -59,6 +61,14 @@ internal class CallMcpTool(private val registry: McpServerRegistry) : Tool {
 
         val result = registry.callTool(serverName, params)
 
-        return ToolExecutionResult(content = result.toString())
+        // Map MCP result.isError → SDK ToolExecutionResult.isError;
+        // pass through result.content as the tool output (per MCP spec,
+        // content is the canonical tool output channel).
+        val isError = result.jsonObject["isError"]
+            .let { (it as? JsonPrimitive)?.booleanOrNull }
+            ?: false
+        val content = result.jsonObject["content"]?.toString() ?: ""
+
+        return ToolExecutionResult(content = content, isError = isError)
     }
 }

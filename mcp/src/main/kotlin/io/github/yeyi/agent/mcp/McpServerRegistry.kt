@@ -14,8 +14,12 @@ public class McpServerRegistry {
         servers[server.name] = server
     }
 
-    internal suspend fun listTools(serverName: String): JsonElement {
-        return getServer(serverName).listTools()
+    internal suspend fun listTools(serverName: String, cursor: String? = null): JsonElement {
+        return getServer(serverName).listTools(cursor)
+    }
+
+    internal suspend fun listAllTools(serverName: String): JsonElement {
+        return getServer(serverName).listAllTools()
     }
 
     internal suspend fun callTool(serverName: String, params: JsonElement): JsonElement {

@@ -14,7 +14,7 @@ import kotlinx.serialization.json.jsonObject
 internal class LoadMcpTool(private val registry: McpServerRegistry) : Tool {
     override val name: String = "load_mcp_tools"
 
-    override val description: String = buildDescription()
+    override val description: String by lazy { buildDescription() }
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         schema = """
@@ -29,7 +29,7 @@ internal class LoadMcpTool(private val registry: McpServerRegistry) : Tool {
     )
 
     private fun buildDescription(): String = """
-        |当需要激活以下MCP Server时，调用本工具：
+        |当需要使用以下MCP Server时，调用本工具：
         |${registry.buildDescription()}
     """.trimMargin()
 
@@ -41,8 +41,8 @@ internal class LoadMcpTool(private val registry: McpServerRegistry) : Tool {
             ?.let { (it as? JsonPrimitive)?.content }
             ?: throw IllegalArgumentException("Missing server_name")
 
-        val result = registry.listTools(serverName)
+        val result = registry.listAllTools(serverName)
 
-        return ToolExecutionResult(content = "$serverName MCP Server 已激活，可用工具如下：\n$result")
+        return ToolExecutionResult(content = result.toString())
     }
 }

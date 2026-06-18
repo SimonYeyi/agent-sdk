@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.mcp
 
-import kotlinx.serialization.Serializable
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.serialization.json.JsonElement
 
 /**
@@ -8,36 +9,39 @@ import kotlinx.serialization.json.JsonElement
  *
  * Different MCP servers may use different transport mechanisms:
  * - [StdioTransport]: For local subprocess servers (communicates via stdin/stdout)
- * - [SseTransport]: For remote servers using Server-Sent Events over HTTP
+ * - [SseTransport]: For remote servers using Streamable HTTP (MCP 2025-06-18)
+ *
+ * The JSON-RPC message types [JsonRpcRequest] / [JsonRpcResponse] are
+ * declared in `McpServer.kt` alongside the rest of the protocol contract.
  */
-public sealed interface McpTransport {
+public interface McpTransport {
     /**
-     * Send a JSON-RPC request and wait for response.
+     * Send a JSON-RPC request and wait for response. The transport carries
+     * the `result` payload as [JsonElement] — callers decode to the typed
+     * structure they need (e.g. [InitializeResult] for the `initialize`
+     * handshake) via [kotlinx.serialization.json.decodeFromJsonElement].
      */
-    public suspend fun send(request: JsonRpcRequest): JsonRpcResponse
+    public suspend fun send(request: JsonRpcRequest): JsonRpcResponse<JsonElement>
+
+    /**
+     * Send a JSON-RPC notification (no `id`, no response expected).
+     * Used for one-way messages such as `notifications/initialized`,
+     * `notifications/cancelled`, and `notifications/tools/list_changed`.
+     */
+    public suspend fun sendNotification(request: JsonRpcRequest)
+
+    /**
+     * Server-to-client notification stream: out-of-band messages that arrive
+     * outside of a request/response pair, such as
+     * `notifications/tools/list_changed`. The default implementation returns
+     * an empty flow; transports with a real notification channel override
+     * this.
+     */
+    public val notifications: Flow<JsonElement>
+        get() = emptyFlow()
 
     /**
      * Release all resources held by this transport.
      */
     public suspend fun close()
 }
-
-/**
- * JSON-RPC 2.0 request message.
- */
-@Serializable
-public data class JsonRpcRequest(
-    val id: Int,
-    val method: String,
-    val params: JsonElement? = null,
-)
-
-/**
- * JSON-RPC 2.0 response message.
- */
-@Serializable
-public data class JsonRpcResponse(
-    val id: Int,
-    val result: JsonElement? = null,
-    val error: JsonElement? = null,
-)
