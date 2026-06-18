@@ -13,9 +13,13 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -51,33 +55,43 @@ public class SseTransport(
     private val client: HttpClient = SharedHttpClient
     private var sessionId: String? = null
 
+    // Detached scope used to dispatch notifications/cancelled even after the
+    // caller's coroutine has been cancelled. Survives the caller's lifetime so
+    // the cancel notification can be flushed to the server.
+    private val cancellationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     override suspend fun <T> send(request: JsonRpcRequest<T>): JsonRpcResponse<JsonElement> {
         val body = json.encodeToString(request)
 
-        return withContext(Dispatchers.IO) {
-            val response: HttpResponse = client.post(endpoint) {
-                contentType(ContentType.Application.Json)
-                accept(ContentType.parse("application/json, text/event-stream"))
-                header(MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
-                sessionId?.let { header(MCP_SESSION_ID_HEADER, it) }
-                extraHeaders.forEach { (key, value) -> header(key, value) }
-                setBody(body)
-            }
+        return try {
+            withContext(Dispatchers.IO) {
+                val response: HttpResponse = client.post(endpoint) {
+                    contentType(ContentType.Application.Json)
+                    accept(ContentType.parse("application/json, text/event-stream"))
+                    header(MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
+                    sessionId?.let { header(MCP_SESSION_ID_HEADER, it) }
+                    extraHeaders.forEach { (key, value) -> header(key, value) }
+                    setBody(body)
+                }
 
-            captureSessionId(response)
+                captureSessionId(response)
 
-            if (!response.status.isSuccess()) {
-                throw RuntimeException("HTTP error: ${response.status}")
-            }
+                if (!response.status.isSuccess()) {
+                    throw RuntimeException("HTTP error: ${response.status}")
+                }
 
-            val bodyText = response.bodyAsText()
-            when (response.contentType()) {
-                ContentType.Application.Json -> parseJsonResponse(bodyText, request.id)
-                ContentType.Text.EventStream -> parseSseResponse(bodyText, request.id)
-                else -> throw RuntimeException(
-                    "Unexpected Content-Type: ${response.contentType()}"
-                )
+                val bodyText = response.bodyAsText()
+                when (response.contentType()) {
+                    ContentType.Application.Json -> parseJsonResponse(bodyText, request.id)
+                    ContentType.Text.EventStream -> parseSseResponse(bodyText, request.id)
+                    else -> throw RuntimeException(
+                        "Unexpected Content-Type: ${response.contentType()}"
+                    )
+                }
             }
+        } catch (e: CancellationException) {
+            notifyCancelledAsync(request.id)
+            throw e
         }
     }
 
@@ -112,6 +126,20 @@ public class SseTransport(
         response.headers[MCP_SESSION_ID_HEADER]?.let { sessionId = it }
     }
 
+    private fun notifyCancelledAsync(requestId: Int) {
+        cancellationScope.launch {
+            runCatching {
+                sendNotification(
+                    JsonRpcRequest(
+                        id = 0,
+                        method = McpMethods.NOTIFICATIONS_CANCELLED,
+                        params = CancelledNotificationParams(requestId),
+                    )
+                )
+            }
+        }
+    }
+
     private fun parseJsonResponse(body: String, expectedId: Int): JsonRpcResponse<JsonElement> {
         val response = json.decodeFromString<JsonRpcResponse<JsonElement>>(body)
         if (response.id != expectedId) {
@@ -131,8 +159,11 @@ public class SseTransport(
             if (data.isEmpty() || data == "[DONE]") continue
             val element = runCatching { json.parseToJsonElement(data) }.getOrNull() ?: continue
             val obj = element as? JsonObject ?: continue
-            val id = (obj["id"] as? JsonPrimitive)?.intOrNull
-            if (id == expectedId) {
+            val idElement = obj["id"] as? JsonPrimitive
+            // Handle both int and string server IDs per JSON-RPC spec
+            val matches = idElement?.intOrNull == expectedId ||
+                    idElement?.content == expectedId.toString()
+            if (matches) {
                 return json.decodeFromJsonElement(
                     JsonRpcResponse.serializer(JsonElement.serializer()),
                     element,

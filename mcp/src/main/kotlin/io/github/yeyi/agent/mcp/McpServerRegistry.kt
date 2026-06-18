@@ -36,6 +36,6 @@ public class McpServerRegistry {
     }
 
     private fun getServer(serverName: String): McpServer {
-        return servers[serverName] ?: throw RuntimeException("MCP Server not found: $serverName")
+        return servers[serverName] ?: throw IllegalArgumentException("MCP Server not found: $serverName")
     }
 }

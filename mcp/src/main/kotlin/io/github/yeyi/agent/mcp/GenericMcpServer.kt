@@ -103,6 +103,8 @@ public class GenericMcpServer(
     private suspend fun doInitialize(): InitializeResult {
         val params = InitializeParams(
             protocolVersion = SUPPORTED_PROTOCOL_VERSION,
+            // Client capabilities: none declared yet. Per MCP spec, this informs
+            // the server which optional protocol features the client supports.
             capabilities = JsonObject(emptyMap()),
             clientInfo = clientInfo,
         )
