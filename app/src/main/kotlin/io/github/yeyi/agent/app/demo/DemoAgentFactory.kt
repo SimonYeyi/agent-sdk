@@ -77,7 +77,7 @@ object DemoAgentFactory {
             // Local MCP server
             register(GenericMcpServer("calculator", "Calculator server", LocalTransport(CalculatorMcpServer())))
             // Online MCP servers
-            register(GenericMcpServer("time", "Current time server", SseTransport("https://time.mcp.inevitable.fyi/mcp")))
+            register(GenericMcpServer("kukapay", "加法运算", SseTransport("https://test.kukapay.com/api/mcp")))
         }
 
         return agent {

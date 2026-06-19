@@ -37,6 +37,7 @@ public class LocalTransport(private val localServer: McpServer) : McpTransport {
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
+        explicitNulls = false
     }
 
     override val notifications: Flow<JsonRpcNotification<JsonElement>> =

@@ -51,6 +51,7 @@ public class StdioTransport(
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
+        explicitNulls = false
     }
 
     private val startMutex = Mutex()

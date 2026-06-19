@@ -1,7 +1,13 @@
 package io.github.yeyi.agent.mcp
 
 import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
+import io.ktor.client.engine.okhttp.OkHttp
+import okhttp3.OkHttpClient
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+import javax.net.ssl.SSLContext
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.accept
 import io.ktor.client.request.header
@@ -12,6 +18,7 @@ import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
+import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
@@ -65,24 +72,37 @@ public class SseTransport(
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
+        explicitNulls = false
     }
 
     // Dedicated clients with appropriate timeouts
-    private val postClient: HttpClient = HttpClient(CIO) {
+    private val postClient: HttpClient = HttpClient(OkHttp) {
         install(HttpTimeout) {
             requestTimeoutMillis = 120_000
             connectTimeoutMillis = 20_000
         }
         expectSuccess = false
+        engine {
+            config {
+                sslSocketFactory(createInsecureSslContext().socketFactory, createInsecureTrustManager())
+                hostnameVerifier { _, _ -> true }
+            }
+        }
     }
 
-    private val sseClient: HttpClient = HttpClient(CIO) {
+    private val sseClient: HttpClient = HttpClient(OkHttp) {
         install(HttpTimeout) {
             requestTimeoutMillis = Long.MAX_VALUE
             socketTimeoutMillis = Long.MAX_VALUE
             connectTimeoutMillis = 20_000
         }
         expectSuccess = false
+        engine {
+            config {
+                sslSocketFactory(createInsecureSslContext().socketFactory, createInsecureTrustManager())
+                hostnameVerifier { _, _ -> true }
+            }
+        }
     }
 
     @Volatile
@@ -163,7 +183,7 @@ public class SseTransport(
         return try {
             val response: HttpResponse = postClient.post(endpoint) {
                 contentType(ContentType.Application.Json)
-                accept(ContentType.Application.Json)
+                header(HttpHeaders.Accept, "${ContentType.Application.Json}, ${ContentType.Text.EventStream}")
                 header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
                 sessionId?.let { header(Defaults.MCP_SESSION_ID_HEADER, it) }
                 extraHeaders.forEach { (key, value) -> header(key, value) }
@@ -191,7 +211,7 @@ public class SseTransport(
 
         val response: HttpResponse = postClient.post(endpoint) {
             contentType(ContentType.Application.Json)
-            accept(ContentType.Application.Json)
+            header(HttpHeaders.Accept, "${ContentType.Application.Json}, ${ContentType.Text.EventStream}")
             header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
             sessionId?.let { header(Defaults.MCP_SESSION_ID_HEADER, it) }
             extraHeaders.forEach { (key, value) -> header(key, value) }
@@ -338,13 +358,36 @@ public class SseTransport(
     }
 
     private fun parseJsonResponse(body: String, expectedId: Int): JsonRpcResponse<JsonElement> {
-        val response = json.decodeFromString<JsonRpcResponse<JsonElement>>(body)
+        // Some servers (like kukapay) return SSE-formatted responses even for POST requests.
+        // If body starts with "event:", parse as SSE and extract JSON from data field.
+        val jsonBody = if (body.startsWith("event:")) {
+            val sseEvent = SseEventParser.parse(body)
+            sseEvent?.data ?: body
+        } else {
+            body
+        }
+        val response = json.decodeFromString<JsonRpcResponse<JsonElement>>(jsonBody)
         if (response.id != expectedId) {
             throw RuntimeException(
                 "MCP response ID mismatch: expected $expectedId, got ${response.id}"
             )
         }
         return response
+    }
+
+    private fun createInsecureTrustManager(): X509TrustManager {
+        return object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
+        }
+    }
+
+    private fun createInsecureSslContext(): SSLContext {
+        val trustManager = createInsecureTrustManager()
+        return SSLContext.getInstance("TLS").apply {
+            init(null, arrayOf<TrustManager>(trustManager), SecureRandom())
+        }
     }
 }
 

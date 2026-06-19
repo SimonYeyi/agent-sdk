@@ -61,6 +61,7 @@ public class ToolRegistry {
         } catch (t: CancellationException) {
             throw t
         } catch (t: Throwable) {
+            t.printStackTrace()
             ToolExecutionResult(content = "Tool error: ${t.message}", isError = true)
         }
     }

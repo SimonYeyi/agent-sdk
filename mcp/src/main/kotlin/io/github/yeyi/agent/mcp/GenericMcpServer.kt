@@ -36,6 +36,7 @@ public class GenericMcpServer(
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
+        explicitNulls = false
     }
 
     internal var clientInfo: ClientInfo? = null
