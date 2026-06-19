@@ -27,7 +27,6 @@ public class GenericMcpServer(
     override val name: String,
     override val description: String,
     override val transport: McpTransport,
-    private val clientInfo: ClientInfo = ClientInfo(CLIENT_NAME, CLIENT_VERSION),
 ) : McpServer {
     private val initializeMutex = Mutex()
     private var initResult: InitializeResult? = null
@@ -37,6 +36,8 @@ public class GenericMcpServer(
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
+
+    internal var clientInfo: ClientInfo? = null
 
     override suspend fun initialize(): InitializeResult = initializeMutex.withLock {
         initResult ?: run {
@@ -110,7 +111,7 @@ public class GenericMcpServer(
                 roots = RootsObject(listChanged = true),
                 sampling = SamplingObject,
             ),
-            clientInfo = clientInfo,
+            clientInfo = clientInfo ?: DEFAULT_CLIENT_INFO,
         )
         val request = JsonRpcRequest(
             id = nextId.getAndIncrement(),
@@ -130,7 +131,7 @@ public class GenericMcpServer(
         ) {
             throw MCPServerException(
                 "MCP server protocol version '${result.protocolVersion}' is not supported " +
-                    "(client supports $McpServer.SUPPORTED_PROTOCOL_VERSION)"
+                        "(client supports $McpServer.SUPPORTED_PROTOCOL_VERSION)"
             )
         }
 
@@ -146,8 +147,7 @@ public class GenericMcpServer(
     }
 
     private companion object {
-        const val CLIENT_NAME = "agent-sdk"
-        const val CLIENT_VERSION = "0.1.0"
+        val DEFAULT_CLIENT_INFO = ClientInfo("agent-sdk", "0.1.0")
     }
 }
 

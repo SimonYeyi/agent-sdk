@@ -22,6 +22,7 @@ class CallMcpToolTest {
     private object NoopTransport : McpTransport {
         override suspend fun <T> send(request: JsonRpcRequest<T>): JsonRpcResponse<JsonElement> =
             error("not used")
+
         override suspend fun <T> sendNotification(request: JsonRpcRequest<T>) = Unit
         override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
         override suspend fun close() = Unit
@@ -40,8 +41,10 @@ class CallMcpToolTest {
             serverInfo = ServerInfo(name = "", version = ""),
             capabilities = ServerCapabilities(),
         )
+
         override suspend fun listTools(cursor: String?): ListToolsResult =
             ListToolsResult(tools = JsonArray(emptyList()))
+
         override suspend fun ping(): Boolean = true
         override suspend fun callTool(params: JsonElement): JsonElement {
             if (toolCallError) {
@@ -49,13 +52,14 @@ class CallMcpToolTest {
             }
             return toolCallResult
         }
+
         override suspend fun close() = Unit
     }
 
     @Test
     fun `throws exception when isError true`() = runTest {
         val content = JsonArray(listOf(JsonPrimitive("error result")))
-        val registry = McpServerRegistry().register(
+        val registry = McpServerRegistry(ClientInfo("", "")).register(
             createFakeServer(
                 toolCallResult = content,
                 toolCallError = true,
@@ -82,7 +86,7 @@ class CallMcpToolTest {
     @Test
     fun `returns content when isError false`() = runTest {
         val content = JsonArray(listOf(JsonPrimitive("ok")))
-        val registry = McpServerRegistry().register(
+        val registry = McpServerRegistry(ClientInfo("", "")).register(
             createFakeServer(
                 toolCallResult = content,
                 toolCallError = false,
@@ -107,7 +111,7 @@ class CallMcpToolTest {
 
     @Test
     fun `returns null string when content absent`() = runTest {
-        val registry = McpServerRegistry().register(
+        val registry = McpServerRegistry(ClientInfo("", "")).register(
             createFakeServer(
                 toolCallResult = JsonNull,
                 toolCallError = false,

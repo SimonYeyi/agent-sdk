@@ -6,12 +6,17 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Registry for managing multiple [McpServer] instances.
  */
-public class McpServerRegistry {
+public class McpServerRegistry(private val clientInfo: ClientInfo) {
     private val servers = ConcurrentHashMap<String, McpServer>()
 
     public fun register(server: McpServer): McpServerRegistry = apply {
         require(!servers.containsKey(server.name)) { "MCP Server with name '${server.name}' is already registered" }
+        (server as? GenericMcpServer)?.clientInfo = this.clientInfo
         servers[server.name] = server
+    }
+
+    public fun register(servers: Iterable<McpServer>) {
+        servers.forEach(::register)
     }
 
     internal suspend fun listAllTools(serverName: String): ListToolsResult {

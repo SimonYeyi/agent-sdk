@@ -47,7 +47,7 @@ class LoadMcpToolTest {
     @Test
     fun `returns tools array as content`() = runTest {
         val tools = JsonArray(listOf(JsonPrimitive("tool1"), JsonPrimitive("tool2")))
-        val registry = McpServerRegistry().register(
+        val registry = McpServerRegistry(ClientInfo("", "")).register(
             createFakeServer(
                 listToolsResult = ListToolsResult(tools = tools),
             )
@@ -65,7 +65,7 @@ class LoadMcpToolTest {
 
     @Test
     fun `description contains registered server name`() = runTest {
-        val registry = McpServerRegistry().register(
+        val registry = McpServerRegistry(ClientInfo("", "")).register(
             createFakeServer(
                 name = "my-server",
                 description = "my server description",
