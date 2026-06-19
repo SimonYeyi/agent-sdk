@@ -17,6 +17,14 @@ import kotlinx.serialization.json.JsonElement
 public interface McpTransport {
 
     /**
+     * Initialize the transport layer (e.g., establish SSE connection, get session ID).
+     * Default implementation is a no-op; SseTransport overrides this.
+     *
+     * Called by [GenericMcpServer] before the protocol handshake.
+     */
+    public suspend fun initialize() { /* default no-op */ }
+
+    /**
      * Server-to-client notification stream: out-of-band messages that arrive
      * outside of a request/response pair, such as
      * `notifications/tools/list_changed`. The default implementation returns

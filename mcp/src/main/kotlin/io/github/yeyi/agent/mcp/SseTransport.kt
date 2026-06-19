@@ -6,17 +6,24 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.request.accept
 import io.ktor.client.request.header
 import io.ktor.client.request.post
+import io.ktor.client.request.get
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
 import io.ktor.http.isSuccess
+import io.ktor.utils.io.readUTF8Line
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -32,71 +39,138 @@ import kotlinx.serialization.json.intOrNull
 /**
  * Transport implementation using the MCP 2025-06-18 Streamable HTTP transport.
  *
- * The client posts JSON-RPC requests to a single MCP endpoint. The server MAY
- * respond with either `application/json` (single response) or
- * `text/event-stream` (SSE stream with possible progress notifications
- * interleaved). All requests carry the `MCP-Protocol-Version` header; if the
- * server returns an `Mcp-Session-Id` header, it is captured and echoed on
- * subsequent requests.
+ * Architecture:
+ * - A persistent GET SSE connection receives server-to-client notifications
+ *   and progress updates.
+ * - Short-lived POST requests carry JSON-RPC calls and receive immediate
+ *   responses (application/json).
+ * - Session affinity is maintained via the Mcp-Session-Id header.
  *
- * Server-to-client notifications (e.g. `notifications/tools/list_changed`)
- * are not yet wired through a separate GET stream — that will arrive with
- * the long-lived notification channel work. The [notifications] flow is
+ * Usage:
+ *   val transport = SseTransport(endpoint)
+ *   transport.initialize()  // Must be called before send()
  */
 public class SseTransport(
     private val endpoint: String,
     private val extraHeaders: Map<String, String> = emptyMap(),
     private val protocolVersion: String = GenericMcpServer.SUPPORTED_PROTOCOL_VERSION,
+    private val reconnectDelayMs: Long = 5000L,
+    private val sessionTimeoutMs: Long = 4000L,
 ) : McpTransport {
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
     }
 
-    private val client: HttpClient = SharedHttpClient
+    // Dedicated clients with appropriate timeouts
+    private val postClient: HttpClient = HttpClient(CIO) {
+        install(HttpTimeout) {
+            requestTimeoutMillis = 120_000
+            connectTimeoutMillis = 20_000
+        }
+        expectSuccess = false
+    }
+
+    private val sseClient: HttpClient = HttpClient(CIO) {
+        install(HttpTimeout) {
+            requestTimeoutMillis = Long.MAX_VALUE
+            socketTimeoutMillis = Long.MAX_VALUE
+            connectTimeoutMillis = 20_000
+        }
+        expectSuccess = false
+    }
+
+    @Volatile
     private var sessionId: String? = null
 
-    // Detached scope used to dispatch notifications/cancelled even after the
-    // caller's coroutine has been cancelled. Survives the caller's lifetime so
-    // the cancel notification can be flushed to the server.
-    private val cancellationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    @Volatile
+    private var initialized: Boolean = false
+
+    private var sseJob: Job? = null
+
+    // Track pending cancellation jobs for graceful shutdown
+    private val cancellationJobs = mutableListOf<Job>()
+
+    // Scope for background tasks (SSE listener, cancellation notifications)
+    private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _notifications = MutableSharedFlow<JsonRpcNotification<JsonElement>>(
         replay = 0,
-        extraBufferCapacity = 64,
+        extraBufferCapacity = 256,
     )
 
     override val notifications: Flow<JsonRpcNotification<JsonElement>> = _notifications.asSharedFlow()
 
+    /**
+     * Initializes the transport by establishing the SSE connection and obtaining
+     * a session ID from the server.
+     *
+     * This only establishes the transport layer (SSE connection + session).
+     * The actual MCP protocol handshake (initialize request) is handled by
+     * [GenericMcpServer.initialize].
+     *
+     * Must be called before [send] or [sendNotification].
+     */
+    override suspend fun initialize(): Unit = withContext(Dispatchers.IO) {
+        if (initialized) return@withContext
+
+        // Establish SSE connection first - many servers send sessionId immediately
+        startSseConnection()
+
+        // Wait for session ID from SSE connection or any response
+        val retryDelayMs = 50L
+        val maxAttempts = (sessionTimeoutMs / retryDelayMs).toInt()
+        repeat(maxAttempts) {
+            if (sessionId != null) return@withContext
+            delay(retryDelayMs)
+        }
+
+        // Fallback: try a POST ping request to get sessionId if SSE didn't provide one
+        if (sessionId == null) {
+            runCatching {
+                val pingRequest = JsonRpcRequest(
+                    id = 0,
+                    method = McpMethods.PING,
+                    params = EmptyParams,
+                )
+                val fallbackResponse = postClient.post(endpoint) {
+                    contentType(ContentType.Application.Json)
+                    accept(ContentType.Application.Json)
+                    header(MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
+                    extraHeaders.forEach { (k, v) -> header(k, v) }
+                    setBody(json.encodeToString(pingRequest))
+                }
+                captureSessionId(fallbackResponse)
+            }
+        }
+
+        check(sessionId != null) { "Failed to obtain session ID" }
+        initialized = true
+    }
+
     override suspend fun <T> send(request: JsonRpcRequest<T>): JsonRpcResponse<JsonElement> {
+        ensureInitialized()
+
         val body = json.encodeToString(request)
 
         return try {
-            withContext(Dispatchers.IO) {
-                val response: HttpResponse = client.post(endpoint) {
-                    contentType(ContentType.Application.Json)
-                    accept(ContentType.parse("application/json, text/event-stream"))
-                    header(MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
-                    sessionId?.let { header(MCP_SESSION_ID_HEADER, it) }
-                    extraHeaders.forEach { (key, value) -> header(key, value) }
-                    setBody(body)
-                }
-
-                captureSessionId(response)
-
-                if (!response.status.isSuccess()) {
-                    throw RuntimeException("HTTP error: ${response.status}")
-                }
-
-                val bodyText = response.bodyAsText()
-                when (response.contentType()) {
-                    ContentType.Application.Json -> parseJsonResponse(bodyText, request.id)
-                    ContentType.Text.EventStream -> parseSseResponse(bodyText, request.id)
-                    else -> throw RuntimeException(
-                        "Unexpected Content-Type: ${response.contentType()}"
-                    )
-                }
+            val response: HttpResponse = postClient.post(endpoint) {
+                contentType(ContentType.Application.Json)
+                accept(ContentType.Application.Json)
+                header(MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
+                sessionId?.let { header(MCP_SESSION_ID_HEADER, it) }
+                extraHeaders.forEach { (key, value) -> header(key, value) }
+                setBody(body)
             }
+
+            captureSessionId(response)
+
+            if (!response.status.isSuccess()) {
+                throw RuntimeException("HTTP error: ${response.status}")
+            }
+
+            val bodyText = response.bodyAsText()
+            parseJsonResponse(bodyText, request.id)
         } catch (e: CancellationException) {
             notifyCancelledAsync(request.id)
             throw e
@@ -104,28 +178,128 @@ public class SseTransport(
     }
 
     override suspend fun <T> sendNotification(request: JsonRpcRequest<T>) {
+        ensureInitialized()
+
         val body = json.encodeToString(request)
 
-        withContext(Dispatchers.IO) {
-            val response: HttpResponse = client.post(endpoint) {
-                contentType(ContentType.Application.Json)
-                accept(ContentType.parse("application/json, text/event-stream"))
-                header(MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
-                sessionId?.let { header(MCP_SESSION_ID_HEADER, it) }
-                extraHeaders.forEach { (key, value) -> header(key, value) }
-                setBody(body)
-            }
-            captureSessionId(response)
-            // Notifications MUST receive 202 Accepted per spec; anything other
-            // than 2xx is a failure.
-            if (response.status != HttpStatusCode.Accepted && !response.status.isSuccess()) {
-                throw RuntimeException("HTTP error on notification: ${response.status}")
-            }
+        val response: HttpResponse = postClient.post(endpoint) {
+            contentType(ContentType.Application.Json)
+            accept(ContentType.Application.Json)
+            header(MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
+            sessionId?.let { header(MCP_SESSION_ID_HEADER, it) }
+            extraHeaders.forEach { (key, value) -> header(key, value) }
+            setBody(body)
+        }
+        captureSessionId(response)
+
+        // Per MCP spec, notifications SHOULD receive 202 Accepted
+        if (response.status != HttpStatusCode.Accepted && !response.status.isSuccess()) {
+            throw RuntimeException("HTTP error on notification: ${response.status}")
         }
     }
 
     override suspend fun close() {
-        // HttpClient is shared; do not close it here.
+        sseJob?.cancel()
+        sseJob = null
+
+        // Cancel all pending cancellation notification jobs
+        cancellationJobs.forEach { it.cancel() }
+        cancellationJobs.clear()
+
+        backgroundScope.cancel()
+        postClient.close()
+        sseClient.close()
+        initialized = false
+    }
+
+    // -----------------------------------------------------------------------
+    // Internal helpers
+    // -----------------------------------------------------------------------
+
+    private fun ensureInitialized() {
+        check(initialized) {
+            "SseTransport is not initialized. Call initialize() before sending messages."
+        }
+    }
+
+    /**
+     * Establishes a persistent SSE connection and starts reading events.
+     * Automatically reconnects on failure with a configurable delay.
+     */
+    private fun startSseConnection() {
+        sseJob = backgroundScope.launch {
+            while (isActive) {
+                try {
+                    val response: HttpResponse = sseClient.get(endpoint) {
+                        accept(ContentType.Text.EventStream)
+                        header(MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
+                        sessionId?.let { header(MCP_SESSION_ID_HEADER, it) }
+                        extraHeaders.forEach { (key, value) -> header(key, value) }
+                    }
+
+                    captureSessionId(response)
+
+                    if (!response.status.isSuccess()) {
+                        throw RuntimeException("SSE connection failed: ${response.status}")
+                    }
+
+                    val channel = response.bodyAsChannel()
+                    readSseEvents(channel)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    // Log and reconnect after delay
+                    delay(reconnectDelayMs)
+                }
+            }
+        }
+    }
+
+    /**
+     * Reads SSE events from the given channel, parses them, and emits
+     * notifications to [_notifications].
+     */
+    private suspend fun readSseEvents(channel: io.ktor.utils.io.ByteReadChannel) {
+        val currentEvent = StringBuilder()
+
+        while (!channel.isClosedForRead) {
+            val line = channel.readUTF8Line() ?: break
+
+            if (line.isEmpty()) {
+                // Blank line: dispatch current event
+                if (currentEvent.isNotEmpty()) {
+                    processSseEvent(currentEvent.toString())
+                    currentEvent.clear()
+                }
+            } else {
+                if (currentEvent.isNotEmpty()) currentEvent.append('\n')
+                currentEvent.append(line)
+            }
+        }
+
+        // Dispatch any remaining partial event
+        if (currentEvent.isNotEmpty()) {
+            processSseEvent(currentEvent.toString())
+        }
+    }
+
+    /**
+     * Parses a complete SSE event and, if it contains a valid JSON-RPC
+     * notification, emits it to [_notifications].
+     */
+    private suspend fun processSseEvent(raw: String) {
+        val parsed = SseEventParser.parse(raw) ?: return
+        if (parsed.data.isEmpty()) return
+
+        val element = runCatching { json.parseToJsonElement(parsed.data) }.getOrNull() ?: return
+        val obj = element as? JsonObject ?: return
+
+        // Only handle notifications (has method but no id)
+        if (obj["method"] != null && obj["id"] == null) {
+            val notification: JsonRpcNotification<JsonElement> =
+                runCatching { json.decodeFromJsonElement<JsonRpcNotification<JsonElement>>(obj) }.getOrNull() ?: return
+            _notifications.emit(notification)
+        }
     }
 
     private fun captureSessionId(response: HttpResponse) {
@@ -133,7 +307,7 @@ public class SseTransport(
     }
 
     private fun notifyCancelledAsync(requestId: Int) {
-        cancellationScope.launch {
+        val job = backgroundScope.launch {
             runCatching {
                 sendNotification(
                     JsonRpcRequest(
@@ -142,6 +316,14 @@ public class SseTransport(
                         params = CancelledNotificationParams(requestId),
                     )
                 )
+            }
+        }
+        synchronized(cancellationJobs) {
+            cancellationJobs.add(job)
+        }
+        job.invokeOnCompletion {
+            synchronized(cancellationJobs) {
+                cancellationJobs.remove(job)
             }
         }
     }
@@ -156,45 +338,6 @@ public class SseTransport(
         return response
     }
 
-    private suspend fun parseSseResponse(body: String, expectedId: Int): JsonRpcResponse<JsonElement> {
-        // Walk the SSE stream looking for the JSON-RPC response with the
-        // expected id. Notifications (events with method but no matching id)
-        // are emitted to [_notifications].
-        for (event in SseEvent.parseAll(body)) {
-            val data = event.data
-            if (data.isEmpty() || data == "[DONE]") continue
-            val element = runCatching { json.parseToJsonElement(data) }.getOrNull() ?: continue
-            val obj = element as? JsonObject ?: continue
-
-            // Check if this is a notification (has method but no matching id)
-            if (obj["method"] != null) {
-                val idElement = obj["id"] as? JsonPrimitive
-                val matches = idElement?.intOrNull == expectedId ||
-                        idElement?.content == expectedId.toString()
-                if (!matches) {
-                    // This is a notification, emit it and continue
-                    val notification: JsonRpcNotification<JsonElement> = json.decodeFromJsonElement(obj)
-                    _notifications.emit(notification)
-                    continue
-                }
-            }
-
-            // Check if this is the matching response
-            val idElement = obj["id"] as? JsonPrimitive
-            val matches = idElement?.intOrNull == expectedId ||
-                    idElement?.content == expectedId.toString()
-            if (matches) {
-                return json.decodeFromJsonElement(
-                    JsonRpcResponse.serializer(JsonElement.serializer()),
-                    element,
-                )
-            }
-        }
-        throw RuntimeException(
-            "No matching response in SSE stream for id=$expectedId"
-        )
-    }
-
     internal companion object {
         internal const val MCP_PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
         internal const val MCP_SESSION_ID_HEADER = "Mcp-Session-Id"
@@ -202,84 +345,55 @@ public class SseTransport(
 }
 
 /**
- * Shared HttpClient for all [SseTransport] instances. Process-wide lifecycle
- * matches the JVM; tear-down happens on application shutdown.
- */
-internal val SharedHttpClient: HttpClient = HttpClient(CIO) {
-    install(HttpTimeout) {
-        requestTimeoutMillis = 30_000
-        connectTimeoutMillis = 10_000
-    }
-    expectSuccess = false
-}
-
-/**
- * Lightweight SSE event parser supporting the W3C Server-Sent Events
- * grammar: multi-line `data:` (joined by `\n`), `id:`, `event:`, `retry:`,
- * and `:` comment lines. Lines are split on `\n`; events are split on
- * blank lines (`\n\n`).
+ * Lightweight SSE event parser supporting the W3C Server-Sent Events grammar.
  */
 internal data class SseEvent(
     val id: String? = null,
     val event: String? = null,
     val data: String = "",
     val retry: Long? = null,
-) {
-    companion object {
-        fun parseAll(body: String): List<SseEvent> {
-            val events = mutableListOf<SseEvent>()
-            val current = StringBuilder()
-            // Normalize line endings: split on \n, drop trailing \r on each.
-            val lines = body.split('\n').map { it.trimEnd('\r') }
-            for (line in lines) {
-                if (line.isEmpty()) {
-                    // Blank line: dispatch current event.
-                    if (current.isNotEmpty()) {
-                        events += parseEvent(current.toString())
-                        current.clear()
-                    }
-                } else {
-                    if (current.isNotEmpty()) current.append('\n')
-                    current.append(line)
+)
+
+/**
+ * Parser for individual SSE event strings.
+ */
+internal object SseEventParser {
+    fun parse(raw: String): SseEvent? {
+        if (raw.isBlank()) return null
+
+        var id: String? = null
+        var event: String? = null
+        val data = StringBuilder()
+        var retry: Long? = null
+
+        for (line in raw.split('\n')) {
+            if (line.isEmpty()) continue
+            if (line.startsWith(':')) continue  // comment
+
+            val colon = line.indexOf(':')
+            val (field, value) = if (colon < 0) {
+                line to ""
+            } else {
+                line.substring(0, colon) to
+                        line.substring(colon + 1).trimStart(' ')
+            }
+
+            when (field) {
+                "id" -> id = value
+                "event" -> event = value
+                "data" -> {
+                    if (data.isNotEmpty()) data.append('\n')
+                    data.append(value)
                 }
+                "retry" -> retry = value.toLongOrNull()
             }
-            if (current.isNotEmpty()) {
-                events += parseEvent(current.toString())
-            }
-            return events
         }
 
-        private fun parseEvent(raw: String): SseEvent {
-            var id: String? = null
-            var event: String? = null
-            val data = StringBuilder()
-            var retry: Long? = null
-            for (line in raw.split('\n')) {
-                if (line.isEmpty()) continue
-                if (line.startsWith(':')) continue  // comment
-                val colon = line.indexOf(':')
-                val (field, value) = if (colon < 0) {
-                    line to ""
-                } else {
-                    line.substring(0, colon) to
-                        line.substring(colon + 1).trimStart(' ')
-                }
-                when (field) {
-                    "id" -> id = value
-                    "event" -> event = value
-                    "data" -> {
-                        if (data.isNotEmpty()) data.append('\n')
-                        data.append(value)
-                    }
-                    "retry" -> retry = value.toLongOrNull()
-                }
-            }
-            return SseEvent(
-                id = id,
-                event = event,
-                data = data.toString(),
-                retry = retry,
-            )
-        }
+        return SseEvent(
+            id = id,
+            event = event,
+            data = data.toString(),
+            retry = retry,
+        )
     }
 }

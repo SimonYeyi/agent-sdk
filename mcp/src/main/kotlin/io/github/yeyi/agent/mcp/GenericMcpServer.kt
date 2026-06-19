@@ -97,7 +97,10 @@ public class GenericMcpServer(
     }
 
     override suspend fun initialize(): InitializeResult = initializeMutex.withLock {
-        initResult ?: doInitialize().also { initResult = it }
+        initResult ?: run {
+            transport.initialize()
+            doInitialize()
+        }.also { initResult = it }
     }
 
     private suspend fun doInitialize(): InitializeResult {
