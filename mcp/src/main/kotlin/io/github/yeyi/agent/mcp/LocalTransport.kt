@@ -1,10 +1,10 @@
 package io.github.yeyi.agent.mcp
 
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.serializer
@@ -30,9 +30,7 @@ import kotlinx.serialization.serializer
  * }
  * ```
  */
-public class LocalTransport(
-    private val localServer: McpServer,
-) : McpTransport {
+public class LocalTransport(private val localServer: McpServer) : McpTransport {
     private val initializeMutex = Mutex()
     private var cachedInitResult: InitializeResult? = null
 
@@ -61,7 +59,7 @@ public class LocalTransport(
 
             McpMethods.TOOLS_LIST -> {
                 // Extract cursor from request.params without generic type assumptions.
-                val cursor = extractCursor(request)
+                val cursor = (request.params as? ListToolsParams)?.cursor
                 val listResult = localServer.listTools(cursor)
                 json.encodeToString(serializer<ListToolsResult>(), listResult)
                     .let { json.parseToJsonElement(it) }
@@ -69,7 +67,7 @@ public class LocalTransport(
 
             McpMethods.TOOLS_CALL -> {
                 // Extract raw JsonElement params and forward directly.
-                val paramsElement = extractParamsElement(request)
+                val paramsElement = request.params as? JsonElement
                     ?: return errorResponse(id, "Missing params for tools/call")
                 val callResult = localServer.callTool(paramsElement)
                 json.encodeToString(
@@ -94,27 +92,12 @@ public class LocalTransport(
     }
 
     override suspend fun <T> sendNotification(request: JsonRpcRequest<T>) {
-        // Local in-process: notifications/initialized and notifications/cancelled
-        // require no special server action. Server→client notifications are
-        // delivered via the `notifications` flow on localServer.transport.
+        localServer.transport.sendNotification(request)
     }
 
     override suspend fun close() {
         cachedInitResult = null
         localServer.close()
-    }
-
-    /** Extract cursor from the generic request params by JSON round-trip. */
-    private fun <T> extractCursor(request: JsonRpcRequest<T>): String? {
-        return extractParamsElement(request)?.run {
-            Json.decodeFromJsonElement(ListToolsParams.serializer(), this)
-        }?.cursor
-    }
-
-    /** Extract raw params JsonElement from the generic request by JSON round-trip. */
-    private fun <T> extractParamsElement(request: JsonRpcRequest<T>): JsonElement? {
-        val body = json.encodeToString(request)
-        return Json.decodeFromString<JsonRpcRequest<JsonElement>>(body).params
     }
 
     private fun errorResponse(id: Int, message: String): JsonRpcResponse<JsonElement> {
@@ -129,6 +112,25 @@ public class LocalTransport(
             result = null,
             error = errorElement,
         )
+    }
+
+    public companion object {
+        public fun forServer(
+            notifications: Flow<JsonRpcNotification<JsonElement>> = flow { },
+            sendNotification: (request: JsonRpcRequest<*>) -> Unit = {}
+        ): McpTransport {
+            return object : McpTransport {
+                override val notifications: Flow<JsonRpcNotification<JsonElement>> = notifications
+
+                override suspend fun <T> send(request: JsonRpcRequest<T>): JsonRpcResponse<JsonElement> =
+                    throw UnsupportedOperationException()
+
+                override suspend fun <T> sendNotification(request: JsonRpcRequest<T>) =
+                    sendNotification.invoke(request)
+
+                override suspend fun close() {}
+            }
+        }
     }
 }
 
