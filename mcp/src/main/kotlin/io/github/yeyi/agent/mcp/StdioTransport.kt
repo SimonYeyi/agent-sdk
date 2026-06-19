@@ -205,28 +205,29 @@ public class StdioTransport(
         reader: BufferedReader,
         expectedId: Int,
     ): JsonRpcResponse<JsonElement> {
-        val line = withContext(Dispatchers.IO) {
-            reader.readLine()
-        } ?: throw RuntimeException("MCP server process terminated")
+        while (true) {
+            val line = withContext(Dispatchers.IO) {
+                reader.readLine()
+            } ?: throw RuntimeException("MCP server process terminated")
 
-        val parsed = json.parseToJsonElement(line)
+            val parsed = json.parseToJsonElement(line)
 
-        // Check if this is a notification (no id field)
-        if (parsed is JsonObject && parsed["id"] == null) {
-            // Emit notification and continue reading
-            val notification: JsonRpcNotification<JsonElement> = json.decodeFromJsonElement(parsed)
-            _notifications.emit(notification)
-            return readResponseWithNotifications(reader, expectedId)
+            // Check if this is a notification (no id field)
+            if (parsed is JsonObject && parsed["id"] == null) {
+                val notification: JsonRpcNotification<JsonElement> = json.decodeFromJsonElement(parsed)
+                _notifications.emit(notification)
+                continue
+            }
+
+            // Has id - should be the response
+            val response: JsonRpcResponse<JsonElement> = json.decodeFromJsonElement(parsed)
+            if (response.id != expectedId) {
+                throw RuntimeException(
+                    "MCP response ID mismatch: expected $expectedId, got ${response.id}"
+                )
+            }
+            return response
         }
-
-        // Has id - should be the response
-        val response: JsonRpcResponse<JsonElement> = json.decodeFromJsonElement(parsed)
-        if (response.id != expectedId) {
-            throw RuntimeException(
-                "MCP response ID mismatch: expected $expectedId, got ${response.id}"
-            )
-        }
-        return response
     }
 
     override suspend fun close() {
@@ -256,6 +257,6 @@ public class StdioTransport(
             stdoutReader = null
             stderrReader = null
         }
-        scope.cancel()
+        cancellationScope.cancel()
     }
 }
