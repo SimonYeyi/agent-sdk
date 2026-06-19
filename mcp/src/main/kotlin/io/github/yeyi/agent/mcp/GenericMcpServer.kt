@@ -6,6 +6,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.serializer
 
 /**
  * Generic implementation of [McpServer] that delegates to a [McpTransport].
@@ -50,10 +51,11 @@ public class GenericMcpServer(
         initialize()
 
         val params = cursor?.let { ListToolsParams(it) }
-        val request = JsonRpcRequest(
+        val paramsElement = params?.let { json.encodeToJsonElement(serializer(), it) }
+        val request = JsonRpcRequest<JsonElement>(
             id = nextId.getAndIncrement(),
             method = McpMethods.TOOLS_LIST,
-            params = params,
+            params = paramsElement,
         )
         val response = transport.send(request)
         if (response.error != null) {
@@ -66,7 +68,7 @@ public class GenericMcpServer(
 
     override suspend fun callTool(params: JsonElement): JsonElement {
         initialize()
-        val rpcRequest = JsonRpcRequest(
+        val rpcRequest = JsonRpcRequest<JsonElement>(
             id = nextId.getAndIncrement(),
             method = McpMethods.TOOLS_CALL,
             params = params
@@ -91,10 +93,11 @@ public class GenericMcpServer(
 
     override suspend fun ping(): Boolean {
         initialize()
-        val request = JsonRpcRequest(
+        val paramsElement = json.encodeToJsonElement(serializer<EmptyParams>(), EmptyParams)
+        val request = JsonRpcRequest<JsonElement>(
             id = nextId.getAndIncrement(),
             method = McpMethods.PING,
-            params = EmptyParams,
+            params = paramsElement,
         )
         val response = transport.send(request)
         return response.error == null
@@ -113,10 +116,11 @@ public class GenericMcpServer(
             ),
             clientInfo = clientInfo ?: DEFAULT_CLIENT_INFO,
         )
-        val request = JsonRpcRequest(
+        val paramsElement = json.encodeToJsonElement(serializer<InitializeParams>(), params)
+        val request = JsonRpcRequest<JsonElement>(
             id = nextId.getAndIncrement(),
             method = McpMethods.INITIALIZE,
-            params = params,
+            params = paramsElement,
         )
         val response = transport.send(request)
         if (response.error != null) {
@@ -136,10 +140,11 @@ public class GenericMcpServer(
         }
 
         // Send the initialized notification as the final handshake step.
-        val notification = JsonRpcRequest(
+        val notificationParams = json.encodeToJsonElement(serializer<EmptyParams>(), EmptyParams)
+        val notification = JsonRpcRequest<JsonElement>(
             id = 0,
             method = McpMethods.NOTIFICATIONS_INITIALIZED,
-            params = EmptyParams,
+            params = notificationParams,
         )
         transport.sendNotification(notification)
 

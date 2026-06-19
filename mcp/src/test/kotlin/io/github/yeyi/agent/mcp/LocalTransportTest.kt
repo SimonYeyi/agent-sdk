@@ -28,7 +28,7 @@ private class LocalMcpServerForTest : McpServer {
     private var receivedNotification: JsonRpcRequest<JsonElement>? = null
 
     override val transport: McpTransport = LocalTransport.forServer(_notifications) { req ->
-        receivedNotification = req as? JsonRpcRequest<JsonElement>
+        receivedNotification = req
     }
 
     private val tools = listOf(

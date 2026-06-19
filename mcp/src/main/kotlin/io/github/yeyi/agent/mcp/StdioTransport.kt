@@ -19,7 +19,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.put
+import kotlinx.serialization.serializer
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.InputStreamReader
@@ -128,7 +128,7 @@ public class StdioTransport(
     override val notifications: Flow<JsonRpcNotification<JsonElement>> =
         _notifications.asSharedFlow()
 
-    override suspend fun <T> send(request: JsonRpcRequest<T>): JsonRpcResponse<JsonElement> {
+    override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
         // The id is provided by the caller (GenericMcpServer). Transport
         // does not allocate IDs; it merely forwards the request and matches
         // the response back to the caller-provided id.
@@ -169,7 +169,7 @@ public class StdioTransport(
         }
     }
 
-    override suspend fun <T> sendNotification(request: JsonRpcRequest<T>) {
+    override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) {
         withContext(Dispatchers.IO) {
             ensureStarted()
             requestMutex.withLock {
@@ -183,13 +183,15 @@ public class StdioTransport(
     }
 
     private fun notifyCancelledAsync(requestId: Int) {
+        val params = CancelledNotificationParams(requestId)
+        val paramsElement = json.encodeToJsonElement(serializer<CancelledNotificationParams>(), params)
         cancellationScope.launch {
             runCatching {
                 sendNotification(
                     JsonRpcRequest(
                         id = 0,
                         method = McpMethods.NOTIFICATIONS_CANCELLED,
-                        params = CancelledNotificationParams(requestId),
+                        params = paramsElement,
                     )
                 )
             }

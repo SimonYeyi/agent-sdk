@@ -46,7 +46,7 @@ internal class LoggingHook : Hook {
     }
 
     override suspend fun onError(context: AgentContext, cause: AgentException) {
-        log.warn("onError ${cause::class.simpleName}: ${cause.message} ${context}")
+        log.warn("onError ${cause::class.simpleName}: ${cause.message} $context")
     }
 
     override suspend fun onRunFinished(context: AgentContext, result: AgentResult) {

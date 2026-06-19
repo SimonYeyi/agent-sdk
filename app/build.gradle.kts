@@ -56,6 +56,7 @@ dependencies {
     implementation(project(":session"))
     implementation(project(":skill"))
     implementation(project(":hook"))
+    implementation(project(":mcp"))
     implementation(project(":providers:openai"))
     implementation(project(":providers:anthropic"))
 

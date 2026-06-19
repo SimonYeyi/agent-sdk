@@ -39,14 +39,14 @@ public interface McpTransport {
      * structure they need (e.g. [InitializeResult] for the `initialize`
      * handshake) via [kotlinx.serialization.json.decodeFromJsonElement].
      */
-    public suspend fun <T> send(request: JsonRpcRequest<T>): JsonRpcResponse<JsonElement>
+    public suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement>
 
     /**
      * Send a JSON-RPC notification (no `id`, no response expected).
      * Used for one-way messages such as `notifications/initialized`,
      * `notifications/cancelled`, and `notifications/tools/list_changed`.
      */
-    public suspend fun <T> sendNotification(request: JsonRpcRequest<T>)
+    public suspend fun sendNotification(request: JsonRpcRequest<JsonElement>)
 
     /**
      * Release all resources held by this transport.

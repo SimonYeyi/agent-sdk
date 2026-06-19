@@ -20,10 +20,10 @@ import kotlin.test.assertFailsWith
 
 class CallMcpToolTest {
     private object NoopTransport : McpTransport {
-        override suspend fun <T> send(request: JsonRpcRequest<T>): JsonRpcResponse<JsonElement> =
+        override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> =
             error("not used")
 
-        override suspend fun <T> sendNotification(request: JsonRpcRequest<T>) = Unit
+        override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) = Unit
         override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
         override suspend fun close() = Unit
     }

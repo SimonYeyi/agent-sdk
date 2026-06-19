@@ -4,6 +4,7 @@ import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.app.BuildConfig
+import io.github.yeyi.agent.app.demo.mcp.CalculatorMcpServer
 import io.github.yeyi.agent.app.demo.skills.NewsSkill
 import io.github.yeyi.agent.app.demo.skills.WeatherSkill
 import io.github.yeyi.agent.app.demo.tools.CalculatorTool
@@ -15,6 +16,12 @@ import io.github.yeyi.agent.hook.CompositeHook
 import io.github.yeyi.agent.hook.Hook
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.mcp.ClientInfo
+import io.github.yeyi.agent.mcp.GenericMcpServer
+import io.github.yeyi.agent.mcp.LocalTransport
+import io.github.yeyi.agent.mcp.McpServerRegistry
+import io.github.yeyi.agent.mcp.SseTransport
+import io.github.yeyi.agent.mcp.mcp
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
 import io.github.yeyi.agent.providers.openai.OpenAiProvider
 import io.github.yeyi.agent.skill.SkillRegistry
@@ -66,16 +73,22 @@ object DemoAgentFactory {
         } else {
             OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
         }
+        val mcpRegistry = McpServerRegistry(ClientInfo("agent-sdk", "0.1.0")).apply {
+            // Local MCP server
+            register(GenericMcpServer("calculator", "Calculator server", LocalTransport(CalculatorMcpServer())))
+            // Online MCP servers
+            register(GenericMcpServer("time", "Current time server", SseTransport("https://time.mcp.inevitable.fyi/mcp")))
+        }
+
         return agent {
             persona(Persona(role = "你是一个 helpful 助手，优先使用工具完成任务。"))
             if (memory != null) memory(memory)
             llmProvider(llmProvider)
-            tool(GetCurrentTimeTool())
-            tool(CalculatorTool())
             tool(WebSearchTool())
             tool(GetLocationTool())
             tool(GetWeatherTool())
             skills(SkillRegistry().register(WeatherSkill()).register(NewsSkill()))
+            mcp(mcpRegistry)
             hook(hook?: CompositeHook(logging = true))
         }
     }

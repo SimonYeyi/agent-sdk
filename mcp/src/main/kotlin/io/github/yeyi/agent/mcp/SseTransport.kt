@@ -33,8 +33,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.serializer
 
 /**
  * Transport implementation using the MCP 2025-06-18 Streamable HTTP transport.
@@ -156,7 +155,7 @@ public class SseTransport(
         initialized = true
     }
 
-    override suspend fun <T> send(request: JsonRpcRequest<T>): JsonRpcResponse<JsonElement> {
+    override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
         ensureInitialized()
 
         val body = json.encodeToString(request)
@@ -185,7 +184,7 @@ public class SseTransport(
         }
     }
 
-    override suspend fun <T> sendNotification(request: JsonRpcRequest<T>) {
+    override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) {
         ensureInitialized()
 
         val body = json.encodeToString(request)
@@ -315,13 +314,15 @@ public class SseTransport(
     }
 
     private fun notifyCancelledAsync(requestId: Int) {
+        val params = CancelledNotificationParams(requestId)
+        val paramsElement = json.encodeToJsonElement(serializer<CancelledNotificationParams>(), params)
         val job = backgroundScope.launch {
             runCatching {
                 sendNotification(
                     JsonRpcRequest(
                         id = 0,
                         method = McpMethods.NOTIFICATIONS_CANCELLED,
-                        params = CancelledNotificationParams(requestId),
+                        params = paramsElement,
                     )
                 )
             }

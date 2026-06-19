@@ -46,7 +46,7 @@ public class LocalTransport(private val localServer: McpServer) : McpTransport {
         // No external connection to establish for in-process communication.
     }
 
-    override suspend fun <T> send(request: JsonRpcRequest<T>): JsonRpcResponse<JsonElement> {
+    override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
         val id = request.id
         val result: JsonElement = when (val method = request.method) {
             McpMethods.INITIALIZE -> {
@@ -58,8 +58,9 @@ public class LocalTransport(private val localServer: McpServer) : McpTransport {
             }
 
             McpMethods.TOOLS_LIST -> {
-                // Extract cursor from request.params without generic type assumptions.
-                val cursor = (request.params as? ListToolsParams)?.cursor
+                val cursor = request.params
+                    ?.let { json.decodeFromJsonElement(ListToolsParams.serializer(), it) }
+                    ?.cursor
                 val listResult = localServer.listTools(cursor)
                 json.encodeToString(serializer<ListToolsResult>(), listResult)
                     .let { json.parseToJsonElement(it) }
@@ -67,7 +68,7 @@ public class LocalTransport(private val localServer: McpServer) : McpTransport {
 
             McpMethods.TOOLS_CALL -> {
                 // Extract raw JsonElement params and forward directly.
-                val paramsElement = request.params as? JsonElement
+                val paramsElement = request.params
                     ?: return errorResponse(id, "Missing params for tools/call")
                 val callResult = localServer.callTool(paramsElement)
                 json.encodeToString(
@@ -91,7 +92,7 @@ public class LocalTransport(private val localServer: McpServer) : McpTransport {
         )
     }
 
-    override suspend fun <T> sendNotification(request: JsonRpcRequest<T>) {
+    override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) {
         localServer.transport.sendNotification(request)
     }
 
@@ -117,15 +118,15 @@ public class LocalTransport(private val localServer: McpServer) : McpTransport {
     public companion object {
         public fun forServer(
             notifications: Flow<JsonRpcNotification<JsonElement>> = flow { },
-            sendNotification: (request: JsonRpcRequest<*>) -> Unit = {}
+            sendNotification: (request: JsonRpcRequest<JsonElement>) -> Unit = {}
         ): McpTransport {
             return object : McpTransport {
                 override val notifications: Flow<JsonRpcNotification<JsonElement>> = notifications
 
-                override suspend fun <T> send(request: JsonRpcRequest<T>): JsonRpcResponse<JsonElement> =
+                override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> =
                     throw UnsupportedOperationException()
 
-                override suspend fun <T> sendNotification(request: JsonRpcRequest<T>) =
+                override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) =
                     sendNotification.invoke(request)
 
                 override suspend fun close() {}
