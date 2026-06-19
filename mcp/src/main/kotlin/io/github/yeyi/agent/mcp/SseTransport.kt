@@ -18,11 +18,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.intOrNull
@@ -40,7 +42,6 @@ import kotlinx.serialization.json.intOrNull
  * Server-to-client notifications (e.g. `notifications/tools/list_changed`)
  * are not yet wired through a separate GET stream — that will arrive with
  * the long-lived notification channel work. The [notifications] flow is
- * currently empty for this transport.
  */
 public class SseTransport(
     private val endpoint: String,
@@ -59,6 +60,13 @@ public class SseTransport(
     // caller's coroutine has been cancelled. Survives the caller's lifetime so
     // the cancel notification can be flushed to the server.
     private val cancellationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val _notifications = MutableSharedFlow<JsonRpcNotification<JsonElement>>(
+        replay = 0,
+        extraBufferCapacity = 64,
+    )
+
+    override val notifications: Flow<JsonRpcNotification<JsonElement>> = _notifications.asSharedFlow()
 
     override suspend fun <T> send(request: JsonRpcRequest<T>): JsonRpcResponse<JsonElement> {
         val body = json.encodeToString(request)
@@ -116,8 +124,6 @@ public class SseTransport(
         }
     }
 
-    override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
-
     override suspend fun close() {
         // HttpClient is shared; do not close it here.
     }
@@ -150,17 +156,31 @@ public class SseTransport(
         return response
     }
 
-    private fun parseSseResponse(body: String, expectedId: Int): JsonRpcResponse<JsonElement> {
+    private suspend fun parseSseResponse(body: String, expectedId: Int): JsonRpcResponse<JsonElement> {
         // Walk the SSE stream looking for the JSON-RPC response with the
-        // expected id. Other events (progress notifications, etc.) are
-        // skipped; a future iteration will route them into [notifications].
+        // expected id. Notifications (events with method but no matching id)
+        // are emitted to [_notifications].
         for (event in SseEvent.parseAll(body)) {
             val data = event.data
             if (data.isEmpty() || data == "[DONE]") continue
             val element = runCatching { json.parseToJsonElement(data) }.getOrNull() ?: continue
             val obj = element as? JsonObject ?: continue
+
+            // Check if this is a notification (has method but no matching id)
+            if (obj["method"] != null) {
+                val idElement = obj["id"] as? JsonPrimitive
+                val matches = idElement?.intOrNull == expectedId ||
+                        idElement?.content == expectedId.toString()
+                if (!matches) {
+                    // This is a notification, emit it and continue
+                    val notification: JsonRpcNotification<JsonElement> = json.decodeFromJsonElement(obj)
+                    _notifications.emit(notification)
+                    continue
+                }
+            }
+
+            // Check if this is the matching response
             val idElement = obj["id"] as? JsonPrimitive
-            // Handle both int and string server IDs per JSON-RPC spec
             val matches = idElement?.intOrNull == expectedId ||
                     idElement?.content == expectedId.toString()
             if (matches) {

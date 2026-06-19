@@ -8,7 +8,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -16,6 +17,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.put
 import java.io.BufferedReader
 import java.io.BufferedWriter
@@ -60,10 +63,16 @@ public class StdioTransport(
     private var stderrJob: Job? = null
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     // Detached scope used to dispatch notifications/cancelled even after the
     // caller's coroutine has been cancelled. Survives the caller's lifetime so
     // the cancel notification can be flushed to the server.
     private val cancellationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    private val _notifications = MutableSharedFlow<JsonRpcNotification<JsonElement>>(
+        replay = 0,
+        extraBufferCapacity = 64,
+    )
 
     private suspend fun ensureStarted() = startMutex.withLock {
         if (process?.isAlive != true) {
@@ -116,6 +125,9 @@ public class StdioTransport(
         }
     }
 
+    override val notifications: Flow<JsonRpcNotification<JsonElement>> =
+        _notifications.asSharedFlow()
+
     override suspend fun <T> send(request: JsonRpcRequest<T>): JsonRpcResponse<JsonElement> {
         // The id is provided by the caller (GenericMcpServer). Transport
         // does not allocate IDs; it merely forwards the request and matches
@@ -139,16 +151,7 @@ public class StdioTransport(
                             writer.newLine()
                             writer.flush()
 
-                            val responseLine = reader.readLine()
-                                ?: throw RuntimeException("MCP server process terminated")
-
-                            val response = json.decodeFromString<JsonRpcResponse<JsonElement>>(responseLine)
-                            if (response.id != id) {
-                                throw RuntimeException(
-                                    "MCP response ID mismatch: expected $id, got ${response.id}"
-                                )
-                            }
-                            response
+                            readResponseWithNotifications(reader, id)
                         }
                     } catch (e: TimeoutCancellationException) {
                         throw RuntimeException(
@@ -193,7 +196,38 @@ public class StdioTransport(
         }
     }
 
-    override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
+    /**
+     * Read from stdout until we find a response with matching [expectedId].
+     * Notifications encountered along the way are emitted to [_notifications].
+     * This handles the case where the server sends notifications before the response.
+     */
+    private suspend fun readResponseWithNotifications(
+        reader: BufferedReader,
+        expectedId: Int,
+    ): JsonRpcResponse<JsonElement> {
+        val line = withContext(Dispatchers.IO) {
+            reader.readLine()
+        } ?: throw RuntimeException("MCP server process terminated")
+
+        val parsed = json.parseToJsonElement(line)
+
+        // Check if this is a notification (no id field)
+        if (parsed is JsonObject && parsed["id"] == null) {
+            // Emit notification and continue reading
+            val notification: JsonRpcNotification<JsonElement> = json.decodeFromJsonElement(parsed)
+            _notifications.emit(notification)
+            return readResponseWithNotifications(reader, expectedId)
+        }
+
+        // Has id - should be the response
+        val response: JsonRpcResponse<JsonElement> = json.decodeFromJsonElement(parsed)
+        if (response.id != expectedId) {
+            throw RuntimeException(
+                "MCP response ID mismatch: expected $expectedId, got ${response.id}"
+            )
+        }
+        return response
+    }
 
     override suspend fun close() {
         withContext(Dispatchers.IO) {

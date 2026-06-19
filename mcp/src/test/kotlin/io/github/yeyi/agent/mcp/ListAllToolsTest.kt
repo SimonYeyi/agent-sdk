@@ -37,6 +37,7 @@ class ListAllToolsTest {
             override suspend fun initialize(): InitializeResult = InitializeResult(
                 protocolVersion = "",
                 serverInfo = ServerInfo(name = "", version = ""),
+                capabilities = ServerCapabilities(),
             )
             override suspend fun listTools(cursor: String?): ListToolsResult {
                 callCount++
@@ -66,6 +67,7 @@ class ListAllToolsTest {
             override suspend fun initialize(): InitializeResult = InitializeResult(
                 protocolVersion = "",
                 serverInfo = ServerInfo(name = "", version = ""),
+                capabilities = ServerCapabilities(),
             )
             override suspend fun listTools(cursor: String?): ListToolsResult =
                 ListToolsResult(tools = tools, nextCursor = null)

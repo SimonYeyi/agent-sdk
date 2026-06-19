@@ -38,13 +38,14 @@ class CallMcpToolTest {
         override suspend fun initialize(): InitializeResult = InitializeResult(
             protocolVersion = "",
             serverInfo = ServerInfo(name = "", version = ""),
+            capabilities = ServerCapabilities(),
         )
         override suspend fun listTools(cursor: String?): ListToolsResult =
             ListToolsResult(tools = JsonArray(emptyList()))
         override suspend fun ping(): Boolean = true
         override suspend fun callTool(params: JsonElement): JsonElement {
             if (toolCallError) {
-                throw MCPServerException(toolCallResult.toString())
+                throw RuntimeException(toolCallResult.toString())
             }
             return toolCallResult
         }
@@ -62,7 +63,7 @@ class CallMcpToolTest {
         )
         val tool = CallMcpTool(registry)
 
-        val exception = assertFailsWith<MCPServerException> {
+        val exception = assertFailsWith<RuntimeException> {
             tool.execute(
                 arguments = buildJsonObject {
                     put("server_name", "test")

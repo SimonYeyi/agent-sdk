@@ -103,9 +103,10 @@ public class GenericMcpServer(
     private suspend fun doInitialize(): InitializeResult {
         val params = InitializeParams(
             protocolVersion = SUPPORTED_PROTOCOL_VERSION,
-            // Client capabilities: none declared yet. Per MCP spec, this informs
-            // the server which optional protocol features the client supports.
-            capabilities = JsonObject(emptyMap()),
+            capabilities = ClientCapabilities(
+                roots = RootsObject(listChanged = true),
+                sampling = SamplingObject,
+            ),
             clientInfo = clientInfo,
         )
         val request = JsonRpcRequest(
@@ -148,5 +149,5 @@ public class GenericMcpServer(
     }
 }
 
-internal class MCPServerException(message: String) :
+private class MCPServerException(message: String) :
     RuntimeException("MCP Server Exception: $message")

@@ -15,6 +15,16 @@ import kotlinx.serialization.json.JsonElement
  * declared in `McpServer.kt` alongside the rest of the protocol contract.
  */
 public interface McpTransport {
+
+    /**
+     * Server-to-client notification stream: out-of-band messages that arrive
+     * outside of a request/response pair, such as
+     * `notifications/tools/list_changed`. The default implementation returns
+     * an empty flow; transports with a real notification channel override
+     * this.
+     */
+    public val notifications: Flow<JsonRpcNotification<JsonElement>>
+
     /**
      * Send a JSON-RPC request and wait for response. The transport carries
      * the `result` payload as [JsonElement] — callers decode to the typed
@@ -29,15 +39,6 @@ public interface McpTransport {
      * `notifications/cancelled`, and `notifications/tools/list_changed`.
      */
     public suspend fun <T> sendNotification(request: JsonRpcRequest<T>)
-
-    /**
-     * Server-to-client notification stream: out-of-band messages that arrive
-     * outside of a request/response pair, such as
-     * `notifications/tools/list_changed`. The default implementation returns
-     * an empty flow; transports with a real notification channel override
-     * this.
-     */
-    public val notifications: Flow<JsonRpcNotification<JsonElement>>
 
     /**
      * Release all resources held by this transport.

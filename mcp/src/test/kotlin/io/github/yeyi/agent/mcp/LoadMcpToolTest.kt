@@ -36,6 +36,7 @@ class LoadMcpToolTest {
         override suspend fun initialize(): InitializeResult = InitializeResult(
             protocolVersion = "",
             serverInfo = ServerInfo(name = "", version = ""),
+            capabilities = ServerCapabilities(),
         )
         override suspend fun listTools(cursor: String?): ListToolsResult = listToolsResult
         override suspend fun ping(): Boolean = true

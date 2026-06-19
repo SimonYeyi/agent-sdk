@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.mcp
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -86,6 +87,11 @@ public object McpMethods {
     public const val NOTIFICATIONS_INITIALIZED: String = "notifications/initialized"
     public const val NOTIFICATIONS_CANCELLED: String = "notifications/cancelled"
     public const val NOTIFICATIONS_TOOLS_LIST_CHANGED: String = "notifications/tools/list_changed"
+    public const val NOTIFICATIONS_MESSAGE: String = "notifications/message"
+    public const val NOTIFICATIONS_PROGRESS: String = "notifications/progress"
+    public const val NOTIFICATIONS_RESOURCES_LIST_CHANGED: String = "notifications/resources/list_changed"
+    public const val NOTIFICATIONS_RESOURCES_UPDATED: String = "notifications/resources/updated"
+    public const val NOTIFICATIONS_PROMPTS_LIST_CHANGED: String = "notifications/prompts/list_changed"
 }
 
 /**
@@ -105,11 +111,72 @@ public data class ClientInfo(
     override val version: String,
 ) : Implementation()
 
+/**
+ * Client capabilities sent to the server during initialize.
+ * Null fields indicate the client does not support that feature.
+ */
+@Serializable
+public data class ClientCapabilities(
+    val roots: RootsObject? = null,
+    // SamplingObject (singleton) = supported, null = not supported
+    val sampling: SamplingObject? = null,
+    val elicitation: ElicitationObject? = null,
+    val experimental: JsonObject? = null,
+)
+
+@Serializable
+public data class RootsObject(
+    val listChanged: Boolean? = null,
+)
+
+@Serializable
+public object SamplingObject
+
+@Serializable
+public object ElicitationObject
+
 @Serializable
 public data class ServerInfo(
     override val name: String,
     override val version: String,
 ) : Implementation()
+
+/**
+ * Server capabilities received from the server during initialize.
+ * Null fields indicate the server does not support that feature.
+ */
+@Serializable
+public data class ServerCapabilities(
+    val logging: LoggingObject? = null,
+    val completions: CompletionsObject? = null,
+    val tools: ToolsObject? = null,
+    val resources: ResourcesObject? = null,
+    val prompts: PromptsObject? = null,
+    val sampling: SamplingObject? = null,
+    val experimental: JsonObject? = null,
+)
+
+@Serializable
+public object LoggingObject
+
+@Serializable
+public object CompletionsObject
+
+@Serializable
+public data class ToolsObject(
+    val listChanged: Boolean? = null,
+)
+
+@Serializable
+public data class ResourcesObject(
+    val subscribe: Boolean? = null,
+    val listChanged: Boolean? = null,
+)
+
+@Serializable
+public data class PromptsObject(
+    val listChanged: Boolean? = null,
+)
 
 /**
  * JSON-RPC 2.0 request message.
@@ -132,7 +199,7 @@ public data class JsonRpcRequest<T>(
 @Serializable
 public data class InitializeParams(
     val protocolVersion: String,
-    val capabilities: JsonObject = JsonObject(emptyMap()),
+    val capabilities: ClientCapabilities,
     val clientInfo: ClientInfo,
 )
 
@@ -217,6 +284,46 @@ public data class JsonRpcNotification<T>(
 @Serializable
 public data class CancelledNotificationParams(
     val requestId: Int,
+    val reason: String? = null,
+)
+
+/**
+ * Log level for `notifications/message`.
+ */
+@Serializable
+public enum class LogLevel {
+    @SerialName("debug") DEBUG,
+    @SerialName("info") INFO,
+    @SerialName("warning") WARNING,
+    @SerialName("error") ERROR,
+}
+
+/**
+ * Notification params for `notifications/message`.
+ */
+@Serializable
+public data class MessageNotificationParams(
+    val level: LogLevel,
+    val logger: String? = null,
+    val data: JsonElement? = null,
+)
+
+/**
+ * Notification params for `notifications/progress`.
+ */
+@Serializable
+public data class ProgressNotificationParams(
+    val progressToken: String,
+    val progress: Double,
+    val total: Double? = null,
+)
+
+/**
+ * Notification params for `notifications/resources/updated`.
+ */
+@Serializable
+public data class ResourcesUpdatedNotificationParams(
+    val uri: String,
 )
 
 /**
@@ -233,6 +340,6 @@ public object EmptyNotificationParams
 public data class InitializeResult(
     val protocolVersion: String,
     val serverInfo: ServerInfo,
-    val capabilities: JsonObject = JsonObject(emptyMap()),
+    val capabilities: ServerCapabilities,
     val instructions: String? = null,
 )
