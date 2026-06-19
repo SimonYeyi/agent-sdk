@@ -105,7 +105,7 @@ public class GenericMcpServer(
 
     private suspend fun doInitialize(): InitializeResult {
         val params = InitializeParams(
-            protocolVersion = SUPPORTED_PROTOCOL_VERSION,
+            protocolVersion = McpServer.SUPPORTED_PROTOCOL_VERSION,
             capabilities = ClientCapabilities(
                 roots = RootsObject(listChanged = true),
                 sampling = SamplingObject,
@@ -126,11 +126,11 @@ public class GenericMcpServer(
         val result = json.decodeFromJsonElement<InitializeResult>(resultElement)
 
         if (result.protocolVersion.isNotEmpty() &&
-            result.protocolVersion != SUPPORTED_PROTOCOL_VERSION
+            result.protocolVersion != McpServer.SUPPORTED_PROTOCOL_VERSION
         ) {
             throw MCPServerException(
                 "MCP server protocol version '${result.protocolVersion}' is not supported " +
-                    "(client supports $SUPPORTED_PROTOCOL_VERSION)"
+                    "(client supports $McpServer.SUPPORTED_PROTOCOL_VERSION)"
             )
         }
 
@@ -146,7 +146,6 @@ public class GenericMcpServer(
     }
 
     internal companion object {
-        internal const val SUPPORTED_PROTOCOL_VERSION = "2025-06-18"
         internal const val CLIENT_NAME = "agent-sdk"
         internal const val CLIENT_VERSION = "0.1.0"
     }

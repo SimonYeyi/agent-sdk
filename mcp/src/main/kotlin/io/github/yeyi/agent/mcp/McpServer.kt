@@ -16,6 +16,10 @@ import kotlinx.serialization.json.JsonObject
  * pagination loops) live in concrete implementations or SDK extensions.
  */
 public interface McpServer {
+    public companion object {
+        internal const val SUPPORTED_PROTOCOL_VERSION = "2025-06-18"
+    }
+
     /** Unique identifier for this server. */
     public val name: String
 

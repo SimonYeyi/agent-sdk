@@ -53,7 +53,7 @@ import kotlinx.serialization.json.intOrNull
 public class SseTransport(
     private val endpoint: String,
     private val extraHeaders: Map<String, String> = emptyMap(),
-    private val protocolVersion: String = GenericMcpServer.SUPPORTED_PROTOCOL_VERSION,
+    private val protocolVersion: String = McpServer.SUPPORTED_PROTOCOL_VERSION,
     private val enableNotifications: Boolean = false,
 ) : McpTransport {
     // Internal defaults for SSE notification channel
