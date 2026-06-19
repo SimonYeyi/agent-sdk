@@ -58,10 +58,10 @@ public class SseTransport(
 ) : McpTransport {
     // Internal defaults for SSE notification channel
     private object Defaults {
-        internal const val SSE_RECONNECT_DELAY_MS = 5000L
-        internal const val SESSION_TIMEOUT_MS = 4000L
-        internal const val MCP_PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
-        internal const val MCP_SESSION_ID_HEADER = "Mcp-Session-Id"
+        const val SSE_RECONNECT_DELAY_MS = 5000L
+        const val SESSION_TIMEOUT_MS = 4000L
+        const val MCP_PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
+        const val MCP_SESSION_ID_HEADER = "Mcp-Session-Id"
     }
     private val json = Json {
         ignoreUnknownKeys = true

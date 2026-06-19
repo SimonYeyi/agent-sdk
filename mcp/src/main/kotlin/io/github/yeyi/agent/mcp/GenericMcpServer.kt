@@ -38,6 +38,13 @@ public class GenericMcpServer(
         encodeDefaults = true
     }
 
+    override suspend fun initialize(): InitializeResult = initializeMutex.withLock {
+        initResult ?: run {
+            transport.initialize()
+            doInitialize()
+        }.also { initResult = it }
+    }
+
     override suspend fun listTools(cursor: String?): ListToolsResult {
         initialize()
 
@@ -96,13 +103,6 @@ public class GenericMcpServer(
         transport.close()
     }
 
-    override suspend fun initialize(): InitializeResult = initializeMutex.withLock {
-        initResult ?: run {
-            transport.initialize()
-            doInitialize()
-        }.also { initResult = it }
-    }
-
     private suspend fun doInitialize(): InitializeResult {
         val params = InitializeParams(
             protocolVersion = McpServer.SUPPORTED_PROTOCOL_VERSION,
@@ -145,9 +145,9 @@ public class GenericMcpServer(
         return result
     }
 
-    internal companion object {
-        internal const val CLIENT_NAME = "agent-sdk"
-        internal const val CLIENT_VERSION = "0.1.0"
+    private companion object {
+        const val CLIENT_NAME = "agent-sdk"
+        const val CLIENT_VERSION = "0.1.0"
     }
 }
 
