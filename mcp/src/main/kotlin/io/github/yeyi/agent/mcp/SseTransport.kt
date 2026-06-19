@@ -54,9 +54,15 @@ public class SseTransport(
     private val endpoint: String,
     private val extraHeaders: Map<String, String> = emptyMap(),
     private val protocolVersion: String = GenericMcpServer.SUPPORTED_PROTOCOL_VERSION,
-    private val reconnectDelayMs: Long = 5000L,
-    private val sessionTimeoutMs: Long = 4000L,
+    private val enableNotifications: Boolean = false,
 ) : McpTransport {
+    // Internal defaults for SSE notification channel
+    private object Defaults {
+        internal const val SSE_RECONNECT_DELAY_MS = 5000L
+        internal const val SESSION_TIMEOUT_MS = 4000L
+        internal const val MCP_PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
+        internal const val MCP_SESSION_ID_HEADER = "Mcp-Session-Id"
+    }
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -114,18 +120,20 @@ public class SseTransport(
     override suspend fun initialize(): Unit = withContext(Dispatchers.IO) {
         if (initialized) return@withContext
 
-        // Establish SSE connection first - many servers send sessionId immediately
-        startSseConnection()
+        if (enableNotifications) {
+            // Establish SSE connection to receive notifications
+            startSseConnection()
 
-        // Wait for session ID from SSE connection or any response
-        val retryDelayMs = 50L
-        val maxAttempts = (sessionTimeoutMs / retryDelayMs).toInt()
-        repeat(maxAttempts) {
-            if (sessionId != null) return@withContext
-            delay(retryDelayMs)
+            // Wait for session ID from SSE connection
+            val retryDelayMs = 50L
+            val maxAttempts = (Defaults.SESSION_TIMEOUT_MS / retryDelayMs).toInt()
+            repeat(maxAttempts) {
+                if (sessionId != null) return@withContext
+                delay(retryDelayMs)
+            }
         }
 
-        // Fallback: try a POST ping request to get sessionId if SSE didn't provide one
+        // Fallback: try a POST ping request to get sessionId if not already obtained
         if (sessionId == null) {
             runCatching {
                 val pingRequest = JsonRpcRequest(
@@ -136,7 +144,7 @@ public class SseTransport(
                 val fallbackResponse = postClient.post(endpoint) {
                     contentType(ContentType.Application.Json)
                     accept(ContentType.Application.Json)
-                    header(MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
+                    header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
                     extraHeaders.forEach { (k, v) -> header(k, v) }
                     setBody(json.encodeToString(pingRequest))
                 }
@@ -144,7 +152,7 @@ public class SseTransport(
             }
         }
 
-        check(sessionId != null) { "Failed to obtain session ID" }
+        // sessionId is optional - many servers work without it
         initialized = true
     }
 
@@ -157,8 +165,8 @@ public class SseTransport(
             val response: HttpResponse = postClient.post(endpoint) {
                 contentType(ContentType.Application.Json)
                 accept(ContentType.Application.Json)
-                header(MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
-                sessionId?.let { header(MCP_SESSION_ID_HEADER, it) }
+                header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
+                sessionId?.let { header(Defaults.MCP_SESSION_ID_HEADER, it) }
                 extraHeaders.forEach { (key, value) -> header(key, value) }
                 setBody(body)
             }
@@ -185,8 +193,8 @@ public class SseTransport(
         val response: HttpResponse = postClient.post(endpoint) {
             contentType(ContentType.Application.Json)
             accept(ContentType.Application.Json)
-            header(MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
-            sessionId?.let { header(MCP_SESSION_ID_HEADER, it) }
+            header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
+            sessionId?.let { header(Defaults.MCP_SESSION_ID_HEADER, it) }
             extraHeaders.forEach { (key, value) -> header(key, value) }
             setBody(body)
         }
@@ -232,8 +240,8 @@ public class SseTransport(
                 try {
                     val response: HttpResponse = sseClient.get(endpoint) {
                         accept(ContentType.Text.EventStream)
-                        header(MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
-                        sessionId?.let { header(MCP_SESSION_ID_HEADER, it) }
+                        header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
+                        sessionId?.let { header(Defaults.MCP_SESSION_ID_HEADER, it) }
                         extraHeaders.forEach { (key, value) -> header(key, value) }
                     }
 
@@ -249,7 +257,7 @@ public class SseTransport(
                     throw e
                 } catch (e: Exception) {
                     // Log and reconnect after delay
-                    delay(reconnectDelayMs)
+                    delay(Defaults.SSE_RECONNECT_DELAY_MS)
                 }
             }
         }
@@ -303,7 +311,7 @@ public class SseTransport(
     }
 
     private fun captureSessionId(response: HttpResponse) {
-        response.headers[MCP_SESSION_ID_HEADER]?.let { sessionId = it }
+        response.headers[Defaults.MCP_SESSION_ID_HEADER]?.let { sessionId = it }
     }
 
     private fun notifyCancelledAsync(requestId: Int) {
@@ -336,11 +344,6 @@ public class SseTransport(
             )
         }
         return response
-    }
-
-    internal companion object {
-        internal const val MCP_PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
-        internal const val MCP_SESSION_ID_HEADER = "Mcp-Session-Id"
     }
 }
 
