@@ -75,7 +75,7 @@ object DemoAgentFactory {
         }
         val mcpRegistry = McpServerRegistry(ClientInfo("agent-sdk", "0.1.0")).apply {
             // Local MCP server
-            register(GenericMcpServer("calculator", "Calculator server", LocalTransport(CalculatorMcpServer())))
+            //register(GenericMcpServer("calculator", "Calculator server", LocalTransport(CalculatorMcpServer())))
             // Online MCP servers
             register(GenericMcpServer("kukapay", "加法运算", SseTransport("https://test.kukapay.com/api/mcp")))
         }

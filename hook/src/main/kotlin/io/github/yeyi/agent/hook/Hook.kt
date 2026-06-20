@@ -39,7 +39,7 @@ internal suspend inline fun <T> Hook.safeInvoke(
     } catch (t: kotlinx.coroutines.CancellationException) {
         throw t
     } catch (t: Throwable) {
-        Logging.hook().warn("${this::class.simpleName} threw ${t::class.simpleName}: ${t.message}")
+        Logging.hook().warn("${this::class.simpleName} hook exception", t)
         null
     }
 }

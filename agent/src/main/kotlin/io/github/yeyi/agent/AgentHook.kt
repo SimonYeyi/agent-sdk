@@ -96,7 +96,7 @@ internal suspend inline fun <T> AgentHook.safeInvoke(
     } catch (t: kotlinx.coroutines.CancellationException) {
         throw t
     } catch (t: Throwable) {
-        Logging.agent().warn("${this::class.simpleName} threw ${t::class.simpleName}: ${t.message}")
+        Logging.agent().warn("${this::class.simpleName} hook exception", t)
         null
     }
 }

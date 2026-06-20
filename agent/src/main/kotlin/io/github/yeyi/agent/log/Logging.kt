@@ -1,5 +1,8 @@
 package io.github.yeyi.agent.log
 
+import java.io.StringWriter
+import java.io.PrintWriter
+
 /**
  * 极简 logger,可在 v2.x 替换为 SLF4J/Logback。
  *
@@ -13,13 +16,26 @@ public object Logging {
         System.err.println("[INFO] $tag: $msg")
     }
 
-    internal fun warn(tag: String, msg: String) {
-        // v1 用 stderr;Android 端通过 JUL bridge 或后续替换为 Log.w
-        System.err.println("[WARN] $tag: $msg")
+    internal fun warn(tag: String, msg: String? = null, e: Throwable? = null) {
+        System.err.println("[WARN] $tag: ${buildThrowableMessage(msg, e)}")
     }
 
-    internal fun error(tag: String, msg: String) {
-        System.err.println("[ERROR] $tag: $msg")
+    internal fun error(tag: String, msg: String? = null, e: Throwable? = null) {
+        System.err.println("[ERROR] $tag: ${buildThrowableMessage(msg, e)}")
+    }
+
+    private fun buildThrowableMessage(msg: String? = null, e: Throwable? = null): String {
+        return buildString {
+            if (msg != null) append(msg).append("\n")
+            e?.let { ex ->
+                append(ex::class.java.name)
+                ex.message?.let { append(": ").append(it) }
+                append("\n")
+                val sw = StringWriter()
+                ex.printStackTrace(PrintWriter(sw))
+                sw.toString().lineSequence().drop(1).forEach { append(it).append("\n") }
+            }
+        }.trimEnd()
     }
 }
 
@@ -55,13 +71,29 @@ public class LoggingTagged(private val tag: String) {
      * 输出警告日志。
      */
     public fun warn(msg: String) {
-        Logging.warn(tag, msg)
+        Logging.warn(tag, msg, null)
+    }
+
+    public fun warn(e: Throwable) {
+        Logging.warn(tag, null, e)
+    }
+
+    public fun warn(msg: String, e: Throwable) {
+        Logging.warn(tag, msg, e)
     }
 
     /**
      * 输出错误日志。
      */
     public fun error(msg: String) {
-        Logging.error(tag, msg)
+        Logging.error(tag, msg, null)
+    }
+
+    public fun error(e: Throwable) {
+        Logging.error(tag, null, e)
+    }
+
+    public fun error(msg: String, e: Throwable) {
+        Logging.error(tag, msg, e)
     }
 }

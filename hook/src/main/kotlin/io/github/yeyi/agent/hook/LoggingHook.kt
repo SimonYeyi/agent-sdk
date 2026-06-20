@@ -27,11 +27,14 @@ internal class LoggingHook : Hook {
     }
 
     override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
-        log.debug("afterLlmResponse toolCalls=${response.message.toolCalls.size} $context")
+        log.debug("afterLlmResponse response.message=${response.message.content} $context")
     }
 
-    override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
-        log.debug("beforeToolCall id=${call.id} name=${call.name} $context")
+    override suspend fun beforeToolCall(
+        context: AgentContext,
+        call: ToolCall
+    ): ToolExecutionResult? {
+        log.debug("beforeToolCall $call $context")
         return null
     }
 
@@ -41,20 +44,20 @@ internal class LoggingHook : Hook {
         result: ToolExecutionResult,
         durationMs: Long,
     ): ToolExecutionResult {
-        log.debug("afterToolCall id=${call.id} name=${call.name} dur=${durationMs}ms isError=${result.isError} $context")
+        log.debug("afterToolCall $result dur=${durationMs}ms $context")
         return result
     }
 
     override suspend fun onError(context: AgentContext, cause: AgentException) {
-        log.warn("onError ${cause::class.simpleName}: ${cause.message} $context")
+        log.warn("onError $context", cause)
     }
 
     override suspend fun onRunFinished(context: AgentContext, result: AgentResult) {
-        log.info("onRunFinished toolCalls=${result.toolCalls.size} $context")
+        log.info("onRunFinished result.message=${result.message.content} $context")
     }
 
     override suspend fun onSessionCreated(session: Session) {
-        log.info("onSessionCreated id=${session.id} name=${session.name}")
+        log.info("onSessionCreated accountId=${session.accountId} id=${session.id} name=${session.name}")
     }
 
     override suspend fun onSessionDeleted(accountId: String, sessionId: String) {

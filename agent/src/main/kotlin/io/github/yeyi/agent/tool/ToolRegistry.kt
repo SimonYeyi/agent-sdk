@@ -2,6 +2,8 @@ package io.github.yeyi.agent.tool
 
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.ToolDefinition
+import io.github.yeyi.agent.log.Logging
+import io.github.yeyi.agent.log.agent
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -61,7 +63,7 @@ public class ToolRegistry {
         } catch (t: CancellationException) {
             throw t
         } catch (t: Throwable) {
-            t.printStackTrace()
+            Logging.agent().warn("Tool execute error: $call", t)
             ToolExecutionResult(content = "Tool error: ${t.message}", isError = true)
         }
     }
