@@ -16,6 +16,8 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import io.ktor.utils.io.readUTF8Line
+import io.ktor.client.plugins.logging.LogLevel
+import io.ktor.client.plugins.logging.Logging
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
@@ -42,6 +44,10 @@ public class OpenAiProvider(
             install(HttpTimeout) {
                 requestTimeoutMillis = 60_000
                 socketTimeoutMillis = 60_000
+            }
+            install(Logging) {
+                logger = HttpLogger()
+                level = LogLevel.ALL
             }
         }
 
