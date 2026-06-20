@@ -12,6 +12,7 @@ import io.github.yeyi.agent.app.demo.tools.GetCurrentTimeTool
 import io.github.yeyi.agent.app.demo.tools.GetLocationTool
 import io.github.yeyi.agent.app.demo.tools.GetWeatherTool
 import io.github.yeyi.agent.app.demo.tools.WebSearchTool
+import io.github.yeyi.agent.app.log.HttpLogger
 import io.github.yeyi.agent.hook.CompositeHook
 import io.github.yeyi.agent.hook.Hook
 import io.github.yeyi.agent.llm.LlmProvider
@@ -26,6 +27,14 @@ import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
 import io.github.yeyi.agent.providers.openai.OpenAiProvider
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.skill.skills
+import io.ktor.client.HttpClient
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.logging.LogLevel
+import io.ktor.client.plugins.logging.Logging
+import io.ktor.serialization.kotlinx.json.json
+import kotlinx.serialization.json.Json
 
 /**
  * 构造一个配好演示 Tool 与默认 LLM Provider 的 Agent。
@@ -60,24 +69,39 @@ object DemoAgentFactory {
             providerRaw.isNotEmpty() -> {
                 check(providerRaw in setOf(PROVIDER_OPENAI, PROVIDER_ANTHROPIC)) {
                     "Unsupported MODEL_PROVIDER: '$providerRaw'. " +
-                        "Use 'openai' or 'anthropic' (or leave empty to infer from MODEL_BASE_URL)."
+                            "Use 'openai' or 'anthropic' (or leave empty to infer from MODEL_BASE_URL)."
                 }
                 providerRaw
             }
+
             baseUrl.contains(PROVIDER_ANTHROPIC, ignoreCase = true) -> PROVIDER_ANTHROPIC
             else -> PROVIDER_OPENAI
         }
 
+        val httpClient = httpClient()
+
         val llmProvider: LlmProvider = if (provider == PROVIDER_ANTHROPIC) {
-            AnthropicProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
+            AnthropicProvider(apiKey = apiKey, model = model, baseUrl = baseUrl, httpClient)
         } else {
-            OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
+            OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl, httpClient)
         }
         val mcpRegistry = McpServerRegistry(ClientInfo("agent-sdk", "0.1.0")).apply {
             // Local MCP server
-            register(GenericMcpServer("calculator", "Calculator服务，支持加、减、乘、除运算", LocalTransport(CalculatorMcpServer())))
+            register(
+                GenericMcpServer(
+                    "calculator",
+                    "Calculator服务，支持加、减、乘、除运算",
+                    LocalTransport(CalculatorMcpServer())
+                )
+            )
             // Online MCP servers
-            register(GenericMcpServer("sunex", "Sunex Optics 镜头和传感器产品目录服务，支持搜索传感器、查找兼容镜头、获取产品规格等", SseTransport("https://mcp.sunex-ai.com/mcp")))
+            register(
+                GenericMcpServer(
+                    "sunex",
+                    "Sunex Optics 镜头和传感器产品目录服务，支持搜索传感器、查找兼容镜头、获取产品规格等",
+                    SseTransport("https://mcp.sunex-ai.com/mcp", httpClient = httpClient)
+                )
+            )
         }
 
         return agent {
@@ -89,12 +113,30 @@ object DemoAgentFactory {
             tool(GetWeatherTool())
             skills(SkillRegistry().register(WeatherSkill()).register(NewsSkill()))
             mcp(mcpRegistry)
-            hook(hook?: CompositeHook(logging = true))
+            hook(hook ?: CompositeHook(logging = true))
         }
     }
 
     private fun String.requireNonEmpty(fieldName: String): String {
         check(isNotEmpty()) { "$fieldName is required (set it in local.properties)" }
         return this
+    }
+
+    private fun httpClient() = HttpClient(CIO) {
+        install(ContentNegotiation) {
+            json(Json {
+                ignoreUnknownKeys = true
+                encodeDefaults = true
+                explicitNulls = false
+            })
+        }
+        install(HttpTimeout) {
+            requestTimeoutMillis = 60_000
+            socketTimeoutMillis = 60_000
+        }
+        install(Logging) {
+            logger = HttpLogger()
+            level = LogLevel.ALL
+        }
     }
 }

@@ -10,8 +10,6 @@ import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
-import io.ktor.client.plugins.logging.LogLevel
-import io.ktor.client.plugins.logging.Logging
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.client.statement.bodyAsChannel
@@ -39,15 +37,12 @@ public class AnthropicProvider(
                 json(Json {
                     ignoreUnknownKeys = true
                     encodeDefaults = true
+                    explicitNulls = false
                 })
             }
             install(HttpTimeout) {
                 requestTimeoutMillis = 60_000
                 socketTimeoutMillis = 60_000
-            }
-            install(Logging) {
-                logger = HttpLogger()
-                level = LogLevel.ALL
             }
         }
 

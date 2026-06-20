@@ -54,13 +54,16 @@ public class SseTransport(
     private val endpoint: String,
     private val protocolVersion: String = McpServer.SUPPORTED_PROTOCOL_VERSION,
     private val enableNotifications: Boolean = false,
-    private val httpClient: HttpClient = HttpClient {},
+    httpClient: HttpClient? = null,
 ) : McpTransport {
     private object Defaults {
         const val SSE_RECONNECT_DELAY_MS = 5000L
         const val MCP_PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
         const val MCP_SESSION_ID_HEADER = "Mcp-Session-Id"
     }
+
+    private val httpClient = httpClient ?: HttpClient {}
+    private val isDefaultHttpClient = httpClient == null
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -138,7 +141,7 @@ public class SseTransport(
 
         backgroundScope.cancel()
 
-        runCatching { httpClient.close() }
+        if (isDefaultHttpClient) runCatching { httpClient.close() }
     }
 
     private fun startSseConnection() {
