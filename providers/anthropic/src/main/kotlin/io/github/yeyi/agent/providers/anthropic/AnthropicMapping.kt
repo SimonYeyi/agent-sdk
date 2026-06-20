@@ -70,6 +70,9 @@ internal fun mapToAnthropic(model: String, request: ChatRequest): AnthropicChatR
         messages = messages,
         tools = tools,
         stream = false,
+        maxTokens = request.maxTokens ?: 1024,
+        temperature = request.temperature,
+        stopSequences = request.stopSequences.takeIf { it.isNotEmpty() },
     )
 }
 

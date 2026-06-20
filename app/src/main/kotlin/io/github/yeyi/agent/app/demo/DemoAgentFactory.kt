@@ -23,6 +23,7 @@ import io.github.yeyi.agent.mcp.LocalTransport
 import io.github.yeyi.agent.mcp.McpServerRegistry
 import io.github.yeyi.agent.mcp.SseTransport
 import io.github.yeyi.agent.mcp.mcp
+import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
 import io.github.yeyi.agent.providers.openai.OpenAiProvider
 import io.github.yeyi.agent.skill.SkillRegistry
@@ -106,7 +107,7 @@ object DemoAgentFactory {
 
         return agent {
             persona(Persona(role = "你是一个 helpful 助手，优先使用工具完成任务。"))
-            if (memory != null) memory(memory)
+            memory(memory?: InMemoryMemory())
             llmProvider(llmProvider)
             tool(WebSearchTool())
             tool(GetLocationTool())

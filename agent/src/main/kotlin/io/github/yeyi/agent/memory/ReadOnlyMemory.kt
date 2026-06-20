@@ -11,4 +11,7 @@ internal class ReadOnlyMemory(private val delegate: Memory) : Memory {
         throw UnsupportedOperationException("Can not modify memory")
 
     override suspend fun history(): List<ChatMessage> = delegate.history()
+
+    override suspend fun rebuild(messages: List<ChatMessage>): Unit =
+        throw UnsupportedOperationException("Can not modify memory")
 }

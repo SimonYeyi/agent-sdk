@@ -15,4 +15,9 @@ public class InMemoryMemory : Memory {
     override suspend fun history(): List<ChatMessage> = mutex.withLock {
         messages.toList()
     }
+
+    override suspend fun rebuild(messages: List<ChatMessage>): Unit = mutex.withLock {
+        this.messages.clear()
+        this.messages.addAll(messages)
+    }
 }

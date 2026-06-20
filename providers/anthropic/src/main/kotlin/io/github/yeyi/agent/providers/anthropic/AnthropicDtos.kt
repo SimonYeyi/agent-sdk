@@ -10,8 +10,10 @@ internal data class AnthropicChatRequest(
     val system: String? = null,
     val messages: List<AnthropicMessage>,
     val tools: List<AnthropicTool>? = null,
-    @SerialName("max_tokens") val maxTokens: Int = 1024,
     val stream: Boolean = false,
+    @SerialName("max_tokens") val maxTokens: Int,
+    val temperature: Double? = null,
+    @SerialName("stop_sequences") val stopSequences: List<String>? = null,
 )
 
 @Serializable

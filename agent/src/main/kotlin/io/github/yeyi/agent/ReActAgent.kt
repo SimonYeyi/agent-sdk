@@ -103,13 +103,12 @@ public class ReActAgent internal constructor(
         llmCall: suspend (ChatRequest) -> ChatResponse,
         emit: suspend (AgentEvent) -> Unit,
     ) {
-        memory.add(ChatMessage.User(input))
-
         val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
         var iterations = 0
 
         try {
             emit(AgentEvent.Initial(input))
+            memory.add(ChatMessage.User(input))
 
             while (iterations < maxIterations) {
                 iterations++
