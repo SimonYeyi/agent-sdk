@@ -42,10 +42,7 @@ public class GenericMcpServer(
     internal var clientInfo: ClientInfo? = null
 
     override suspend fun initialize(): InitializeResult = initializeMutex.withLock {
-        initResult ?: run {
-            transport.initialize()
-            doInitialize()
-        }.also { initResult = it }
+        initResult ?: run { doInitialize() }.also { initResult = it }
     }
 
     override suspend fun listTools(cursor: String?): ListToolsResult {

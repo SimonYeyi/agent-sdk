@@ -75,9 +75,9 @@ object DemoAgentFactory {
         }
         val mcpRegistry = McpServerRegistry(ClientInfo("agent-sdk", "0.1.0")).apply {
             // Local MCP server
-            //register(GenericMcpServer("calculator", "Calculator server", LocalTransport(CalculatorMcpServer())))
+            register(GenericMcpServer("calculator", "Calculator服务，支持加、减、乘、除运算", LocalTransport(CalculatorMcpServer())))
             // Online MCP servers
-            register(GenericMcpServer("kukapay", "加法运算", SseTransport("https://test.kukapay.com/api/mcp")))
+            register(GenericMcpServer("sunex", "Sunex Optics 镜头和传感器产品目录服务，支持搜索传感器、查找兼容镜头、获取产品规格等", SseTransport("https://mcp.sunex-ai.com/mcp", enableNotifications = true)))
         }
 
         return agent {

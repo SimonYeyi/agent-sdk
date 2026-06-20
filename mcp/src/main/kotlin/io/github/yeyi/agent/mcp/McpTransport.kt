@@ -1,7 +1,6 @@
 package io.github.yeyi.agent.mcp
 
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.serialization.json.JsonElement
 
 /**
@@ -15,14 +14,6 @@ import kotlinx.serialization.json.JsonElement
  * declared in `McpServer.kt` alongside the rest of the protocol contract.
  */
 public interface McpTransport {
-
-    /**
-     * Initialize the transport layer (e.g., establish SSE connection, get session ID).
-     * Default implementation is a no-op; SseTransport overrides this.
-     *
-     * Called by [GenericMcpServer] before the protocol handshake.
-     */
-    public suspend fun initialize() { /* default no-op */ }
 
     /**
      * Server-to-client notification stream: out-of-band messages that arrive

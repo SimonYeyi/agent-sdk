@@ -79,7 +79,6 @@ public class StdioTransport(
         if (process?.isAlive != true) {
             startProcess()
         }
-        Unit
     }
 
     private fun startProcess() {
@@ -185,7 +184,8 @@ public class StdioTransport(
 
     private fun notifyCancelledAsync(requestId: Int) {
         val params = CancelledNotificationParams(requestId)
-        val paramsElement = json.encodeToJsonElement(serializer<CancelledNotificationParams>(), params)
+        val paramsElement =
+            json.encodeToJsonElement(serializer<CancelledNotificationParams>(), params)
         cancellationScope.launch {
             runCatching {
                 sendNotification(
@@ -217,7 +217,8 @@ public class StdioTransport(
 
             // Check if this is a notification (no id field)
             if (parsed is JsonObject && parsed["id"] == null) {
-                val notification: JsonRpcNotification<JsonElement> = json.decodeFromJsonElement(parsed)
+                val notification: JsonRpcNotification<JsonElement> =
+                    json.decodeFromJsonElement(parsed)
                 _notifications.emit(notification)
                 continue
             }

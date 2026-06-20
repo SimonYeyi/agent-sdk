@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.mcp
 
+import io.github.yeyi.agent.log.Logging
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import okhttp3.OkHttpClient
@@ -69,6 +70,7 @@ public class SseTransport(
         const val MCP_PROTOCOL_VERSION_HEADER = "MCP-Protocol-Version"
         const val MCP_SESSION_ID_HEADER = "Mcp-Session-Id"
     }
+
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -84,7 +86,10 @@ public class SseTransport(
         expectSuccess = false
         engine {
             config {
-                sslSocketFactory(createInsecureSslContext().socketFactory, createInsecureTrustManager())
+                sslSocketFactory(
+                    createInsecureSslContext().socketFactory,
+                    createInsecureTrustManager()
+                )
                 hostnameVerifier { _, _ -> true }
             }
         }
@@ -99,7 +104,10 @@ public class SseTransport(
         expectSuccess = false
         engine {
             config {
-                sslSocketFactory(createInsecureSslContext().socketFactory, createInsecureTrustManager())
+                sslSocketFactory(
+                    createInsecureSslContext().socketFactory,
+                    createInsecureTrustManager()
+                )
                 hostnameVerifier { _, _ -> true }
             }
         }
@@ -107,9 +115,6 @@ public class SseTransport(
 
     @Volatile
     private var sessionId: String? = null
-
-    @Volatile
-    private var initialized: Boolean = false
 
     private var sseJob: Job? = null
 
@@ -124,77 +129,35 @@ public class SseTransport(
         extraBufferCapacity = 256,
     )
 
-    override val notifications: Flow<JsonRpcNotification<JsonElement>> = _notifications.asSharedFlow()
-
-    /**
-     * Initializes the transport by establishing the SSE connection and obtaining
-     * a session ID from the server.
-     *
-     * This only establishes the transport layer (SSE connection + session).
-     * The actual MCP protocol handshake (initialize request) is handled by
-     * [GenericMcpServer.initialize].
-     *
-     * Must be called before [send] or [sendNotification].
-     */
-    override suspend fun initialize(): Unit = withContext(Dispatchers.IO) {
-        if (initialized) return@withContext
-
-        if (enableNotifications) {
-            // Establish SSE connection to receive notifications
-            startSseConnection()
-
-            // Wait for session ID from SSE connection
-            val retryDelayMs = 50L
-            val maxAttempts = (Defaults.SESSION_TIMEOUT_MS / retryDelayMs).toInt()
-            repeat(maxAttempts) {
-                if (sessionId != null) return@withContext
-                delay(retryDelayMs)
-            }
-        }
-
-        // Fallback: try a POST ping request to get sessionId if not already obtained
-        if (sessionId == null) {
-            runCatching {
-                val pingRequest = JsonRpcRequest(
-                    id = 0,
-                    method = McpMethods.PING,
-                    params = EmptyParams,
-                )
-                val fallbackResponse = postClient.post(endpoint) {
-                    contentType(ContentType.Application.Json)
-                    accept(ContentType.Application.Json)
-                    header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
-                    extraHeaders.forEach { (k, v) -> header(k, v) }
-                    setBody(json.encodeToString(pingRequest))
-                }
-                captureSessionId(fallbackResponse)
-            }
-        }
-
-        // sessionId is optional - many servers work without it
-        initialized = true
-    }
+    override val notifications: Flow<JsonRpcNotification<JsonElement>> =
+        _notifications.asSharedFlow()
 
     override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
-        ensureInitialized()
-
         val body = json.encodeToString(request)
 
         return try {
             val response: HttpResponse = postClient.post(endpoint) {
                 contentType(ContentType.Application.Json)
-                header(HttpHeaders.Accept, "${ContentType.Application.Json}, ${ContentType.Text.EventStream}")
+                header(
+                    HttpHeaders.Accept,
+                    "${ContentType.Application.Json}, ${ContentType.Text.EventStream}"
+                )
                 header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
-                sessionId?.let { header(Defaults.MCP_SESSION_ID_HEADER, it) }
+                header(Defaults.MCP_SESSION_ID_HEADER, sessionId)
                 extraHeaders.forEach { (key, value) -> header(key, value) }
                 setBody(body)
             }
 
-            captureSessionId(response)
-
             if (!response.status.isSuccess()) {
                 throw RuntimeException("HTTP error: ${response.status}")
             }
+
+            // Start SSE connection on initialize request if notifications are enabled
+            if (request.method == McpMethods.INITIALIZE && enableNotifications) {
+                startSseConnection()
+            }
+
+            response.headers[Defaults.MCP_SESSION_ID_HEADER]?.let { sessionId = it }
 
             val bodyText = response.bodyAsText()
             parseJsonResponse(bodyText, request.id)
@@ -205,19 +168,19 @@ public class SseTransport(
     }
 
     override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) {
-        ensureInitialized()
-
         val body = json.encodeToString(request)
 
         val response: HttpResponse = postClient.post(endpoint) {
             contentType(ContentType.Application.Json)
-            header(HttpHeaders.Accept, "${ContentType.Application.Json}, ${ContentType.Text.EventStream}")
+            header(
+                HttpHeaders.Accept,
+                "${ContentType.Application.Json}, ${ContentType.Text.EventStream}"
+            )
             header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
-            sessionId?.let { header(Defaults.MCP_SESSION_ID_HEADER, it) }
+            header(Defaults.MCP_SESSION_ID_HEADER, sessionId)
             extraHeaders.forEach { (key, value) -> header(key, value) }
             setBody(body)
         }
-        captureSessionId(response)
 
         // Per MCP spec, notifications SHOULD receive 202 Accepted
         if (response.status != HttpStatusCode.Accepted && !response.status.isSuccess()) {
@@ -236,18 +199,11 @@ public class SseTransport(
         backgroundScope.cancel()
         postClient.close()
         sseClient.close()
-        initialized = false
     }
 
     // -----------------------------------------------------------------------
     // Internal helpers
     // -----------------------------------------------------------------------
-
-    private fun ensureInitialized() {
-        check(initialized) {
-            "SseTransport is not initialized. Call initialize() before sending messages."
-        }
-    }
 
     /**
      * Establishes a persistent SSE connection and starts reading events.
@@ -260,13 +216,14 @@ public class SseTransport(
                     val response: HttpResponse = sseClient.get(endpoint) {
                         accept(ContentType.Text.EventStream)
                         header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
-                        sessionId?.let { header(Defaults.MCP_SESSION_ID_HEADER, it) }
+                        header(Defaults.MCP_SESSION_ID_HEADER, sessionId)
                         extraHeaders.forEach { (key, value) -> header(key, value) }
                     }
 
-                    captureSessionId(response)
-
-                    if (!response.status.isSuccess()) {
+                    if (response.status.value in 400..499) {
+                        Logging.mcp().error("SSE connection error: ${response.status}")
+                        break
+                    } else if (!response.status.isSuccess()) {
                         throw RuntimeException("SSE connection failed: ${response.status}")
                     }
 
@@ -324,18 +281,16 @@ public class SseTransport(
         // Only handle notifications (has method but no id)
         if (obj["method"] != null && obj["id"] == null) {
             val notification: JsonRpcNotification<JsonElement> =
-                runCatching { json.decodeFromJsonElement<JsonRpcNotification<JsonElement>>(obj) }.getOrNull() ?: return
+                runCatching { json.decodeFromJsonElement<JsonRpcNotification<JsonElement>>(obj) }.getOrNull()
+                    ?: return
             _notifications.emit(notification)
         }
     }
 
-    private fun captureSessionId(response: HttpResponse) {
-        response.headers[Defaults.MCP_SESSION_ID_HEADER]?.let { sessionId = it }
-    }
-
     private fun notifyCancelledAsync(requestId: Int) {
         val params = CancelledNotificationParams(requestId)
-        val paramsElement = json.encodeToJsonElement(serializer<CancelledNotificationParams>(), params)
+        val paramsElement =
+            json.encodeToJsonElement(serializer<CancelledNotificationParams>(), params)
         val job = backgroundScope.launch {
             runCatching {
                 sendNotification(
@@ -377,8 +332,18 @@ public class SseTransport(
 
     private fun createInsecureTrustManager(): X509TrustManager {
         return object : X509TrustManager {
-            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
-            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun checkClientTrusted(
+                chain: Array<out X509Certificate>?,
+                authType: String?
+            ) {
+            }
+
+            override fun checkServerTrusted(
+                chain: Array<out X509Certificate>?,
+                authType: String?
+            ) {
+            }
+
             override fun getAcceptedIssuers(): Array<X509Certificate> = emptyArray()
         }
     }
@@ -432,6 +397,7 @@ internal object SseEventParser {
                     if (data.isNotEmpty()) data.append('\n')
                     data.append(value)
                 }
+
                 "retry" -> retry = value.toLongOrNull()
             }
         }

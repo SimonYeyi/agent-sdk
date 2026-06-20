@@ -43,10 +43,6 @@ public class LocalTransport(private val localServer: McpServer) : McpTransport {
     override val notifications: Flow<JsonRpcNotification<JsonElement>> =
         localServer.transport.notifications
 
-    override suspend fun initialize() {
-        // No external connection to establish for in-process communication.
-    }
-
     override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
         val id = request.id
         val result: JsonElement = when (val method = request.method) {
