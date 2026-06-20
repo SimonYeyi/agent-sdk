@@ -39,7 +39,7 @@ import java.util.concurrent.TimeUnit
  *
  * Resource ownership: the caller is responsible for invoking [close] when the
  * transport is no longer needed. Parent coroutine cancellation does NOT
- * automatically destroy the child process — [McpServerRegistry.closeAll] is
+ * automatically destroy the child process — [McpServerRegistry.unregisterAll] is
  * the canonical cleanup path.
  */
 public class StdioTransport(
@@ -70,7 +70,7 @@ public class StdioTransport(
     // the cancel notification can be flushed to the server.
     private val cancellationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    private val _notifications = MutableSharedFlow<JsonRpcNotification<JsonElement>>(
+    private val notificationsSharedFlow = MutableSharedFlow<JsonRpcNotification<JsonElement>>(
         replay = 0,
         extraBufferCapacity = 64,
     )
@@ -126,7 +126,7 @@ public class StdioTransport(
     }
 
     override val notifications: Flow<JsonRpcNotification<JsonElement>> =
-        _notifications.asSharedFlow()
+        notificationsSharedFlow.asSharedFlow()
 
     override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
         // The id is provided by the caller (GenericMcpServer). Transport
@@ -201,7 +201,7 @@ public class StdioTransport(
 
     /**
      * Read from stdout until we find a response with matching [expectedId].
-     * Notifications encountered along the way are emitted to [_notifications].
+     * Notifications encountered along the way are emitted to [notificationsSharedFlow].
      * This handles the case where the server sends notifications before the response.
      */
     private suspend fun readResponseWithNotifications(
@@ -219,7 +219,7 @@ public class StdioTransport(
             if (parsed is JsonObject && parsed["id"] == null) {
                 val notification: JsonRpcNotification<JsonElement> =
                     json.decodeFromJsonElement(parsed)
-                _notifications.emit(notification)
+                notificationsSharedFlow.emit(notification)
                 continue
             }
 

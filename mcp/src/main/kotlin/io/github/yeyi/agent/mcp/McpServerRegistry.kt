@@ -27,7 +27,7 @@ public class McpServerRegistry(private val clientInfo: ClientInfo) {
         return getServer(serverName).callTool(params)
     }
 
-    public suspend fun closeAll() {
+    public suspend fun unregisterAll() {
         servers.values.forEach { runCatching { it.close() } }
         servers.clear()
     }
