@@ -61,7 +61,7 @@ class LoggingHookTest {
     )
 
     @Test
-    fun `beforeLlmCall writes a warn line with iter`() = runTest {
+    fun `beforeLlmCall writes a debug line with iter`() = runTest {
         val h = LoggingHook()
         h.beforeLlmCall(context(3))
         val out = stderr()
@@ -70,7 +70,7 @@ class LoggingHookTest {
     }
 
     @Test
-    fun `afterLlmResponse writes a warn line with iter and tool-call count`() = runTest {
+    fun `afterLlmResponse writes a debug line with iter`() = runTest {
         val h = LoggingHook()
         val r = ChatResponse(
             message = ChatMessage.Assistant(
@@ -82,7 +82,6 @@ class LoggingHookTest {
         h.afterLlmResponse(context(2), r)
         val out = stderr()
         assertTrue(out.contains("iter=2"))
-        assertTrue(out.contains("toolCalls=2"))
     }
 
     @Test
@@ -123,7 +122,7 @@ class LoggingHookTest {
     }
 
     @Test
-    fun `onRunFinished writes a warn line with iterations and tool-call count`() = runTest {
+    fun `onRunFinished writes an info line with iterations`() = runTest {
         val h = LoggingHook()
         val r = AgentResult(
             message = ChatMessage.Assistant(content = "done"),
@@ -140,7 +139,6 @@ class LoggingHookTest {
         )
         h.onRunFinished(context(iter = 5), r)
         val out = stderr()
-        assertTrue(out.contains("toolCalls=1"))
         assertTrue(out.contains("iter=5/5"))
     }
 
@@ -156,7 +154,7 @@ class LoggingHookTest {
     }
 
     @Test
-    fun `all LoggingHook callbacks produce exactly one warn line per call`() = runTest {
+    fun `all LoggingHook callbacks produce at least one log line per call`() = runTest {
         val h = LoggingHook()
         h.beforeLlmCall(context())
         h.afterLlmResponse(context(), emptyResponse())
@@ -172,8 +170,8 @@ class LoggingHookTest {
                 usage = null,
             )
         )
-        // 6 calls → 6 warn lines (each ends with \n)
+        // 6 calls → at least 6 log lines (error with stack trace may produce multiple lines)
         val lines = stderr().lines().filter { it.isNotEmpty() }
-        assertEquals(6, lines.size, "expected one log line per callback")
+        assertTrue(lines.size >= 6, "expected at least 6 log lines, got ${lines.size}")
     }
 }

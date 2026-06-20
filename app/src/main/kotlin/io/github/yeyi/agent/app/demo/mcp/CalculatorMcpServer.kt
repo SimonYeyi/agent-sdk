@@ -10,11 +10,11 @@ import io.github.yeyi.agent.mcp.McpTransport
 import io.github.yeyi.agent.mcp.ServerCapabilities
 import io.github.yeyi.agent.mcp.ServerInfo
 import io.github.yeyi.agent.mcp.ToolsObject
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
@@ -34,14 +34,16 @@ public class CalculatorMcpServer : McpServer {
     private val tools = listOf(
         buildJsonObject {
             put("name", "add")
-            put("description", "Add two numbers")
+            put("description", "Add multiple numbers")
             put("inputSchema", buildJsonObject {
                 put("type", "object")
                 put("properties", buildJsonObject {
-                    put("a", buildJsonObject { put("type", "number") })
-                    put("b", buildJsonObject { put("type", "number") })
+                    put("numbers", buildJsonObject {
+                        put("type", "array")
+                        put("items", buildJsonObject { put("type", "number") })
+                    })
                 })
-                put("required", JsonArray(listOf(JsonPrimitive("a"), JsonPrimitive("b"))))
+                put("required", JsonArray(listOf(JsonPrimitive("numbers"))))
             })
         },
         buildJsonObject {
@@ -105,9 +107,10 @@ public class CalculatorMcpServer : McpServer {
 
         val result = when (name) {
             "add" -> {
-                val a = args?.get("a")?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
-                val b = args?.get("b")?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
-                a + b
+                val numbers = args?.get("numbers")?.jsonArray
+                    ?.mapNotNull { it.jsonPrimitive.content.toDoubleOrNull() }
+                    ?: emptyList()
+                numbers.sum()
             }
             "subtract" -> {
                 val a = args?.get("a")?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0

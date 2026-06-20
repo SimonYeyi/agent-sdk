@@ -28,12 +28,11 @@ internal class CallMcpTool(private val registry: McpServerRegistry) : Tool {
                     "properties": {
                         "name": {
                             "type": "string",
-                            "minLength": 1,
                             "description": "Target tool name from the MCP Server (for example: get_weather)."
                         },
                         "arguments": {
                             "type": "object",
-                            "description": "JSON object of parameters to forward to the target tool."
+                            "description": "Actual input schema of the target MCP tool. Replace this object with the specific parameters required by the tool."
                         }
                     },
                     "required": ["name", "arguments"],

@@ -28,12 +28,9 @@ public object Logging {
         return buildString {
             if (msg != null) append(msg).append("\n")
             e?.let { ex ->
-                append(ex::class.java.name)
-                ex.message?.let { append(": ").append(it) }
-                append("\n")
                 val sw = StringWriter()
                 ex.printStackTrace(PrintWriter(sw))
-                sw.toString().lineSequence().drop(1).forEach { append(it).append("\n") }
+                append(sw.toString())
             }
         }.trimEnd()
     }
