@@ -28,12 +28,10 @@ public class JsonlConversation(
 
     private var maxPage: Int = 0
     private var startPage: Int = 0
+    private var initialized: Boolean = false
 
-    init {
-        init()
-    }
-
-    private fun init() {
+    private fun ensureInitialized() {
+        if (initialized) return
         conversationDir.mkdirs()
         val files = conversationDir.listFiles()
             ?.filter { it.name.startsWith("page") && it.name.endsWith(".jsonl") }
@@ -44,6 +42,7 @@ public class JsonlConversation(
             maxPage = 1
             File(conversationDir, "page1.jsonl").createNewFile()
         }
+        initialized = true
     }
 
     private fun currentFile(): File {
@@ -51,6 +50,7 @@ public class JsonlConversation(
     }
 
     override suspend fun add(message: ChatMessage) {
+        ensureInitialized()
         val file = currentFile()
         if (file.length() >= pageSizeThreshold) {
             maxPage++
@@ -63,6 +63,7 @@ public class JsonlConversation(
 
     override fun messages(page: Int?): List<ChatMessage> {
         if (page == null) {
+            ensureInitialized()
             return conversationDir.listFiles()
                 ?.filter { it.name.startsWith("page") && it.name.endsWith(".jsonl") }
                 ?.sortedBy { it.name }
@@ -71,6 +72,8 @@ public class JsonlConversation(
         }
 
         if (page <= 0) return emptyList()
+
+        ensureInitialized()
 
         // 用户回到最新，重置锚点
         if (page == 1) {
