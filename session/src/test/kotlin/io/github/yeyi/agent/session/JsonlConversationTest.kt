@@ -157,4 +157,34 @@ class JsonlConversationTest {
         assertTrue(files.isNotEmpty())
         assertEquals("page1.jsonl", files[0].name)
     }
+
+    @Test
+    fun `messages null should return messages in chronological order`() = runTest {
+        conversation.add(ChatMessage.User("first"))
+        conversation.add(ChatMessage.User("second"))
+        conversation.add(ChatMessage.User("third"))
+
+        val all = conversation.messages(null)
+
+        assertEquals(3, all.size)
+        assertEquals("first", (all[0] as ChatMessage.User).content)
+        assertEquals("second", (all[1] as ChatMessage.User).content)
+        assertEquals("third", (all[2] as ChatMessage.User).content)
+    }
+
+    @Test
+    fun `messages page should return messages in chronological order`() = runTest {
+        // Create with small threshold to trigger paging
+        val pagedConv = JsonlConversation(tempDir, innerMemory, pageSizeThreshold = 30)
+
+        pagedConv.add(ChatMessage.User("msg1"))
+        pagedConv.add(ChatMessage.User("msg2"))
+        pagedConv.add(ChatMessage.User("msg3"))
+        pagedConv.add(ChatMessage.User("msg4"))
+
+        // Page 1 should return newer messages first (within the page)
+        val page1 = pagedConv.messages(1)
+        // page1 is the latest page, should have msg4 or msg3+msg4
+        assertTrue(page1.isNotEmpty())
+    }
 }

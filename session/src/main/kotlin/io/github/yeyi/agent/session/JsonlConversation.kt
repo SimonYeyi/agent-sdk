@@ -2,6 +2,8 @@ package io.github.yeyi.agent.session
 
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.memory.Memory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
@@ -35,7 +37,9 @@ public class JsonlConversation(
         conversationDir.mkdirs()
         val files = conversationDir.listFiles()
             ?.filter { it.name.startsWith("page") && it.name.endsWith(".jsonl") }
-            ?.mapNotNull { Regex("page(\\d+)\\.jsonl").find(it.name)?.groupValues?.get(1)?.toIntOrNull() }
+            ?.mapNotNull {
+                Regex("page(\\d+)\\.jsonl").find(it.name)?.groupValues?.get(1)?.toIntOrNull()
+            }
             ?: emptyList()
         maxPage = files.maxOrNull() ?: 0
         if (maxPage == 0) {
@@ -51,19 +55,22 @@ public class JsonlConversation(
 
     override suspend fun add(message: ChatMessage) {
         ensureInitialized()
-        val file = currentFile()
-        if (file.length() >= pageSizeThreshold) {
-            maxPage++
-            val newFile = File(conversationDir, "page$maxPage.jsonl")
-            newFile.createNewFile()
+
+        withContext(Dispatchers.IO) {
+            val file = currentFile()
+            if (file.length() >= pageSizeThreshold) {
+                maxPage++
+                val newFile = File(conversationDir, "page$maxPage.jsonl")
+                newFile.createNewFile()
+            }
+            File(conversationDir, "page$maxPage.jsonl").appendText(json.encodeToString(message) + "\n")
         }
-        File(conversationDir, "page$maxPage.jsonl").appendText(json.encodeToString(message) + "\n")
+
         innerMemory.add(message)
     }
 
     override fun messages(page: Int?): List<ChatMessage> {
         if (page == null) {
-            ensureInitialized()
             return conversationDir.listFiles()
                 ?.filter { it.name.startsWith("page") && it.name.endsWith(".jsonl") }
                 ?.sortedBy { it.name }
