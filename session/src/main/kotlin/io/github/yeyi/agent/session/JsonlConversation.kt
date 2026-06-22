@@ -69,6 +69,34 @@ public class JsonlConversation(
         innerMemory.add(message)
     }
 
+    /**
+     * 获取对话消息
+     *
+     * ## 分页存储
+     *
+     * 消息按页存储，每页达到阈值（默认10KB）后创建新页。
+     * 文件命名：page1.jsonl, page2.jsonl, ...
+     *
+     * ## 翻页锚点机制
+     *
+     * 为解决翻页过程中新增消息导致页码错位问题，采用锚点算法：
+     * - 调用 [messages](1) 时记录当前最大页码为锚点（[startPage]）
+     * - 此后 [messages](N) 基于锚点计算：`实际页 = 锚点 - (N - 1)`
+     * - 再次调用 [messages](1) 重置锚点到最新页
+     *
+     * **首次调用必须传入 1**，否则返回空列表。
+     *
+     * ## 示例
+     *
+     * ```
+     * // 正确用法
+     * val latest = messages(1)      // 建立锚点，获取最新页
+     * val older = messages(2)       // 基于锚点翻页
+     *
+     * // 错误用法（返回空列表）
+     * val older = messages(2)      // 锚点未建立
+     * ```
+     */
     override fun messages(page: Int?): List<ChatMessage> {
         if (page == null) {
             return conversationDir.listFiles()
