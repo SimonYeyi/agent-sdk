@@ -4,7 +4,6 @@ import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.log.agent
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
-import io.github.yeyi.agent.memory.RoundsBoundedMemory
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolRegistry
 
@@ -31,7 +30,7 @@ public class AgentBuilder {
         private set
     private var llmProvider: LlmProvider? = null
     private var memory: Memory = InMemoryMemory()
-    private var maxRounds: Int? = null
+    private var maxRounds: Int = 20
     private val toolRegistry = ToolRegistry()
 
     private var hook: AgentHook = NoOpAgentHook
@@ -49,7 +48,7 @@ public class AgentBuilder {
         llmProvider = provider
     }
 
-    public fun memory(memory: Memory, maxRounds: Int? = null) {
+    public fun memory(memory: Memory, maxRounds: Int = 20) {
         this.memory = memory
         this.maxRounds = maxRounds
     }
@@ -85,7 +84,8 @@ public class AgentBuilder {
             persona = persona ?: Persona("You are a helpful assistant."),
             llmProvider = provider,
             toolRegistry = toolRegistry,
-            memory = RoundsBoundedMemory(memory, provider, maxRounds),
+            memory = memory,
+            maxRounds = maxRounds,
             maxIterations = maxIterations,
             hook = hook,
         )

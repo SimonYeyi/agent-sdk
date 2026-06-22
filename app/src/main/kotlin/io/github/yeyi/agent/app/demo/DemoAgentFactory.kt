@@ -23,7 +23,6 @@ import io.github.yeyi.agent.mcp.LocalTransport
 import io.github.yeyi.agent.mcp.McpServerRegistry
 import io.github.yeyi.agent.mcp.SseTransport
 import io.github.yeyi.agent.mcp.mcp
-import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
 import io.github.yeyi.agent.providers.openai.OpenAiProvider
 import io.github.yeyi.agent.skill.SkillRegistry
@@ -98,16 +97,16 @@ object DemoAgentFactory {
             // Online MCP servers
             register(
                 GenericMcpServer(
-                    "sunex",
-                    "Sunex Optics 镜头和传感器产品目录服务，支持搜索传感器、查找兼容镜头、获取产品规格等",
-                    SseTransport("https://mcp.sunex-ai.com/mcp", httpClient = httpClient)
+                    "livescore",
+                    "足球赛事/比分",
+                    SseTransport("https://livescoremcp.com/sse", httpClient = httpClient)
                 )
             )
         }
 
         return agent {
             persona(Persona(role = "你是一个 helpful 助手，优先使用工具完成任务。"))
-            memory(memory?: InMemoryMemory())
+            memory?.let { memory(it) }
             llmProvider(llmProvider)
             tool(WebSearchTool())
             tool(GetLocationTool())
@@ -124,6 +123,7 @@ object DemoAgentFactory {
     }
 
     private fun httpClient() = HttpClient(CIO) {
+        expectSuccess = true
         install(ContentNegotiation) {
             json(Json {
                 ignoreUnknownKeys = true

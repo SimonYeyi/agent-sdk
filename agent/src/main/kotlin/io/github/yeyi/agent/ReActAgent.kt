@@ -10,6 +10,7 @@ import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.ReadOnlyMemory
+import io.github.yeyi.agent.memory.RoundsBoundedMemory
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -22,10 +23,12 @@ public class ReActAgent internal constructor(
     private val persona: Persona,
     private val llmProvider: LlmProvider,
     private val toolRegistry: ToolRegistry,
-    private val memory: Memory,
+    memory: Memory,
+    maxRounds: Int,
     private val maxIterations: Int,
     private val hook: AgentHook = NoOpAgentHook,
 ) : Agent {
+    private val memory = RoundsBoundedMemory(memory, maxRounds, llmProvider, hook)
 
     override fun run(input: String): Flow<AgentEvent> = flow {
         loop(

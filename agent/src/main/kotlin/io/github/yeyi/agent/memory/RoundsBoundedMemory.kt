@@ -1,5 +1,7 @@
 package io.github.yeyi.agent.memory
 
+import io.github.yeyi.agent.AgentHook
+import io.github.yeyi.agent.NoOpAgentHook
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.LlmProvider
@@ -11,10 +13,10 @@ private const val SUMMARY_SUFFIX = "[/SUMMARY]"
 
 internal class RoundsBoundedMemory(
     private val underlying: Memory,
+    private val maxRounds: Int = 20,
     private val llmProvider: LlmProvider,
-    maxRounds: Int? = null,
+    private val hook: AgentHook = NoOpAgentHook
 ) : Memory {
-    private val maxRounds = maxRounds ?: 20
     private val retainRatio: Double = 0.3
     private val maxSummaries: Int = 10
 
