@@ -73,9 +73,9 @@ class RoundsBoundedMemoryTest {
         }
         val history = memory.history()
         assertTrue(history.size < 6)
-        val first = history.first() as ChatMessage.User
-        assertTrue(first.content.startsWith("[SUMMARY]"))
-        assertTrue(first.content.endsWith("[/SUMMARY]"))
+        // 摘要以 System 消息注入,内容是 SummaryContainer JSON,不再有 [SUMMARY]/[/SUMMARY] marker
+        val first = history.first() as ChatMessage.System
+        assertTrue(first.content.contains("\"summaries\""))
     }
 
     @Test
@@ -106,8 +106,10 @@ class RoundsBoundedMemoryTest {
     @Test
     fun `restores summaries from existing summary message in underlying`() = runTest {
         val underlying = InMemoryMemory()
+        // 旧版本用 [SUMMARY]...[/SUMMARY] 前缀标记嵌在 User 消息内;
+        // 新版本摘要是 ChatMessage.System,内容是 SummaryContainer 的 JSON 序列化
         underlying.add(
-            ChatMessage.User("[SUMMARY]{\"summaries\":[{\"content\":\"previous\"}]}[/SUMMARY]")
+            ChatMessage.System("{\"summaries\":[{\"content\":\"previous\"}]}")
         )
         underlying.add(ChatMessage.User("existing u"))
         underlying.add(ChatMessage.Assistant(content = "existing a"))
@@ -119,7 +121,8 @@ class RoundsBoundedMemoryTest {
         )
 
         assertEquals(3, memory.history().size)
-        assertTrue((memory.history()[0] as ChatMessage.User).content.startsWith("[SUMMARY]"))
+        assertTrue(memory.history()[0] is ChatMessage.System)
+        assertTrue((memory.history()[0] as ChatMessage.System).content.contains("previous"))
     }
 
     @Test
@@ -156,10 +159,9 @@ class RoundsBoundedMemoryTest {
         }
 
         val history = memory.history()
-        val summaryMsg = history.first() as ChatMessage.User
+        // 多次压缩后,所有 summary 都应累积进同一个 System 消息(列表形式)
+        val summaryMsg = history.first() as ChatMessage.System
         val json = summaryMsg.content
-            .removePrefix("[SUMMARY]")
-            .removeSuffix("[/SUMMARY]")
         assertTrue(json.contains("\"summaries\""))
         assertTrue(json.contains("s1"))
         assertTrue(json.contains("s2"))
@@ -185,8 +187,9 @@ class RoundsBoundedMemoryTest {
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
         val history = memory.history()
-        val summaryMsg = history.first() as ChatMessage.User
-        assertTrue(summaryMsg.content.startsWith("[SUMMARY]"))
+        // 摘要现在是首位 System 消息,不再有 [SUMMARY] 前缀
+        val summaryMsg = history.first() as ChatMessage.System
+        assertTrue(summaryMsg.content.contains("\"summaries\""))
 
         // retainWindow = 10 * 0.3 = 3, should retain last 3 rounds (6 messages)
         val retained = history.drop(1)
@@ -257,15 +260,15 @@ class RoundsBoundedMemoryTest {
 
         val history = memory.history()
         // Should have summary + trailing users + recent rounds
-        val summaryMsg = history.first() as ChatMessage.User
-        assertTrue(summaryMsg.content.startsWith("[SUMMARY]"))
+        val summaryMsg = history.first() as ChatMessage.System
+        assertTrue(summaryMsg.content.contains("\"summaries\""))
     }
 
     @Test
     fun `extractRetainedIndices skips trailing users for round count`() = runTest {
         val underlying = InMemoryMemory()
-        // history: [S, U1,A1, U2,A2, U3,A3, U4,U5,U6]
-        underlying.add(ChatMessage.User("[SUMMARY]{\"summaries\":[]}[/SUMMARY]"))
+        // history: [System(summary), U1,A1, U2,A2, U3,A3, U4,U5,U6]
+        underlying.add(ChatMessage.System("{\"summaries\":[]}"))
         (1..3).forEach { i ->
             underlying.add(ChatMessage.User("u$i"))
             underlying.add(ChatMessage.Assistant(content = "a$i"))
@@ -317,8 +320,8 @@ class RoundsBoundedMemoryTest {
             maxRounds = 2,
         )
 
-        // Setup: empty summaries
-        failingMemory.add(ChatMessage.User("[SUMMARY]{\"summaries\":[]}[/SUMMARY]"))
+        // Setup: empty summaries (seed the underlying with an empty SummaryContainer System message)
+        failingMemory.add(ChatMessage.System("{\"summaries\":[]}"))
 
         // First compression: triggers at u3, rebuild fails
         memory.add(ChatMessage.User("u1"))
@@ -339,7 +342,7 @@ class RoundsBoundedMemoryTest {
         // Verify: if summary1 is present, it means summaries WAS updated on first failure (BUG)
         // Correct behavior: only summary2 or summary3 should be present
         val history = memory.history()
-        val summaryMsg = history.first() as ChatMessage.User
+        val summaryMsg = history.first() as ChatMessage.System
         assertTrue(
             summaryMsg.content.contains("summary2") || summaryMsg.content.contains("summary3"),
             "summary2 or summary3 should be present"
@@ -374,7 +377,7 @@ class RoundsBoundedMemoryTest {
 
         // Verify summaries are updated
         val history = memory.history()
-        val summaryMsg = history.first() as ChatMessage.User
+        val summaryMsg = history.first() as ChatMessage.System
         assertTrue(summaryMsg.content.contains("summary1"))
     }
 

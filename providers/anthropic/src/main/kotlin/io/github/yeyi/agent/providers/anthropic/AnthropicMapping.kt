@@ -16,24 +16,28 @@ private val EmptyParams: JsonElement =
     Mapper.parseToJsonElement("""{"type":"object","properties":{}}""")
 
 internal fun mapToAnthropic(model: String, request: ChatRequest): AnthropicChatRequest {
-    // Anthropic 协议把 system 提升为顶层字段, 从消息列表中抽取(取首个 System 消息, 其余忽略)。
-    val systemPrompt: String? = request.messages
-        .filterIsInstance<ChatMessage.System>()
-        .firstOrNull()
-        ?.let { it.content }
+    // Anthropic 协议把 system 提升为顶层字段, 从消息列表中抽取(取首个 System 消息)。
+    val systemMessage = request.messages.firstOrNull() as? ChatMessage.System?
 
     val messages = mutableListOf<AnthropicMessage>()
     request.messages.forEach { msg ->
         when (msg) {
-            is ChatMessage.System -> {
-                // 已抽取到顶层 system 字段, 此处跳过。
+            is ChatMessage.System -> if (msg !== systemMessage) {
+                messages.add(
+                    AnthropicMessage(
+                        role = "system",
+                        content = listOf(AnthropicContentBlock.Text(msg.content)),
+                    )
+                )
             }
+
             is ChatMessage.User -> messages.add(
                 AnthropicMessage(
                     role = "user",
                     content = listOf(AnthropicContentBlock.Text(msg.content)),
                 )
             )
+
             is ChatMessage.Assistant -> {
                 val blocks = mutableListOf<AnthropicContentBlock>()
                 val assistantContent: String? = msg.content
@@ -43,6 +47,7 @@ internal fun mapToAnthropic(model: String, request: ChatRequest): AnthropicChatR
                 }
                 messages.add(AnthropicMessage(role = "assistant", content = blocks))
             }
+
             is ChatMessage.ToolResult -> {
                 val block = AnthropicContentBlock.ToolResult(
                     toolUseId = msg.toolCallId,
@@ -66,7 +71,7 @@ internal fun mapToAnthropic(model: String, request: ChatRequest): AnthropicChatR
     }
     return AnthropicChatRequest(
         model = model,
-        system = systemPrompt,
+        system = systemMessage?.content,
         messages = messages,
         tools = tools,
         stream = false,
