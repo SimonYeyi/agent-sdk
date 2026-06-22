@@ -8,9 +8,6 @@ import io.github.yeyi.agent.llm.LlmProvider
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
-private const val SUMMARY_PREFIX = "[SUMMARY]"
-private const val SUMMARY_SUFFIX = "[/SUMMARY]"
-
 internal class RoundsBoundedMemory(
     private val underlying: Memory,
     private val maxRounds: Int = 20,
@@ -18,18 +15,22 @@ internal class RoundsBoundedMemory(
 ) : Memory {
     private val retainRatio: Double = 0.3
     private val maxSummaries: Int = 10
+    private var summaries: MutableList<Summary>? = null
 
     private var hook: AgentHook? = null
     private lateinit var agentContext: AgentContext
 
-    private var summaries: MutableList<Summary>? = null
+    fun attachHook(hook: AgentHook, agentContext: AgentContext) {
+        this.hook = hook
+        this.agentContext = agentContext
+    }
 
     override suspend fun add(message: ChatMessage) {
         underlying.add(message)
         ensureInitialized()
 
         if (message is ChatMessage.User) {
-            val currentRounds = countRounds(underlying.history())
+            val currentRounds = underlying.history().count { it is ChatMessage.User }
             val retainWindow = (maxRounds * retainRatio).toInt()
             if (currentRounds > maxRounds) {
                 compressRounds(retainWindow)
@@ -46,35 +47,21 @@ internal class RoundsBoundedMemory(
         underlying.rebuild(messages)
     }
 
-    fun attachHook(hook: AgentHook, agentContext: AgentContext) {
-        this.hook = hook
-        this.agentContext = agentContext
-    }
-
     private suspend fun ensureInitialized() {
         if (summaries != null) return
-        summaries = restoreSummaries(underlying.history())
+        summaries = getSummaries(underlying.history()).toMutableList()
     }
 
-    private fun restoreSummaries(history: List<ChatMessage>): MutableList<Summary> {
-        val summaryMsg = history.firstOrNull()
-            ?.takeIf { it.isSummary() }
-            ?.let { it as ChatMessage.User }
-            ?: return mutableListOf()
-
-        val json = summaryMsg.content
-            .removePrefix(SUMMARY_PREFIX)
-            .removeSuffix(SUMMARY_SUFFIX)
-
-        return Json.decodeFromString<SummaryContainer>(json).summaries.toMutableList()
-    }
-
-    private fun ChatMessage.isSummary(): Boolean =
-        this is ChatMessage.User && content.startsWith(SUMMARY_PREFIX)
-
-    private fun summariesToJson(summaries: List<Summary>): String {
+    private fun createSummaryMessage(summaries: List<Summary>): ChatMessage {
         val container = SummaryContainer(summaries)
-        return "$SUMMARY_PREFIX${Json.encodeToString(container)}$SUMMARY_SUFFIX"
+        return ChatMessage.System(Json.encodeToString(container))
+    }
+
+    private fun getSummaries(history: List<ChatMessage>): List<Summary> {
+        return history.firstOrNull()
+            ?.let { it as? ChatMessage.System }
+            ?.let { Json.decodeFromString<SummaryContainer>(it.content).summaries }
+            ?: emptyList()
     }
 
     private suspend fun compressRounds(retainWindow: Int) {
@@ -163,7 +150,7 @@ internal class RoundsBoundedMemory(
         val roundsMessages = history.filterIndexed { index, _ -> index in retainedIndices }
 
         val summaryMessage = summaries.let {
-            if (it.isNotEmpty()) ChatMessage.User(summariesToJson(it)) else null
+            if (it.isNotEmpty()) createSummaryMessage(it) else null
         }
 
         val toRebuild = buildList {
@@ -185,7 +172,7 @@ internal class RoundsBoundedMemory(
         for (index in history.indices.reversed()) {
             val msg = history[index]
             result.add(index)
-            if (msg is ChatMessage.User && !msg.isSummary()) {
+            if (msg is ChatMessage.User) {
                 if (skippingTrailingUsers) continue
                 if (++roundsFound >= retainWindow) break
             } else {
@@ -195,9 +182,6 @@ internal class RoundsBoundedMemory(
 
         return result
     }
-
-    private fun countRounds(history: List<ChatMessage>): Int =
-        history.count { it is ChatMessage.User && !it.isSummary() }
 }
 
 @Serializable
