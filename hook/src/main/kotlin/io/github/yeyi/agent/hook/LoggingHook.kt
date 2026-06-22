@@ -20,16 +20,7 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  * - 在 [CompositeHook] 中组合时,放在前/后位置决定日志输出的相对顺序
  */
 internal class LoggingHook : Hook {
-
     private val log = Logging.hook()
-
-    override suspend fun beforeLlmCall(context: AgentContext) {
-        log.debug("beforeLlmCall $context")
-    }
-
-    override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
-        log.debug("afterLlmResponse response.message=${response.message.content} $context")
-    }
 
     override suspend fun beforeMemoryCompress(context: AgentContext, summaries: List<Summary>) {
         log.info("beforeMemoryCompress summaries=$summaries $context")
@@ -37,6 +28,14 @@ internal class LoggingHook : Hook {
 
     override suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>) {
         log.info("afterMemoryCompress summaries=$summaries $context")
+    }
+
+    override suspend fun beforeLlmCall(context: AgentContext) {
+        log.debug("beforeLlmCall $context")
+    }
+
+    override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
+        log.debug("afterLlmResponse response.message=${response.message.content} $context")
     }
 
     override suspend fun beforeToolCall(

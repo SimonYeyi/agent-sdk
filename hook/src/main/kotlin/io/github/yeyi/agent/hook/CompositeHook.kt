@@ -41,36 +41,30 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  * ```
  */
 public class CompositeHook(hooks: List<Hook> = emptyList(), logging: Boolean = false) : Hook {
-
     private val hooks: List<Hook> = if (logging) listOf(LoggingHook()) + hooks else hooks
 
-    override suspend fun beforeLlmCall(context: AgentContext) {
-        for (hook in hooks) {
-            hook.safeInvoke { beforeLlmCall(context) }
-        }
-    }
-
-    override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
-        for (hook in hooks) {
-            hook.safeInvoke { afterLlmResponse(context, response) }
-        }
-    }
-
     override suspend fun beforeMemoryCompress(context: AgentContext, summaries: List<Summary>) {
-        for (hook in hooks) {
-            hook.safeInvoke { beforeMemoryCompress(context, summaries) }
-        }
+        hooks.forEach { it.safeInvoke { beforeMemoryCompress(context, summaries) } }
     }
 
     override suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>) {
-        for (hook in hooks) {
-            hook.safeInvoke { afterMemoryCompress(context, summaries) }
-        }
+        hooks.forEach { it.safeInvoke { afterMemoryCompress(context, summaries) } }
     }
 
-    override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
-        for (hook in hooks) {
-            val r = hook.safeInvoke { beforeToolCall(context, call) }
+    override suspend fun beforeLlmCall(context: AgentContext) {
+        hooks.forEach { it.safeInvoke { beforeLlmCall(context) } }
+    }
+
+    override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
+        hooks.forEach { it.safeInvoke { afterLlmResponse(context, response) } }
+    }
+
+    override suspend fun beforeToolCall(
+        context: AgentContext,
+        call: ToolCall
+    ): ToolExecutionResult? {
+        hooks.forEach {
+            val r = it.safeInvoke { beforeToolCall(context, call) }
             if (r != null) return r
         }
         return null
@@ -83,34 +77,25 @@ public class CompositeHook(hooks: List<Hook> = emptyList(), logging: Boolean = f
         durationMs: Long,
     ): ToolExecutionResult {
         var current = result
-        for (hook in hooks) {
-            current = hook.safeInvoke { afterToolCall(context, call, current, durationMs) } ?: current
+        hooks.forEach {
+            current = it.safeInvoke { afterToolCall(context, call, current, durationMs) } ?: current
         }
         return current
     }
 
-    override suspend fun onError(context: AgentContext, cause: AgentException) {
-        for (hook in hooks) {
-            hook.safeInvoke { onError(context, cause) }
-        }
-    }
-
     override suspend fun onRunFinished(context: AgentContext, result: AgentResult) {
-        for (hook in hooks) {
-            hook.safeInvoke { onRunFinished(context, result) }
-        }
+        hooks.forEach { it.onRunFinished(context, result) }
     }
 
-    override suspend fun onSessionCreated(session: io.github.yeyi.agent.session.Session) {
-        for (hook in hooks) {
-            hook.safeInvoke { onSessionCreated(session) }
-        }
+    override suspend fun onError(context: AgentContext, cause: AgentException) {
+        hooks.forEach { it.onError(context, cause) }
+    }
+
+    override suspend fun onSessionCreated(session: Session) {
+        hooks.forEach { it.onSessionCreated(session) }
     }
 
     override suspend fun onSessionDeleted(accountId: String, sessionId: String) {
-        for (hook in hooks) {
-            hook.safeInvoke { onSessionDeleted(accountId, sessionId) }
-        }
+        hooks.forEach { it.onSessionDeleted(accountId, sessionId) }
     }
-
 }

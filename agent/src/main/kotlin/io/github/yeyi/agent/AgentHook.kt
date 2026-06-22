@@ -68,9 +68,9 @@ public interface AgentHook {
         durationMs: Long,
     ): ToolExecutionResult = result
 
-    public suspend fun onError(context: AgentContext, cause: AgentException) {}
-
     public suspend fun onRunFinished(context: AgentContext, result: AgentResult) {}
+
+    public suspend fun onError(context: AgentContext, cause: AgentException) {}
 }
 
 /**
