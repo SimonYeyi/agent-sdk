@@ -25,6 +25,12 @@ public class SessionRepository(sessionParent: File) {
         }
     }
 
+    private fun getConversationFile(accountId: String, sessionId: String): File {
+        return File(File(getUserDir(accountId), "conversations"), "$sessionId.jsonl").also {
+            it.parentFile.mkdirs()
+        }
+    }
+
     private fun readSessionsFromFile(accountId: String): List<Session> {
         val file = getSessionsFile(accountId)
         if (!file.exists()) return emptyList()
@@ -37,13 +43,16 @@ public class SessionRepository(sessionParent: File) {
         val now = Clock.System.now()
         val id = UUID.randomUUID().toString()
         val memoryFile = getMemoryFile(accountId, id)
+        val rawMemory = JsonlBackedMemory(memoryFile)
+        val conversation = JsonlConversation(getConversationFile(accountId, id), rawMemory)
         val session = Session(
             id = id,
             accountId = accountId,
             name = sessionName,
             createdAt = now,
             lastActiveAt = now,
-            _memory = JsonlBackedMemory(memoryFile)
+            _memory = conversation,
+            _conversation = conversation
         )
         saveSession(session)
         return session
@@ -51,7 +60,12 @@ public class SessionRepository(sessionParent: File) {
 
     public fun findSessions(accountId: String): List<Session> {
         return readSessionsFromFile(accountId).map { session ->
-            session.copy(_memory = JsonlBackedMemory(getMemoryFile(accountId, session.id)))
+            val rawMemory = JsonlBackedMemory(getMemoryFile(accountId, session.id))
+            val conversation = JsonlConversation(getConversationFile(accountId, session.id), rawMemory)
+            session.copy(
+                _memory = conversation,
+                _conversation = conversation
+            )
         }
     }
 
@@ -59,7 +73,7 @@ public class SessionRepository(sessionParent: File) {
         return findSessions(accountId).find { it.id == sessionId }
     }
 
-    public fun saveSession(session: Session) {
+    private fun saveSession(session: Session) {
         val file = getSessionsFile(session.accountId)
         val sessions = readSessionsFromFile(session.accountId).toMutableList()
         val index = sessions.indexOfFirst { it.id == session.id }
@@ -80,6 +94,11 @@ public class SessionRepository(sessionParent: File) {
         val memoryFile = getMemoryFile(accountId, sessionId)
         if (memoryFile.exists()) {
             memoryFile.delete()
+        }
+
+        val conversationFile = getConversationFile(accountId, sessionId)
+        if (conversationFile.exists()) {
+            conversationFile.delete()
         }
     }
 }

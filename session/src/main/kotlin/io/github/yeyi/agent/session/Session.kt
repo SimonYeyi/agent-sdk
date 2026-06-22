@@ -11,7 +11,9 @@ public data class Session(
     val name: String,
     val createdAt: kotlinx.datetime.Instant,
     val lastActiveAt: kotlinx.datetime.Instant,
-    @Transient private val _memory: Memory? = null
+    @Transient private val _memory: Memory? = null,
+    @Transient private val _conversation: Conversation? = null
 ) {
     val memory: Memory get() = _memory!!
+    val conversation: Conversation get() = _conversation!!
 }
