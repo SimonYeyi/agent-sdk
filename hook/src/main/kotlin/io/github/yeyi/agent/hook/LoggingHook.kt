@@ -7,6 +7,7 @@ import io.github.yeyi.agent.log.Logging
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ToolCall
+import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.tool.ToolExecutionResult
 
@@ -28,6 +29,14 @@ internal class LoggingHook : Hook {
 
     override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
         log.debug("afterLlmResponse response.message=${response.message.content} $context")
+    }
+
+    override suspend fun beforeMemoryCompress(context: AgentContext, summaries: List<Summary>) {
+        log.info("beforeMemoryCompress summaries=$summaries $context")
+    }
+
+    override suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>) {
+        log.info("afterMemoryCompress summaries=$summaries $context")
     }
 
     override suspend fun beforeToolCall(

@@ -6,6 +6,7 @@ import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ToolCall
+import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.tool.ToolExecutionResult
 
@@ -52,6 +53,18 @@ public class CompositeHook(hooks: List<Hook> = emptyList(), logging: Boolean = f
     override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
         for (hook in hooks) {
             hook.safeInvoke { afterLlmResponse(context, response) }
+        }
+    }
+
+    override suspend fun beforeMemoryCompress(context: AgentContext, summaries: List<Summary>) {
+        for (hook in hooks) {
+            hook.safeInvoke { beforeMemoryCompress(context, summaries) }
+        }
+    }
+
+    override suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>) {
+        for (hook in hooks) {
+            hook.safeInvoke { afterMemoryCompress(context, summaries) }
         }
     }
 

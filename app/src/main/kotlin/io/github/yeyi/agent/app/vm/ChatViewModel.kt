@@ -124,6 +124,12 @@ class ChatViewModel(
                 }
                 _liveBubble.value = null
             }
+            is AgentEvent.MemoryCompressing -> {
+
+            }
+            is AgentEvent.MemoryCompressed -> {
+
+            }
         }
     }
 }

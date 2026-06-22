@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.memory
 
+import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentHook
-import io.github.yeyi.agent.NoOpAgentHook
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.LlmProvider
@@ -15,10 +15,12 @@ internal class RoundsBoundedMemory(
     private val underlying: Memory,
     private val maxRounds: Int = 20,
     private val llmProvider: LlmProvider,
-    private val hook: AgentHook = NoOpAgentHook
 ) : Memory {
     private val retainRatio: Double = 0.3
     private val maxSummaries: Int = 10
+
+    private var hook: AgentHook? = null
+    private lateinit var agentContext: AgentContext
 
     private var summaries: MutableList<Summary>? = null
 
@@ -42,6 +44,11 @@ internal class RoundsBoundedMemory(
 
     override suspend fun rebuild(messages: List<ChatMessage>) {
         underlying.rebuild(messages)
+    }
+
+    fun attachHook(hook: AgentHook, agentContext: AgentContext) {
+        this.hook = hook
+        this.agentContext = agentContext
     }
 
     private suspend fun ensureInitialized() {
@@ -87,6 +94,8 @@ internal class RoundsBoundedMemory(
 
         if (compressedIndices.isEmpty()) return
 
+        hook?.beforeMemoryCompress(agentContext, summaries.toList())
+
         // 3. 提取压缩窗口内容并生成摘要
         val compressedContent = history.filterIndexed { index, _ -> index in compressedIndices }
             .joinToString("\n") { msg ->
@@ -109,6 +118,8 @@ internal class RoundsBoundedMemory(
         rebuildUnderlying(history, retainedIndices, summaries)
 
         this.summaries = summaries
+
+        hook?.afterMemoryCompress(agentContext, summaries.toList())
     }
 
     private suspend fun compressSummaries(summaries: MutableList<Summary>) {
@@ -190,7 +201,7 @@ internal class RoundsBoundedMemory(
 }
 
 @Serializable
-private data class Summary(val content: String)
+public data class Summary(val content: String)
 
 @Serializable
 private data class SummaryContainer(val summaries: List<Summary>)

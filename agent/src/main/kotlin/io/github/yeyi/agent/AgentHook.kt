@@ -1,10 +1,10 @@
 package io.github.yeyi.agent
 
-import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.log.Logging
 import io.github.yeyi.agent.log.agent
+import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.tool.ToolExecutionResult
 
 /**
@@ -15,6 +15,7 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  * 2. Hook 不应阻塞/sleep,可能影响 agent 延迟
  * 3. Hook 不能修改 memory([AgentContext.memory] 是只读包装器,调用 add/clear 会抛异常)
  * 4. 调用顺序: beforeLlmCall → afterLlmResponse → (beforeToolCall → afterToolCall)* → onRunFinished
+ *    - beforeMemoryCompress → afterMemoryCompress (压缩时,0 或 1 次;未压缩则不触发)
  *
  * 工具调用拦截语义(v1.1):
  * - [beforeToolCall] 返回 `null` → 继续走真实工具执行
@@ -43,6 +44,9 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  *   使用 `hook` 模块的 `CompositeHook` 组合
  */
 public interface AgentHook {
+    public suspend fun beforeMemoryCompress(context: AgentContext, summaries: List<Summary>) {}
+    public suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>) {}
+
     public suspend fun beforeLlmCall(context: AgentContext) {}
     public suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {}
 
@@ -65,6 +69,7 @@ public interface AgentHook {
     ): ToolExecutionResult = result
 
     public suspend fun onError(context: AgentContext, cause: AgentException) {}
+
     public suspend fun onRunFinished(context: AgentContext, result: AgentResult) {}
 }
 

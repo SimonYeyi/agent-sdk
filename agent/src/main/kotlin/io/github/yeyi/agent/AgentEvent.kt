@@ -1,5 +1,6 @@
 package io.github.yeyi.agent
 
+import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.tool.ToolExecutionResult
 
 /**
@@ -53,6 +54,10 @@ public sealed interface AgentEvent {
      * 这把"领域异常"的契约下放到事件层，下游不必再防御性判型。
      */
     public data class Failed(public val cause: AgentException) : AgentEvent
+
+    public data class MemoryCompressing(public val summaries: List<Summary>) : AgentEvent
+
+    public data class MemoryCompressed(public val summaries: List<Summary>) : AgentEvent
 
     /**
      * 流式文本增量事件。

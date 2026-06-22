@@ -3,6 +3,7 @@ package io.github.yeyi.agent.app.vm
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.app.demo.DemoAgentFactory
 import io.github.yeyi.agent.hook.CompositeHook
 import io.github.yeyi.agent.llm.ChatMessage
@@ -186,6 +187,12 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                                 liveBubble = null,
                                 isToolExecutionPending = false
                             )
+                        }
+                        is AgentEvent.MemoryCompressing -> {
+
+                        }
+                        is AgentEvent.MemoryCompressed -> {
+
                         }
                     }
                 }

@@ -1,5 +1,8 @@
 package io.github.yeyi.agent.memory
 
+import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.AgentHook
+import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
@@ -53,7 +56,10 @@ class RoundsBoundedMemoryTest {
     fun `compresses old rounds when exceeding maxRounds`() = runTest {
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = listOf(
-                ChatResponse(ChatMessage.Assistant(content = "summary of 1&2"), finishReason = FinishReason.Stop),
+                ChatResponse(
+                    ChatMessage.Assistant(content = "summary of 1&2"),
+                    finishReason = FinishReason.Stop
+                ),
             )
         )
         val memory = RoundsBoundedMemory(
@@ -76,7 +82,10 @@ class RoundsBoundedMemoryTest {
     fun `calls LLM with compressed content and stores summary`() = runTest {
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = listOf(
-                ChatResponse(ChatMessage.Assistant(content = "the summary"), finishReason = FinishReason.Stop),
+                ChatResponse(
+                    ChatMessage.Assistant(content = "the summary"),
+                    finishReason = FinishReason.Stop
+                ),
             )
         )
         val memory = RoundsBoundedMemory(
@@ -130,7 +139,10 @@ class RoundsBoundedMemoryTest {
     fun `multiple compressions accumulate summaries`() = runTest {
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = (1..4).map { i ->
-                ChatResponse(ChatMessage.Assistant(content = "s$i"), finishReason = FinishReason.Stop)
+                ChatResponse(
+                    ChatMessage.Assistant(content = "s$i"),
+                    finishReason = FinishReason.Stop
+                )
             }
         )
         val memory = RoundsBoundedMemory(
@@ -157,7 +169,10 @@ class RoundsBoundedMemoryTest {
     fun `compression preserves message order of retained rounds`() = runTest {
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = listOf(
-                ChatResponse(ChatMessage.Assistant(content = "summary"), finishReason = FinishReason.Stop),
+                ChatResponse(
+                    ChatMessage.Assistant(content = "summary"),
+                    finishReason = FinishReason.Stop
+                ),
             )
         )
         val memory = RoundsBoundedMemory(
@@ -185,7 +200,10 @@ class RoundsBoundedMemoryTest {
     fun `trailing users are included in effective retain window`() = runTest {
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = listOf(
-                ChatResponse(ChatMessage.Assistant(content = "summary"), finishReason = FinishReason.Stop),
+                ChatResponse(
+                    ChatMessage.Assistant(content = "summary"),
+                    finishReason = FinishReason.Stop
+                ),
             )
         )
         val memory = RoundsBoundedMemory(
@@ -215,7 +233,10 @@ class RoundsBoundedMemoryTest {
     fun `trailing users extend effective retain window`() = runTest {
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = listOf(
-                ChatResponse(ChatMessage.Assistant(content = "summary"), finishReason = FinishReason.Stop),
+                ChatResponse(
+                    ChatMessage.Assistant(content = "summary"),
+                    finishReason = FinishReason.Stop
+                ),
             )
         )
         val memory = RoundsBoundedMemory(
@@ -276,9 +297,18 @@ class RoundsBoundedMemoryTest {
         val failingMemory = FailingMemory(failOnRebuild = true)  // fail on first rebuild
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = listOf(
-                ChatResponse(ChatMessage.Assistant(content = "summary1"), finishReason = FinishReason.Stop),
-                ChatResponse(ChatMessage.Assistant(content = "summary2"), finishReason = FinishReason.Stop),
-                ChatResponse(ChatMessage.Assistant(content = "summary3"), finishReason = FinishReason.Stop),
+                ChatResponse(
+                    ChatMessage.Assistant(content = "summary1"),
+                    finishReason = FinishReason.Stop
+                ),
+                ChatResponse(
+                    ChatMessage.Assistant(content = "summary2"),
+                    finishReason = FinishReason.Stop
+                ),
+                ChatResponse(
+                    ChatMessage.Assistant(content = "summary3"),
+                    finishReason = FinishReason.Stop
+                ),
             )
         )
         val memory = RoundsBoundedMemory(
@@ -310,9 +340,14 @@ class RoundsBoundedMemoryTest {
         // Correct behavior: only summary2 or summary3 should be present
         val history = memory.history()
         val summaryMsg = history.first() as ChatMessage.User
-        assertTrue(summaryMsg.content.contains("summary2") || summaryMsg.content.contains("summary3"),
-            "summary2 or summary3 should be present")
-        assertTrue(!summaryMsg.content.contains("summary1"), "summary1 should NOT be present - summaries was correctly NOT updated on first failure")
+        assertTrue(
+            summaryMsg.content.contains("summary2") || summaryMsg.content.contains("summary3"),
+            "summary2 or summary3 should be present"
+        )
+        assertTrue(
+            !summaryMsg.content.contains("summary1"),
+            "summary1 should NOT be present - summaries was correctly NOT updated on first failure"
+        )
     }
 
     @Test
@@ -321,7 +356,10 @@ class RoundsBoundedMemoryTest {
             underlying = InMemoryMemory(),
             llmProvider = FakeLlmProvider(
                 nonStreamResponses = listOf(
-                    ChatResponse(ChatMessage.Assistant(content = "summary1"), finishReason = FinishReason.Stop),
+                    ChatResponse(
+                        ChatMessage.Assistant(content = "summary1"),
+                        finishReason = FinishReason.Stop
+                    ),
                 )
             ),
             maxRounds = 2,
@@ -338,5 +376,153 @@ class RoundsBoundedMemoryTest {
         val history = memory.history()
         val summaryMsg = history.first() as ChatMessage.User
         assertTrue(summaryMsg.content.contains("summary1"))
+    }
+
+    @Test
+    fun `before and after hooks fire with correct summary state`() = runTest {
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    ChatMessage.Assistant(content = "s1"),
+                    finishReason = FinishReason.Stop
+                ),
+            )
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 2,
+        )
+        val events = mutableListOf<String>()
+        val hook = object : AgentHook {
+            override suspend fun beforeMemoryCompress(
+                context: AgentContext,
+                summaries: List<Summary>
+            ) {
+                events += "before(${summaries.size})"
+            }
+
+            override suspend fun afterMemoryCompress(
+                context: AgentContext,
+                summaries: List<Summary>
+            ) {
+                events += "after(${summaries.size})"
+            }
+        }
+        memory.attachHook(
+            hook, AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+            )
+        )
+
+        (1..3).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        assertEquals(listOf("before(0)", "after(1)"), events)
+    }
+
+    @Test
+    fun `hooks do not fire when below threshold`() = runTest {
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = FakeLlmProvider(),
+            maxRounds = 20,
+        )
+        var beforeCalls = 0
+        var afterCalls = 0
+        val hook = object : AgentHook {
+            override suspend fun beforeMemoryCompress(
+                context: AgentContext,
+                summaries: List<Summary>
+            ) {
+                beforeCalls++
+            }
+
+            override suspend fun afterMemoryCompress(
+                context: AgentContext,
+                summaries: List<Summary>
+            ) {
+                afterCalls++
+            }
+        }
+        memory.attachHook(
+            hook, AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+            )
+        )
+
+        (1..3).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        assertEquals(0, beforeCalls)
+        assertEquals(0, afterCalls)
+    }
+
+    @Test
+    fun `hook receives snapshot not live reference across compressions`() = runTest {
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..5).map {
+                ChatResponse(
+                    ChatMessage.Assistant(content = "s$it"),
+                    finishReason = FinishReason.Stop
+                )
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 2,
+        )
+        val afterSnapshots = mutableListOf<List<Summary>>()
+        val hook = object : AgentHook {
+            override suspend fun afterMemoryCompress(
+                context: AgentContext,
+                summaries: List<Summary>
+            ) {
+                afterSnapshots += summaries
+            }
+        }
+        memory.attachHook(
+            hook, AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+            )
+        )
+
+        (1..5).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        // 多次压缩后,首张快照的大小与内容不应被后续压缩 mutate。
+        // 若 RBM 传入可变引用,这里首张快照的 size 会比首次捕获时更大、content 也会不同。
+        assertTrue(afterSnapshots.size >= 2, "test requires multiple compressions")
+        val firstSnapshot = afterSnapshots[0]
+        val firstSize = firstSnapshot.size
+        val firstContent = firstSnapshot.map { it.content }.toList()
+
+        // 后续压缩不应改变已捕获的 firstSnapshot
+        assertEquals(
+            firstSize,
+            firstSnapshot.size,
+            "first snapshot size must not change after later compressions"
+        )
+        assertEquals(
+            firstContent,
+            firstSnapshot.map { it.content },
+            "first snapshot content must not change"
+        )
     }
 }

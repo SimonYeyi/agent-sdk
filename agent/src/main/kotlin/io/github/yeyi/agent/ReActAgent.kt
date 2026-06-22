@@ -11,6 +11,7 @@ import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.ReadOnlyMemory
 import io.github.yeyi.agent.memory.RoundsBoundedMemory
+import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -28,13 +29,13 @@ public class ReActAgent internal constructor(
     private val maxIterations: Int,
     private val hook: AgentHook = NoOpAgentHook,
 ) : Agent {
-    private val memory = RoundsBoundedMemory(memory, maxRounds, llmProvider, hook)
+    private val memory = RoundsBoundedMemory(memory, maxRounds, llmProvider)
 
     override fun run(input: String): Flow<AgentEvent> = flow {
         loop(
             input = input,
             llmCall = { req -> llmProvider.chat(req) },
-            emit = { emit(it) },
+            emit = { emit(it) }
         )
     }
 
@@ -104,13 +105,15 @@ public class ReActAgent internal constructor(
     private suspend fun loop(
         input: String,
         llmCall: suspend (ChatRequest) -> ChatResponse,
-        emit: suspend (AgentEvent) -> Unit,
+        emit: suspend (AgentEvent) -> Unit
     ) {
         val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
         var iterations = 0
 
         try {
             emit(AgentEvent.Initial(input))
+
+            memory.attachHook(ProxyHook(hook, emit), buildContext(0))
             memory.add(ChatMessage.User(input))
 
             while (iterations < maxIterations) {
@@ -202,4 +205,20 @@ public class ReActAgent internal constructor(
         currentIteration = currentIteration,
         memory = ReadOnlyMemory(memory),
     )
+
+    private class ProxyHook(
+        private val hook: AgentHook,
+        private val emit: suspend (AgentEvent) -> Unit
+    ) : AgentHook by hook {
+
+        override suspend fun beforeMemoryCompress(context: AgentContext, summaries: List<Summary>) {
+            hook.safeInvoke { beforeMemoryCompress(context, summaries) }
+            emit(AgentEvent.MemoryCompressing(summaries))
+        }
+
+        override suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>) {
+            hook.safeInvoke { afterMemoryCompress(context, summaries) }
+            emit(AgentEvent.MemoryCompressed(summaries))
+        }
+    }
 }
