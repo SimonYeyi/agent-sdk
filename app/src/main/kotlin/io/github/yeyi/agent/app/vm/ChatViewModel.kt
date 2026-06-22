@@ -4,6 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
+import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.memory.Memory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -22,23 +24,11 @@ data class LiveBubble(val id: String, val text: String)
 
 class ChatViewModel(
     private val agentFactory: () -> Agent,
+    private val memory: Memory? = null,
 ) : ViewModel() {
 
     private val _mode = MutableStateFlow(RunMode.STREAM)
     val mode: StateFlow<RunMode> = _mode.asStateFlow()
-
-    fun setMode(m: RunMode) {
-        _mode.value = m
-    }
-
-    fun clearMessages() {
-        _messages.value = emptyList()
-        _liveBubble.value = null
-        inProgressByCallId.clear()
-        agent = agentFactory()
-    }
-
-    private var agent: Agent = agentFactory()
 
     private val _messages = MutableStateFlow<List<UiMessage>>(emptyList())
     val messages: StateFlow<List<UiMessage>> = _messages.asStateFlow()
@@ -50,6 +40,54 @@ class ChatViewModel(
     val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
 
     private val inProgressByCallId = mutableMapOf<String, UiMessage.ToolInProgress>()
+
+    private var agent: Agent = agentFactory()
+
+    init {
+        memory?.let { mem ->
+            viewModelScope.launch {
+                reloadMessages(mem)
+            }
+        }
+    }
+
+    private suspend fun reloadMessages(mem: Memory) {
+        val history = mem.history()
+        _messages.value = history
+            .filter { msg ->
+                msg is ChatMessage.User ||
+                (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank()) ||
+                (msg is ChatMessage.System && !msg.content.isNullOrBlank())
+            }
+            .map { it.toUiMessage() }
+    }
+
+    private fun ChatMessage.toUiMessage(): UiMessage {
+        return when (this) {
+            is ChatMessage.User -> UiMessage.User(content, id = nextUiId())
+            is ChatMessage.Assistant -> UiMessage.Assistant(text = content ?: "", id = nextUiId())
+            is ChatMessage.System -> UiMessage.Assistant(text = content, id = nextUiId())
+            is ChatMessage.ToolResult -> UiMessage.ToolExecution(
+                callId = toolCallId,
+                toolName = toolName,
+                result = io.github.yeyi.agent.tool.ToolExecutionResult(
+                    content = content,
+                    isError = isError
+                )
+            )
+        }
+    }
+
+    fun setMode(m: RunMode) {
+        _mode.value = m
+    }
+
+    fun clearMessages() {
+        _messages.value = emptyList()
+        _liveBubble.value = null
+        inProgressByCallId.clear()
+        agent = agentFactory()
+    }
 
     /**
      * VM 内部单调计数器,为 LazyColumn 生成稳定唯一的 key。
@@ -125,10 +163,13 @@ class ChatViewModel(
                 _liveBubble.value = null
             }
             is AgentEvent.MemoryCompressing -> {
-
+                // 等待压缩完成
             }
             is AgentEvent.MemoryCompressed -> {
-
+                // 记忆压缩完成后，从 Memory 重新加载消息以保持同步
+                memory?.let { mem ->
+                    viewModelScope.launch { reloadMessages(mem) }
+                }
             }
         }
     }
@@ -136,12 +177,13 @@ class ChatViewModel(
 
 class ChatViewModelFactory(
     private val agentFactory: () -> Agent,
+    private val memory: Memory? = null,
 ) : androidx.lifecycle.ViewModelProvider.Factory {
     override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
         require(modelClass.isAssignableFrom(ChatViewModel::class.java)) {
             "Unknown ViewModel class: ${modelClass.name}"
         }
         @Suppress("UNCHECKED_CAST")
-        return ChatViewModel(agentFactory) as T
+        return ChatViewModel(agentFactory, memory) as T
     }
 }

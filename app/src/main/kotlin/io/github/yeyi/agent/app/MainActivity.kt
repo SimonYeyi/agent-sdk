@@ -19,11 +19,17 @@ import io.github.yeyi.agent.app.ui.SessionScreen
 import io.github.yeyi.agent.app.vm.ChatViewModel
 import io.github.yeyi.agent.app.vm.ChatViewModelFactory
 import io.github.yeyi.agent.app.vm.SessionViewModel
+import io.github.yeyi.agent.memory.InMemoryMemory
 
 class MainActivity : ComponentActivity() {
 
+    private val sharedMemory = InMemoryMemory()
+
     private val chatViewModel: ChatViewModel by viewModels {
-        ChatViewModelFactory { DemoAgentFactory.create() }
+        ChatViewModelFactory(
+            agentFactory = { DemoAgentFactory.create(memory = sharedMemory) },
+            memory = sharedMemory
+        )
     }
 
     private val sessionViewModel: SessionViewModel by viewModels()

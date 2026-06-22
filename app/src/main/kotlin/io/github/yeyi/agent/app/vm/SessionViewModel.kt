@@ -189,10 +189,19 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                             )
                         }
                         is AgentEvent.MemoryCompressing -> {
-
+                            // 等待压缩完成
                         }
                         is AgentEvent.MemoryCompressed -> {
-
+                            // 记忆压缩完成后，从 Memory 重新加载消息以保持同步
+                            session?.memory?.history()?.let { history ->
+                                val messages = history
+                                    .filter { msg ->
+                                        msg is ChatMessage.User ||
+                                        (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank())
+                                    }
+                                    .map { it.toUiMessage() }
+                                _uiState.value = _uiState.value.copy(messages = messages)
+                            }
                         }
                     }
                 }
