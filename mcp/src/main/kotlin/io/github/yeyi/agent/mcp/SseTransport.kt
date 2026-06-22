@@ -62,7 +62,7 @@ public class SseTransport(
         const val MCP_SESSION_ID_HEADER = "Mcp-Session-Id"
     }
 
-    private val httpClient = httpClient ?: HttpClient {}
+    private val httpClient = httpClient ?: HttpClient { expectSuccess = true }
     private val isDefaultHttpClient = httpClient == null
 
     private val json = Json {
