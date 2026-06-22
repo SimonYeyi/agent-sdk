@@ -16,20 +16,18 @@ private val EmptyParams: JsonElement =
     Mapper.parseToJsonElement("""{"type":"object","properties":{}}""")
 
 internal fun mapToAnthropic(model: String, request: ChatRequest): AnthropicChatRequest {
-    // Anthropic 协议把 system 提升为顶层字段, 从消息列表中抽取(取首个 System 消息)。
-    val systemMessage = request.messages.firstOrNull() as? ChatMessage.System?
+    // Anthropic 协议把 system 提升为顶层字段, 且 messages 数组只接受 user/assistant 角色。
+    // 所有 ChatMessage.System 在此拼接为单一 system 字符串, 用空行分隔;原列表中的 System
+    // 不再进入 messages 数组(否则 API 可能会返回 400)。
+    val systemPrompt: String? = request.messages
+        .filterIsInstance<ChatMessage.System>()
+        .takeIf { it.isNotEmpty() }
+        ?.joinToString("\n\n") { it.content }
 
     val messages = mutableListOf<AnthropicMessage>()
     request.messages.forEach { msg ->
         when (msg) {
-            is ChatMessage.System -> if (msg !== systemMessage) {
-                messages.add(
-                    AnthropicMessage(
-                        role = "system",
-                        content = listOf(AnthropicContentBlock.Text(msg.content)),
-                    )
-                )
-            }
+            is ChatMessage.System -> Unit
 
             is ChatMessage.User -> messages.add(
                 AnthropicMessage(
@@ -71,7 +69,7 @@ internal fun mapToAnthropic(model: String, request: ChatRequest): AnthropicChatR
     }
     return AnthropicChatRequest(
         model = model,
-        system = systemMessage?.content,
+        system = systemPrompt,
         messages = messages,
         tools = tools,
         stream = false,

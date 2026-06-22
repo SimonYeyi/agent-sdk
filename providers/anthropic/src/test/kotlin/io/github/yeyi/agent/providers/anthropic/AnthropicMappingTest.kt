@@ -37,6 +37,23 @@ class AnthropicMappingTest {
     }
 
     @Test
+    fun `multiple System messages are merged into top-level system field`() {
+        // Anthropic Messages API 不接受 messages 数组里出现 role="system",
+        // 因此所有 System 必须在 mapping 阶段合并到顶层 system 字段, 用空行分隔。
+        val req = ChatRequest(
+            messages = listOf(
+                ChatMessage.System("persona: helpful"),
+                ChatMessage.System("summary: previous conversation"),
+                ChatMessage.User("hi"),
+            ),
+        )
+        val mapped = mapToAnthropic("claude-sonnet-4-6", req)
+        assertEquals("persona: helpful\n\nsummary: previous conversation", mapped.system)
+        // 合并后 messages 数组里不应残留 System(2 个 System 已合并,只剩 1 条 User)
+        assertEquals(1, mapped.messages.size)
+    }
+
+    @Test
     fun `User and Assistant messages are mapped with text content block`() {
         val req = ChatRequest(
             messages = listOf(
