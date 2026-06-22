@@ -25,9 +25,9 @@ public class SessionRepository(sessionParent: File) {
         }
     }
 
-    private fun getConversationFile(accountId: String, sessionId: String): File {
-        return File(File(getUserDir(accountId), "conversations"), "$sessionId.jsonl").also {
-            it.parentFile.mkdirs()
+    private fun getConversationDir(accountId: String, sessionId: String): File {
+        return File(File(getUserDir(accountId), "conversations"), sessionId).also {
+            it.mkdirs()
         }
     }
 
@@ -44,7 +44,7 @@ public class SessionRepository(sessionParent: File) {
         val id = UUID.randomUUID().toString()
         val memoryFile = getMemoryFile(accountId, id)
         val rawMemory = JsonlBackedMemory(memoryFile)
-        val conversation = JsonlConversation(getConversationFile(accountId, id), rawMemory)
+        val conversation = JsonlConversation(getConversationDir(accountId, id), rawMemory)
         val session = Session(
             id = id,
             accountId = accountId,
@@ -61,7 +61,7 @@ public class SessionRepository(sessionParent: File) {
     public fun findSessions(accountId: String): List<Session> {
         return readSessionsFromFile(accountId).map { session ->
             val rawMemory = JsonlBackedMemory(getMemoryFile(accountId, session.id))
-            val conversation = JsonlConversation(getConversationFile(accountId, session.id), rawMemory)
+            val conversation = JsonlConversation(getConversationDir(accountId, session.id), rawMemory)
             session.copy(
                 _memory = conversation,
                 _conversation = conversation
@@ -96,9 +96,9 @@ public class SessionRepository(sessionParent: File) {
             memoryFile.delete()
         }
 
-        val conversationFile = getConversationFile(accountId, sessionId)
-        if (conversationFile.exists()) {
-            conversationFile.delete()
+        val conversationDir = getConversationDir(accountId, sessionId)
+        if (conversationDir.exists()) {
+            conversationDir.deleteRecursively()
         }
     }
 }

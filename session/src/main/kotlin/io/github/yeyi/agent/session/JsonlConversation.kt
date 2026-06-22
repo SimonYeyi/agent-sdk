@@ -9,8 +9,9 @@ import kotlinx.serialization.modules.subclass
 import java.io.File
 
 public class JsonlConversation(
-    private val file: File,
-    private val innerMemory: Memory
+    private val conversationDir: File,
+    private val innerMemory: Memory,
+    private val pageSizeThreshold: Long = 10 * 1024  // 10KB
 ) : Conversation, Memory by innerMemory {
 
     private val json = Json {
@@ -25,12 +26,67 @@ public class JsonlConversation(
         }
     }
 
+    private var maxPage: Int = 0
+    private var startPage: Int = 0
+
+    init {
+        init()
+    }
+
+    private fun init() {
+        conversationDir.mkdirs()
+        val files = conversationDir.listFiles()
+            ?.filter { it.name.startsWith("page") && it.name.endsWith(".jsonl") }
+            ?.mapNotNull { Regex("page(\\d+)\\.jsonl").find(it.name)?.groupValues?.get(1)?.toIntOrNull() }
+            ?: emptyList()
+        maxPage = files.maxOrNull() ?: 0
+        if (maxPage == 0) {
+            maxPage = 1
+            File(conversationDir, "page1.jsonl").createNewFile()
+        }
+    }
+
+    private fun currentFile(): File {
+        return File(conversationDir, "page$maxPage.jsonl")
+    }
+
     override suspend fun add(message: ChatMessage) {
-        file.appendText(json.encodeToString(message) + "\n")
+        val file = currentFile()
+        if (file.length() >= pageSizeThreshold) {
+            maxPage++
+            val newFile = File(conversationDir, "page$maxPage.jsonl")
+            newFile.createNewFile()
+        }
+        File(conversationDir, "page$maxPage.jsonl").appendText(json.encodeToString(message) + "\n")
         innerMemory.add(message)
     }
 
-    override fun messages(): List<ChatMessage> {
+    override fun messages(page: Int?): List<ChatMessage> {
+        if (page == null) {
+            return conversationDir.listFiles()
+                ?.filter { it.name.startsWith("page") && it.name.endsWith(".jsonl") }
+                ?.sortedBy { it.name }
+                ?.flatMap { readMessages(it) }
+                ?: emptyList()
+        }
+
+        if (page <= 0) return emptyList()
+
+        // 用户回到最新，重置锚点
+        if (page == 1) {
+            startPage = maxPage
+        }
+
+        val filePage = startPage - (page - 1)
+        if (filePage <= 0) return emptyList()
+
+        val file = File(conversationDir, "page$filePage.jsonl")
+        if (!file.exists()) return emptyList()
+
+        return readMessages(file)
+    }
+
+    private fun readMessages(file: File): List<ChatMessage> {
         return file.readLines()
             .filter { it.isNotBlank() }
             .map { json.decodeFromString<ChatMessage>(it) }
