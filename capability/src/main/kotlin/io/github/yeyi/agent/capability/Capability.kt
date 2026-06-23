@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.capability
 
 import io.github.yeyi.agent.tool.ToolContext
+import kotlinx.serialization.json.JsonElement
 
 /**
  * Marker interface for the context a [Capability] needs at execution time.
@@ -22,11 +23,14 @@ public interface CapabilityContextFactory<Ctx : CapabilityContext> {
  * A named, routable unit of work that an LLM can invoke indirectly through
  * a Delegate Tool.
  *
- * Capabilities are registered into a [CapabilityRegistry] which acts as the
- * routing center: the registry knows the name → capability map, and
- * `execute` looks up the right one and delegates.
+ * A Capability is one member of a routable *category* (e.g. several
+ * subagents). The category's call shape — what `arguments` look like and how
+ * they're declared to the LLM — is owned by the [CapabilityAdapter] that
+ * wires the registry into the agent, NOT by each individual capability.
+ * Individual capabilities are responsible for parsing the `arguments` they
+ * receive.
  *
- * `execute` returns [String] (the text the LLM will see) — errors propagate
+ * `activate` returns [String] (the text the LLM will see) — errors propagate
  * as exceptions and are caught by the calling layer (ToolRegistry already
  * does this for `Tool.execute`).
  *
@@ -47,10 +51,12 @@ public interface Capability<Ctx : CapabilityContext> {
     /**
      * Execute this capability.
      *
+     * @param arguments JSON object forwarded by the calling tool (LLM-provided
+     *   call payload; shape is defined by the Adapter's `argumentsSchema`)
      * @param context framework-built capability context
      * @return text the LLM will see
      * @throws Throwable any failure (including domain errors); the caller
      *   wraps non-CancellationException into `ToolExecutionResult(isError=true)`
      */
-    public suspend fun activate(context: Ctx): String
+    public suspend fun activate(arguments: JsonElement, context: Ctx): String
 }
