@@ -7,7 +7,7 @@ public interface CapabilityRegistry<Ctx : CapabilityContext, C : Capability<T, C
 
     public fun register(capability: C): CapabilityRegistry<Ctx, C, T>
 
-    public fun register(capabilities: List<C>): Unit =
+    public fun register(capabilities: Iterable<C>): Unit =
         capabilities.forEach(::register)
 
     public fun all(): List<C>
