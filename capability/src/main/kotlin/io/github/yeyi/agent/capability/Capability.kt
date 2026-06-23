@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.capability
 
 import io.github.yeyi.agent.tool.ToolContext
-import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.KSerializer
 
 /**
  * Marker interface for the context a [Capability] needs at execution time.
@@ -15,7 +15,6 @@ import kotlinx.serialization.json.JsonElement
 public interface CapabilityContext
 
 public interface CapabilityContextFactory<Ctx : CapabilityContext> {
-
     public fun create(context: ToolContext): Ctx
 }
 
@@ -41,7 +40,7 @@ public interface CapabilityContextFactory<Ctx : CapabilityContext> {
  *
  * @param Ctx the capability-specific context shape
  */
-public interface Capability<Ctx : CapabilityContext> {
+public interface Capability<T : Any, Ctx : CapabilityContext> {
     /** Routing key — also used by Delegate Tool to identify the capability. */
     public val name: String
 
@@ -58,5 +57,10 @@ public interface Capability<Ctx : CapabilityContext> {
      * @throws Throwable any failure (including domain errors); the caller
      *   wraps non-CancellationException into `ToolExecutionResult(isError=true)`
      */
-    public suspend fun activate(arguments: JsonElement, context: Ctx): String
+    public suspend fun activate(arguments: T?, context: Ctx): String
+}
+
+public interface CapabilityArguments<T> {
+    public val schema: String
+    public val serializer: KSerializer<T>
 }

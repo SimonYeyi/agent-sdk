@@ -2,12 +2,11 @@ package io.github.yeyi.agent.capability
 
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolParameters
 
-public abstract class CapabilityAdapter<Ctx : CapabilityContext, C : Capability<Ctx>>(
-    protected val registry: CapabilityRegistry<Ctx, C>,
+public abstract class CapabilityAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
+    protected val registry: CapabilityRegistry<Ctx, C, T>,
     protected val capabilityContextFactory: CapabilityContextFactory<Ctx>,
-    protected val argumentsSchema: ToolParameters
+    protected val arguments: CapabilityArguments<T>?
 ) {
     protected abstract fun adapt(): List<Tool>
 
@@ -15,20 +14,20 @@ public abstract class CapabilityAdapter<Ctx : CapabilityContext, C : Capability<
         adapt().forEach { agentBuilder.tool(it) }
 }
 
-public class DelegationAdapter<Ctx : CapabilityContext, C : Capability<Ctx>>(
-    registry: CapabilityRegistry<Ctx, C>,
+public class DelegationAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
+    registry: CapabilityRegistry<Ctx, C, T>,
     capabilityContextFactory: CapabilityContextFactory<Ctx>,
-    argumentsSchema: ToolParameters = ToolParameters.Empty,
-) : CapabilityAdapter<Ctx, C>(registry, capabilityContextFactory, argumentsSchema) {
+    arguments: CapabilityArguments<T>? = null
+) : CapabilityAdapter<Ctx, C, T>(registry, capabilityContextFactory, arguments) {
     override fun adapt(): List<Tool> =
-        listOf(LoadCapabilityTool(registry, capabilityContextFactory, argumentsSchema))
+        listOf(LoadCapabilityTool(registry, capabilityContextFactory, arguments))
 }
 
-public class OneToOneAdapter<Ctx : CapabilityContext, C : Capability<Ctx>>(
-    registry: CapabilityRegistry<Ctx, C>,
+public class OneToOneAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
+    registry: CapabilityRegistry<Ctx, C, T>,
     capabilityContextFactory: CapabilityContextFactory<Ctx>,
-    argumentsSchema: ToolParameters = ToolParameters.Empty,
-) : CapabilityAdapter<Ctx, C>(registry, capabilityContextFactory, argumentsSchema) {
+    arguments: CapabilityArguments<T>? = null
+) : CapabilityAdapter<Ctx, C, T>(registry, capabilityContextFactory, arguments) {
     override fun adapt(): List<Tool> =
         registry.all()
             .map { cap ->
@@ -36,7 +35,7 @@ public class OneToOneAdapter<Ctx : CapabilityContext, C : Capability<Ctx>>(
                     registry.capabilityName,
                     cap,
                     capabilityContextFactory,
-                    argumentsSchema
+                    arguments
                 )
             }
 }
