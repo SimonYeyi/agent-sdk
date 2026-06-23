@@ -25,7 +25,7 @@ public class ReActAgent internal constructor(
     private val llmProvider: LlmProvider,
     private val toolRegistry: ToolRegistry,
     memory: Memory,
-    maxRounds: Int,
+    private val maxRounds: Int,
     private val maxIterations: Int,
     private val hook: AgentHook = NoOpAgentHook,
 ) : Agent {
@@ -151,7 +151,7 @@ public class ReActAgent internal constructor(
                     } else {
                         emit(AgentEvent.ToolCallStart(call.id, call.name))
                         val startMs = System.currentTimeMillis()
-                        val raw = toolRegistry.execute(call, ToolContext(toolCallId = call.id))
+                        val raw = toolRegistry.execute(call, ToolContext(call.id, context))
                         val durMs = System.currentTimeMillis() - startMs
                         val final =
                             hook.safeInvoke { afterToolCall(context, call, raw, durMs) } ?: raw
@@ -204,6 +204,9 @@ public class ReActAgent internal constructor(
         maxIterations = maxIterations,
         currentIteration = currentIteration,
         memory = ReadOnlyMemory(memory),
+        llmProvider = llmProvider,
+        hook = hook,
+        maxRounds = maxRounds,
     )
 
     private class ProxyHook(
