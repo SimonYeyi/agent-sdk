@@ -23,6 +23,7 @@ dependencyResolutionManagement {
 rootProject.name = "agent-sdk"
 
 include(":agent")
+include(":capability")
 include(":session")
 include(":skill")
 include(":hook")
