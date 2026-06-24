@@ -8,6 +8,7 @@ import io.github.yeyi.agent.capability.Capability
 import io.github.yeyi.agent.capability.CapabilityContext
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.tool.Tool
 import kotlinx.serialization.Serializable
 
 /**
@@ -33,6 +34,8 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
     public val maxIterations: Int
     public val memory: Memory?
 
+    public val tools: List<Tool>
+
     public fun loadInstructions(): String
 
     override suspend fun activate(arguments: SubagentTask?, context: SubagentContext): String {
@@ -41,16 +44,22 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
 
         val memory = memory ?: InMemoryMemory()
         val instructions = loadInstructions()
+        val resolvedTools = tools.takeIf { it.isNotEmpty() }
+            ?: context.agentContext.tools.filter { !it.name.contains(NAME) }
 
         val sub = agent {
             persona(Persona(instructions))
             llmProvider(context.agentContext.llmProvider)
-            // hook(context.agentContext.hook)
-            memory(memory)
+            memory(memory, context.agentContext.maxRounds)
             maxIterations(maxIterations)
+            tools(resolvedTools)
         }
 
         return sub.run(task).awaitResult().message.content
             ?: throw IllegalStateException("Subagent '${name}' returned empty content")
+    }
+
+    public companion object {
+        public const val NAME: String = "subagent"
     }
 }

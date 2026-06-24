@@ -8,5 +8,5 @@ import io.github.yeyi.agent.capability.DefaultCapabilityRegistry
  */
 public class SubagentRegistry :
     CapabilityRegistry<SubagentContext, Subagent, SubagentTask> by DefaultCapabilityRegistry(
-        capabilityName = "subagent"
+        capabilityName = Subagent.NAME
     )

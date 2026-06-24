@@ -42,6 +42,8 @@ public class ToolRegistry {
         tools.forEach(::register)
     }
 
+    public fun all(): List<Tool> = byName.values.toList()
+
     /**
      * Resolve [call.name] to a registered tool and execute it.
      *

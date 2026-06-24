@@ -205,7 +205,7 @@ public class ReActAgent internal constructor(
         currentIteration = currentIteration,
         memory = ReadOnlyMemory(memory),
         llmProvider = llmProvider,
-        hook = hook,
+        tools = toolRegistry.all(),
         maxRounds = maxRounds,
     )
 
