@@ -2,13 +2,11 @@ package io.gateway.engine
 
 import io.gateway.api.ConcurrencyController
 import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import java.util.concurrent.atomic.AtomicInteger
 
-class DefaultConcurrencyController(
+internal class DefaultConcurrencyController(
     override val maxConcurrency: Int = 10
 ) : ConcurrencyController {
 
@@ -21,7 +19,7 @@ class DefaultConcurrencyController(
     override suspend fun acquire(): Boolean {
         val acquired = semaphore.tryAcquire()
         if (acquired) {
-            _processingCount.value = _processingCount.value + 1
+            _processingCount.value += 1
         }
         return acquired
     }

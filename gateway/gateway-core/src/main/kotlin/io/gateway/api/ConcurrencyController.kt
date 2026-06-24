@@ -2,15 +2,15 @@ package io.gateway.api
 
 import kotlinx.coroutines.flow.Flow
 
-interface ConcurrencyController {
+public interface ConcurrencyController {
 
-    suspend fun acquire(): Boolean
+    public suspend fun acquire(): Boolean
 
-    fun release()
+    public fun release()
 
-    val processingCount: Int
+    public val processingCount: Int
 
-    val maxConcurrency: Int
+    public val maxConcurrency: Int
 
-    fun observeProcessing(): Flow<Int>
+    public fun observeProcessing(): Flow<Int>
 }

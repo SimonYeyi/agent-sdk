@@ -1,6 +1,6 @@
 package io.gateway.platform.weixin
 
-data class WeixinConfig(
+public data class WeixinConfig(
     val accountId: String,
     val loginToken: String,
     val baseUrl: String = "https://ilink.bot.weixin.qq.com",

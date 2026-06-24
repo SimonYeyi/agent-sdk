@@ -1,6 +1,6 @@
 package io.gateway.platform.telegram
 
-data class TelegramConfig(
+public data class TelegramConfig(
     val botToken: String,
     val apiBaseUrl: String = "https://api.telegram.org",
     val pollingTimeout: Int = 30,

@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.datetime.Instant
 
 @Serializable
-data class GatewayState(
+public data class GatewayState(
     val isRunning: Boolean = false,
     val connectedPlatforms: Set<PlatformId> = emptySet(),
     val activeSessions: Int = 0,

@@ -3,7 +3,7 @@ package io.gateway.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class GatewayConfig(
+public data class GatewayConfig(
     val maxConcurrentSessions: Int = 10,
     val maxInterruptDepth: Int = 3,
     val enableTypingIndicator: Boolean = true,
@@ -14,7 +14,7 @@ data class GatewayConfig(
 )
 
 @Serializable
-enum class SessionResetPolicy {
+public enum class SessionResetPolicy {
     NONE,
     DAILY,
     IDLE_HOURS,

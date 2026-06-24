@@ -4,7 +4,6 @@ import io.gateway.api.DeliveryRouter
 import io.gateway.api.PlatformAdapter
 import io.gateway.model.OutgoingContent
 import io.gateway.model.OutgoingMessage
-import io.gateway.model.OutgoingMetadata
 import io.gateway.model.PlatformId
 import io.gateway.model.SendResult
 import kotlinx.coroutines.flow.Flow
@@ -12,7 +11,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import java.util.concurrent.ConcurrentHashMap
 
-class DefaultDeliveryRouter : DeliveryRouter {
+internal class DefaultDeliveryRouter : DeliveryRouter {
 
     private val adapters = ConcurrentHashMap<PlatformId, PlatformAdapter>()
 

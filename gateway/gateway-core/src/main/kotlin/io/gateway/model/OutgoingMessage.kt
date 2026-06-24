@@ -3,7 +3,7 @@ package io.gateway.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class OutgoingMessage(
+public data class OutgoingMessage(
     val chatId: String,
     val content: OutgoingContent,
     val replyToMessageId: String? = null,

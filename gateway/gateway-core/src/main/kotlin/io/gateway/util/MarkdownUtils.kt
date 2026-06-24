@@ -1,8 +1,8 @@
 package io.gateway.util
 
-object MarkdownUtils {
+public object MarkdownUtils {
 
-    fun toPlainText(markdown: String): String {
+    public fun toPlainText(markdown: String): String {
         var result = markdown
 
         result = result.replace(Regex("""^#+\s+""", RegexOption.MULTILINE), "")
@@ -22,7 +22,7 @@ object MarkdownUtils {
         return result.trim()
     }
 
-    fun truncate(text: String, maxLength: Int = 2000): String {
+    public fun truncate(text: String, maxLength: Int = 2000): String {
         if (text.length <= maxLength) return text
         return text.take(maxLength - 3) + "..."
     }

@@ -2,7 +2,7 @@ package io.gateway.hook
 
 import io.gateway.api.HookPipeline
 
-class WhitelistHook(
+public class WhitelistHook(
     private val allowedUsers: Set<String> = emptySet(),
     private val allowedChats: Set<String> = emptySet()
 ) : HookPipeline.Hook {

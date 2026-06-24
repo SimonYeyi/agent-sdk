@@ -5,7 +5,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.Clock
 
-class RateLimitHook(
+public class RateLimitHook(
     private val maxMessagesPerMinute: Int = 20,
     private val maxMessagesPerHour: Int = 200
 ) : HookPipeline.Hook {

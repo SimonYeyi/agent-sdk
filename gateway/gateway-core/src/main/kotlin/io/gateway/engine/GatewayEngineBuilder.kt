@@ -9,7 +9,7 @@ import io.gateway.api.HookPipeline
 import io.gateway.model.GatewayConfig
 import java.io.File
 
-class GatewayEngineBuilder {
+public class GatewayEngineBuilder {
 
     private var config: GatewayConfig = GatewayConfig()
     private var sessionManager: GatewaySessionManager? = null
@@ -19,35 +19,35 @@ class GatewayEngineBuilder {
     private var concurrencyController: ConcurrencyController? = null
     private var baseDir: File? = null
 
-    fun withConfig(config: GatewayConfig): GatewayEngineBuilder = apply {
+    public fun withConfig(config: GatewayConfig): GatewayEngineBuilder = apply {
         this.config = config
     }
 
-    fun withSessionManager(manager: GatewaySessionManager): GatewayEngineBuilder = apply {
+    public fun withSessionManager(manager: GatewaySessionManager): GatewayEngineBuilder = apply {
         this.sessionManager = manager
     }
 
-    fun withFileSessionStorage(baseDir: File): GatewayEngineBuilder = apply {
+    public fun withFileSessionStorage(baseDir: File): GatewayEngineBuilder = apply {
         this.baseDir = baseDir
     }
 
-    fun withAgentRunner(runner: AgentRunner): GatewayEngineBuilder = apply {
+    public fun withAgentRunner(runner: AgentRunner): GatewayEngineBuilder = apply {
         this.agentRunner = runner
     }
 
-    fun withHookPipeline(pipeline: HookPipeline): GatewayEngineBuilder = apply {
+    public fun withHookPipeline(pipeline: HookPipeline): GatewayEngineBuilder = apply {
         this.hookPipeline = pipeline
     }
 
-    fun withDeliveryRouter(router: DeliveryRouter): GatewayEngineBuilder = apply {
+    public fun withDeliveryRouter(router: DeliveryRouter): GatewayEngineBuilder = apply {
         this.deliveryRouter = router
     }
 
-    fun withConcurrencyController(controller: ConcurrencyController): GatewayEngineBuilder = apply {
+    public fun withConcurrencyController(controller: ConcurrencyController): GatewayEngineBuilder = apply {
         this.concurrencyController = controller
     }
 
-    fun build(): GatewayEngine {
+    public fun build(): GatewayEngine {
         val engine = DefaultGatewayEngine(config)
 
         val sessionMgr = sessionManager

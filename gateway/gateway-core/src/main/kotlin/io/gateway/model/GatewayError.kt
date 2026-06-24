@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.datetime.Instant
 
 @Serializable
-data class GatewayError(
+public data class GatewayError(
     val platform: PlatformId? = null,
     val sessionKey: String? = null,
     val error: String,

@@ -5,7 +5,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.asSharedFlow
 
-class DefaultHookPipeline : HookPipeline {
+internal class DefaultHookPipeline : HookPipeline {
 
     private val hooks = mutableListOf<HookPipeline.Hook>()
     private val _hookEvents = MutableSharedFlow<Pair<HookPipeline.Event, HookPipeline.Context>>(
@@ -34,9 +34,7 @@ class DefaultHookPipeline : HookPipeline {
         for (hook in hooks) {
             if (event !in hook.events) continue
 
-            val hookResult = hook.execute(currentContext)
-
-            when (hookResult) {
+            when (val hookResult = hook.execute(currentContext)) {
                 is HookPipeline.Result.Halt -> {
                     return hookResult
                 }

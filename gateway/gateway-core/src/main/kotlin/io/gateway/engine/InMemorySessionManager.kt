@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.datetime.Instant
 import java.util.concurrent.ConcurrentHashMap
 
-class InMemoryGatewaySessionManager : GatewaySessionManager {
+internal class InMemoryGatewaySessionManager : GatewaySessionManager {
 
     private val sessions = ConcurrentHashMap<String, GatewaySession>()
     private val allGatewaySessionsFlow = MutableStateFlow<List<GatewaySession>>(emptyList())

@@ -1,6 +1,6 @@
 package io.gateway.platform.feishu
 
-data class FeishuConfig(
+public data class FeishuConfig(
     val appId: String,
     val appSecret: String,
     val domain: String = "https://open.feishu.cn",

@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.datetime.Instant
 
 @Serializable
-data class GatewaySession(
+public data class GatewaySession(
     val key: String,
     val platform: PlatformId,
     val chatId: String,

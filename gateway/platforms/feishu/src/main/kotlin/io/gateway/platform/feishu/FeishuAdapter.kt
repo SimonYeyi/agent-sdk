@@ -24,7 +24,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
-class FeishuAdapter(
+public class FeishuAdapter(
     private val config: FeishuConfig,
     private val coroutineScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) : PlatformAdapter {
@@ -140,7 +140,7 @@ class FeishuAdapter(
         return messageSender.deleteMessage(chatId, messageId)
     }
 
-    fun addReaction(messageId: String, emoji: String): Boolean {
+    public fun addReaction(messageId: String, emoji: String): Boolean {
         return runCatching {
             kotlinx.coroutines.runBlocking {
                 messageSender.addReaction(messageId, emoji)
@@ -223,7 +223,7 @@ class FeishuAdapter(
         }
     }
 
-    fun downloadFile(fileKey: String): ByteArray? {
+    public fun downloadFile(fileKey: String): ByteArray? {
         return runCatching {
             kotlinx.coroutines.runBlocking {
                 messageSender.downloadFile(fileKey)
@@ -231,9 +231,9 @@ class FeishuAdapter(
         }.getOrNull()
     }
 
-    fun getBotOpenId(): String? = botOpenId
+    public fun getBotOpenId(): String? = botOpenId
 
-    companion object {
+    public companion object {
         private fun buildJsonObject(block: kotlinx.serialization.json.JsonObjectBuilder.() -> Unit) =
             kotlinx.serialization.json.buildJsonObject(block)
     }

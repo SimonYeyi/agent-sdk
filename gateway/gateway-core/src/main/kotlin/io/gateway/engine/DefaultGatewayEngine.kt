@@ -20,7 +20,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -31,17 +30,17 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.Clock
 
-class DefaultGatewayEngine(
+internal class DefaultGatewayEngine(
     override val config: GatewayConfig = GatewayConfig()
 ) : GatewayEngine {
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private lateinit var sessionManager: GatewaySessionManager
+    private var sessionManager: GatewaySessionManager
     private lateinit var agentRunner: AgentRunner
-    private lateinit var hookPipeline: HookPipeline
-    private lateinit var deliveryRouter: DeliveryRouter
-    private lateinit var concurrencyController: ConcurrencyController
+    private var hookPipeline: HookPipeline
+    private var deliveryRouter: DeliveryRouter
+    private var concurrencyController: ConcurrencyController
 
     private val adapters = mutableMapOf<PlatformId, PlatformAdapter>()
     private val processingJobs = mutableMapOf<String, Job>()
@@ -241,7 +240,7 @@ class DefaultGatewayEngine(
         }
     }
 
-    private suspend fun processPendingMessages(sessionKey: String) {
+    private fun processPendingMessages(sessionKey: String) {
         val pending = pendingMessages[sessionKey] ?: return
         if (pending.isEmpty()) return
 

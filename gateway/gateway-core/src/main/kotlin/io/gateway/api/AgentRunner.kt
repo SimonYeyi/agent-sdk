@@ -5,30 +5,30 @@ import io.gateway.model.IncomingMessage
 import io.gateway.model.MessageContent
 import kotlinx.coroutines.flow.Flow
 
-interface AgentRunner {
+public interface AgentRunner {
 
-    sealed class Result {
-        data class Success(
+    public sealed class Result {
+        public data class Success(
             val responseContent: MessageContent,
             val metadata: Map<String, String> = emptyMap()
         ) : Result()
 
-        data class Interrupted(val reason: String = "New message arrived") : Result()
+        public data class Interrupted(val reason: String = "New message arrived") : Result()
 
-        data class Failure(
+        public data class Failure(
             val error: String,
             val exception: Throwable? = null
         ) : Result()
 
-        data class NeedMoreInput(
+        public data class NeedMoreInput(
             val prompt: String,
             val timeoutSeconds: Int? = null
         ) : Result()
 
-        object Silent : Result()
+        public object Silent : Result()
     }
 
-    suspend fun process(message: IncomingMessage, session: GatewaySession): Result
+    public suspend fun process(message: IncomingMessage, session: GatewaySession): Result
 
-    fun observeStream(sessionKey: String): Flow<String>? = null
+    public fun observeStream(sessionKey: String): Flow<String>? = null
 }

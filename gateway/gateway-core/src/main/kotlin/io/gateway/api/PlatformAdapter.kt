@@ -8,29 +8,29 @@ import io.gateway.model.PlatformError
 import io.gateway.model.PlatformId
 import io.gateway.model.SendResult
 
-interface PlatformAdapter {
+public interface PlatformAdapter {
 
-    val platformId: PlatformId
+    public val platformId: PlatformId
 
-    val name: String
+    public val name: String
 
-    val connectionState: ConnectionState
+    public val connectionState: ConnectionState
 
-    suspend fun connect(): ConnectResult
+    public suspend fun connect(): ConnectResult
 
-    suspend fun disconnect()
+    public suspend fun disconnect()
 
-    suspend fun sendMessage(message: OutgoingMessage): SendResult
+    public suspend fun sendMessage(message: OutgoingMessage): SendResult
 
-    suspend fun sendTypingIndicator(chatId: String)
+    public suspend fun sendTypingIndicator(chatId: String)
 
-    suspend fun editMessage(chatId: String, messageId: String, newText: String): SendResult
+    public suspend fun editMessage(chatId: String, messageId: String, newText: String): SendResult
 
-    suspend fun deleteMessage(chatId: String, messageId: String): Boolean
+    public suspend fun deleteMessage(chatId: String, messageId: String): Boolean
 
-    fun onMessageReceived(handler: (IncomingMessage) -> Unit)
+    public fun onMessageReceived(handler: (IncomingMessage) -> Unit)
 
-    fun onConnectionStateChanged(handler: (ConnectionState) -> Unit)
+    public fun onConnectionStateChanged(handler: (ConnectionState) -> Unit)
 
-    fun onError(handler: (PlatformError) -> Unit)
+    public fun onError(handler: (PlatformError) -> Unit)
 }

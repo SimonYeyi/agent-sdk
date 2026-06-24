@@ -3,7 +3,7 @@ package io.gateway.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-data class PlatformError(
+public data class PlatformError(
     val platform: PlatformId,
     val error: String,
     val code: String? = null,

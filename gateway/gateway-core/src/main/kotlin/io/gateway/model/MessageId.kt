@@ -5,6 +5,6 @@ import kotlin.jvm.JvmInline
 
 @JvmInline
 @Serializable
-value class MessageId(val value: String) {
-    override fun toString(): String = value
+public value class MessageId(public val value: String) {
+    public override fun toString(): String = value
 }

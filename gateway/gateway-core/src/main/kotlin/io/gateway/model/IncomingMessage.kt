@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.datetime.Instant
 
 @Serializable
-data class IncomingMessage(
+public data class IncomingMessage(
     val id: MessageId,
     val source: MessageSource,
     val content: MessageContent,

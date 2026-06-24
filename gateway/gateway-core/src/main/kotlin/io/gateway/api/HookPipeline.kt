@@ -7,9 +7,9 @@ import io.gateway.model.PlatformId
 import io.gateway.model.SendResult
 import io.gateway.model.GatewaySession
 
-interface HookPipeline {
+public interface HookPipeline {
 
-    enum class Event {
+    public enum class Event {
         BEFORE_RECEIVE,
         AFTER_RECEIVE,
         BEFORE_VALIDATE,
@@ -28,14 +28,14 @@ interface HookPipeline {
         ON_ERROR
     }
 
-    sealed class Result {
-        object Continue : Result()
-        data class Halt(val reason: String) : Result()
-        data class ModifyMessage(val newMessage: IncomingMessage) : Result()
-        data class ModifyResponse(val newResponse: OutgoingContent) : Result()
+    public sealed class Result {
+        public object Continue : Result()
+        public data class Halt(val reason: String) : Result()
+        public data class ModifyMessage(val newMessage: IncomingMessage) : Result()
+        public data class ModifyResponse(val newResponse: OutgoingContent) : Result()
     }
 
-    data class Context(
+    public data class Context(
         val event: Event,
         val session: GatewaySession? = null,
         val message: IncomingMessage? = null,
@@ -46,20 +46,20 @@ interface HookPipeline {
         val metadata: MutableMap<String, String> = mutableMapOf()
     )
 
-    interface Hook {
-        val name: String
-        val events: Set<Event>
-        val priority: Int get() = 100
-        suspend fun execute(context: Context): Result
+    public interface Hook {
+        public val name: String
+        public val events: Set<Event>
+        public val priority: Int get() = 100
+        public suspend fun execute(context: Context): Result
     }
 
-    fun register(hook: Hook)
+    public fun register(hook: Hook)
 
-    fun unregister(hookName: String)
+    public fun unregister(hookName: String)
 
-    suspend fun run(event: Event, context: Context): Result
+    public suspend fun run(event: Event, context: Context): Result
 
-    fun getHooks(): List<Hook>
+    public fun getHooks(): List<Hook>
 
-    fun getHooks(event: Event): List<Hook>
+    public fun getHooks(event: Event): List<Hook>
 }

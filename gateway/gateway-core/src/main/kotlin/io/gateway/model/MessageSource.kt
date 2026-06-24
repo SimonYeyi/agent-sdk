@@ -1,10 +1,9 @@
 package io.gateway.model
 
 import kotlinx.serialization.Serializable
-import kotlinx.datetime.Instant
 
 @Serializable
-data class MessageSource(
+public data class MessageSource(
     val platform: PlatformId,
     val chatId: String,
     val chatType: ChatType,
@@ -13,5 +12,5 @@ data class MessageSource(
     val chatName: String? = null,
     val threadId: String? = null
 ) {
-    fun sessionKey(): String = "${platform.value}:$chatId:$userId"
+    public fun sessionKey(): String = "${platform.value}:$chatId:$userId"
 }

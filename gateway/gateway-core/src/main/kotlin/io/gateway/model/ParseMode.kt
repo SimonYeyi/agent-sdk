@@ -3,7 +3,7 @@ package io.gateway.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class ParseMode {
+public enum class ParseMode {
     PLAIN,
     MARKDOWN,
     HTML,

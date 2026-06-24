@@ -3,7 +3,7 @@ package io.gateway.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-enum class ConnectionState {
+public enum class ConnectionState {
     DISCONNECTED,
     CONNECTING,
     CONNECTED,

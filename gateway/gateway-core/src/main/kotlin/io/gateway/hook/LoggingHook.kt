@@ -2,17 +2,17 @@ package io.gateway.hook
 
 import io.gateway.api.HookPipeline
 
-class LoggingHook(
+public class LoggingHook(
     private val logReceiver: (level: Level, message: String) -> Unit = { level, msg ->
         println("[${level.name}] $msg")
     }
 ) : HookPipeline.Hook {
 
-    enum class Level { DEBUG, INFO, WARN, ERROR }
+    public enum class Level { DEBUG, INFO, WARN, ERROR }
 
     override val name: String = "logging"
 
-    override val events: Set<HookPipeline.Event> = HookPipeline.Event.values().toSet()
+    override val events: Set<HookPipeline.Event> = HookPipeline.Event.entries.toSet()
 
     override val priority: Int = 1000
 

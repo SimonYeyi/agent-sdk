@@ -3,12 +3,12 @@ package io.gateway.model
 import kotlinx.serialization.Serializable
 
 @Serializable
-sealed class ConnectResult {
+public sealed class ConnectResult {
     @Serializable
-    data class Success(val platform: PlatformId) : ConnectResult()
+    public data class Success(val platform: PlatformId) : ConnectResult()
 
     @Serializable
-    data class Failure(
+    public data class Failure(
         val error: String,
         val retryable: Boolean = false
     ) : ConnectResult()

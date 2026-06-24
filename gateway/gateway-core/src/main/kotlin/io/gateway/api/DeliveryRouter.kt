@@ -6,15 +6,15 @@ import io.gateway.model.PlatformId
 import io.gateway.model.SendResult
 import kotlinx.coroutines.flow.Flow
 
-interface DeliveryRouter {
+public interface DeliveryRouter {
 
-    fun registerAdapter(adapter: PlatformAdapter)
+    public fun registerAdapter(adapter: PlatformAdapter)
 
-    fun unregisterAdapter(platformId: PlatformId)
+    public fun unregisterAdapter(platformId: PlatformId)
 
-    fun getAdapter(platformId: PlatformId): PlatformAdapter?
+    public fun getAdapter(platformId: PlatformId): PlatformAdapter?
 
-    suspend fun deliverText(
+    public suspend fun deliverText(
         platform: PlatformId,
         chatId: String,
         text: String,
@@ -22,7 +22,7 @@ interface DeliveryRouter {
         threadId: String? = null
     ): SendResult
 
-    suspend fun deliver(
+    public suspend fun deliver(
         platform: PlatformId,
         chatId: String,
         content: OutgoingContent,
@@ -30,7 +30,7 @@ interface DeliveryRouter {
         threadId: String? = null
     ): SendResult
 
-    suspend fun deliverMessage(message: OutgoingMessage, platform: PlatformId): SendResult
+    public suspend fun deliverMessage(message: OutgoingMessage, platform: PlatformId): SendResult
 
-    fun observeDeliveryResults(): Flow<Pair<PlatformId, SendResult>>
+    public fun observeDeliveryResults(): Flow<Pair<PlatformId, SendResult>>
 }

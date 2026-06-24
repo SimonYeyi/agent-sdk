@@ -9,18 +9,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.datetime.Instant
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
-class FileGatewaySessionManager(
-    private val baseDir: File
-) : GatewaySessionManager {
+internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager {
 
     private val sessionsDir: File = File(baseDir, "gateway/sessions").apply { mkdirs() }
 
