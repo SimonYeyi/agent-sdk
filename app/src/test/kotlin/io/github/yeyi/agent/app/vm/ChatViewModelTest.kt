@@ -58,7 +58,7 @@ class ChatViewModelTest {
             llmProvider(provider)
             maxIterations(5)
         }
-        val vm = ChatViewModel { agent }
+        val vm = ChatViewModel(agentFactory = { agent })
 
         vm.sendUserInput("hi")
         advanceUntilIdle()
@@ -85,7 +85,7 @@ class ChatViewModelTest {
             llmProvider(provider)
             maxIterations(5)
         }
-        val vm = ChatViewModel { agent }
+        val vm = ChatViewModel(agentFactory = { agent })
         vm.setMode(RunMode.BATCH)
         vm.sendUserInput("hi")
         advanceUntilIdle()
@@ -119,14 +119,14 @@ class ChatViewModelTest {
             llmProvider(provider)
             maxIterations(5)
         }
-        val vm = ChatViewModel { agent }
+        val vm = ChatViewModel(agentFactory = { agent })
         vm.setMode(RunMode.STREAM)
         vm.sendUserInput("hi")
         advanceUntilIdle()
         val streamMessages = vm.messages.value.map { it::class.simpleName }
         val streamTexts = vm.messages.value.map { (it as? UiMessage.Assistant)?.text }
 
-        val vm2 = ChatViewModel { agent }
+        val vm2 = ChatViewModel(agentFactory = { agent })
         vm2.setMode(RunMode.BATCH)
         vm2.sendUserInput("hi")
         advanceUntilIdle()

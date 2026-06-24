@@ -1,5 +1,9 @@
 package io.github.yeyi.agent.app.demo.tools
 
+import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.fakes.FakeLlmProvider
+import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.ToolContext
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
@@ -11,10 +15,23 @@ import kotlin.test.assertTrue
 
 class AllToolsTest {
 
+    private fun stubContext(): ToolContext = ToolContext(
+        toolCallId = "test-call-id",
+        agentContext = AgentContext(
+            persona = Persona(""),
+            maxIterations = 1,
+            currentIteration = 1,
+            memory = InMemoryMemory(),
+            llmProvider = FakeLlmProvider(),
+            tools = emptyList(),
+            maxRounds = 20,
+        )
+    )
+
     @Test
     fun `GetCurrentTimeTool returns ISO-8601 string`() = runTest {
         val tool = GetCurrentTimeTool()
-        val result = tool.execute(buildJsonObject {}, ToolContext(toolCallId = "test-call-id"))
+        val result = tool.execute(buildJsonObject {}, stubContext())
         assertTrue(result.content.startsWith("Current UTC time: "), "got: ${result.content}")
         assertFalse(result.isError)
     }
@@ -23,7 +40,7 @@ class AllToolsTest {
     fun `CalculatorTool computes simple expression`() = runTest {
         val tool = CalculatorTool()
         val arguments = buildJsonObject { put("expression", JsonPrimitive("(3+5)*7")) }
-        val result = tool.execute(arguments, ToolContext(toolCallId = "test-call-id"))
+        val result = tool.execute(arguments, stubContext())
         assertEquals("(3+5)*7 = 56", result.content)
         assertFalse(result.isError)
     }
@@ -32,7 +49,7 @@ class AllToolsTest {
     fun `CalculatorTool returns error on invalid input`() = runTest {
         val tool = CalculatorTool()
         val arguments = buildJsonObject { put("expression", JsonPrimitive("abc")) }
-        val result = tool.execute(arguments, ToolContext(toolCallId = "test-call-id"))
+        val result = tool.execute(arguments, stubContext())
         assertTrue(result.isError, "expected error result, got: ${result.content}")
     }
 
@@ -40,7 +57,7 @@ class AllToolsTest {
     fun `WebSearchMockTool returns mock result with delay`() = runTest {
         val tool = WebSearchTool()
         val arguments = buildJsonObject { put("query", JsonPrimitive("kotlin coroutines")) }
-        val result = tool.execute(arguments, ToolContext(toolCallId = "test-call-id"))
+        val result = tool.execute(arguments, stubContext())
         assertTrue(result.content.contains("kotlin coroutines"), "got: ${result.content}")
         assertFalse(result.isError)
     }

@@ -1,8 +1,15 @@
 package io.github.yeyi.agent.mcp
 
+import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.llm.ChatRequest
+import io.github.yeyi.agent.llm.LlmProvider
+import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.ToolContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -27,6 +34,27 @@ class CallMcpToolTest {
         override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
         override suspend fun close() = Unit
     }
+
+    private object StubLlm : LlmProvider {
+        override val name: String = "stub"
+        override suspend fun chat(request: ChatRequest) =
+            error("LlmProvider.chat must not be called in CallMcpToolTest")
+        override fun chatStream(request: ChatRequest): Flow<StreamEvent> =
+            flowOf(StreamEvent.Error(IllegalStateException("not used")))
+    }
+
+    private fun stubContext(): ToolContext = ToolContext(
+        toolCallId = "test",
+        agentContext = AgentContext(
+            persona = Persona(""),
+            maxIterations = 1,
+            currentIteration = 1,
+            memory = InMemoryMemory(),
+            llmProvider = StubLlm,
+            tools = emptyList(),
+            maxRounds = 20,
+        ),
+    )
 
     private fun createFakeServer(
         name: String = "test",
@@ -76,7 +104,7 @@ class CallMcpToolTest {
                         put("arguments", JsonObject(emptyMap()))
                     }
                 },
-                context = ToolContext(toolCallId = "test"),
+                context = stubContext(),
             )
         }
 
@@ -102,7 +130,7 @@ class CallMcpToolTest {
                     put("arguments", JsonObject(emptyMap()))
                 }
             },
-            context = ToolContext(toolCallId = "test"),
+            context = stubContext(),
         )
 
         assertFalse(output.isError)
@@ -127,7 +155,7 @@ class CallMcpToolTest {
                     put("arguments", JsonObject(emptyMap()))
                 }
             },
-            context = ToolContext(toolCallId = "test"),
+            context = stubContext(),
         )
 
         assertFalse(output.isError)

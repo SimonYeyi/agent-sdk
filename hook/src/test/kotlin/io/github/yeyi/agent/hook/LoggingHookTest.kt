@@ -4,11 +4,13 @@ import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
@@ -33,6 +35,9 @@ class LoggingHookTest {
         maxIterations = 5,
         currentIteration = iter,
         memory = InMemoryMemory(),
+        llmProvider = FakeLlmProvider(),
+        tools = emptyList<Tool>(),
+        maxRounds = 20,
     )
 
     @BeforeTest

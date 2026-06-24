@@ -1,5 +1,9 @@
 package io.github.yeyi.agent.tool
 
+import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.fakes.FakeLlmProvider
+import io.github.yeyi.agent.memory.InMemoryMemory
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -26,9 +30,20 @@ class ToolParametersTest {
     }
 
     @Test
-    fun `ToolContext requires toolCallId and defaults metadata to empty`() {
-        val context = ToolContext(toolCallId = "call-123")
+    fun `ToolContext exposes toolCallId and AgentContext metadata defaults to empty`() {
+        val context = ToolContext(
+            toolCallId = "call-123",
+            agentContext = AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = InMemoryMemory(),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList(),
+                maxRounds = 20,
+            ),
+        )
         assertEquals("call-123", context.toolCallId)
-        assertTrue(context.metadata.isEmpty())
+        assertTrue(context.agentContext.metadata.isEmpty())
     }
 }

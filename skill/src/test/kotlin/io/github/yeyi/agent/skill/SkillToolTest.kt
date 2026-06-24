@@ -1,7 +1,15 @@
 package io.github.yeyi.agent.skill
 
+import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.llm.ChatRequest
+import io.github.yeyi.agent.llm.LlmProvider
+import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolParameters
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonNull
 import kotlin.test.Test
@@ -9,6 +17,27 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 class SkillToolTest {
+
+    private object StubLlm : LlmProvider {
+        override val name: String = "stub"
+        override suspend fun chat(request: ChatRequest) =
+            error("LlmProvider.chat must not be called in SkillToolTest")
+        override fun chatStream(request: ChatRequest): Flow<StreamEvent> =
+            flowOf(StreamEvent.Error(IllegalStateException("not used")))
+    }
+
+    private fun stubToolContext(): ToolContext = ToolContext(
+        toolCallId = "test-call-id",
+        agentContext = AgentContext(
+            persona = Persona(""),
+            maxIterations = 1,
+            currentIteration = 1,
+            memory = InMemoryMemory(),
+            llmProvider = StubLlm,
+            tools = emptyList(),
+            maxRounds = 20,
+        ),
+    )
 
     private class FixedSkill(
         override val name: String,
@@ -39,7 +68,7 @@ class SkillToolTest {
     @Test
     fun `SkillTool execute returns skill load() as content and isError false`() = runTest {
         val s = FixedSkill(name = "x", description = "d", content = "## My skill body\nStep 1...")
-        val result = SkillTool(s).execute(JsonNull, ToolContext(toolCallId = "test-call-id"))
+        val result = SkillTool(s).execute(JsonNull, stubToolContext())
         assertEquals("## My skill body\nStep 1...", result.content)
         assertFalse(result.isError)
     }
@@ -56,17 +85,17 @@ class SkillToolTest {
             }
         }
         val tool = SkillTool(s)
-        assertEquals("v1", tool.execute(JsonNull, ToolContext(toolCallId = "test-call-id")).content)
-        assertEquals("v2", tool.execute(JsonNull, ToolContext(toolCallId = "test-call-id")).content)
+        assertEquals("v1", tool.execute(JsonNull, stubToolContext()).content)
+        assertEquals("v2", tool.execute(JsonNull, stubToolContext()).content)
     }
 
     @Test
     fun `SkillTool execute is independent of args`() = runTest {
         val s = FixedSkill(name = "x", description = "d", content = "body")
-        val r1 = SkillTool(s).execute(JsonNull, ToolContext(toolCallId = "test-call-id"))
+        val r1 = SkillTool(s).execute(JsonNull, stubToolContext())
         val r2 = SkillTool(s).execute(
             kotlinx.serialization.json.JsonPrimitive("ignored"),
-            ToolContext(toolCallId = "test-call-id"),
+            stubToolContext(),
         )
         assertEquals(r1.content, r2.content)
     }

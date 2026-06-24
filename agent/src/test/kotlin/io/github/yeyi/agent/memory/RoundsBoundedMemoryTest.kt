@@ -7,6 +7,7 @@ import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
+import io.github.yeyi.agent.tool.Tool
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -418,6 +419,9 @@ class RoundsBoundedMemoryTest {
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
             )
         )
 
@@ -459,6 +463,9 @@ class RoundsBoundedMemoryTest {
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
             )
         )
 
@@ -501,6 +508,9 @@ class RoundsBoundedMemoryTest {
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
             )
         )
 
