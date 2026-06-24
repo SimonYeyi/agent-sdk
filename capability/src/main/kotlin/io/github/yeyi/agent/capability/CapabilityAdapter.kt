@@ -12,9 +12,27 @@ public abstract class CapabilityAdapter<Ctx : CapabilityContext, C : Capability<
 
     public fun installOn(agentBuilder: AgentBuilder): Unit =
         adapt().forEach { agentBuilder.tool(it) }
+
+    public enum class Mode {
+        OneToOne,
+        Delegate,
+    }
+
+    public companion object {
+        public fun <Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any> of(
+            registry: CapabilityRegistry<Ctx, C, T>,
+            capabilityContextFactory: CapabilityContextFactory<Ctx>,
+            arguments: CapabilityArguments<T>?,
+            mode: Mode = Mode.Delegate
+        ): CapabilityAdapter<Ctx, C, T> = if (mode == Mode.Delegate) {
+            DelegationAdapter(registry, capabilityContextFactory, arguments)
+        } else {
+            OneToOneAdapter(registry, capabilityContextFactory, arguments)
+        }
+    }
 }
 
-public class DelegationAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
+private class DelegationAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
     registry: CapabilityRegistry<Ctx, C, T>,
     capabilityContextFactory: CapabilityContextFactory<Ctx>,
     arguments: CapabilityArguments<T>? = null
@@ -23,7 +41,7 @@ public class DelegationAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>, 
         listOf(LoadCapabilityTool(registry, capabilityContextFactory, arguments))
 }
 
-public class OneToOneAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
+private class OneToOneAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
     registry: CapabilityRegistry<Ctx, C, T>,
     capabilityContextFactory: CapabilityContextFactory<Ctx>,
     arguments: CapabilityArguments<T>? = null

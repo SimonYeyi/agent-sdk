@@ -33,7 +33,7 @@ internal class LoadCapabilityTool<Ctx : CapabilityContext, C : Capability<T, Ctx
 
     override val description: String by lazy {
         """
-        |当需要调用以下 $capabilityName 时，调用本工具:
+        |当以下 $capabilityName 时适用于当前任务时，调用本工具:
         |${registry.all().joinToString("\n") { "- ${it.name}: ${it.description}" }}
     """.trimMargin()
     }

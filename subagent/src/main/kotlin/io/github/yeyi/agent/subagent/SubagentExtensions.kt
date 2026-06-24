@@ -1,10 +1,7 @@
 package io.github.yeyi.agent.subagent
 
 import io.github.yeyi.agent.AgentBuilder
-import io.github.yeyi.agent.capability.CapabilityAdaptMode
-import io.github.yeyi.agent.capability.DelegationAdapter
-import io.github.yeyi.agent.capability.OneToOneAdapter
-import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.capability.CapabilityAdapter
 
 /**
  * 创建一个最简的 DefaultSubagent。
@@ -34,20 +31,12 @@ public fun subagent(
  */
 public fun AgentBuilder.subagents(
     registry: SubagentRegistry,
-    mode: CapabilityAdaptMode = CapabilityAdaptMode.Delegate,
+    mode: CapabilityAdapter.Mode = CapabilityAdapter.Mode.Delegate,
 ) {
-    val adapter = when (mode) {
-        CapabilityAdaptMode.Delegate -> DelegationAdapter(
-            registry,
-            SubagentContextFactory(),
-            SubagentArguments()
-        )
-
-        CapabilityAdaptMode.OneToOne -> OneToOneAdapter(
-            registry,
-            SubagentContextFactory(),
-            SubagentArguments()
-        )
-    }
-    adapter.installOn(this)
+    CapabilityAdapter.of(
+        registry,
+        SubagentContextFactory(),
+        SubagentArguments(),
+        mode
+    ).installOn(this)
 }
