@@ -33,8 +33,7 @@ public class SubagentContext(public val agentContext: AgentContext) : Capability
 public interface Subagent : Capability<SubagentTask, SubagentContext> {
     public val maxIterations: Int
     public val memory: Memory?
-
-    public val tools: List<Tool>
+    public val tools: List<Tool>?
 
     public fun loadInstructions(): String
 
@@ -43,9 +42,9 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
             ?: throw IllegalArgumentException("Missing 'task' argument")
 
         val memory = memory ?: InMemoryMemory()
+        val resolvedTools = tools
+            ?: context.agentContext.tools.filter { !it.name.contains(CAPABILITY_NAME) }
         val instructions = loadInstructions()
-        val resolvedTools = tools.takeIf { it.isNotEmpty() }
-            ?: context.agentContext.tools.filter { !it.name.contains(NAME) }
 
         val sub = agent {
             persona(Persona(instructions))
@@ -60,6 +59,6 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
     }
 
     public companion object {
-        public const val NAME: String = "subagent"
+        public const val CAPABILITY_NAME: String = "subagent"
     }
 }
