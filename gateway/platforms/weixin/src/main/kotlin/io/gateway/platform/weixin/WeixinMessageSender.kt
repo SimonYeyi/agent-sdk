@@ -47,6 +47,8 @@ internal class WeixinMessageSender(
         return try {
             val result = callApi(url, body)
             result is SendResult.Success
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -61,6 +63,8 @@ internal class WeixinMessageSender(
         return try {
             val result = callApi(url, body)
             result is SendResult.Success
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -78,7 +82,10 @@ internal class WeixinMessageSender(
                 is OutgoingContent.Audio -> put("content", content.url)
                 is OutgoingContent.Document -> put(
                     "content",
-                    """{"media_id":"${content.url}","file_name":"${content.fileName}"}"""
+                    buildJsonObject {
+                        put("media_id", content.url)
+                        put("file_name", content.fileName)
+                    }.toString()
                 )
             }
         }
@@ -118,6 +125,8 @@ internal class WeixinMessageSender(
                     retryable = errcode == -1 || errcode in 500..599
                 )
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             SendResult.Failure(
                 error = "Weixin API exception: ${e.message}",

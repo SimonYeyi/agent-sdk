@@ -62,6 +62,8 @@ internal class TelegramPoller(
             while (isActive && running) {
                 try {
                     pollUpdates()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     if (isActive && running) {
                         errorListener(
@@ -93,6 +95,8 @@ internal class TelegramPoller(
             val body = response.bodyAsText()
             val jsonResponse = json.decodeFromString<Map<String, Any>>(body)
             jsonResponse["ok"] == true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }

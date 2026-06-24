@@ -4,7 +4,6 @@ import io.gateway.model.OutgoingMessage
 import io.gateway.model.OutgoingContent
 import io.gateway.model.SendResult
 import io.gateway.model.PlatformId
-import io.gateway.model.ParseMode
 import io.ktor.client.HttpClient
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -13,14 +12,12 @@ import io.ktor.client.request.patch
 import io.ktor.client.request.delete
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.client.statement.readRawBytes
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
-import io.ktor.http.contentType
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.encodeToString
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
@@ -75,6 +72,8 @@ internal class FeishuMessageSender(
                     retryable = response.status.value in 500..599
                 )
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             return SendResult.Failure(
                 error = "Send exception: ${e.message}",
@@ -114,6 +113,8 @@ internal class FeishuMessageSender(
                     retryable = false
                 )
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             return SendResult.Failure(
                 error = "Edit exception: ${e.message}",
@@ -134,6 +135,8 @@ internal class FeishuMessageSender(
             val responseBody = response.bodyAsText()
             val responseJson = json.decodeFromString<Map<String, Any>>(responseBody)
             response.status.value in 200..299 && (responseJson["code"] as? Number)?.toInt() == 0
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -152,6 +155,8 @@ internal class FeishuMessageSender(
                 })
             }
             response.status.value in 200..299
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -170,6 +175,8 @@ internal class FeishuMessageSender(
                 })
             }
             response.status.value in 200..299
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -203,8 +210,10 @@ internal class FeishuMessageSender(
                 header(HttpHeaders.Authorization, "Bearer $token")
             }
             if (response.status.value in 200..299) {
-                response.bodyAsText().toByteArray()
+                response.readRawBytes()
             } else null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             null
         }

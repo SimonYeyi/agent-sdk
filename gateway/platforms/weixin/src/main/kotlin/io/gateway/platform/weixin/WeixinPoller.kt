@@ -60,6 +60,8 @@ internal class WeixinPoller(
             while (isActive && running) {
                 try {
                     pollMessages()
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
                 } catch (e: Exception) {
                     if (isActive && running) {
                         errorListener(
@@ -93,6 +95,8 @@ internal class WeixinPoller(
             val body = response.bodyAsText()
             val jsonResponse = json.decodeFromString<Map<String, Any>>(body)
             (jsonResponse["errcode"] as? Number)?.toInt() == 0
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }

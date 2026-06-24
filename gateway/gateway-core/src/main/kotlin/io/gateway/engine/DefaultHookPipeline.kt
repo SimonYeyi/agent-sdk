@@ -26,8 +26,6 @@ internal class DefaultHookPipeline : HookPipeline {
     }
 
     override suspend fun run(event: HookPipeline.Event, context: HookPipeline.Context): HookPipeline.Result {
-        _hookEvents.emit(event to context)
-
         var currentContext = context
         var result: HookPipeline.Result = HookPipeline.Result.Continue
 
@@ -36,6 +34,7 @@ internal class DefaultHookPipeline : HookPipeline {
 
             when (val hookResult = hook.execute(currentContext)) {
                 is HookPipeline.Result.Halt -> {
+                    _hookEvents.emit(event to currentContext)
                     return hookResult
                 }
                 is HookPipeline.Result.ModifyMessage -> {
@@ -51,6 +50,7 @@ internal class DefaultHookPipeline : HookPipeline {
             }
         }
 
+        _hookEvents.emit(event to currentContext)
         return result
     }
 

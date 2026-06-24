@@ -140,11 +140,9 @@ public class FeishuAdapter(
         return messageSender.deleteMessage(chatId, messageId)
     }
 
-    public fun addReaction(messageId: String, emoji: String): Boolean {
+    public suspend fun addReaction(messageId: String, emoji: String): Boolean {
         return runCatching {
-            kotlinx.coroutines.runBlocking {
-                messageSender.addReaction(messageId, emoji)
-            }
+            messageSender.addReaction(messageId, emoji)
         }.getOrElse { false }
     }
 
@@ -177,20 +175,18 @@ public class FeishuAdapter(
         }.getOrNull()
     }
 
-    private fun resolveBotIdentity() {
+    private suspend fun resolveBotIdentity() {
         val token = accessToken ?: return
         runCatching {
-            kotlinx.coroutines.runBlocking {
-                val response = httpClient.get("${config.domain}/open-apis/bot/v3/info") {
-                    header("Authorization", "Bearer $token")
-                }
+            val response = httpClient.get("${config.domain}/open-apis/bot/v3/info") {
+                header("Authorization", "Bearer $token")
+            }
 
-                val body = response.bodyAsText()
-                val json = json.decodeFromString<Map<String, Any>>(body)
-                if ((json["code"] as? Number)?.toInt() == 0) {
-                    val bot = json["bot"] as? Map<String, Any>
-                    botOpenId = bot?.get("open_id") as? String
-                }
+            val body = response.bodyAsText()
+            val json = json.decodeFromString<Map<String, Any>>(body)
+            if ((json["code"] as? Number)?.toInt() == 0) {
+                val bot = json["bot"] as? Map<String, Any>
+                botOpenId = bot?.get("open_id") as? String
             }
         }
     }
@@ -212,8 +208,8 @@ public class FeishuAdapter(
             }
 
             if (config.sendAckReaction) {
-                runCatching {
-                    kotlinx.coroutines.runBlocking {
+                launch {
+                    runCatching {
                         messageSender.addReaction(message.id.value, config.ackEmoji)
                     }
                 }

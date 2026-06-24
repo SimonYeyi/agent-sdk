@@ -25,8 +25,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.Clock
 
@@ -43,9 +45,9 @@ internal class DefaultGatewayEngine(
     private var concurrencyController: ConcurrencyController
 
     private val adapters = mutableMapOf<PlatformId, PlatformAdapter>()
-    private val processingJobs = mutableMapOf<String, Job>()
-    private val pendingMessages = mutableMapOf<String, MutableList<IncomingMessage>>()
-    private val sessionMutexes = mutableMapOf<String, Mutex>()
+    private val processingJobs = ConcurrentHashMap<String, Job>()
+    private val pendingMessages = ConcurrentHashMap<String, MutableList<IncomingMessage>>()
+    private val sessionMutexes = ConcurrentHashMap<String, Mutex>()
 
     private val _state = MutableStateFlow(GatewayState())
     private val _errors = MutableSharedFlow<GatewayError>(extraBufferCapacity = 100)
@@ -128,7 +130,7 @@ internal class DefaultGatewayEngine(
             HookPipeline.Context(event = HookPipeline.Event.ON_START)
         )
 
-        adapters.values.forEach { adapter ->
+        val connectionJobs = adapters.values.map { adapter ->
             scope.launch {
                 val result = adapter.connect()
                 if (result is io.gateway.model.ConnectResult.Failure) {
@@ -147,6 +149,8 @@ internal class DefaultGatewayEngine(
                 }
             }
         }
+
+        connectionJobs.joinAll()
 
         _state.value = _state.value.copy(
             isRunning = true,
@@ -194,6 +198,8 @@ internal class DefaultGatewayEngine(
             else -> message
         }
 
+        val acquired = concurrencyController.acquire()
+        var sessionBusy = false
         getSessionMutex(sessionKey).withLock {
             val session = sessionManager.getOrCreateSession(actualMessage.source)
 
@@ -202,45 +208,44 @@ internal class DefaultGatewayEngine(
                 pending.add(actualMessage)
 
                 processingJobs[sessionKey]?.cancel()
-                return@withLock
-            }
-
-            if (!concurrencyController.acquire()) {
-                return@withLock
-            }
-
-            sessionManager.markProcessing(sessionKey)
-            updateStats()
-
-            val job = scope.launch {
+                sessionBusy = true
+            } else {
                 try {
-                    processMessageSafely(actualMessage, session)
-                } catch (e: Exception) {
-                    if (e !is kotlinx.coroutines.CancellationException) {
-                        emitError(
-                            platform = actualMessage.source.platform,
-                            sessionKey = sessionKey,
-                            error = e.message ?: "Unknown error",
-                            throwable = e
-                        )
-                        totalErrors++
-                        updateStats()
-                    }
-                } finally {
-                    concurrencyController.release()
-                    sessionManager.markProcessingComplete(sessionKey)
-                    processingJobs.remove(sessionKey)
+                    sessionManager.markProcessing(sessionKey)
                     updateStats()
 
-                    processPendingMessages(sessionKey)
+                    val job = scope.launch {
+                        try {
+                            processMessageSafely(actualMessage, session)
+                        } catch (e: Exception) {
+                            if (e !is kotlinx.coroutines.CancellationException) {
+                                emitError(
+                                    platform = actualMessage.source.platform,
+                                    sessionKey = sessionKey,
+                                    error = e.message ?: "Unknown error",
+                                    throwable = e
+                                )
+                                totalErrors++
+                                updateStats()
+                            }
+                        } finally {
+                            cleanupAndProcessNext(sessionKey, acquired)
+                        }
+                    }
+
+                    processingJobs[sessionKey] = job
+                } catch (e: Throwable) {
+                    cleanupAndProcessNext(sessionKey, acquired)
+                    throw e
                 }
             }
-
-            processingJobs[sessionKey] = job
+        }
+        if (sessionBusy && acquired) {
+            concurrencyController.release()
         }
     }
 
-    private fun processPendingMessages(sessionKey: String) {
+    private suspend fun processPendingMessages(sessionKey: String) {
         val pending = pendingMessages[sessionKey] ?: return
         if (pending.isEmpty()) return
 
@@ -252,6 +257,16 @@ internal class DefaultGatewayEngine(
         scope.launch {
             handleIncomingMessage(message)
         }
+    }
+
+    private suspend fun cleanupAndProcessNext(sessionKey: String, acquired: Boolean) {
+        if (acquired) {
+            concurrencyController.release()
+        }
+        sessionManager.markProcessingComplete(sessionKey)
+        processingJobs.remove(sessionKey)
+        updateStats()
+        processPendingMessages(sessionKey)
     }
 
     private suspend fun processMessageSafely(message: IncomingMessage, session: GatewaySession) {
@@ -359,10 +374,14 @@ internal class DefaultGatewayEngine(
     ) {
         val outgoingContent = when (responseContent) {
             is MessageContent.Text -> OutgoingContent.Text(responseContent.text)
-            is MessageContent.Image -> OutgoingContent.Image(
-                url = responseContent.urls.firstOrNull() ?: "",
-                caption = responseContent.caption
-            )
+            is MessageContent.Image -> {
+                val url = responseContent.urls.firstOrNull()
+                if (url != null) {
+                    OutgoingContent.Image(url = url, caption = responseContent.caption)
+                } else {
+                    OutgoingContent.Text(responseContent.caption ?: "Image (no URL)")
+                }
+            }
 
             is MessageContent.Audio -> OutgoingContent.Audio(responseContent.url)
             is MessageContent.Document -> OutgoingContent.Document(
@@ -397,7 +416,7 @@ internal class DefaultGatewayEngine(
             retryable = false
         )
 
-        repeat(config.messageRetryCount + 1) { attempt ->
+        for (attempt in 0..config.messageRetryCount) {
             sendResult = deliveryRouter.deliver(
                 platform = incomingMessage.source.platform,
                 chatId = incomingMessage.source.chatId,
@@ -407,12 +426,14 @@ internal class DefaultGatewayEngine(
             )
 
             if (sendResult is SendResult.Success) {
-                return@repeat
+                break
             }
 
-            if (attempt < config.messageRetryCount) {
-                kotlinx.coroutines.delay(config.messageRetryDelayMs)
+            val failure = sendResult as SendResult.Failure
+            if (!failure.retryable || attempt >= config.messageRetryCount) {
+                break
             }
+            kotlinx.coroutines.delay(config.messageRetryDelayMs)
         }
 
         if (sendResult is SendResult.Failure) {

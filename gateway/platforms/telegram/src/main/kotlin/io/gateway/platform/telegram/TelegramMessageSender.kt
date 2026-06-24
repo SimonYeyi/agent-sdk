@@ -45,6 +45,8 @@ internal class TelegramMessageSender(
         return try {
             val result = callApi("deleteMessage", params)
             result is SendResult.Success
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -58,6 +60,8 @@ internal class TelegramMessageSender(
         return try {
             val result = callApi("sendChatAction", params)
             result is SendResult.Success
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }
@@ -133,6 +137,8 @@ internal class TelegramMessageSender(
                     retryable = response.status.value in 500..599
                 )
             }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             SendResult.Failure(
                 error = "Telegram API exception: ${e.message}",

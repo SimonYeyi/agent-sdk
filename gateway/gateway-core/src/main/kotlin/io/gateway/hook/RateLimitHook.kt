@@ -1,13 +1,18 @@
 package io.gateway.hook
 
 import io.gateway.api.HookPipeline
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.Clock
 
 public class RateLimitHook(
     private val maxMessagesPerMinute: Int = 20,
-    private val maxMessagesPerHour: Int = 200
+    private val maxMessagesPerHour: Int = 200,
+    private val cleanupIntervalMs: Long = 3_600_000  // 1 hour
 ) : HookPipeline.Hook {
 
     override val name: String = "rate-limit"
@@ -19,6 +24,42 @@ public class RateLimitHook(
     private val minuteTimestamps = mutableMapOf<String, MutableList<Long>>()
     private val hourTimestamps = mutableMapOf<String, MutableList<Long>>()
     private val mutex = Mutex()
+
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    init {
+        scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(cleanupIntervalMs)
+                cleanupStaleEntries()
+            }
+        }
+    }
+
+    private suspend fun cleanupStaleEntries() {
+        mutex.withLock {
+            val now = Clock.System.now().toEpochMilliseconds()
+            val oneHourAgo = now - 3_600_000
+
+            val minuteKeysToRemove = mutableListOf<String>()
+            for ((key, list) in minuteTimestamps) {
+                list.removeAll { it < oneHourAgo }
+                if (list.isEmpty()) {
+                    minuteKeysToRemove.add(key)
+                }
+            }
+            minuteKeysToRemove.forEach { minuteTimestamps.remove(it) }
+
+            val hourKeysToRemove = mutableListOf<String>()
+            for ((key, list) in hourTimestamps) {
+                list.removeAll { it < oneHourAgo }
+                if (list.isEmpty()) {
+                    hourKeysToRemove.add(key)
+                }
+            }
+            hourKeysToRemove.forEach { hourTimestamps.remove(it) }
+        }
+    }
 
     override suspend fun execute(context: HookPipeline.Context): HookPipeline.Result {
         val message = context.message ?: return HookPipeline.Result.Continue

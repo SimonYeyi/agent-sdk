@@ -107,6 +107,8 @@ internal class FeishuWebSocketClient(
                         else -> { /* ignore */ }
                     }
                 }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (e: Exception) {
                 webSocketSession = null
                 errorListener(
@@ -201,13 +203,13 @@ internal class FeishuWebSocketClient(
         }
     }
 
-    fun send(text: String): Boolean {
+    suspend fun send(text: String): Boolean {
         val session = webSocketSession ?: return false
         return try {
-            scope.launch {
-                session.send(Frame.Text(text))
-            }
+            session.send(Frame.Text(text))
             true
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             false
         }

@@ -127,7 +127,9 @@ internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager 
         val dto = GatewaySessionDto.fromGatewaySession(session)
         val line = json.encodeToString(dto)
 
-        file.appendText("$line\n")
+        getLock(session.key).withLock {
+            file.appendText("$line\n")
+        }
     }
 
     private fun updateCacheAndFlow(session: GatewaySession) {
