@@ -195,7 +195,7 @@ internal class DefaultGatewayEngine(
         }
 
         getSessionMutex(sessionKey).withLock {
-            val session = sessionManager.getOrCreateGatewaySession(actualMessage.source)
+            val session = sessionManager.getOrCreateSession(actualMessage.source)
 
             if (session.isProcessing) {
                 val pending = pendingMessages.getOrPut(sessionKey) { mutableListOf() }
@@ -320,7 +320,7 @@ internal class DefaultGatewayEngine(
         when (agentResult) {
             is AgentRunner.Result.Success -> {
                 sendResponse(message, session, agentResult.responseContent)
-                sessionManager.updateGatewaySessionStats(
+                sessionManager.updateSessionStats(
                     sessionKey = session.key,
                     messageCountDelta = 1,
                     turnCountDelta = 1

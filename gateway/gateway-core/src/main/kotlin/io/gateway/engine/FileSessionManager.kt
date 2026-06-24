@@ -135,7 +135,7 @@ internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager 
         allGatewaySessionsFlow.value = sessionCache.values.toList()
     }
 
-    override suspend fun getOrCreateGatewaySession(source: MessageSource): GatewaySession {
+    override suspend fun getOrCreateSession(source: MessageSource): GatewaySession {
         val key = source.sessionKey()
         getLock(key).withLock {
             val existing = sessionCache[key]
@@ -160,17 +160,17 @@ internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager 
         }
     }
 
-    override suspend fun getGatewaySession(sessionKey: String): GatewaySession? =
+    override suspend fun getSession(sessionKey: String): GatewaySession? =
         sessionCache[sessionKey]
 
-    override suspend fun updateGatewaySession(session: GatewaySession) {
+    override suspend fun updateSession(session: GatewaySession) {
         getLock(session.key).withLock {
             persistGatewaySession(session)
             updateCacheAndFlow(session)
         }
     }
 
-    override suspend fun deleteGatewaySession(sessionKey: String) {
+    override suspend fun deleteSession(sessionKey: String) {
         getLock(sessionKey).withLock {
             sessionCache.remove(sessionKey)
             sessionDir(sessionKey).deleteRecursively()
@@ -178,7 +178,7 @@ internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager 
         }
     }
 
-    override suspend fun getActiveGatewaySessions(): List<GatewaySession> =
+    override suspend fun getActiveSessions(): List<GatewaySession> =
         sessionCache.values.toList()
 
     override suspend fun markProcessing(sessionKey: String) {
@@ -205,7 +205,7 @@ internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager 
     override fun isProcessing(sessionKey: String): Boolean =
         sessionCache[sessionKey]?.isProcessing ?: false
 
-    override suspend fun updateGatewaySessionStats(
+    override suspend fun updateSessionStats(
         sessionKey: String,
         messageCountDelta: Int,
         turnCountDelta: Int,
@@ -226,11 +226,11 @@ internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager 
         }
     }
 
-    override fun observeGatewaySession(sessionKey: String): Flow<GatewaySession?> =
+    override fun observeSession(sessionKey: String): Flow<GatewaySession?> =
         allGatewaySessionsFlow.map { sessions ->
             sessions.find { it.key == sessionKey }
         }
 
-    override fun observeAllGatewaySessions(): Flow<List<GatewaySession>> =
+    override fun observeAllSessions(): Flow<List<GatewaySession>> =
         allGatewaySessionsFlow.asStateFlow()
 }

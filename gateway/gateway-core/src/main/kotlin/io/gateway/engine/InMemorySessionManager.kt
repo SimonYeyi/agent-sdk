@@ -15,7 +15,7 @@ internal class InMemoryGatewaySessionManager : GatewaySessionManager {
     private val sessions = ConcurrentHashMap<String, GatewaySession>()
     private val allGatewaySessionsFlow = MutableStateFlow<List<GatewaySession>>(emptyList())
 
-    override suspend fun getOrCreateGatewaySession(source: MessageSource): GatewaySession {
+    override suspend fun getOrCreateSession(source: MessageSource): GatewaySession {
         val key = source.sessionKey()
         return sessions.getOrPut(key) {
             GatewaySession(
@@ -30,20 +30,20 @@ internal class InMemoryGatewaySessionManager : GatewaySessionManager {
         }
     }
 
-    override suspend fun getGatewaySession(sessionKey: String): GatewaySession? =
+    override suspend fun getSession(sessionKey: String): GatewaySession? =
         sessions[sessionKey]
 
-    override suspend fun updateGatewaySession(session: GatewaySession) {
+    override suspend fun updateSession(session: GatewaySession) {
         sessions[session.key] = session
         updateFlow()
     }
 
-    override suspend fun deleteGatewaySession(sessionKey: String) {
+    override suspend fun deleteSession(sessionKey: String) {
         sessions.remove(sessionKey)
         updateFlow()
     }
 
-    override suspend fun getActiveGatewaySessions(): List<GatewaySession> =
+    override suspend fun getActiveSessions(): List<GatewaySession> =
         sessions.values.toList()
 
     override suspend fun markProcessing(sessionKey: String) {
@@ -66,7 +66,7 @@ internal class InMemoryGatewaySessionManager : GatewaySessionManager {
     override fun isProcessing(sessionKey: String): Boolean =
         sessions[sessionKey]?.isProcessing ?: false
 
-    override suspend fun updateGatewaySessionStats(
+    override suspend fun updateSessionStats(
         sessionKey: String,
         messageCountDelta: Int,
         turnCountDelta: Int,
@@ -85,10 +85,10 @@ internal class InMemoryGatewaySessionManager : GatewaySessionManager {
         }
     }
 
-    override fun observeGatewaySession(sessionKey: String): Flow<GatewaySession?> =
+    override fun observeSession(sessionKey: String): Flow<GatewaySession?> =
         allGatewaySessionsFlow.map { list -> list.find { it.key == sessionKey } }
 
-    override fun observeAllGatewaySessions(): Flow<List<GatewaySession>> =
+    override fun observeAllSessions(): Flow<List<GatewaySession>> =
         allGatewaySessionsFlow.asStateFlow()
 
     private fun updateFlow() {
