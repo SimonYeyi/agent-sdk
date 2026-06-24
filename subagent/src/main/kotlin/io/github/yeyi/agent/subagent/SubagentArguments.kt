@@ -7,7 +7,7 @@ import kotlinx.serialization.KSerializer
  * Subagent 的 arguments 定义。
  * Schema 固定为 `{ "task": { "type": "string", "description": "..." } }`。
  */
-public class SubagentArguments : CapabilityArguments<SubagentTask> {
+internal class SubagentArguments : CapabilityArguments<SubagentTask> {
     override val schema: String = """
         {
             "type": "object",

@@ -6,13 +6,8 @@ import io.github.yeyi.agent.tool.ToolContext
 /**
  * [SubagentContext] 的工厂实现，供 Adapter 使用。
  */
-public class SubagentContextFactory(
-    private val maxIterations: Int = 5,
-) : CapabilityContextFactory<SubagentContext> {
+internal class SubagentContextFactory : CapabilityContextFactory<SubagentContext> {
     override fun create(context: ToolContext): SubagentContext {
-        return SubagentContext(
-            agentContext = context.agentContext,
-            maxIterations = maxIterations,
-        )
+        return SubagentContext(context.agentContext)
     }
 }
