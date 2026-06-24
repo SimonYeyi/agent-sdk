@@ -84,18 +84,18 @@ public class CompositeHook(hooks: List<Hook> = emptyList(), logging: Boolean = f
     }
 
     override suspend fun onRunFinished(context: AgentContext, result: AgentResult) {
-        hooks.forEach { it.onRunFinished(context, result) }
+        hooks.forEach { it.safeInvoke { onRunFinished(context, result) } }
     }
 
     override suspend fun onError(context: AgentContext, cause: AgentException) {
-        hooks.forEach { it.onError(context, cause) }
+        hooks.forEach { it.safeInvoke { onError(context, cause) } }
     }
 
     override suspend fun onSessionCreated(session: Session) {
-        hooks.forEach { it.onSessionCreated(session) }
+        hooks.forEach { it.safeInvoke { onSessionCreated(session) } }
     }
 
     override suspend fun onSessionDeleted(accountId: String, sessionId: String) {
-        hooks.forEach { it.onSessionDeleted(accountId, sessionId) }
+        hooks.forEach { it.safeInvoke { onSessionDeleted(accountId, sessionId) } }
     }
 }
