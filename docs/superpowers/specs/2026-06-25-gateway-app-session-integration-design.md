@@ -311,7 +311,8 @@ dependencies {
 **`gateway/app/src/main/AndroidManifest.xml`**(同时声明 activity + service,各有 intent-filter):
 ```xml
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application
+  <uses-permission android:name="android.permission.INTERNET" />  
+  <application
         android:label="Gateway Bot"
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">

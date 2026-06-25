@@ -23,6 +23,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 public class FeishuAdapter(
     private val config: FeishuConfig,
@@ -104,10 +109,10 @@ public class FeishuAdapter(
             }
         )
 
-        val tokenResult = refreshToken()
-        if (tokenResult == null) {
-            return ConnectResult.Failure("Failed to get access token", retryable = true)
-        }
+        refreshToken() ?: return ConnectResult.Failure(
+            "Failed to get access token",
+            retryable = true
+        )
 
         resolveBotIdentity()
         webSocketClient.connect()
@@ -162,11 +167,12 @@ public class FeishuAdapter(
             }
 
             val responseBody = response.bodyAsText()
-            val responseJson = json.decodeFromString<Map<String, Any>>(responseBody)
+            val responseJson: JsonObject = json.decodeFromString(responseBody)
 
-            if ((responseJson["code"] as? Number)?.toInt() == 0) {
-                accessToken = responseJson["tenant_access_token"] as? String
-                val expire = (responseJson["expire"] as? Number)?.toInt() ?: 7200
+            val code = responseJson["code"]?.jsonPrimitive?.content?.toIntOrNull()
+            if (code == 0) {
+                accessToken = responseJson["tenant_access_token"]?.jsonPrimitive?.content
+                val expire = responseJson["expire"]?.jsonPrimitive?.content?.toIntOrNull() ?: 7200
                 tokenExpiresAt = now + expire * 1000L
                 accessToken
             } else {
@@ -183,10 +189,11 @@ public class FeishuAdapter(
             }
 
             val body = response.bodyAsText()
-            val json = json.decodeFromString<Map<String, Any>>(body)
-            if ((json["code"] as? Number)?.toInt() == 0) {
-                val bot = json["bot"] as? Map<String, Any>
-                botOpenId = bot?.get("open_id") as? String
+            val responseJson: JsonObject = json.decodeFromString(body)
+            val code = responseJson["code"]?.jsonPrimitive?.content?.toIntOrNull()
+            if (code == 0) {
+                val bot = responseJson["bot"]?.jsonObject
+                botOpenId = bot?.get("open_id")?.jsonPrimitive?.content
             }
         }
     }

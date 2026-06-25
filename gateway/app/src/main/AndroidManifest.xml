@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:label="Gateway Bot">
+
+        <!-- 入口 ①:launcher,让用户能从桌面图标独立启动 -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- 入口 ②:被其他 app 通过自定义 Action 拉起 -->
+        <service
+            android:name=".GatewayService"
+            android:exported="true"
+            android:foregroundServiceType="dataSync">
+            <intent-filter>
+                <action android:name="io.github.yeyi.agent.gateway.app.START" />
+            </intent-filter>
+        </service>
+    </application>
+
+</manifest>
