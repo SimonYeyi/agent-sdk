@@ -206,7 +206,7 @@ public class SseTransport(
         return null
     }
 
-    private suspend fun processSseEvent(raw: String, expectedId: Int?): JsonRpcResponse<JsonElement>? {
+    private fun processSseEvent(raw: String, expectedId: Int?): JsonRpcResponse<JsonElement>? {
         val parsed = SseEventParser.parse(raw) ?: return null
         if (parsed.data.isEmpty()) return null
         val element = runCatching { json.parseToJsonElement(parsed.data) }.getOrNull() ?: return null
@@ -215,7 +215,7 @@ public class SseTransport(
         when {
             obj["method"] != null && obj["id"] == null -> {
                 val notification = json.decodeFromJsonElement<JsonRpcNotification<JsonElement>>(obj)
-                notificationsSharedFlow.emit(notification)
+                notificationsSharedFlow.tryEmit(notification)
                 return null
             }
             else -> {
