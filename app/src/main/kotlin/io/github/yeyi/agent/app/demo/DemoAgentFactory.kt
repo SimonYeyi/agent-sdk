@@ -6,7 +6,7 @@ import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.app.BuildConfig
 import io.github.yeyi.agent.app.demo.mcp.CalculatorMcpServer
 import io.github.yeyi.agent.app.demo.skills.NewsSkill
-import io.github.yeyi.agent.app.demo.skills.WeatherSkill
+import io.github.yeyi.agent.app.demo.subagents.WeatherExpertSubagent
 import io.github.yeyi.agent.app.demo.tools.CalculatorTool
 import io.github.yeyi.agent.app.demo.tools.GetCurrentTimeTool
 import io.github.yeyi.agent.app.demo.tools.GetLocationTool
@@ -28,6 +28,8 @@ import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
 import io.github.yeyi.agent.providers.openai.OpenAiProvider
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.skill.skills
+import io.github.yeyi.agent.subagent.SubagentRegistry
+import io.github.yeyi.agent.subagent.subagents
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
@@ -110,11 +112,12 @@ object DemoAgentFactory {
             memory(memory ?: InMemoryMemory(), 1)
             llmProvider(llmProvider)
             tool(WebSearchTool())
-            tool(GetLocationTool())
-            tool(GetWeatherTool())
-            skills(SkillRegistry().register(WeatherSkill()).register(NewsSkill()))
+            skills(SkillRegistry().register(NewsSkill()))
             mcp(mcpRegistry)
             hook(hook ?: CompositeHook(logging = true))
+            val subagentRegistry = SubagentRegistry()
+            subagentRegistry.register(WeatherExpertSubagent())
+            subagents(subagentRegistry)
         }
     }
 

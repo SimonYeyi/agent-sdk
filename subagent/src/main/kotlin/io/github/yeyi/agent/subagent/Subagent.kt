@@ -31,7 +31,7 @@ public class SubagentContext(public val agentContext: AgentContext) : Capability
  * 由 [SubagentArguments] 提供 schema 和 serializer 给 Adapter。
  */
 public interface Subagent : Capability<SubagentTask, SubagentContext> {
-    public val maxIterations: Int
+    public val maxIterations: Int?
     public val memory: Memory?
     public val tools: List<Tool>?
 
@@ -50,7 +50,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
             persona(Persona(instructions))
             llmProvider(context.agentContext.llmProvider)
             memory(memory, context.agentContext.maxRounds)
-            maxIterations(maxIterations)
+            maxIterations(maxIterations ?: context.agentContext.maxIterations)
             tools(resolvedTools)
         }
 
