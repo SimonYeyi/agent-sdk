@@ -9,26 +9,22 @@ import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.serializer
 
 /**
- * Generic implementation of [McpServer] that delegates to a [McpTransport].
+ * MCP 客户端实现 —— 通过 [McpTransport] 与 MCP 服务进行 JSON-RPC 协议通信。
  *
- * This class handles the JSON-RPC protocol details. Users provide a transport
- * implementation appropriate for their server (e.g., [StdioTransport] for local
- * subprocess servers, [SseTransport] for remote servers).
+ * 本类实现了 [McpServer] 接口，作为 MCP 服务的客户端代理：将方法调用转换为
+ * JSON-RPC 请求发给传输层，再将响应解析回结构化类型。传输层可以是
+ * [StdioTransport]（本地子进程）、[SseTransport]（远程 HTTP）或
+ * [LocalTransport]（进程内本地服务）。
  *
- * On first use, the server is lazily initialized per the MCP 2025-06-18
- * lifecycle: an `initialize` request is sent, the returned [InitializeResult]
- * is cached, and a `notifications/initialized` notification is dispatched
- * before any tool call goes through. Initialization is guarded by
- * [initializeMutex] so concurrent first-use callers see a single handshake.
+ * 首次使用时懒初始化，遵循 MCP 2025-06-18 生命周期：发送 `initialize` 请求，
+ * 缓存返回的 [InitializeResult]，并在首次工具调用前发送
+ * `notifications/initialized` 通知。初始化由 [initializeMutex] 保护，
+ * 并发首次调用只会触发一次握手。
  *
- * Tool discovery ([listAllTools] extension) follows `nextCursor` pagination
- * to assemble the full tool list; the server itself does not cache.
+ * 工具发现通过扩展函数 [toolsList] 跟随 `nextCursor` 分页拉取完整工具列表，
+ * 本类本身不做缓存。
  */
-public class GenericMcpServer(
-    override val name: String,
-    override val description: String,
-    override val transport: McpTransport,
-) : McpServer {
+public class McpClient(override val transport: McpTransport) : McpServer {
     private val initializeMutex = Mutex()
     private var initResult: InitializeResult? = null
     private val nextId = java.util.concurrent.atomic.AtomicInteger(1)
@@ -57,10 +53,10 @@ public class GenericMcpServer(
         )
         val response = transport.send(request)
         if (response.error != null) {
-            throw MCPServerException(response.error.toString())
+            throw McpException(response.error.toString())
         }
         val resultElement = response.result
-            ?: throw MCPServerException("MCP listTools response missing result")
+            ?: throw McpException("MCP listTools response missing result")
         return json.decodeFromJsonElement<ListToolsResult>(resultElement)
     }
 
@@ -75,15 +71,15 @@ public class GenericMcpServer(
         val response = transport.send(rpcRequest)
 
         if (response.error != null) {
-            throw MCPServerException(response.error.toString())
+            throw McpException(response.error.toString())
         }
 
         val resultElement = response.result
-            ?: throw MCPServerException("MCP callTool response missing result")
+            ?: throw McpException("MCP callTool response missing result")
 
         val result = json.decodeFromJsonElement<CallToolResult>(resultElement)
         if (result.isError) {
-            throw MCPServerException(result.content?.toString() ?: "MCP tool call returned error")
+            throw McpException(result.content?.toString() ?: "MCP tool call returned error")
         }
 
         return result.content ?: JsonObject(emptyMap()) as JsonElement
@@ -122,16 +118,16 @@ public class GenericMcpServer(
         )
         val response = transport.send(request)
         if (response.error != null) {
-            throw MCPServerException(response.error.toString())
+            throw McpException(response.error.toString())
         }
         val resultElement = response.result
-            ?: throw MCPServerException("MCP initialize response missing result")
+            ?: throw McpException("MCP initialize response missing result")
         val result = json.decodeFromJsonElement<InitializeResult>(resultElement)
 
         if (result.protocolVersion.isNotEmpty() &&
             result.protocolVersion != McpServer.SUPPORTED_PROTOCOL_VERSION
         ) {
-            throw MCPServerException(
+            throw McpException(
                 "MCP server protocol version '${result.protocolVersion}' is not supported " +
                         "(client supports $McpServer.SUPPORTED_PROTOCOL_VERSION)"
             )
@@ -154,5 +150,13 @@ public class GenericMcpServer(
     }
 }
 
-private class MCPServerException(message: String) :
-    RuntimeException("MCP Server Exception: $message")
+/**
+ * MCP 操作异常 —— 在 MCP 协议交互过程中发生的错误。
+ *
+ * 可能的原因包括：
+ * - 远端 MCP 服务返回 JSON-RPC 错误
+ * - 工具调用返回 `isError: true`
+ * - 响应消息格式错误或缺失必要字段
+ * - 协议版本不兼容
+ */
+public class McpException(message: String) : RuntimeException("MCP Exception: $message")

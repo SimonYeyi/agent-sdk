@@ -16,9 +16,6 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 private class LocalMcpServerForTest : McpServer {
-    override val name: String = "local-demo"
-    override val description: String = "Local demo server"
-
     private val _notifications = MutableSharedFlow<JsonRpcNotification<JsonElement>>(
         replay = 0,
         extraBufferCapacity = 64,
@@ -50,7 +47,7 @@ private class LocalMcpServerForTest : McpServer {
         initialized = true
         return InitializeResult(
             protocolVersion = McpServer.SUPPORTED_PROTOCOL_VERSION,
-            serverInfo = ServerInfo(name, "1.0.0"),
+            serverInfo = ServerInfo("local-demo", "1.0.0"),
             capabilities = ServerCapabilities(tools = ToolsObject(listChanged = false)),
         )
     }
@@ -103,10 +100,14 @@ private class LocalMcpServerForTest : McpServer {
 }
 
 class LocalTransportTest {
-    private fun createRegistry(): Pair<LocalMcpServerForTest, McpServerRegistry> {
+    private fun createRegistry(): Pair<LocalMcpServerForTest, McpRegistry> {
         val server = LocalMcpServerForTest()
-        val registry = McpServerRegistry(ClientInfo("test", "1.0")).apply {
-            register(GenericMcpServer("local-demo", "Local demo", LocalTransport(server)))
+        val registry = McpRegistry(ClientInfo("test", "1.0")).apply {
+            register(object : Mcp {
+                override val name: String = "local-demo"
+                override val description: String = "Local demo server"
+                override val client: McpClient = McpClient(LocalTransport(server))
+            })
         }
         return server to registry
     }
@@ -115,17 +116,18 @@ class LocalTransportTest {
     fun `listAllTools returns tools`() = runTest {
         val (server, registry) = createRegistry()
 
-        val result = registry.listAllTools("local-demo")
+        val result = registry.toolsList("local-demo")
 
-        assertEquals(1, result.tools.size)
-        assertEquals("add", result.tools[0].jsonObject["name"]?.jsonPrimitive?.content)
+        val json = kotlinx.serialization.json.Json.parseToJsonElement(result).jsonArray
+        assertEquals(1, json.size)
+        assertEquals("add", json[0].jsonObject["name"]?.jsonPrimitive?.content)
     }
 
     @Test
     fun `callTool add returns correct result`() = runTest {
         val (_, registry) = createRegistry()
 
-        val result = registry.callTool(
+        val result = registry.toolsCall(
             "local-demo",
             buildJsonObject {
                 put("name", "add")
@@ -136,7 +138,8 @@ class LocalTransportTest {
             }
         )
 
-        val text = result.jsonObject["content"]
+        val json = kotlinx.serialization.json.Json.parseToJsonElement(result).jsonObject
+        val text = json["content"]
             ?.jsonArray?.get(0)?.jsonObject?.get("text")
             ?.jsonPrimitive?.content
         assertEquals("10.0", text)
@@ -146,7 +149,7 @@ class LocalTransportTest {
     fun `callTool unknown tool returns error`() = runTest {
         val (_, registry) = createRegistry()
 
-        val result = registry.callTool(
+        val result = registry.toolsCall(
             "local-demo",
             buildJsonObject {
                 put("name", "unknown_tool")
@@ -154,14 +157,15 @@ class LocalTransportTest {
             }
         )
 
-        assertTrue(result.jsonObject["isError"]?.jsonPrimitive?.content?.toBoolean() == true)
+        val json = kotlinx.serialization.json.Json.parseToJsonElement(result).jsonObject
+        assertTrue(json["isError"]?.jsonPrimitive?.content?.toBoolean() == true)
     }
 
     @Test
     fun `server initialize is called`() = runTest {
         val (server, registry) = createRegistry()
 
-        registry.listAllTools("local-demo")
+        registry.toolsList("local-demo")
 
         assertTrue(server.isInitialized())
     }
@@ -170,8 +174,7 @@ class LocalTransportTest {
     fun `server receives notifications initialized`() = runTest {
         val (server, registry) = createRegistry()
 
-        // Force initialization which sends notifications/initialized
-        registry.listAllTools("local-demo")
+        registry.toolsList("local-demo")
 
         val notification = server.lastReceivedNotification()
         assertNotNull(notification)
@@ -182,8 +185,8 @@ class LocalTransportTest {
     fun `server not found throws`() = runTest {
         val (_, registry) = createRegistry()
 
-        val exception = kotlin.test.assertFailsWith<IllegalArgumentException> {
-            registry.listAllTools("non-existent")
+        val exception = kotlin.test.assertFailsWith<NoSuchElementException> {
+            registry.toolsList("non-existent")
         }
         assertTrue(exception.message?.contains("non-existent") == true)
     }

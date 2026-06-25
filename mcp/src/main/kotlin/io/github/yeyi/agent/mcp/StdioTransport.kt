@@ -39,7 +39,7 @@ import java.util.concurrent.TimeUnit
  *
  * Resource ownership: the caller is responsible for invoking [close] when the
  * transport is no longer needed. Parent coroutine cancellation does NOT
- * automatically destroy the child process — [McpServerRegistry.unregisterAll] is
+ * automatically destroy the child process — [McpRegistry.unregisterAll] is
  * the canonical cleanup path.
  */
 public class StdioTransport(
@@ -129,7 +129,7 @@ public class StdioTransport(
         notificationsSharedFlow.asSharedFlow()
 
     override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
-        // The id is provided by the caller (GenericMcpServer). Transport
+        // The id is provided by the caller (McpClient). Transport
         // does not allocate IDs; it merely forwards the request and matches
         // the response back to the caller-provided id.
         val id = request.id

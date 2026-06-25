@@ -1,10 +1,10 @@
 package io.github.yeyi.agent.app.demo.mcp
 
-import io.github.yeyi.agent.mcp.GenericMcpServer
 import io.github.yeyi.agent.mcp.InitializeResult
-import io.github.yeyi.agent.mcp.JsonRpcNotification
 import io.github.yeyi.agent.mcp.ListToolsResult
 import io.github.yeyi.agent.mcp.LocalTransport
+import io.github.yeyi.agent.mcp.Mcp
+import io.github.yeyi.agent.mcp.McpClient
 import io.github.yeyi.agent.mcp.McpServer
 import io.github.yeyi.agent.mcp.McpTransport
 import io.github.yeyi.agent.mcp.ServerCapabilities
@@ -19,13 +19,18 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
+class CalculatorMcp: Mcp {
+    override val name: String = "calculator"
+    override val description: String= "Calculator服务，支持加、减、乘、除运算"
+    override val client: McpClient = McpClient(LocalTransport(CalculatorMcpServer()))
+}
+
 /**
  * A simple local MCP server that provides calculator operations.
  * This demonstrates how to implement and register a local MCP server.
  */
-public class CalculatorMcpServer : McpServer {
-    override val name: String = "calculator"
-    override val description: String = "Simple calculator for basic arithmetic"
+private class CalculatorMcpServer : McpServer {
+    private val name: String = "calculator"
 
     private var initialized = false
 
@@ -151,6 +156,4 @@ public class CalculatorMcpServer : McpServer {
     override suspend fun ping(): Boolean = initialized
 
     override suspend fun close() {}
-
-    public fun isInitialized() = initialized
 }

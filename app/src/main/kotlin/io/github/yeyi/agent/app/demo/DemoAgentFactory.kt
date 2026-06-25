@@ -4,13 +4,10 @@ import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.app.BuildConfig
-import io.github.yeyi.agent.app.demo.mcp.CalculatorMcpServer
+import io.github.yeyi.agent.app.demo.mcp.CalculatorMcp
+import io.github.yeyi.agent.app.demo.mcp.LiveScoreMcp
 import io.github.yeyi.agent.app.demo.skills.NewsSkill
 import io.github.yeyi.agent.app.demo.subagents.WeatherExpertSubagent
-import io.github.yeyi.agent.app.demo.tools.CalculatorTool
-import io.github.yeyi.agent.app.demo.tools.GetCurrentTimeTool
-import io.github.yeyi.agent.app.demo.tools.GetLocationTool
-import io.github.yeyi.agent.app.demo.tools.GetWeatherTool
 import io.github.yeyi.agent.app.demo.tools.WebSearchTool
 import io.github.yeyi.agent.app.log.HttpLogger
 import io.github.yeyi.agent.hook.CompositeHook
@@ -18,10 +15,7 @@ import io.github.yeyi.agent.hook.Hook
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.mcp.ClientInfo
-import io.github.yeyi.agent.mcp.GenericMcpServer
-import io.github.yeyi.agent.mcp.LocalTransport
-import io.github.yeyi.agent.mcp.McpServerRegistry
-import io.github.yeyi.agent.mcp.SseTransport
+import io.github.yeyi.agent.mcp.McpRegistry
 import io.github.yeyi.agent.mcp.mcp
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
@@ -88,23 +82,12 @@ object DemoAgentFactory {
         } else {
             OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl, httpClient)
         }
-        val mcpRegistry = McpServerRegistry(ClientInfo("agent-sdk", "0.1.0")).apply {
+
+        val mcpRegistry = McpRegistry(ClientInfo("agent-sdk-app", "0.1.0")).apply {
             // Local MCP server
-            register(
-                GenericMcpServer(
-                    "calculator",
-                    "Calculator服务，支持加、减、乘、除运算",
-                    LocalTransport(CalculatorMcpServer())
-                )
-            )
+            register(CalculatorMcp())
             // Online MCP servers
-            register(
-                GenericMcpServer(
-                    "livescore",
-                    "足球赛事/比分",
-                    SseTransport("https://livescoremcp.com/sse", httpClient = httpClient)
-                )
-            )
+            register(LiveScoreMcp(httpClient))
         }
 
         return agent {

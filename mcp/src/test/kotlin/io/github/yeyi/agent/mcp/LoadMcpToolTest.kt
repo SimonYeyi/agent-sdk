@@ -14,7 +14,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -24,14 +23,6 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class LoadMcpToolTest {
-    private object NoopTransport : McpTransport {
-        override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> =
-            error("not used")
-        override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) = Unit
-        override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
-        override suspend fun close() = Unit
-    }
-
     private object StubLlm : LlmProvider {
         override val name: String = "stub"
         override suspend fun chat(request: ChatRequest) =
@@ -53,37 +44,67 @@ class LoadMcpToolTest {
         ),
     )
 
-    private fun createFakeServer(
+    private fun createFakeMcp(
         name: String = "test",
         description: String = "test",
         listToolsResult: ListToolsResult = ListToolsResult(tools = JsonArray(emptyList())),
-    ): McpServer = object : McpServer {
+    ): Mcp = object : Mcp {
         override val name: String = name
         override val description: String = description
-        override val transport: McpTransport = NoopTransport
-        override suspend fun initialize(): InitializeResult = InitializeResult(
-            protocolVersion = "",
-            serverInfo = ServerInfo(name = "", version = ""),
-            capabilities = ServerCapabilities(),
-        )
-        override suspend fun listTools(cursor: String?): ListToolsResult = listToolsResult
-        override suspend fun ping(): Boolean = true
-        override suspend fun callTool(params: JsonElement): JsonElement = JsonNull
+        override val client: McpClient = McpClient(FakeServerTransport(listToolsResult))
+    }
+
+    private class FakeServerTransport(
+        private val listToolsResult: ListToolsResult,
+    ) : McpTransport {
+        override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
+            val json = kotlinx.serialization.json.Json {
+                ignoreUnknownKeys = true
+                encodeDefaults = true
+                explicitNulls = false
+            }
+            return when (request.method) {
+                McpMethods.INITIALIZE -> JsonRpcResponse(
+                    jsonrpc = "2.0",
+                    id = request.id,
+                    result = json.parseToJsonElement(
+                        """{"protocolVersion":"2025-06-18","serverInfo":{"name":"test","version":"1.0"},"capabilities":{}}"""
+                    ),
+                )
+                McpMethods.TOOLS_LIST -> JsonRpcResponse(
+                    jsonrpc = "2.0",
+                    id = request.id,
+                    result = json.encodeToJsonElement(ListToolsResult.serializer(), listToolsResult),
+                )
+                McpMethods.TOOLS_CALL -> JsonRpcResponse(
+                    jsonrpc = "2.0",
+                    id = request.id,
+                    result = json.encodeToJsonElement(
+                        CallToolResult.serializer(),
+                        CallToolResult(content = JsonNull),
+                    ),
+                )
+                else -> error("Unknown method: ${request.method}")
+            }
+        }
+
+        override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) = Unit
+        override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
         override suspend fun close() = Unit
     }
 
     @Test
     fun `returns tools array as content`() = runTest {
         val tools = JsonArray(listOf(JsonPrimitive("tool1"), JsonPrimitive("tool2")))
-        val registry = McpServerRegistry(ClientInfo("", "")).register(
-            createFakeServer(
+        val registry = McpRegistry(ClientInfo("", "")).register(
+            createFakeMcp(
                 listToolsResult = ListToolsResult(tools = tools),
             )
         )
         val tool = LoadMcpTool(registry)
 
         val output = tool.execute(
-            arguments = buildJsonObject { put("server_name", "test") },
+            arguments = buildJsonObject { put("mcp_name", "test") },
             context = stubContext(),
         )
 
@@ -93,8 +114,8 @@ class LoadMcpToolTest {
 
     @Test
     fun `description contains registered server name`() = runTest {
-        val registry = McpServerRegistry(ClientInfo("", "")).register(
-            createFakeServer(
+        val registry = McpRegistry(ClientInfo("", "")).register(
+            createFakeMcp(
                 name = "my-server",
                 description = "my server description",
             )

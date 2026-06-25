@@ -10,25 +10,33 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.serializer
 
 /**
- * In-process [McpTransport] that delegates to a local [McpServer] implementation.
+ * 进程内 [McpTransport] 实现 —— 将 JSON-RPC 请求直接委派给本地 [McpServer] 实现。
  *
- * This allows registering pure-Kotlin MCP servers without any network or subprocess
- * overhead. The transport bridges the JSON-RPC wire protocol used by [GenericMcpServer]
- * to the typed method calls of [McpServer].
+ * 用于在同一进程内运行纯 Kotlin 实现的 MCP 服务，无需网络或子进程开销。
+ * 传输层将 [McpClient] 使用的 JSON-RPC 有线协议桥接到 [McpServer] 的类型化方法调用。
  *
- * Example:
+ * 典型使用场景：
+ * - 测试：无需启动真实 MCP 服务进程
+ * - 简单的本地工具：不想用子进程方式封装成本太高
+ *
+ * 使用方式：
  * ```kotlin
- * val localServer = object : McpServer {
- *     override val name = "local"
- *     override val description = "Local calculator"
- *     override val transport: McpTransport = LocalTransport(this)
- *     // ... implement McpServer methods
+ * class MyLocalServer : McpServer {
+ *     override val transport: McpTransport = LocalTransport.forServer()
+ *     // ... 实现 McpServer 接口方法
  * }
  *
- * val registry = McpServerRegistry(clientInfo).apply {
- *     register(GenericMcpServer("local", "Local calculator", LocalTransport(localServer)))
+ * val registry = McpRegistry(clientInfo).apply {
+ *     register(object : Mcp {
+ *         override val name = "my-local"
+ *         override val description = "本地 MCP 服务"
+ *         override val client = McpClient(LocalTransport(MyLocalServer()))
+ *     })
  * }
  * ```
+ *
+ * 注意：[LocalTransport.forServer] 返回的 transport 的 `send()` 方法永远不会被调用，
+ * 仅用于满足 [McpServer.transport] 属性要求的契约。
  */
 public class LocalTransport(private val localServer: McpServer) : McpTransport {
     private val initializeMutex = Mutex()

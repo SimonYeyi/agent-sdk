@@ -11,9 +11,41 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class ListAllToolsTest {
-    private object NoopTransport : McpTransport {
-        override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> =
-            error("not used")
+
+    private class FakePaginatedTransport(
+        private val pages: List<ListToolsResult>,
+    ) : McpTransport {
+        private val json = kotlinx.serialization.json.Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+            explicitNulls = false
+        }
+
+        override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
+            return when (request.method) {
+                McpMethods.INITIALIZE -> JsonRpcResponse(
+                    jsonrpc = "2.0",
+                    id = request.id,
+                    result = json.parseToJsonElement(
+                        """{"protocolVersion":"2025-06-18","serverInfo":{"name":"test","version":"1.0"},"capabilities":{}}"""
+                    ),
+                )
+                McpMethods.TOOLS_LIST -> {
+                    val cursor = request.params?.let {
+                        json.decodeFromJsonElement(ListToolsParams.serializer(), it).cursor
+                    }
+                    val index = if (cursor == null) 0 else cursor.toInt()
+                    val result = pages[index]
+                    JsonRpcResponse(
+                        jsonrpc = "2.0",
+                        id = request.id,
+                        result = json.encodeToJsonElement(ListToolsResult.serializer(), result),
+                    )
+                }
+                else -> error("Unknown method: ${request.method}")
+            }
+        }
+
         override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) = Unit
         override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
         override suspend fun close() = Unit
@@ -23,34 +55,16 @@ class ListAllToolsTest {
     fun `aggregates multiple pages`() = runTest {
         val page1 = ListToolsResult(
             tools = JsonArray(listOf(JsonPrimitive("tool1"), JsonPrimitive("tool2"))),
-            nextCursor = "page2",
+            nextCursor = "1",
         )
         val page2 = ListToolsResult(
             tools = JsonArray(listOf(JsonPrimitive("tool3"))),
             nextCursor = null,
         )
-        var callCount = 0
-        val fakeServer = object : McpServer {
-            override val name: String = "test"
-            override val description: String = "test"
-            override val transport: McpTransport = NoopTransport
-            override suspend fun initialize(): InitializeResult = InitializeResult(
-                protocolVersion = "",
-                serverInfo = ServerInfo(name = "", version = ""),
-                capabilities = ServerCapabilities(),
-            )
-            override suspend fun listTools(cursor: String?): ListToolsResult {
-                callCount++
-                return if (cursor == null) page1 else page2
-            }
-            override suspend fun ping(): Boolean = true
-            override suspend fun callTool(params: JsonElement): JsonElement = JsonNull
-            override suspend fun close() {}
-        }
+        val client = McpClient(FakePaginatedTransport(listOf(page1, page2)))
 
-        val result = fakeServer.listAllTools()
+        val result = client.toolsList()
 
-        assertEquals(2, callCount)
         assertEquals(3, result.tools.size)
         assertEquals("tool1", (result.tools[0] as JsonPrimitive).content)
         assertEquals("tool2", (result.tools[1] as JsonPrimitive).content)
@@ -60,23 +74,9 @@ class ListAllToolsTest {
     @Test
     fun `returns single page when no cursor`() = runTest {
         val tools = JsonArray(listOf(JsonPrimitive("tool1"), JsonPrimitive("tool2")))
-        val fakeServer = object : McpServer {
-            override val name: String = "test"
-            override val description: String = "test"
-            override val transport: McpTransport = NoopTransport
-            override suspend fun initialize(): InitializeResult = InitializeResult(
-                protocolVersion = "",
-                serverInfo = ServerInfo(name = "", version = ""),
-                capabilities = ServerCapabilities(),
-            )
-            override suspend fun listTools(cursor: String?): ListToolsResult =
-                ListToolsResult(tools = tools, nextCursor = null)
-            override suspend fun ping(): Boolean = true
-            override suspend fun callTool(params: JsonElement): JsonElement = JsonNull
-            override suspend fun close() {}
-        }
+        val client = McpClient(FakePaginatedTransport(listOf(ListToolsResult(tools = tools, nextCursor = null))))
 
-        val result = fakeServer.listAllTools()
+        val result = client.toolsList()
 
         assertEquals(2, result.tools.size)
         assertEquals("tool1", (result.tools[0] as JsonPrimitive).content)

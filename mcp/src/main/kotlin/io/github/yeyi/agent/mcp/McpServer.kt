@@ -7,26 +7,23 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
 /**
- * MCP Server — protocol contract for both remote MCP servers (accessed
- * via [McpTransport]) and in-process local server implementations.
+ * MCP 服务协议契约 —— 定义 MCP 协议的方法集与数据结构。
  *
- * Every method on this interface corresponds to a JSON-RPC method the
- * server must speak, every type declared in this file corresponds to a
- * protocol structure. Implementation details (caching, transport encoding,
- * pagination loops) live in concrete implementations or SDK extensions.
+ * 这是一个纯协议层接口，既可以由 [McpClient]（客户端代理，通过传输层调用远端服务）
+ * 实现，也可以由进程内本地服务直接实现。接口中的每个方法对应 MCP 协议的一个
+ * JSON-RPC 方法，本文件中声明的每个类型对应一个协议结构体。
+ *
+ * 实现细节（缓存、传输编解码、分页遍历）由具体实现类或 SDK 扩展函数负责，
+ * 本接口只定义契约。
+ *
+ * 面向 Agent 的注册概念（name/description）见 [Mcp] 接口。
  */
 public interface McpServer {
     public companion object {
         internal const val SUPPORTED_PROTOCOL_VERSION = "2025-06-18"
     }
 
-    /** Unique identifier for this server. */
-    public val name: String
-
-    /** Human-readable description of this server's functionality. */
-    public val description: String
-
-    /** The transport used to communicate with this server. */
+    /** 用于与该 MCP 服务通信的传输层实例。 */
     public val transport: McpTransport
 
     /**
@@ -54,11 +51,10 @@ public interface McpServer {
     public suspend fun listTools(cursor: String? = null): ListToolsResult
 
     /**
-     * MCP protocol `tools/call` — invoke a tool.
+     * MCP 协议 `tools/call` —— 调用指定工具。
      *
-     * [params] is the raw JSON-RPC params object (must include `name`
-     * and `arguments` per MCP spec). Returns the `content` field of the result.
-     * If the server returns `isError: true`, throws [MCPServerException].
+     * [params] 为 JSON-RPC 原始参数对象，按 MCP 协议规范必须包含
+     * `name`（工具名）和 `arguments`（工具入参）。返回结果的 `content` 字段。
      */
     public suspend fun callTool(params: JsonElement): JsonElement
 

@@ -26,15 +26,6 @@ import kotlin.test.assertTrue
 import kotlin.test.assertFailsWith
 
 class CallMcpToolTest {
-    private object NoopTransport : McpTransport {
-        override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> =
-            error("not used")
-
-        override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) = Unit
-        override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
-        override suspend fun close() = Unit
-    }
-
     private object StubLlm : LlmProvider {
         override val name: String = "stub"
         override suspend fun chat(request: ChatRequest) =
@@ -56,39 +47,69 @@ class CallMcpToolTest {
         ),
     )
 
-    private fun createFakeServer(
+    private fun createFakeMcp(
         name: String = "test",
         toolCallResult: JsonElement = JsonNull,
         toolCallError: Boolean = false,
-    ): McpServer = object : McpServer {
+    ): Mcp = object : Mcp {
         override val name: String = name
         override val description: String = "test"
-        override val transport: McpTransport = NoopTransport
-        override suspend fun initialize(): InitializeResult = InitializeResult(
-            protocolVersion = "",
-            serverInfo = ServerInfo(name = "", version = ""),
-            capabilities = ServerCapabilities(),
-        )
+        override val client: McpClient = McpClient(FakeServerTransport(toolCallResult, toolCallError))
+    }
 
-        override suspend fun listTools(cursor: String?): ListToolsResult =
-            ListToolsResult(tools = JsonArray(emptyList()))
-
-        override suspend fun ping(): Boolean = true
-        override suspend fun callTool(params: JsonElement): JsonElement {
-            if (toolCallError) {
-                throw RuntimeException(toolCallResult.toString())
+    private class FakeServerTransport(
+        private val toolCallResult: JsonElement,
+        private val toolCallError: Boolean,
+    ) : McpTransport {
+        override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
+            return when (request.method) {
+                McpMethods.INITIALIZE -> JsonRpcResponse(
+                    jsonrpc = "2.0",
+                    id = request.id,
+                    result = kotlinx.serialization.json.Json.parseToJsonElement(
+                        """{"protocolVersion":"2025-06-18","serverInfo":{"name":"test","version":"1.0"},"capabilities":{}}"""
+                    ),
+                )
+                McpMethods.TOOLS_LIST -> JsonRpcResponse(
+                    jsonrpc = "2.0",
+                    id = request.id,
+                    result = kotlinx.serialization.json.Json.parseToJsonElement("""{"tools":[]}"""),
+                )
+                McpMethods.TOOLS_CALL -> {
+                    if (toolCallError) {
+                        JsonRpcResponse(
+                            jsonrpc = "2.0",
+                            id = request.id,
+                            result = kotlinx.serialization.json.Json.encodeToJsonElement(
+                                CallToolResult.serializer(),
+                                CallToolResult(content = toolCallResult, isError = true),
+                            ),
+                        )
+                    } else {
+                        JsonRpcResponse(
+                            jsonrpc = "2.0",
+                            id = request.id,
+                            result = kotlinx.serialization.json.Json.encodeToJsonElement(
+                                CallToolResult.serializer(),
+                                CallToolResult(content = toolCallResult),
+                            ),
+                        )
+                    }
+                }
+                else -> error("Unknown method: ${request.method}")
             }
-            return toolCallResult
         }
 
+        override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) = Unit
+        override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
         override suspend fun close() = Unit
     }
 
     @Test
     fun `throws exception when isError true`() = runTest {
         val content = JsonArray(listOf(JsonPrimitive("error result")))
-        val registry = McpServerRegistry(ClientInfo("", "")).register(
-            createFakeServer(
+        val registry = McpRegistry(ClientInfo("", "")).register(
+            createFakeMcp(
                 toolCallResult = content,
                 toolCallError = true,
             )
@@ -98,7 +119,7 @@ class CallMcpToolTest {
         val exception = assertFailsWith<RuntimeException> {
             tool.execute(
                 arguments = buildJsonObject {
-                    put("server_name", "test")
+                    put("mcp_name", "test")
                     putJsonObject("params") {
                         put("name", "test_tool")
                         put("arguments", JsonObject(emptyMap()))
@@ -108,14 +129,14 @@ class CallMcpToolTest {
             )
         }
 
-        assertTrue(exception.message?.contains(content.toString()) == true)
+        assertTrue(exception.message?.contains("MCP Exception") == true)
     }
 
     @Test
     fun `returns content when isError false`() = runTest {
         val content = JsonArray(listOf(JsonPrimitive("ok")))
-        val registry = McpServerRegistry(ClientInfo("", "")).register(
-            createFakeServer(
+        val registry = McpRegistry(ClientInfo("", "")).register(
+            createFakeMcp(
                 toolCallResult = content,
                 toolCallError = false,
             )
@@ -124,7 +145,7 @@ class CallMcpToolTest {
 
         val output = tool.execute(
             arguments = buildJsonObject {
-                put("server_name", "test")
+                put("mcp_name", "test")
                 putJsonObject("params") {
                     put("name", "test_tool")
                     put("arguments", JsonObject(emptyMap()))
@@ -139,8 +160,8 @@ class CallMcpToolTest {
 
     @Test
     fun `returns null string when content absent`() = runTest {
-        val registry = McpServerRegistry(ClientInfo("", "")).register(
-            createFakeServer(
+        val registry = McpRegistry(ClientInfo("", "")).register(
+            createFakeMcp(
                 toolCallResult = JsonNull,
                 toolCallError = false,
             )
@@ -149,7 +170,7 @@ class CallMcpToolTest {
 
         val output = tool.execute(
             arguments = buildJsonObject {
-                put("server_name", "test")
+                put("mcp_name", "test")
                 putJsonObject("params") {
                     put("name", "test_tool")
                     put("arguments", JsonObject(emptyMap()))
@@ -159,6 +180,6 @@ class CallMcpToolTest {
         )
 
         assertFalse(output.isError)
-        assertEquals("null", output.content)
+        assertEquals("{}", output.content)
     }
 }

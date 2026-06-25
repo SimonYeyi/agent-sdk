@@ -11,8 +11,8 @@ import kotlinx.serialization.json.jsonObject
 /**
  * Tool for discovering available MCP tools from registered servers.
  */
-internal class LoadMcpTool(private val registry: McpServerRegistry) : Tool {
-    override val name: String = "load_mcp_tools"
+internal class LoadMcpTool(private val registry: McpRegistry) : Tool {
+    override val name: String = "load_mcp"
 
     override val description: String by lazy { buildDescription() }
 
@@ -21,15 +21,15 @@ internal class LoadMcpTool(private val registry: McpServerRegistry) : Tool {
         {
             "type": "object",
             "properties": {
-                "server_name": { "type": "string" }
+                "mcp_name": { "type": "string" }
             },
-            "required": ["server_name"]
+            "required": ["mcp_name"]
         }
     """.trimIndent()
     )
 
     private fun buildDescription(): String = """
-        |当需要使用以下MCP Server时，调用本工具：
+        |当需要使用以下 MCP ，调用本工具：
         |${registry.buildDescription()}
     """.trimMargin()
 
@@ -37,12 +37,12 @@ internal class LoadMcpTool(private val registry: McpServerRegistry) : Tool {
         arguments: JsonElement,
         context: ToolContext
     ): ToolExecutionResult {
-        val serverName = arguments.jsonObject["server_name"]
+        val mcpName = arguments.jsonObject["mcp_name"]
             ?.let { (it as? JsonPrimitive)?.content }
-            ?: throw IllegalArgumentException("Missing server_name")
+            ?: throw IllegalArgumentException("Missing mcp_name")
 
-        val result = registry.listAllTools(serverName)
+        val result = registry.toolsList(mcpName)
 
-        return ToolExecutionResult(content = result.tools.toString())
+        return ToolExecutionResult(content = result)
     }
 }

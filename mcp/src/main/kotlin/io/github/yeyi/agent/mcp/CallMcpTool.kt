@@ -11,7 +11,7 @@ import kotlinx.serialization.json.jsonPrimitive
 /**
  * Tool for calling an MCP tool on a registered server.
  */
-internal class CallMcpTool(private val registry: McpServerRegistry) : Tool {
+internal class CallMcpTool(private val registry: McpRegistry) : Tool {
     override val name: String = "call_mcp_tool"
 
     override val description: String = "当需要调用 MCP 工具时通过本工具代理调用。"
@@ -21,7 +21,7 @@ internal class CallMcpTool(private val registry: McpServerRegistry) : Tool {
         {
             "type": "object",
             "properties": {
-                "server_name": { "type": "string" },
+                "mcp_name": { "type": "string" },
                 "params": {
                     "type": "object",
                     "description": "MCP protocol 'tools/call' params.",
@@ -39,7 +39,7 @@ internal class CallMcpTool(private val registry: McpServerRegistry) : Tool {
                     "additionalProperties": false
                 }
             },
-            "required": ["server_name", "params"]
+            "required": ["mcp_name", "params"]
         }
     """.trimIndent()
     )
@@ -50,14 +50,14 @@ internal class CallMcpTool(private val registry: McpServerRegistry) : Tool {
     ): ToolExecutionResult {
         val argsObj = arguments.jsonObject
 
-        val serverName = argsObj["server_name"]
+        val mcpName = argsObj["mcp_name"]
             ?.jsonPrimitive?.content
-            ?: throw IllegalArgumentException("Missing server_name")
+            ?: throw IllegalArgumentException("Missing mcp_name")
 
         val params = requireNotNull(argsObj["params"]) { "Missing params" }
 
-        val content = registry.callTool(serverName, params)
+        val content = registry.toolsCall(mcpName, params)
 
-        return ToolExecutionResult(content = content.toString())
+        return ToolExecutionResult(content = content)
     }
 }

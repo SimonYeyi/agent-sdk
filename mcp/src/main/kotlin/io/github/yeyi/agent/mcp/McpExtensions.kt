@@ -5,16 +5,17 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 
 /**
- * Register MCP servers with this builder by providing a [McpServerRegistry].
+ * 将 MCP 能力注册到 Agent Builder。
  *
- * This adds two tools to the agent:
- * - [LoadMcpTool] (`load_mcp`): for discovering available MCP tools
- * - [CallMcpTool] (`call_mcp`): for calling MCP tools
+ * 调用后会向 Agent 添加两个工具：
+ * - [LoadMcpTool]（`load_mcp`）：发现指定 MCP 服务下的可用工具
+ * - [CallMcpTool]（`call_mcp`）：调用指定 MCP 服务上的工具
  *
- * Example:
+ * 示例：
  * ```kotlin
- * val registry = McpServerRegistry().apply {
- *     register(GenericMcpServer("filesystem", "Local filesystem", StdioTransport(listOf("npx", "mcp-server-fs"))))
+ * val registry = McpRegistry(ClientInfo("my-agent", "1.0")).apply {
+ *     register(LiveScoreMcp(httpClient))
+ *     register(CalculatorMcp())
  * }
  *
  * val agent = agent {
@@ -23,22 +24,17 @@ import kotlinx.serialization.json.JsonElement
  * }.build()
  * ```
  */
-public fun AgentBuilder.mcp(registry: McpServerRegistry) {
+public fun AgentBuilder.mcp(registry: McpRegistry) {
     tool(LoadMcpTool(registry))
     tool(CallMcpTool(registry))
 }
 
 /**
- * SDK convenience — fetch every tool the server exposes by following
- * `tools/list` pagination until `nextCursor` is absent.
+ * 便捷扩展 —— 跟随 `tools/list` 的 `nextCursor` 分页拉取该 MCP 服务的全部工具列表。
  *
- * Default implementation walks the cursor chain without caching. Concrete
- * servers may override as a member function for caching or invalidation
- * (member functions take precedence over this extension); see
- * [io.github.yeyi.agent.mcp.GenericMcpServer.listAllTools] for the
- * cached version.
+ * 本扩展不做缓存，每次调用都会发起完整的分页请求。返回结果的 `nextCursor` 始终为 null。
  */
-public suspend fun McpServer.listAllTools(): ListToolsResult {
+public suspend fun McpClient.toolsList(): ListToolsResult {
     val allTools = mutableListOf<JsonElement>()
     var cursor: String? = null
     do {
