@@ -54,7 +54,7 @@ android {
 dependencies {
     implementation(project(":agent"))
     implementation(project(":session"))
-    implementation(project(":gateway:gateway-core"))
+    implementation(project(":gateway:core"))
     implementation(project(":providers:anthropic"))
     implementation(project(":gateway:platforms:feishu"))
 

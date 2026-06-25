@@ -12,8 +12,8 @@ kotlin {
 }
 
 dependencies {
-    api(project(":gateway:gateway-core"))
 
+    api(project(":gateway:core"))
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.kotlinx.coroutines.test)

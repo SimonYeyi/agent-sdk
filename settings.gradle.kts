@@ -34,7 +34,7 @@ include(":providers:anthropic")
 include(":app")
 
 // Gateway: 平台接入层(从 HermesApp 移植,2026-06-24)
-include(":gateway:gateway-core")
+include(":gateway:core")
 include(":gateway:platforms:feishu")
 include(":gateway:platforms:telegram")
 include(":gateway:platforms:weixin")
