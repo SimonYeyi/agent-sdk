@@ -48,7 +48,4 @@ public interface Mcp {
      * @throws McpException 工具执行失败或 MCP 服务返回错误时抛出
      */
     public suspend fun toolsCall(params: JsonElement): String = client.callTool(params).toString()
-
-    /** 关闭该 MCP 服务连接，释放资源。 */
-    public suspend fun close(): Unit = client.close()
 }

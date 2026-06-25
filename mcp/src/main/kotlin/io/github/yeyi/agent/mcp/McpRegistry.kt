@@ -55,7 +55,7 @@ public class McpRegistry(private val clientInfo: ClientInfo) {
 
     /** 注销并关闭所有已注册的 MCP 服务，释放资源。 */
     public suspend fun unregisterAll() {
-        mcpMap.values.forEach { runCatching { it.close() } }
+        mcpMap.values.forEach { runCatching { it.client.close() } }
         mcpMap.clear()
     }
 

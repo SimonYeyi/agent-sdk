@@ -9,5 +9,5 @@ class LiveScoreMcp(httpClient: HttpClient) : Mcp {
     override val name: String = "live_score"
     override val description: String = "足球赛事/比分查询服务"
     override val client: McpClient =
-        McpClient(SseTransport("https://livescoremcp.com/sse", httpClient = httpClient))
+        McpClient(SseTransport("https://livescoremcp.com/message", httpClient = httpClient))
 }

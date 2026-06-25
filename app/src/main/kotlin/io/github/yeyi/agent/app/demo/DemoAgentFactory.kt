@@ -6,6 +6,7 @@ import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.app.BuildConfig
 import io.github.yeyi.agent.app.demo.mcp.CalculatorMcp
 import io.github.yeyi.agent.app.demo.mcp.LiveScoreMcp
+import io.github.yeyi.agent.app.demo.mcp.TestMcp
 import io.github.yeyi.agent.app.demo.skills.NewsSkill
 import io.github.yeyi.agent.app.demo.subagents.WeatherExpertSubagent
 import io.github.yeyi.agent.app.demo.tools.WebSearchTool
@@ -88,6 +89,7 @@ object DemoAgentFactory {
             register(CalculatorMcp())
             // Online MCP servers
             register(LiveScoreMcp(httpClient))
+            register(TestMcp(httpClient))
         }
 
         return agent {
