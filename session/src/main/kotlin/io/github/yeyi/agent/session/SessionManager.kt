@@ -4,13 +4,13 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 
-public class SessionManager(sessionParent: File, private val hook: SessionHook = NoOpAgentHook) {
-    private val repository = SessionRepository(sessionParent)
+public class SessionManager(baseDir: File, private val hook: SessionHook = NoOpAgentHook) {
+    private val repository = SessionRepository(baseDir)
     private val mutex = Mutex()
 
-    public suspend fun create(accountId: String, sessionName: String): Session {
+    public suspend fun create(accountId: String, sessionName: String, sessionId: String? = null): Session {
         return mutex.withLock {
-            repository.createSession(accountId, sessionName).also {
+            repository.createSession(accountId, sessionName, sessionId).also {
                 hook.safeInvoke { hook.onSessionCreated(it) }
             }
         }

@@ -5,14 +5,14 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.UUID
 
-public class SessionRepository(sessionParent: File) {
+public class SessionRepository(baseDir: File) {
 
-    private val baseDir = File(sessionParent, "sessions")
+    private val sessionsDir = File(baseDir, "sessions")
 
     private val json = Json { ignoreUnknownKeys = true }
 
     private fun getUserDir(accountId: String): File {
-        return File(baseDir, accountId).also { it.mkdirs() }
+        return File(sessionsDir, accountId).also { it.mkdirs() }
     }
 
     private fun getSessionsFile(accountId: String): File {
@@ -39,9 +39,9 @@ public class SessionRepository(sessionParent: File) {
             .map { json.decodeFromString<Session>(it) }
     }
 
-    public fun createSession(accountId: String, sessionName: String): Session {
+    public fun createSession(accountId: String, sessionName: String, sessionId: String?): Session {
         val now = Clock.System.now()
-        val id = UUID.randomUUID().toString()
+        val id = sessionId ?: UUID.randomUUID().toString()
         val memoryFile = getMemoryFile(accountId, id)
         val rawMemory = JsonlBackedMemory(memoryFile)
         val conversation = JsonlConversation(getConversationDir(accountId, id), rawMemory)
@@ -61,7 +61,8 @@ public class SessionRepository(sessionParent: File) {
     public fun findSessions(accountId: String): List<Session> {
         return readSessionsFromFile(accountId).map { session ->
             val rawMemory = JsonlBackedMemory(getMemoryFile(accountId, session.id))
-            val conversation = JsonlConversation(getConversationDir(accountId, session.id), rawMemory)
+            val conversation =
+                JsonlConversation(getConversationDir(accountId, session.id), rawMemory)
             session.copy(
                 _memory = conversation,
                 _conversation = conversation
