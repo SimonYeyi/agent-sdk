@@ -109,8 +109,14 @@ public class SseTransport(
 
             response.headers[Defaults.MCP_SESSION_ID_HEADER]?.let { sessionId = it }
 
-            val bodyText = response.bodyAsText()
-            parseJsonResponse(bodyText, request.id)
+            val contentType = response.contentType()
+            return if (contentType != null && ContentType.Text.EventStream.match(contentType)) {
+                val channel = response.bodyAsChannel()
+                readSseEvents(channel, request.id)!!
+            } else {
+                val bodyText = response.bodyAsText()
+                parseJsonResponse(bodyText, request.id)
+            }
         } catch (e: CancellationException) {
             notifyCancelledAsync(request.id)
             throw e
@@ -168,7 +174,10 @@ public class SseTransport(
         }
     }
 
-    private suspend fun readSseEvents(channel: io.ktor.utils.io.ByteReadChannel) {
+    private suspend fun readSseEvents(
+        channel: io.ktor.utils.io.ByteReadChannel,
+        expectedId: Int? = null
+    ): JsonRpcResponse<JsonElement>? {
         val currentEvent = StringBuilder()
 
         while (!channel.isClosedForRead) {
@@ -176,7 +185,8 @@ public class SseTransport(
 
             if (line.isEmpty()) {
                 if (currentEvent.isNotEmpty()) {
-                    processSseEvent(currentEvent.toString())
+                    val result = processSseEvent(currentEvent.toString(), expectedId)
+                    if (result != null) return result
                     currentEvent.clear()
                 }
             } else {
@@ -186,21 +196,36 @@ public class SseTransport(
         }
 
         if (currentEvent.isNotEmpty()) {
-            processSseEvent(currentEvent.toString())
+            val result = processSseEvent(currentEvent.toString(), expectedId)
+            if (result != null) return result
         }
+
+        if (expectedId != null) {
+            throw RuntimeException("SSE response stream ended without finding response for id $expectedId")
+        }
+        return null
     }
 
-    private suspend fun processSseEvent(raw: String) {
-        val parsed = SseEventParser.parse(raw) ?: return
-        if (parsed.data.isEmpty()) return
+    private suspend fun processSseEvent(raw: String, expectedId: Int?): JsonRpcResponse<JsonElement>? {
+        val parsed = SseEventParser.parse(raw) ?: return null
+        if (parsed.data.isEmpty()) return null
+        val element = runCatching { json.parseToJsonElement(parsed.data) }.getOrNull() ?: return null
+        val obj = element as? JsonObject ?: return null
 
-        val element = runCatching { json.parseToJsonElement(parsed.data) }.getOrNull() ?: return
-        val obj = element as? JsonObject ?: return
-
-        // Only handle notifications (has method but no id)
-        if (obj["method"] != null && obj["id"] == null) {
-            val notification = json.decodeFromJsonElement<JsonRpcNotification<JsonElement>>(obj)
-            notificationsSharedFlow.emit(notification)
+        when {
+            obj["method"] != null && obj["id"] == null -> {
+                val notification = json.decodeFromJsonElement<JsonRpcNotification<JsonElement>>(obj)
+                notificationsSharedFlow.emit(notification)
+                return null
+            }
+            else -> {
+                val response = runCatching { json.decodeFromJsonElement<JsonRpcResponse<JsonElement>>(obj) }.getOrNull()
+                    ?: return null
+                if (expectedId != null && response.id != expectedId) {
+                    throw RuntimeException("MCP response ID mismatch: expected $expectedId, got ${response.id}")
+                }
+                return response
+            }
         }
     }
 
@@ -230,13 +255,7 @@ public class SseTransport(
     }
 
     private fun parseJsonResponse(body: String, expectedId: Int): JsonRpcResponse<JsonElement> {
-        val jsonBody = if (body.startsWith("event:")) {
-            val sseEvent = SseEventParser.parse(body)
-            sseEvent?.data ?: body
-        } else {
-            body
-        }
-        val response = json.decodeFromString<JsonRpcResponse<JsonElement>>(jsonBody)
+        val response = json.decodeFromString<JsonRpcResponse<JsonElement>>(body)
         if (response.id != expectedId) {
             throw RuntimeException(
                 "MCP response ID mismatch: expected $expectedId, got ${response.id}"
