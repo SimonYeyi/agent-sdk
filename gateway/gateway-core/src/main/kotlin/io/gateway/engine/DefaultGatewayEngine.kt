@@ -28,9 +28,9 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
-import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.sync.withLock
 import kotlinx.datetime.Clock
+import java.util.concurrent.ConcurrentHashMap
 
 internal class DefaultGatewayEngine(
     override val config: GatewayConfig = GatewayConfig()
@@ -38,13 +38,13 @@ internal class DefaultGatewayEngine(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    private var sessionManager: GatewaySessionManager
+    private var sessionManager: GatewaySessionManager = InMemoryGatewaySessionManager()
     private lateinit var agentRunner: AgentRunner
-    private var hookPipeline: HookPipeline
-    private var deliveryRouter: DeliveryRouter
-    private var concurrencyController: ConcurrencyController
+    private var hookPipeline: HookPipeline = DefaultHookPipeline()
+    private var deliveryRouter: DeliveryRouter = DefaultDeliveryRouter()
+    private var concurrencyController: ConcurrencyController = DefaultConcurrencyController(config.maxConcurrentSessions)
 
-    private val adapters = mutableMapOf<PlatformId, PlatformAdapter>()
+    private val adapters = ConcurrentHashMap<PlatformId, PlatformAdapter>()
     private val processingJobs = ConcurrentHashMap<String, Job>()
     private val pendingMessages = ConcurrentHashMap<String, MutableList<IncomingMessage>>()
     private val sessionMutexes = ConcurrentHashMap<String, Mutex>()
@@ -57,13 +57,6 @@ internal class DefaultGatewayEngine(
 
     override val isRunning: Boolean
         get() = _state.value.isRunning
-
-    init {
-        sessionManager = InMemoryGatewaySessionManager()
-        hookPipeline = DefaultHookPipeline()
-        deliveryRouter = DefaultDeliveryRouter()
-        concurrencyController = DefaultConcurrencyController(config.maxConcurrentSessions)
-    }
 
     override fun setSessionManager(manager: GatewaySessionManager) {
         this.sessionManager = manager
@@ -198,50 +191,56 @@ internal class DefaultGatewayEngine(
             else -> message
         }
 
-        val acquired = concurrencyController.acquire()
-        var sessionBusy = false
         getSessionMutex(sessionKey).withLock {
             val session = sessionManager.getOrCreateSession(actualMessage.source)
 
             if (session.isProcessing) {
+                // 正在处理，加入 pending 队列，取消旧的
                 val pending = pendingMessages.getOrPut(sessionKey) { mutableListOf() }
                 pending.add(actualMessage)
-
                 processingJobs[sessionKey]?.cancel()
-                sessionBusy = true
-            } else {
+                return
+            }
+
+            // 尝试获取全局并发槽
+            if (!concurrencyController.acquire()) {
+                emitError(
+                    platform = actualMessage.source.platform,
+                    sessionKey = sessionKey,
+                    error = "Concurrency limit reached, message dropped"
+                )
+                return
+            }
+
+            // 成功获取并发槽，标记处理中
+            sessionManager.markProcessing(sessionKey)
+            updateStats()
+
+            val job = scope.launch {
                 try {
-                    sessionManager.markProcessing(sessionKey)
-                    updateStats()
-
-                    val job = scope.launch {
-                        try {
-                            processMessageSafely(actualMessage, session)
-                        } catch (e: Exception) {
-                            if (e !is kotlinx.coroutines.CancellationException) {
-                                emitError(
-                                    platform = actualMessage.source.platform,
-                                    sessionKey = sessionKey,
-                                    error = e.message ?: "Unknown error",
-                                    throwable = e
-                                )
-                                totalErrors++
-                                updateStats()
-                            }
-                        } finally {
-                            cleanupAndProcessNext(sessionKey, acquired)
-                        }
+                    processMessageSafely(actualMessage, session)
+                } catch (e: Exception) {
+                    if (e !is kotlinx.coroutines.CancellationException) {
+                        emitError(
+                            platform = actualMessage.source.platform,
+                            sessionKey = sessionKey,
+                            error = e.message ?: "Unknown error",
+                            throwable = e
+                        )
+                        totalErrors++
+                        updateStats()
                     }
-
-                    processingJobs[sessionKey] = job
-                } catch (e: Throwable) {
-                    cleanupAndProcessNext(sessionKey, acquired)
-                    throw e
+                } finally {
+                    // 无论成功/失败/取消，都释放资源
+                    concurrencyController.release()
+                    sessionManager.markProcessingComplete(sessionKey)
+                    processingJobs.remove(sessionKey)
+                    updateStats()
+                    processPendingMessages(sessionKey)
                 }
             }
-        }
-        if (sessionBusy && acquired) {
-            concurrencyController.release()
+
+            processingJobs[sessionKey] = job
         }
     }
 
@@ -257,16 +256,6 @@ internal class DefaultGatewayEngine(
         scope.launch {
             handleIncomingMessage(message)
         }
-    }
-
-    private suspend fun cleanupAndProcessNext(sessionKey: String, acquired: Boolean) {
-        if (acquired) {
-            concurrencyController.release()
-        }
-        sessionManager.markProcessingComplete(sessionKey)
-        processingJobs.remove(sessionKey)
-        updateStats()
-        processPendingMessages(sessionKey)
     }
 
     private suspend fun processMessageSafely(message: IncomingMessage, session: GatewaySession) {
