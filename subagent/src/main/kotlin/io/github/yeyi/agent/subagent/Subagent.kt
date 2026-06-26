@@ -1,28 +1,12 @@
 package io.github.yeyi.agent.subagent
 
-import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.awaitResult
 import io.github.yeyi.agent.capability.Capability
-import io.github.yeyi.agent.capability.CapabilityContext
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.tool.Tool
-import kotlinx.serialization.Serializable
-
-/**
- * Task 输入类型，由 [SubagentArguments] 提供 schema 和 serializer。
- */
-@Serializable
-public data class SubagentTask(val task: String)
-
-/**
- * Subagent 的 CapabilityContext。
- *
- * @param agentContext 透传 main agent 上下文(LlmProvider/Hook/Memory)
- */
-public class SubagentContext(public val agentContext: AgentContext) : CapabilityContext
 
 /**
  * Subagent = 独立 LLM 循环 + 任务委托能力。
@@ -35,7 +19,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
     public val memory: Memory?
     public val tools: List<Tool>?
 
-    public fun loadInstructions(): String
+    public fun load(context: SubagentContext): String
 
     override suspend fun activate(arguments: SubagentTask?, context: SubagentContext): String {
         val task = arguments?.task
@@ -44,7 +28,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
         val memory = memory ?: InMemoryMemory()
         val resolvedTools = tools
             ?: context.agentContext.tools.filter { !it.name.contains(CAPABILITY_NAME) }
-        val instructions = loadInstructions()
+        val instructions = load(context)
 
         val sub = agent {
             persona(Persona(instructions))

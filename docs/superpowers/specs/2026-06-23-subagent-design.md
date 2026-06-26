@@ -34,7 +34,8 @@ subagent 与 skill 的关键区别：
 ## 2. 设计原则
 
 - **Capability 抽象复用**：Subagent 实现 `Capability<SubagentTask, SubagentContext>`，复用 `CapabilityRegistry` 的路由语义和 Adapter 的暴露模式。
-- **默认实现在接口里**：`Subagent` 接口自带 `activate` 默认实现，调用方只需提供 `maxIterations` / `memory` / `loadInstructions()` 三个成员，不再有 `ReActSubagent` 这种 framework 默认类。
+- **默认实现在接口里**：`Subagent` 接口自带 `activate` 默认实现，调用方只需提供 `maxIterations` / `memory` / `tools` / `load(context)` 四个成员，不再有 `ReActSubagent` 这种 framework 默认类。
+- **两层抽象**：`Subagent` 接口提供完整能力（带 context 的 `load`），`SimpleSubagent` 抽象类提供简化版本（无参 `load`），满足不同复杂度需求。
 - **复用 Adapter 而非自己实现 Tool**：暴露模式直接使用 `CapabilityAdapter.of(...)` 工厂生成 `DelegationAdapter` / `OneToOneAdapter`。
 - **内存策略由空值表达**：`memory: Memory?` 为 null 时每次调用独立 memory（默认；隔离上下文），非 null 时跨调用共享 memory。
 - **错误透传**：subagent 内部错误（网络、解析）抛异常，由 delegate tool 透传成 `ToolExecutionResult(isError=true)`。
@@ -45,15 +46,16 @@ subagent 与 skill 的关键区别：
 
 ### 3.1 包结构
 
-新模块 `subagent/`，包 `io.github.yeyi.agent.subagent`，共 5 个文件：
+新模块 `subagent/`，包 `io.github.yeyi.agent.subagent`，共 6 个文件：
 
 ```
 subagent/src/main/kotlin/io/github/yeyi/agent/subagent/
-├── Subagent.kt                       # Subagent 接口 + SubagentTask + SubagentContext
-├── SubagentArguments.kt              # CapabilityArguments<SubagentTask>（internal）
+├── Subagent.kt                       # Subagent 接口（含默认 activate）
+├── SubagentArguments.kt              # SubagentTask + CapabilityArguments<SubagentTask>（internal）
+├── SubagentContext.kt                # SubagentContext + SubagentContextFactory（internal）
 ├── SubagentRegistry.kt               # CapabilityRegistry 接口委托实现
-├── SubagentContextFactory.kt         # CapabilityContextFactory<SubagentContext>（internal）
-└── SubagentExtensions.kt             # DSL: AgentBuilder.subagents()
+├── SubagentExtensions.kt             # DSL: AgentBuilder.subagents()
+└── SimpleSubagent.kt                 # 便捷抽象类，提供无参 load()
 ```
 
 ### 3.2 `Subagent`
@@ -61,28 +63,13 @@ subagent/src/main/kotlin/io/github/yeyi/agent/subagent/
 ```kotlin
 package io.github.yeyi.agent.subagent
 
-import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.awaitResult
 import io.github.yeyi.agent.capability.Capability
-import io.github.yeyi.agent.capability.CapabilityContext
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
-import kotlinx.serialization.Serializable
-
-/**
- * Task 输入类型，由 [SubagentArguments] 提供 schema 和 serializer。
- */
-@Serializable
-public data class SubagentTask(val task: String)
-
-/**
- * Subagent 的 CapabilityContext。
- *
- * @param agentContext 透传 main agent 上下文(LlmProvider/Hook/Memory)
- */
-public class SubagentContext(public val agentContext: AgentContext) : CapabilityContext
+import io.github.yeyi.agent.tool.Tool
 
 /**
  * Subagent = 独立 LLM 循环 + 任务委托能力。
@@ -90,40 +77,69 @@ public class SubagentContext(public val agentContext: AgentContext) : Capability
  * 实现 [Capability] 接口，泛型 [SubagentTask] 是 arguments 的强类型表达，
  * 由 [SubagentArguments] 提供 schema 和 serializer 给 Adapter。
  *
- * 提供默认 [activate] 实现：调用方只需实现 [maxIterations] / [memory] / [loadInstructions] 即可。
+ * 提供默认 [activate] 实现：调用方只需实现 [maxIterations] / [memory] / [tools] / [load] 即可。
  */
 public interface Subagent : Capability<SubagentTask, SubagentContext> {
-    public val maxIterations: Int
+    public val maxIterations: Int?
     public val memory: Memory?
+    public val tools: List<Tool>?
 
-    public fun loadInstructions(): String
+    public fun load(context: SubagentContext): String
 
     override suspend fun activate(arguments: SubagentTask?, context: SubagentContext): String {
         val task = arguments?.task
             ?: throw IllegalArgumentException("Missing 'task' argument")
 
         val memory = memory ?: InMemoryMemory()
-        val instructions = loadInstructions()
+        val resolvedTools = tools
+            ?: context.agentContext.tools.filter { !it.name.contains(CAPABILITY_NAME) }
+        val instructions = load(context)
 
         val sub = agent {
             persona(Persona(instructions))
             llmProvider(context.agentContext.llmProvider)
-            // hook(context.agentContext.hook)
-            memory(memory)
-            maxIterations(maxIterations)
+            memory(memory, context.agentContext.maxRounds)
+            maxIterations(maxIterations ?: context.agentContext.maxIterations)
+            tools(resolvedTools)
         }
 
         return sub.run(task).awaitResult().message.content
             ?: throw IllegalStateException("Subagent '${name}' returned empty content")
+    }
+
+    public companion object {
+        public const val CAPABILITY_NAME: String = "subagent"
     }
 }
 ```
 
 要点：
 - `Subagent` 泛型 `Capability<SubagentTask, SubagentContext>`，自带默认 `activate`。
-- `SubagentContext` 是 class（非 data class），实现 `CapabilityContext` 标记接口。
-- 实现方只需提供 `maxIterations`（迭代预算）、`memory`（null = 隔离；非 null = 跨调用共享）、`loadInstructions()`（persona 文本懒加载函数）。
-- `activate` 内部启动一个新的 `ReActAgent` 实例跑 sub-loop，使用 main agent 的 `llmProvider`（hook 暂不支持，源码中已注释）。
+- 实现方需提供 `maxIterations`（迭代预算，null 则继承 main agent 的值）、`memory`（null = 隔离；非 null = 跨调用共享）、`tools`（null = 继承 main agent 的工具并过滤掉 subagent 相关工具；非 null = 显式指定）、`load(context)`（persona 文本懒加载函数，可访问上下文）。
+- `activate` 内部启动一个新的 `ReActAgent` 实例跑 sub-loop，使用 main agent 的 `llmProvider`。
+
+### 3.2.1 `SimpleSubagent`
+
+对于不需要访问 `SubagentContext` 的简单场景，提供了 `SimpleSubagent` 便捷抽象类：
+
+```kotlin
+public abstract class SimpleSubagent(
+    override val name: String,
+    override val description: String,
+    override val maxIterations: Int? = null,
+    override val memory: Memory? = null,
+    override val tools: List<Tool>? = null
+) : Subagent {
+    public abstract fun load(): String
+
+    override fun load(context: SubagentContext): String = load()
+}
+```
+
+要点：
+- 继承 `Subagent` 接口，提供无参抽象 `load()` 方法。
+- 实现 `load(context)` 委托给无参 `load()`，忽略上下文。
+- 适合大多数不需要访问 `agentContext` 的 subagent 场景。
 
 ### 3.3 `SubagentTask` & `SubagentArguments`
 
@@ -290,7 +306,7 @@ LLM 能自我纠正的错误（subagent 内部工具失败）由 subagent 自己
 
 按 "good enough" 原则：
 - 调用方实现的 `Subagent` 不校验 `name` / `description` 非空。
-- `loadInstructions()` 返回值非空也不校验。
+- `load()` 返回值非空也不校验。
 - `maxIterations` 由调用方显式给出；不强制上限。
 
 ---
@@ -302,11 +318,12 @@ LLM 能自我纠正的错误（subagent 内部工具失败）由 subagent 自己
 | 文件 | 说明 |
 |---|---|
 | `subagent/build.gradle.kts` | Gradle 子项目配置，依赖 `:agent` + `:capability` |
-| `subagent/src/main/kotlin/io/github/yeyi/agent/subagent/Subagent.kt` | `Subagent` 接口（含默认 `activate`）+ `SubagentTask` + `SubagentContext` |
-| `subagent/src/main/kotlin/io/github/yeyi/agent/subagent/SubagentArguments.kt` | `CapabilityArguments<SubagentTask>`（internal） |
+| `subagent/src/main/kotlin/io/github/yeyi/agent/subagent/Subagent.kt` | `Subagent` 接口（含默认 `activate`） |
+| `subagent/src/main/kotlin/io/github/yeyi/agent/subagent/SubagentArguments.kt` | `SubagentTask` + `CapabilityArguments<SubagentTask>`（internal） |
+| `subagent/src/main/kotlin/io/github/yeyi/agent/subagent/SubagentContext.kt` | `SubagentContext` + `SubagentContextFactory`（internal） |
 | `subagent/src/main/kotlin/io/github/yeyi/agent/subagent/SubagentRegistry.kt` | `CapabilityRegistry` 接口委托实现 |
-| `subagent/src/main/kotlin/io/github/yeyi/agent/subagent/SubagentContextFactory.kt` | `CapabilityContextFactory<SubagentContext>`（internal） |
 | `subagent/src/main/kotlin/io/github/yeyi/agent/subagent/SubagentExtensions.kt` | DSL: `AgentBuilder.subagents(...)` |
+| `subagent/src/main/kotlin/io/github/yeyi/agent/subagent/SimpleSubagent.kt` | 便捷抽象类，提供无参 `load()` |
 | `settings.gradle.kts` | 增加 `include(":subagent")` |
 
 ### 8.2 不动文件
@@ -326,7 +343,7 @@ val reviewer = object : Subagent {
     override val description = "Reviews code for style and correctness"
     override val maxIterations = 5
     override val memory: Memory? = null   // 隔离：每次调用独立 memory
-    override fun loadInstructions() =
+    override fun load() =
         "You are a code reviewer. Given a diff, list issues concisely."
 }
 ```
@@ -340,7 +357,7 @@ val interviewer = object : Subagent {
     override val description = "Conducts a multi-turn interview"
     override val maxIterations = 5
     override val memory: Memory = interviewerMemory  // 共享：跨调用累积 memory
-    override fun loadInstructions() =
+    override fun load() =
         "You are an interviewer. Ask one question at a time."
 }
 ```

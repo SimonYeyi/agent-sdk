@@ -60,9 +60,9 @@ class SubagentTest {
         override val tools: List<Tool>? = null,
         private val instructions: String = "stub instructions",
     ) : Subagent {
-        var loadInstructionsCallCount: Int = 0
-        override fun loadInstructions(): String {
-            loadInstructionsCallCount++
+        var loadCallCount: Int = 0
+        override fun load(context: SubagentContext): String {
+            loadCallCount++
             return instructions
         }
     }
@@ -201,12 +201,12 @@ class SubagentTest {
     }
 
     @Test
-    fun `activate calls loadInstructions exactly once`() = runTest {
+    fun `activate calls load exactly once`() = runTest {
         val llm = StubLlmProvider()
         val sub = StubSubagent("coder")
         val ctx = SubagentContext(stubAgentContext(llm))
         sub.activate(SubagentTask("x"), ctx)
-        assertEquals(1, sub.loadInstructionsCallCount)
+        assertEquals(1, sub.loadCallCount)
     }
 
     @Test

@@ -15,7 +15,7 @@ class WeatherExpertSubagent : SimpleSubagent(
     description = "天气查询专家,获取用户位置并按固定格式返回天气信息",
     tools = listOf(GetLocationTool(), GetWeatherTool()),
 ) {
-    override fun loadInstructions(): String = """
+    override fun load(): String = """
         # 天气查询助手
 
         你是一个专业的天气查询助手。当收到任务时,按以下流程操作:

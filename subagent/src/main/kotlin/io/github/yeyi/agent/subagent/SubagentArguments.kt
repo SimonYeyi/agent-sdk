@@ -2,6 +2,7 @@ package io.github.yeyi.agent.subagent
 
 import io.github.yeyi.agent.capability.CapabilityArguments
 import kotlinx.serialization.KSerializer
+import kotlinx.serialization.Serializable
 
 /**
  * Subagent 的 arguments 定义。
@@ -23,3 +24,8 @@ internal class SubagentArguments : CapabilityArguments<SubagentTask> {
     override val serializer: KSerializer<SubagentTask> = SubagentTask.serializer()
 }
 
+/**
+ * Task 输入类型，由 [SubagentArguments] 提供 schema 和 serializer。
+ */
+@Serializable
+public data class SubagentTask(val task: String)

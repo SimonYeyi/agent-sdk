@@ -9,4 +9,8 @@ public abstract class SimpleSubagent(
     override val maxIterations: Int? = null,
     override val memory: Memory? = null,
     override val tools: List<Tool>? = null
-) : Subagent
+) : Subagent {
+    public abstract fun load(): String
+
+    override fun load(context: SubagentContext): String = load()
+}
