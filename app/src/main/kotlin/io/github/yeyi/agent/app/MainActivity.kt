@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.app
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -36,6 +37,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        startGatewayService()
+
         setContent {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
@@ -46,6 +49,14 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun startGatewayService() {
+        val intent = Intent().apply {
+            setPackage("io.github.yeyi.agent.gateway.app")
+            setAction("io.github.yeyi.agent.gateway.app.START")
+        }
+        startForegroundService(intent)
     }
 }
 
@@ -63,6 +74,7 @@ private fun MainApp(
                 onNavigateToSession = { currentScreen = "session" }
             )
         }
+
         "session" -> {
             SessionScreen(
                 viewModel = sessionViewModel,
