@@ -14,6 +14,7 @@ import io.ktor.websocket.Frame
 import io.ktor.websocket.WebSocketSession
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
+import java.nio.charset.StandardCharsets
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -81,6 +82,10 @@ internal class FeishuWebSocketClient(
 
                 for (frame in session.incoming) {
                     when (frame) {
+                        is Frame.Binary -> {
+                            val text = frame.data.toString(StandardCharsets.UTF_8)
+                            handleMessage(text)
+                        }
                         is Frame.Text -> {
                             handleMessage(frame.readText())
                         }

@@ -101,11 +101,9 @@ class CapabilityAdapterTest {
     // ---------- DefaultCapabilityRegistry ----------
 
     @Test
-    fun `register returns the same registry instance for chaining`() {
+    fun `register adds a capability to the registry`() {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("cap")
-        val cap = EchoCapability("a", "A")
-        val returned = r.register(cap)
-        assertSame(r, returned)
+        r.register(EchoCapability("a", "A"))
         assertEquals(1, r.all().size)
     }
 
@@ -137,14 +135,14 @@ class CapabilityAdapterTest {
         }
     }
 
-    // ---------- CapabilityAdapter.Mode.OneToOne ----------
+    // ---------- enableDelegateAdaptMode = false ----------
 
     @Test
     fun `OneToOne produces one tool per registered capability`() {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("cat")
         r.register(EchoCapability("a", "A"))
         r.register(EchoCapability("b", "B"))
-        val adapter = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), CapabilityAdapter.Mode.OneToOne)
+        val adapter = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), enableDelegateAdaptMode = false)
         assertEquals(2, adapter.producedTools().size)
     }
 
@@ -152,7 +150,7 @@ class CapabilityAdapterTest {
     fun `OneToOne tool name follows capabilityName underscore capability name pattern`() {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("mycat")
         r.register(EchoCapability("alpha", "alpha desc"))
-        val tool = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), CapabilityAdapter.Mode.OneToOne)
+        val tool = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), enableDelegateAdaptMode = false)
             .producedTools().single()
         assertEquals("mycat_alpha", tool.name)
     }
@@ -161,7 +159,7 @@ class CapabilityAdapterTest {
     fun `OneToOne tool description comes from the underlying capability`() {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("cat")
         r.register(EchoCapability("alpha", "this is alpha"))
-        val tool = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), CapabilityAdapter.Mode.OneToOne)
+        val tool = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), enableDelegateAdaptMode = false)
             .producedTools().single()
         assertEquals("this is alpha", tool.description)
     }
@@ -170,7 +168,7 @@ class CapabilityAdapterTest {
     fun `OneToOne tool parametersSchema wraps arguments schema when arguments is provided`() {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("cat")
         r.register(EchoCapability("alpha", "alpha"))
-        val tool = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), CapabilityAdapter.Mode.OneToOne)
+        val tool = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), enableDelegateAdaptMode = false)
             .producedTools().single()
         val schema = assertIs<ToolParameters.JsonSchema>(tool.parametersSchema)
         val parsed = parseSchema(schema)
@@ -182,7 +180,7 @@ class CapabilityAdapterTest {
     fun `OneToOne tool parametersSchema is Empty when arguments is null`() {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("cat")
         r.register(EchoCapability("alpha", "alpha"))
-        val tool = CapabilityAdapter.of(r, EchoContextFactory(), null, CapabilityAdapter.Mode.OneToOne)
+        val tool = CapabilityAdapter.of(r, EchoContextFactory(), null, enableDelegateAdaptMode = false)
             .producedTools().single()
         assertSame(ToolParameters.Empty, tool.parametersSchema)
     }
@@ -193,7 +191,7 @@ class CapabilityAdapterTest {
         val cap = EchoCapability("alpha", "alpha")
         r.register(cap)
         val factory = EchoContextFactory()
-        val tool = CapabilityAdapter.of(r, factory, echoArgs(), CapabilityAdapter.Mode.OneToOne)
+        val tool = CapabilityAdapter.of(r, factory, echoArgs(), enableDelegateAdaptMode = false)
             .producedTools().single()
 
         val result = tool.execute(
@@ -213,7 +211,7 @@ class CapabilityAdapterTest {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("cat")
         val cap = EchoCapability("alpha", "alpha")
         r.register(cap)
-        val tool = CapabilityAdapter.of(r, EchoContextFactory(), null, CapabilityAdapter.Mode.OneToOne)
+        val tool = CapabilityAdapter.of(r, EchoContextFactory(), null, enableDelegateAdaptMode = false)
             .producedTools().single()
 
         val result = tool.execute(
@@ -225,14 +223,14 @@ class CapabilityAdapterTest {
         assertNull(cap.lastArgs)
     }
 
-    // ---------- CapabilityAdapter.Mode.Delegate ----------
+    // ---------- enableDelegateAdaptMode = true ----------
 
     @Test
     fun `Delegate produces a single tool named load capabilityName`() {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("mycat")
         r.register(EchoCapability("a", "A"))
         r.register(EchoCapability("b", "B"))
-        val tool = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), CapabilityAdapter.Mode.Delegate)
+        val tool = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), enableDelegateAdaptMode = true)
             .producedTools().single()
         assertEquals("load_mycat", tool.name)
     }
@@ -242,7 +240,7 @@ class CapabilityAdapterTest {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("cat")
         r.register(EchoCapability("alpha", "alpha desc"))
         r.register(EchoCapability("beta", "beta desc"))
-        val tool = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), CapabilityAdapter.Mode.Delegate)
+        val tool = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), enableDelegateAdaptMode = true)
             .producedTools().single()
         assertTrue(tool.description.contains("alpha"), "description should list alpha")
         assertTrue(tool.description.contains("alpha desc"), "description should list alpha desc")
@@ -254,7 +252,7 @@ class CapabilityAdapterTest {
     fun `Delegate tool parametersSchema has routing key required and nested arguments when provided`() {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("cat")
         r.register(EchoCapability("alpha", "alpha"))
-        val tool = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), CapabilityAdapter.Mode.Delegate)
+        val tool = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), enableDelegateAdaptMode = true)
             .producedTools().single()
         val schema = assertIs<ToolParameters.JsonSchema>(tool.parametersSchema)
         val parsed = parseSchema(schema)
@@ -272,7 +270,7 @@ class CapabilityAdapterTest {
     fun `Delegate tool parametersSchema omits arguments when arguments is null`() {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("cat")
         r.register(EchoCapability("alpha", "alpha"))
-        val tool = CapabilityAdapter.of(r, EchoContextFactory(), null, CapabilityAdapter.Mode.Delegate)
+        val tool = CapabilityAdapter.of(r, EchoContextFactory(), null, enableDelegateAdaptMode = true)
             .producedTools().single()
         val schema = assertIs<ToolParameters.JsonSchema>(tool.parametersSchema)
         val parsed = parseSchema(schema)
@@ -288,9 +286,10 @@ class CapabilityAdapterTest {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("cat")
         val alpha = EchoCapability("alpha", "alpha")
         val beta = EchoCapability("beta", "beta")
-        r.register(alpha).register(beta)
+        r.register(alpha)
+        r.register(beta)
         val factory = EchoContextFactory()
-        val tools: List<Tool> = CapabilityAdapter.of(r, factory, echoArgs(), CapabilityAdapter.Mode.Delegate)
+        val tools: List<Tool> = CapabilityAdapter.of(r, factory, echoArgs(), enableDelegateAdaptMode = true)
             .producedTools()
         val tool = tools.single()
 
@@ -315,7 +314,7 @@ class CapabilityAdapterTest {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("cat")
         val cap = EchoCapability("alpha", "alpha")
         r.register(cap)
-        val tools: List<Tool> = CapabilityAdapter.of(r, EchoContextFactory(), null, CapabilityAdapter.Mode.Delegate)
+        val tools: List<Tool> = CapabilityAdapter.of(r, EchoContextFactory(), null, enableDelegateAdaptMode = true)
             .producedTools()
         val tool = tools.single()
 
@@ -333,7 +332,7 @@ class CapabilityAdapterTest {
     fun `Delegate tool execute returns isError when routing key is missing`() = runTest {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("cat")
         r.register(EchoCapability("alpha", "alpha"))
-        val tools: List<Tool> = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), CapabilityAdapter.Mode.Delegate)
+        val tools: List<Tool> = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), enableDelegateAdaptMode = true)
             .producedTools()
         val tool = tools.single()
 
@@ -350,7 +349,7 @@ class CapabilityAdapterTest {
     fun `Delegate tool execute returns isError when capability name is not found`() = runTest {
         val r = DefaultCapabilityRegistry<EchoContext, Capability<EchoArgs, EchoContext>, EchoArgs>("cat")
         r.register(EchoCapability("alpha", "alpha"))
-        val tools: List<Tool> = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), CapabilityAdapter.Mode.Delegate)
+        val tools: List<Tool> = CapabilityAdapter.of(r, EchoContextFactory(), echoArgs(), enableDelegateAdaptMode = true)
             .producedTools()
         val tool = tools.single()
 

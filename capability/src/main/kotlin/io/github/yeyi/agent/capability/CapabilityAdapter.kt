@@ -13,18 +13,13 @@ public abstract class CapabilityAdapter<Ctx : CapabilityContext, C : Capability<
     public fun installOn(agentBuilder: AgentBuilder): Unit =
         adapt().forEach { agentBuilder.tool(it) }
 
-    public enum class Mode {
-        OneToOne,
-        Delegate,
-    }
-
     public companion object {
         public fun <Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any> of(
             registry: CapabilityRegistry<Ctx, C, T>,
             capabilityContextFactory: CapabilityContextFactory<Ctx>,
             arguments: CapabilityArguments<T>?,
-            mode: Mode = Mode.Delegate
-        ): CapabilityAdapter<Ctx, C, T> = if (mode == Mode.Delegate) {
+            enableDelegateAdaptMode: Boolean = true
+        ): CapabilityAdapter<Ctx, C, T> = if (enableDelegateAdaptMode) {
             DelegationAdapter(registry, capabilityContextFactory, arguments)
         } else {
             OneToOneAdapter(registry, capabilityContextFactory, arguments)
