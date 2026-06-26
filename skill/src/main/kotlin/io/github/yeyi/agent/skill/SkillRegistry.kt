@@ -1,22 +1,12 @@
 package io.github.yeyi.agent.skill
 
-import java.util.concurrent.ConcurrentHashMap
+import io.github.yeyi.agent.capability.CapabilityRegistry
+import io.github.yeyi.agent.capability.DefaultCapabilityRegistry
 
-public class SkillRegistry {
-    private val skills: MutableMap<String, Skill> = ConcurrentHashMap()
-
-    public fun register(skill: Skill): SkillRegistry = apply {
-        require(skill.name !in skills) { "Duplicate skill: ${skill.name}" }
-        skills[skill.name] = skill
-    }
-
-    public fun register(skills: Iterable<Skill>): SkillRegistry = apply {
-        skills.forEach { register(it) }
-    }
-
-    internal fun load(name: String, context: SkillContext): String? = skills[name]?.load(context)
-
-    internal fun buildDescription(): String = skills.values.joinToString("\n") {
-        "- ${it.name}: ${it.description}"
-    }
-}
+/**
+ * Skill 的注册中心，复用 [DefaultCapabilityRegistry] 的逻辑。
+ */
+public class SkillRegistry :
+    CapabilityRegistry<SkillContext, Skill, Unit> by DefaultCapabilityRegistry(
+        capabilityName = Skill.CAPABILITY_NAME
+    )
