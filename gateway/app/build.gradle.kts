@@ -49,6 +49,15 @@ android {
         compose = true
         buildConfig = true
     }
+
+    packaging {
+        resources {
+            excludes += setOf(
+                "META-INF/DEPENDENCIES",
+                "META-INF/DEPENDENCIES.txt",
+            )
+        }
+    }
 }
 
 dependencies {
