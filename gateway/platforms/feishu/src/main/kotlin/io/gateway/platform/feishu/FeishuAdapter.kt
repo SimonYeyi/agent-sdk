@@ -333,12 +333,12 @@ public class FeishuAdapter(
                     return@launch
                 }
 
+                messageHandler?.invoke(message)
+
                 // 发送 ACK 表情
                 if (config.sendAckReaction) {
                     sendAckReaction(message.id.value)
                 }
-
-                messageHandler?.invoke(message)
             } catch (e: Exception) {
                 log.warn("Error handling message event", e)
             }
@@ -637,14 +637,14 @@ public class FeishuAdapter(
      */
     private fun containsMarkdown(content: String): Boolean {
         val markdownPatterns = listOf(
-            Regex("^#{1,6}\\s"),
-            Regex("^\\s*[-*]\\s"),
+            Regex("^#{1,6}\\s", RegexOption.MULTILINE),
+            Regex("^\\s*[-*]\\s", RegexOption.MULTILINE),
             Regex("```"),
             Regex("`[^`]+`"),
             Regex("\\*\\*[^*]+"),
             Regex("~~[^~]+"),
             Regex("\\[[^\\]]+\\]\\([^)]+\\)"),
-            Regex("^>\\s")
+            Regex("^>\\s", RegexOption.MULTILINE)
         )
         return markdownPatterns.any { it.containsMatchIn(content) }
     }
@@ -653,17 +653,43 @@ public class FeishuAdapter(
      * 构建 Markdown 富文本内容
      */
     private fun buildMarkdownPostContent(content: String): String {
-        val rows = mutableListOf<Map<String, String>>()
+        // 飞书 post 格式: content 是二维数组，每行是一个对象数组
+        val rows = mutableListOf<List<Map<String, String>>>()
         val lines = content.split("\n")
 
         for (line in lines) {
-            rows.add(mapOf("tag" to "md", "text" to line))
+            // 检测行内是否包含 Markdown 格式
+            val tag = if (containsInlineMarkdown(line)) "md" else "text"
+            rows.add(listOf(mapOf("tag" to tag, "text" to line)))
         }
 
         val outer = mutableMapOf<String, Any>()
-        outer["zh_cn"] = mapOf("content" to rows)
+        outer["zh_cn"] = mapOf("title" to "", "content" to rows)
 
         return gson.toJson(outer)
+    }
+
+    /**
+     * 检测行内是否包含 Markdown 格式（用于决定使用 md 还是 text tag）
+     */
+    private fun containsInlineMarkdown(line: String): Boolean {
+        // 检测行首列表标记（需要用 md tag 让飞书渲染为列表）
+        val listPatterns = listOf(
+            Regex("^\\s*[-*+]\\s"),   // 无序列表: - * +
+            Regex("^\\s*\\d+\\.\\s"),  // 有序列表: 1. 2.
+            Regex("^\\s*#+\\s"),       // 标题: # ## ###
+        )
+        if (listPatterns.any { it.containsMatchIn(line) }) return true
+
+        val inlinePatterns = listOf(
+            Regex("```"),              // 代码块
+            Regex("`[^`]+`"),          // 行内代码
+            Regex("\\*\\*[^*]+"),      // 粗体
+            Regex("\\*[^*]+\\*"),      // 斜体
+            Regex("~~[^~]+"),          // 删除线
+            Regex("\\[.+?]\\(.+?\\)")  // 链接
+        )
+        return inlinePatterns.any { it.containsMatchIn(line) }
     }
 
     /**
