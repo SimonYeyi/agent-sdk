@@ -9,6 +9,7 @@ import io.gateway.model.PlatformError
 import io.gateway.model.PlatformId
 import io.gateway.model.SendResult
 import io.gateway.util.MessageDeduplicator
+import io.gateway.util.gatewayLog
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.websocket.WebSockets
@@ -18,14 +19,13 @@ import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.serialization.kotlinx.json.json
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -33,6 +33,8 @@ public class FeishuAdapter(
     private val config: FeishuConfig,
     private val coroutineScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) : PlatformAdapter {
+
+    private val log = gatewayLog("FeishuAdapter")
 
     override val platformId: PlatformId = PlatformId.FEISHU
     override val name: String = "Feishu"
@@ -47,6 +49,7 @@ public class FeishuAdapter(
     private var errorHandler: ((PlatformError) -> Unit)? = null
 
     private val httpClient = HttpClient(io.ktor.client.engine.okhttp.OkHttp) {
+        expectSuccess = true
         install(WebSockets)
         install(ContentNegotiation) {
             json(Json {
@@ -109,10 +112,15 @@ public class FeishuAdapter(
             }
         )
 
-        refreshToken() ?: return ConnectResult.Failure(
-            "Failed to get access token",
-            retryable = true
-        )
+        try {
+            refreshToken()
+        } catch (e: Exception) {
+            if (e is CancellationException) throw e
+            return ConnectResult.Failure(
+                "Failed to get access token",
+                retryable = true
+            )
+        }
 
         resolveBotIdentity()
         webSocketClient.connect()
@@ -137,7 +145,11 @@ public class FeishuAdapter(
         }
     }
 
-    override suspend fun editMessage(chatId: String, messageId: String, newText: String): SendResult {
+    override suspend fun editMessage(
+        chatId: String,
+        messageId: String,
+        newText: String
+    ): SendResult {
         return messageSender.editMessage(chatId, messageId, newText)
     }
 
@@ -146,44 +158,45 @@ public class FeishuAdapter(
     }
 
     public suspend fun addReaction(messageId: String, emoji: String): Boolean {
-        return runCatching {
+        return try {
             messageSender.addReaction(messageId, emoji)
-        }.getOrElse { false }
+        } catch (e: Exception) {
+            log.warn("Failed to add reaction $emoji to message $messageId", e)
+            false
+        }
     }
 
-    private suspend fun refreshToken(): String? {
+    private suspend fun refreshToken(): String {
         val now = System.currentTimeMillis()
         if (accessToken != null && now < tokenExpiresAt - 60000) {
-            return accessToken
+            return accessToken!!
         }
 
-        return runCatching {
-            val response = httpClient.post("${config.domain}/open-apis/auth/v3/tenant_access_token/internal") {
+        val response =
+            httpClient.post("${config.domain}/open-apis/auth/v3/tenant_access_token/internal") {
                 header("Content-Type", "application/json")
                 setBody(buildJsonBody {
                     put("app_id", kotlinx.serialization.json.JsonPrimitive(config.appId))
-                    put("app_secret", kotlinx.serialization.json.JsonPrimitive(config.appSecret))
+                    put(
+                        "app_secret",
+                        kotlinx.serialization.json.JsonPrimitive(config.appSecret)
+                    )
                 })
             }
 
-            val responseBody = response.bodyAsText()
-            val responseJson: JsonObject = json.decodeFromString(responseBody)
+        val responseBody = response.bodyAsText()
+        val responseJson: JsonObject = json.decodeFromString(responseBody)
 
-            val code = responseJson["code"]?.jsonPrimitive?.content?.toIntOrNull()
-            if (code == 0) {
-                accessToken = responseJson["tenant_access_token"]?.jsonPrimitive?.content
-                val expire = responseJson["expire"]?.jsonPrimitive?.content?.toIntOrNull() ?: 7200
-                tokenExpiresAt = now + expire * 1000L
-                accessToken
-            } else {
-                null
-            }
-        }.getOrNull()
+        val code = responseJson["code"]?.jsonPrimitive?.content?.toIntOrNull()
+        accessToken = responseJson["tenant_access_token"]?.jsonPrimitive?.content
+        val expire = responseJson["expire"]?.jsonPrimitive?.content?.toIntOrNull() ?: 7200
+        tokenExpiresAt = now + expire * 1000L
+        return accessToken ?: throw IllegalStateException("Failed to refresh token, code=$code")
     }
 
     private suspend fun resolveBotIdentity() {
         val token = accessToken ?: return
-        runCatching {
+        try {
             val response = httpClient.get("${config.domain}/open-apis/bot/v3/info") {
                 header("Authorization", "Bearer $token")
             }
@@ -194,7 +207,11 @@ public class FeishuAdapter(
             if (code == 0) {
                 val bot = responseJson["bot"]?.jsonObject
                 botOpenId = bot?.get("open_id")?.jsonPrimitive?.content
+            } else {
+                log.warn("Failed to resolve bot identity, code=$code")
             }
+        } catch (e: Exception) {
+            log.warn("Exception while resolving bot identity", e)
         }
     }
 
@@ -216,8 +233,10 @@ public class FeishuAdapter(
 
             if (config.sendAckReaction) {
                 launch {
-                    runCatching {
+                    try {
                         messageSender.addReaction(message.id.value, config.ackEmoji)
+                    } catch (e: Exception) {
+                        log.debug("Failed to send ACK reaction for message ${message.id.value}")
                     }
                 }
             }
@@ -227,11 +246,14 @@ public class FeishuAdapter(
     }
 
     public fun downloadFile(fileKey: String): ByteArray? {
-        return runCatching {
+        return try {
             kotlinx.coroutines.runBlocking {
                 messageSender.downloadFile(fileKey)
             }
-        }.getOrNull()
+        } catch (e: Exception) {
+            log.warn("Failed to download file $fileKey", e)
+            null
+        }
     }
 
     public fun getBotOpenId(): String? = botOpenId

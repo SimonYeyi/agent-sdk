@@ -9,6 +9,7 @@ import io.gateway.model.PlatformError
 import io.gateway.model.PlatformId
 import io.gateway.model.SendResult
 import io.gateway.util.MessageDeduplicator
+import io.gateway.util.gatewayLog
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -23,6 +24,8 @@ public class WeixinAdapter(
     private val config: WeixinConfig,
     private val coroutineScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) : PlatformAdapter {
+
+    private val log = gatewayLog("WeixinAdapter")
 
     override val platformId: PlatformId = PlatformId.WEIXIN
     override val name: String = "Weixin"
@@ -108,7 +111,11 @@ public class WeixinAdapter(
     }
 
     override suspend fun sendTypingIndicator(chatId: String) {
-        runCatching { messageSender.sendTypingIndicator(chatId) }
+        try {
+            messageSender.sendTypingIndicator(chatId)
+        } catch (e: Exception) {
+            log.warn("Failed to send typing indicator for chat $chatId", e)
+        }
     }
 
     override suspend fun editMessage(chatId: String, messageId: String, newText: String): SendResult {

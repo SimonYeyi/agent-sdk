@@ -3,6 +3,7 @@ package io.gateway.engine
 import io.gateway.api.GatewaySessionManager
 import io.gateway.model.MessageSource
 import io.gateway.model.GatewaySession
+import io.gateway.util.gatewayLog
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,6 +17,8 @@ import java.util.concurrent.locks.ReentrantLock
 import kotlin.concurrent.withLock
 
 internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager {
+
+    private val log = gatewayLog("FileSessionManager")
 
     private val sessionsDir: File = File(baseDir, "gateway/sessions").apply { mkdirs() }
 
@@ -48,13 +51,15 @@ internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager 
             if (dir.isDirectory) {
                 val sessionFile = File(dir, "session.jsonl")
                 if (sessionFile.exists()) {
-                    runCatching {
+                    try {
                         val lastLine = sessionFile.readLines().lastOrNull()
                         if (!lastLine.isNullOrBlank()) {
                             val dto = json.decodeFromString<GatewaySessionDto>(lastLine)
                             val session = dto.toGatewaySession()
                             sessionCache[session.key] = session
                         }
+                    } catch (e: Exception) {
+                        log.warn("Failed to load session from ${sessionFile.absolutePath}", e)
                     }
                 }
             }

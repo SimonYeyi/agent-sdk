@@ -9,6 +9,7 @@ import io.gateway.model.PlatformError
 import io.gateway.model.PlatformId
 import io.gateway.model.SendResult
 import io.gateway.util.MessageDeduplicator
+import io.gateway.util.gatewayLog
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
@@ -23,6 +24,8 @@ public class TelegramAdapter(
     private val config: TelegramConfig,
     private val coroutineScope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 ) : PlatformAdapter {
+
+    private val log = gatewayLog("TelegramAdapter")
 
     override val platformId: PlatformId = PlatformId.TELEGRAM
     override val name: String = "Telegram"
@@ -109,7 +112,11 @@ public class TelegramAdapter(
 
     override suspend fun sendTypingIndicator(chatId: String) {
         if (config.sendTypingIndicator) {
-            runCatching { messageSender.sendTypingIndicator(chatId) }
+            try {
+                messageSender.sendTypingIndicator(chatId)
+            } catch (e: Exception) {
+                log.warn("Failed to send typing indicator for chat $chatId", e)
+            }
         }
     }
 

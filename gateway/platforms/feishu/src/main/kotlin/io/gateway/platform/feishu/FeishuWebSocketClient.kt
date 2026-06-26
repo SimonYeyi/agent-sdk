@@ -3,6 +3,7 @@ package io.gateway.platform.feishu
 import io.gateway.model.ConnectionState
 import io.gateway.model.PlatformError
 import io.gateway.model.PlatformId
+import io.gateway.util.gatewayLog
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.webSocketSession
 import io.ktor.client.request.get
@@ -17,19 +18,23 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 internal class FeishuWebSocketClient(
     private val config: FeishuConfig,
     private val httpClient: HttpClient,
-    private val tokenProvider: suspend () -> String?,
+    private val tokenProvider: suspend () -> String,
     private val json: Json,
     private val messageListener: (String) -> Unit,
     private val stateListener: (ConnectionState) -> Unit,
     private val errorListener: (PlatformError) -> Unit
 ) {
+    private val log = gatewayLog("FeishuWebSocketClient")
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var webSocketSession: WebSocketSession? = null
     private var connectJob: Job? = null
@@ -60,31 +65,10 @@ internal class FeishuWebSocketClient(
         while (running) {
             stateListener(ConnectionState.CONNECTING)
 
-            val token = tokenProvider()
-            if (token == null) {
-                errorListener(
-                    PlatformError(
-                        platform = PlatformId.FEISHU,
-                        error = "Failed to get access token"
-                    )
-                )
-                scheduleReconnect()
-                continue
-            }
-
-            val wsUrl = getWebSocketUrl(token)
-            if (wsUrl == null) {
-                errorListener(
-                    PlatformError(
-                        platform = PlatformId.FEISHU,
-                        error = "Failed to get WebSocket URL"
-                    )
-                )
-                scheduleReconnect()
-                continue
-            }
-
             try {
+                val token = tokenProvider()
+                val wsUrl = getWebSocketUrl(token)
+
                 val session = httpClient.webSocketSession(wsUrl) {
                     header("Authorization", "Bearer $token")
                 }
@@ -97,6 +81,7 @@ internal class FeishuWebSocketClient(
                         is Frame.Text -> {
                             handleMessage(frame.readText())
                         }
+
                         is Frame.Close -> {
                             webSocketSession = null
                             if (running) {
@@ -104,12 +89,15 @@ internal class FeishuWebSocketClient(
                             }
                             break
                         }
-                        else -> { /* ignore */ }
+
+                        else -> { /* ignore */
+                        }
                     }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
+                log.error("WebSocket error: ${e.message}", e)
                 webSocketSession = null
                 errorListener(
                     PlatformError(
@@ -135,43 +123,32 @@ internal class FeishuWebSocketClient(
         delay(delayMs)
     }
 
-    private suspend fun getWebSocketUrl(token: String): String? {
-        return runCatching {
-            // 飞书 WebSocket 网关地址: GET /open-apis/gateway/v1/connect
-            val response = httpClient.get("${config.domain}/open-apis/gateway/v1/connect") {
-                header("Authorization", "Bearer $token")
-            }
+    private suspend fun getWebSocketUrl(token: String): String {
+        val response = httpClient.get("${config.domain}/open-apis/gateway/v1/connect") {
+            header("Authorization", "Bearer $token")
+        }
 
-            val body = response.bodyAsText()
-            val jsonMap = json.decodeFromString<Map<String, Any>>(body)
+        val body = response.bodyAsText()
+        val responseJson: JsonObject = json.decodeFromString(body)
 
-            val code = (jsonMap["code"] as? Number)?.toInt() ?: -1
-            if (code == 0) {
-                (jsonMap["data"] as? Map<String, Any>)?.get("ws_url") as? String
-            } else {
-                null
-            }
-        }.getOrNull()
+        val code = responseJson["code"]?.jsonPrimitive?.content?.toIntOrNull()
+        val wsUrl = responseJson["data"]?.jsonObject["ws_url"]?.jsonPrimitive?.content
+        return wsUrl ?: throw IllegalStateException("Failed to get WebSocket URL, code=$code")
     }
 
     private suspend fun handleMessage(text: String) {
-        runCatching {
+        try {
             val jsonMap = json.decodeFromString<Map<String, Any>>(text)
             val type = jsonMap["type"] as? String
 
             when (type) {
                 "event" -> {
-                    // 飞书 WebSocket 消息格式:
-                    // { type: "event", event: { header: {...}, event: {...} } }
-                    // 其中 inner event 包含 sender, message 等
                     val outerEvent = jsonMap["event"] as? Map<String, Any> ?: return
                     val header = outerEvent["header"] as? Map<String, Any>
                     val innerEvent = outerEvent["event"] as? Map<String, Any> ?: outerEvent
 
-                    // 检查事件类型
                     val eventType = header?.get("event_type") as? String
                     if (eventType == "im.message.receive_v1") {
-                        // 构建 Parser 期望的格式: { header: {...}, event: {...} }
                         val fullMessage = mapOf(
                             "header" to header,
                             "event" to innerEvent
@@ -179,27 +156,29 @@ internal class FeishuWebSocketClient(
                         messageListener(json.encodeToString(fullMessage))
                     }
                 }
+
                 "ping" -> {
-                    // 回复心跳
                     webSocketSession?.send(Frame.Text("{\"type\":\"pong\"}"))
                 }
+
                 "pong" -> {
-                    // 心跳响应
                 }
+
                 "connect" -> {
-                    // 连接建立确认
                 }
+
                 "disconnect" -> {
-                    // 服务端断开连接
                     webSocketSession = null
                     if (running) {
                         stateListener(ConnectionState.RECONNECTING)
                     }
                 }
+
                 else -> {
-                    // 未知消息类型，忽略
                 }
             }
+        } catch (e: Exception) {
+            log.warn("Failed to handle WebSocket message", e)
         }
     }
 

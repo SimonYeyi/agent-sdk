@@ -1,6 +1,7 @@
 package io.gateway.platform.feishu
 
 import io.gateway.model.*
+import io.gateway.util.gatewayLog
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -12,11 +13,16 @@ internal class FeishuMessageParser(
     private val config: FeishuConfig,
     private val json: Json
 ) {
+    private val log = gatewayLog("FeishuMessageParser")
+
     fun parseMessageEvent(jsonString: String): IncomingMessage? {
-        return runCatching {
+        return try {
             val event = json.decodeFromString<Map<String, Any>>(jsonString)
             parseMessageEvent(event)
-        }.getOrNull()
+        } catch (e: Exception) {
+            log.warn("Failed to parse message event", e)
+            null
+        }
     }
 
     private fun parseMessageEvent(json: Map<String, Any>): IncomingMessage? {
@@ -69,7 +75,7 @@ internal class FeishuMessageParser(
     }
 
     private fun parseContent(messageType: String, contentStr: String): MessageContent {
-        return runCatching {
+        return try {
             val contentJson = json.decodeFromString<Map<String, Any>>(contentStr)
             when (messageType) {
                 "text" -> {
@@ -113,7 +119,8 @@ internal class FeishuMessageParser(
                     MessageContent.Unknown(rawContent = contentStr)
                 }
             }
-        }.getOrElse {
+        } catch (e: Exception) {
+            log.debug("Failed to parse content for message type $messageType", e)
             MessageContent.Unknown(rawContent = contentStr)
         }
     }

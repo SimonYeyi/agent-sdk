@@ -30,12 +30,15 @@ import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import io.gateway.util.gatewayLog
 import kotlinx.datetime.Clock
 import java.util.concurrent.ConcurrentHashMap
 
 internal class DefaultGatewayEngine(
     override val config: GatewayConfig = GatewayConfig()
 ) : GatewayEngine {
+
+    private val log = gatewayLog("DefaultGatewayEngine")
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
@@ -296,8 +299,10 @@ internal class DefaultGatewayEngine(
         )
 
         if (config.enableTypingIndicator) {
-            runCatching {
+            try {
                 adapters[message.source.platform]?.sendTypingIndicator(message.source.chatId)
+            } catch (e: Exception) {
+                log.warn("Failed to send typing indicator for chat ${message.source.chatId}", e)
             }
         }
 
