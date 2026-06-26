@@ -64,7 +64,8 @@ private class DefaultGatewayLogDelegate : GatewayLogDelegate {
     }
 }
 
-public fun gatewayLog(tag: String): GatewayLogger = GatewayLogger(tag)
+public fun gatewayLog(tag: String? = null): GatewayLogger =
+    GatewayLogger("gateway${tag?.let { ":$it" } ?: ""}")
 
 public class GatewayLogger(private val tag: String) {
     public fun debug(msg: String) {

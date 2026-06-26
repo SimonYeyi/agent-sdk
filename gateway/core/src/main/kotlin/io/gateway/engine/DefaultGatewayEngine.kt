@@ -84,6 +84,7 @@ internal class DefaultGatewayEngine(
         deliveryRouter.registerAdapter(adapter)
 
         adapter.onMessageReceived { message ->
+            log.info("Received $message")
             scope.launch {
                 handleIncomingMessage(message)
             }

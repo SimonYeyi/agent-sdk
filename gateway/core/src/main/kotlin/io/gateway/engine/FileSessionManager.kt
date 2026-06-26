@@ -27,7 +27,7 @@ internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager 
     private val allGatewaySessionsFlow = MutableStateFlow<List<GatewaySession>>(emptyList())
 
     private val json = Json {
-        prettyPrint = true
+        explicitNulls = false
         encodeDefaults = true
     }
 

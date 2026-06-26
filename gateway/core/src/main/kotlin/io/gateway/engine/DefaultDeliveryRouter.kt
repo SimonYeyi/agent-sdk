@@ -6,12 +6,15 @@ import io.gateway.model.OutgoingContent
 import io.gateway.model.OutgoingMessage
 import io.gateway.model.PlatformId
 import io.gateway.model.SendResult
+import io.gateway.util.gatewayLog
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import java.util.concurrent.ConcurrentHashMap
 
 internal class DefaultDeliveryRouter : DeliveryRouter {
+
+    private val log = gatewayLog("DefaultDeliveryRouter")
 
     private val adapters = ConcurrentHashMap<PlatformId, PlatformAdapter>()
 
@@ -61,7 +64,10 @@ internal class DefaultDeliveryRouter : DeliveryRouter {
         return deliverMessage(message, platform)
     }
 
-    override suspend fun deliverMessage(message: OutgoingMessage, platform: PlatformId): SendResult {
+    override suspend fun deliverMessage(
+        message: OutgoingMessage,
+        platform: PlatformId
+    ): SendResult {
         val adapter = adapters[platform]
             ?: return SendResult.Failure(
                 error = "No adapter found for platform: ${platform.value}",
@@ -69,6 +75,13 @@ internal class DefaultDeliveryRouter : DeliveryRouter {
             )
 
         val result = adapter.sendMessage(message)
+
+        if (result is SendResult.Failure) {
+            log.warn(result.error + "\n $message")
+        } else {
+            log.info("Sent $message")
+        }
+
         _deliveryResults.emit(platform to result)
         return result
     }
