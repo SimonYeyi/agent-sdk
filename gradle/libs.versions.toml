@@ -2,6 +2,7 @@
 kotlin = "2.2.0"
 agp = "8.9.1"
 coroutines = "1.10.1"
+oapi-sdk = "2.8.3"
 serialization = "1.9.0"
 datetime = "0.6.1"
 ktor = "3.0.3"
@@ -40,6 +41,7 @@ lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-com
 junit = { module = "junit:junit", version.ref = "junit" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin-test" }
 kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin-test" }
+oapi-sdk = { module = "com.larksuite.oapi:oapi-sdk", version.ref = "oapi-sdk" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

@@ -1,6 +1,5 @@
 plugins {
     alias(libs.plugins.kotlin.jvm)
-    alias(libs.plugins.kotlin.serialization)
 }
 
 group = "io.github.yeyi.agent"
@@ -14,10 +13,11 @@ kotlin {
 dependencies {
 
     api(project(":gateway:core"))
+    implementation(libs.oapi.sdk)
+    implementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.kotlinx.coroutines.test)
-    testImplementation(libs.ktor.client.mock)
     testImplementation(libs.junit)
 }
 
