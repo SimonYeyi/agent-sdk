@@ -16,6 +16,7 @@ import io.gateway.model.MessageContent
 import io.gateway.model.OutgoingContent
 import io.gateway.model.PlatformId
 import io.gateway.model.SendResult
+import io.ktor.utils.io.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -42,7 +43,8 @@ internal class DefaultGatewayEngine(
     private lateinit var agentRunner: AgentRunner
     private var hookPipeline: HookPipeline = DefaultHookPipeline()
     private var deliveryRouter: DeliveryRouter = DefaultDeliveryRouter()
-    private var concurrencyController: ConcurrencyController = DefaultConcurrencyController(config.maxConcurrentSessions)
+    private var concurrencyController: ConcurrencyController =
+        DefaultConcurrencyController(config.maxConcurrentSessions)
 
     private val adapters = ConcurrentHashMap<PlatformId, PlatformAdapter>()
     private val processingJobs = ConcurrentHashMap<String, Job>()
@@ -248,7 +250,7 @@ internal class DefaultGatewayEngine(
         val pending = pendingMessages[sessionKey] ?: return
         if (pending.isEmpty()) return
 
-        val message = pending.removeFirst()
+        val message = pending.removeAt(0)
         if (pending.isEmpty()) {
             pendingMessages.remove(sessionKey)
         }
@@ -309,7 +311,13 @@ internal class DefaultGatewayEngine(
             )
         )
 
-        val agentResult = agentRunner.process(message = message, session = session)
+        val agentResult = try {
+            agentRunner.process(message = message, session = session)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            AgentRunner.Result.Failure(error = e.message ?: "Unknown error", exception = e)
+        }
 
         hookPipeline.run(
             HookPipeline.Event.AFTER_AGENT,

@@ -6,7 +6,6 @@ import io.gateway.model.GatewaySession
 import io.gateway.model.IncomingMessage
 import io.gateway.model.MessageContent
 import io.github.yeyi.agent.awaitResult
-import io.ktor.utils.io.CancellationException
 import kotlinx.coroutines.flow.Flow
 
 class DefaultAgentRunner(
@@ -21,15 +20,9 @@ class DefaultAgentRunner(
         val sessionId = "${session.chatId}:${session.userId}"
         val sessionName = (message.content as? MessageContent.Text)?.text ?: sessionId
 
-        return try {
-            val agent = createAgent(accountId, sessionId, sessionName)
-            val agentResult = agent.run(message.content.toString()).awaitResult()
-            AgentRunner.Result.Success(MessageContent.Text(agentResult.message.content!!))
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            AgentRunner.Result.Failure(error = e.message ?: "Unknown error", exception = e)
-        }
+        val agent = createAgent(accountId, sessionId, sessionName)
+        val agentResult = agent.run(message.content.toString()).awaitResult()
+        return AgentRunner.Result.Success(MessageContent.Text(agentResult.message.content!!))
     }
 
     override fun observeStream(sessionKey: String): Flow<String>? = null

@@ -5,7 +5,6 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Intent
-import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import io.github.yeyi.agent.agent
@@ -19,7 +18,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
-import java.io.File
 
 class GatewayService : Service() {
 
@@ -62,23 +60,16 @@ class GatewayService : Service() {
         val feishuAdapter = FeishuAdapter(feishuConfig, serviceScope)
 
         val createAgent: suspend (String, String, String) -> io.github.yeyi.agent.Agent = { accountId, sessionId, sessionName ->
-            val session = try {
-                sessionManager.get(accountId, sessionId)
-            } catch (e: NoSuchElementException) {
-                sessionManager.create(
-                    accountId = accountId,
-                    sessionName = sessionName,
-                    sessionId = sessionId,
-                )
-            }
+            val session = sessionManager.getOrCreate(accountId, sessionName, sessionId)
             agent {
-                memory(session.memory, maxRounds = 20)
+                memory(session.memory)
                 llmProvider(llmProvider)
             }
         }
 
         val agentRunner = DefaultAgentRunner(createAgent)
         val builtEngine = GatewayEngineBuilder()
+            .withFileSessionStorage(filesDir)
             .withAgentRunner(agentRunner)
             .build()
 
