@@ -103,7 +103,8 @@ public class FeishuAdapter(
                         handleMessageEvent(event)
                     }
                 })
-                .onP2MessageReactionCreatedV1(object : ImService.P2MessageReactionCreatedV1Handler() {
+                .onP2MessageReactionCreatedV1(object :
+                    ImService.P2MessageReactionCreatedV1Handler() {
                     @Throws(Exception::class)
                     override fun handle(event: P2MessageReactionCreatedV1) {
                         handleReactionEvent(event)
@@ -159,6 +160,7 @@ public class FeishuAdapter(
                     is SendResult.Success -> {
                         lastMessageId = result.messageId
                     }
+
                     is SendResult.Failure -> {
                         // 重试一次
                         if (message.replyToMessageId != null) {
@@ -197,7 +199,11 @@ public class FeishuAdapter(
         }
     }
 
-    private suspend fun sendSingleMessage(chatId: String, content: String, replyTo: String?): SendResult {
+    private suspend fun sendSingleMessage(
+        chatId: String,
+        content: String,
+        replyTo: String?
+    ): SendResult {
         return try {
             // 检测是否包含 Markdown 格式
             val isMarkdown = containsMarkdown(content)
@@ -321,6 +327,12 @@ public class FeishuAdapter(
                     return@launch
                 }
 
+                // Allowlist 检查 - 聊天白名单
+                if (config.allowedChats.isNotEmpty() && message.source.chatId !in config.allowedChats) {
+                    log.info("Chat not in allowlist (message rejected): ${message.source.chatId}")
+                    return@launch
+                }
+
                 // 发送 ACK 表情
                 if (config.sendAckReaction) {
                     sendAckReaction(message.id.value)
@@ -422,7 +434,10 @@ public class FeishuAdapter(
             val mentions = parseMentions(contentStr)
 
             // 从 sender 获取用户信息 - 使用反射获取 sender_id
-            val userId = extractSenderId(sdkMessage)
+            val userId = event.event?.sender?.senderId?.openId
+                ?: event.event?.sender?.senderId?.userId
+                ?: event.event?.sender?.senderId?.unionId
+                ?: "unknown"
 
             val source = MessageSource(
                 platform = PlatformId.FEISHU,
@@ -481,27 +496,33 @@ public class FeishuAdapter(
                     val text = contentJson["text"] as? String ?: ""
                     MessageContent.Text(text)
                 }
+
                 "image" -> {
                     val imageKey = contentJson["image_key"] as? String ?: ""
                     MessageContent.Image(urls = listOf(imageKey))
                 }
+
                 "audio" -> {
                     val fileKey = contentJson["file_key"] as? String ?: ""
                     MessageContent.Audio(url = fileKey)
                 }
+
                 "video" -> {
                     val fileKey = contentJson["file_key"] as? String ?: ""
                     MessageContent.Video(url = fileKey)
                 }
+
                 "file" -> {
                     val fileKey = contentJson["file_key"] as? String ?: ""
                     val fileName = contentJson["file_name"] as? String ?: ""
                     MessageContent.Document(url = fileKey, fileName = fileName)
                 }
+
                 "post" -> {
                     val text = extractPostText(contentJson)
                     MessageContent.Text(text)
                 }
+
                 "interactive" -> {
                     val text = extractCardText(contentStr)
                     MessageContent.SystemEvent(
@@ -509,14 +530,17 @@ public class FeishuAdapter(
                         data = mapOf("raw" to contentStr, "text" to text)
                     )
                 }
+
                 "sticker" -> {
                     val fileKey = contentJson["file_key"] as? String ?: ""
                     MessageContent.Image(urls = listOf(fileKey))
                 }
+
                 "media" -> {
                     val fileKey = contentJson["file_key"] as? String ?: ""
                     MessageContent.Video(url = fileKey)
                 }
+
                 else -> MessageContent.Unknown(rawContent = contentStr)
             }
         } catch (e: Exception) {
@@ -568,6 +592,7 @@ public class FeishuAdapter(
                         val text = elem["text"] as? Map<String, Any>
                         lines.add(text?.get("content") as? String ?: "")
                     }
+
                     "action" -> {
                         val actions = elem["actions"] as? List<Map<String, Any>>
                         actions?.forEach { action ->
@@ -592,7 +617,8 @@ public class FeishuAdapter(
             @Suppress("UNCHECKED_CAST")
             val contentJson = gson.fromJson(contentStr, Map::class.java) as? Map<String, Any>
                 ?: return emptyList()
-            val mentionsArray = contentJson["mentions"] as? List<Map<String, Any>> ?: return emptyList()
+            val mentionsArray =
+                contentJson["mentions"] as? List<Map<String, Any>> ?: return emptyList()
             mentionsArray.mapNotNull { mention ->
                 val id = mention["id"] as? String
                 Mention(
