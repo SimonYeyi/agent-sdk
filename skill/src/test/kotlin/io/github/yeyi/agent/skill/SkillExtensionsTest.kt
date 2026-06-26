@@ -58,7 +58,7 @@ class SkillExtensionsTest {
         val b = AgentBuilder().apply { llmProvider(llm) }
         val registry = SkillRegistry()
         registry.register(FixedSkill(name = "weather", description = "d", content = "B"))
-        b.skills(registry, CapabilityAdapter.Mode.OneToOne)
+        b.skills(registry, enableDelegateAdaptMode = false)
         b.build().run("hi").toList()
         val req = llm.recorded.single()
         val toolNames = req.tools.map { it.name }
@@ -71,7 +71,7 @@ class SkillExtensionsTest {
         val b = AgentBuilder().apply { llmProvider(llm) }
         val registry = SkillRegistry()
         registry.register(FixedSkill(name = "weather", description = "d", content = "use get_weather"))
-        b.skills(registry, CapabilityAdapter.Mode.OneToOne)
+        b.skills(registry, enableDelegateAdaptMode = false)
         b.build().run("hi").toList()
         val toolNames = llm.recorded.single().tools.map { it.name }
         assertEquals(listOf("skill_weather"), toolNames)
@@ -114,7 +114,7 @@ class SkillExtensionsTest {
         val b = AgentBuilder().apply { llmProvider(llm) }
         val registry = SkillRegistry()
         registry.register(FixedSkill(name = "weather", description = "d", content = "## Weather\nStep 1"))
-        b.skills(registry, CapabilityAdapter.Mode.OneToOne)
+        b.skills(registry, enableDelegateAdaptMode = false)
         b.build().run("hi").toList()
         val toolDef = llm.recorded.single().tools.single { it.name == "skill_weather" }
         assertEquals("d", toolDef.description)

@@ -8,12 +8,12 @@ import io.github.yeyi.agent.capability.CapabilityAdapter
  */
 public fun AgentBuilder.skills(
     registry: SkillRegistry,
-    mode: CapabilityAdapter.Mode = CapabilityAdapter.Mode.Delegate
+    enableDelegateAdaptMode: Boolean = true
 ) {
     CapabilityAdapter.of(
         registry,
         SkillContextFactory(),
         null,
-        mode
+        enableDelegateAdaptMode
     ).installOn(this)
 }
