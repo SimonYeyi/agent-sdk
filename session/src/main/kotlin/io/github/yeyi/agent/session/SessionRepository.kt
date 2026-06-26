@@ -7,7 +7,7 @@ import java.util.UUID
 
 public class SessionRepository(baseDir: File) {
 
-    private val sessionsDir = File(baseDir, "sessions")
+    private val sessionsDir = File(baseDir, "agent/sessions")
 
     private val json = Json { ignoreUnknownKeys = true }
 

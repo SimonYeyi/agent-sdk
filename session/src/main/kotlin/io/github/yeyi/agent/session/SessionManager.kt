@@ -8,7 +8,11 @@ public class SessionManager(baseDir: File, private val hook: SessionHook = NoOpA
     private val repository = SessionRepository(baseDir)
     private val mutex = Mutex()
 
-    public suspend fun create(accountId: String, sessionName: String, sessionId: String? = null): Session {
+    public suspend fun create(
+        accountId: String,
+        sessionName: String,
+        sessionId: String? = null
+    ): Session {
         return mutex.withLock {
             repository.createSession(accountId, sessionName, sessionId).also {
                 hook.safeInvoke { hook.onSessionCreated(it) }
@@ -21,6 +25,20 @@ public class SessionManager(baseDir: File, private val hook: SessionHook = NoOpA
             repository.findSession(accountId, sessionId)
                 ?: throw NoSuchElementException("Session not found: $sessionId")
         }
+    }
+
+    public suspend fun getOrCreate(
+        accountId: String,
+        sessionName: String,
+        sessionId: String
+    ): Session = try {
+        get(accountId, sessionId)
+    } catch (_: NoSuchElementException) {
+        create(
+            accountId = accountId,
+            sessionName = sessionName,
+            sessionId = sessionId,
+        )
     }
 
     public suspend fun delete(accountId: String, sessionId: String) {
