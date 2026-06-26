@@ -8,12 +8,12 @@ import io.github.yeyi.agent.capability.CapabilityAdapter
  */
 public fun AgentBuilder.subagents(
     registry: SubagentRegistry,
-    mode: CapabilityAdapter.Mode = CapabilityAdapter.Mode.Delegate,
+    enableDelegateAdaptMode: Boolean = true
 ) {
     CapabilityAdapter.of(
         registry,
         SubagentContextFactory(),
         SubagentArguments(),
-        mode
+        enableDelegateAdaptMode
     ).installOn(this)
 }

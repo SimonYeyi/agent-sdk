@@ -207,15 +207,15 @@ CapabilityAdapter.of(
     registry = registry,
     capabilityContextFactory = SubagentContextFactory(),
     arguments = SubagentArguments(),
-    mode = CapabilityAdapter.Mode.Delegate,   // 或 Mode.OneToOne
+    enableDelegateAdaptMode = true,   // 或 false
 ).installOn(agentBuilder)
 ```
 
 **Adapter 已有的基础设施**：
-- `CapabilityAdapter.Mode.Delegate` → 生成 `LoadCapabilityTool`，schema = `{subagent_name, arguments}`
-- `CapabilityAdapter.Mode.OneToOne` → 为每个 capability 生成 `CapabilityTool`，schema = `SubagentArguments.schema`
+- `enableDelegateAdaptMode = true` → 生成 `LoadCapabilityTool`，schema = `{subagent_name, arguments}`
+- `enableDelegateAdaptMode = false` → 为每个 capability 生成 `CapabilityTool`，schema = `SubagentArguments.schema`
 
-`Mode` 枚举是 `CapabilityAdapter` 的嵌套类型（`public enum class Mode { Delegate, OneToOne }`），通过 `CapabilityAdapter.of(...)` 工厂屏蔽 `DelegationAdapter` / `OneToOneAdapter` 具体类的可见性。
+`enableDelegateAdaptMode` 是 `CapabilityAdapter.of(...)` 工厂的 `Boolean` 参数（默认 `true`），通过该参数屏蔽 `DelegationAdapter` / `OneToOneAdapter` 具体类的可见性。
 
 ---
 
@@ -224,17 +224,17 @@ CapabilityAdapter.of(
 ```kotlin
 /**
  * 把已有 registry 挂到 AgentBuilder。
- * 暴露模式通过 [CapabilityAdapter.Mode] 指定（Delegate / OneToOne）。
+ * 暴露模式通过 [enableDelegateAdaptMode] 指定（true 委托 / false 一对一）。
  */
 public fun AgentBuilder.subagents(
     registry: SubagentRegistry,
-    mode: CapabilityAdapter.Mode = CapabilityAdapter.Mode.Delegate,
+    enableDelegateAdaptMode: Boolean = true,
 ) {
     CapabilityAdapter.of(
         registry,
         SubagentContextFactory(),
         SubagentArguments(),
-        mode
+        enableDelegateAdaptMode
     ).installOn(this)
 }
 ```
@@ -370,7 +370,7 @@ val registry = SubagentRegistry().apply {
     register(interviewer)
 }
 
-agentBuilder.subagents(registry, mode = CapabilityAdapter.Mode.Delegate)
+agentBuilder.subagents(registry, enableDelegateAdaptMode = true)
 ```
 
 ---
@@ -409,6 +409,7 @@ agentBuilder.subagents(registry, mode = CapabilityAdapter.Mode.Delegate)
 | `MemoryStrategy` 枚举 | `Isolated` / `Shared` 显式枚举 | 删除；改为 `memory: Memory?` 空值语义 | 单一字段已能表达两种策略，枚举冗余 |
 | `subagent()` DSL 工厂 | 提供 `subagent(name, description, instructions, ...)` 快速构造 | 删除；调用方直接实现 `Subagent` 接口 | 接口已自带默认 `activate`，工厂只能再覆盖字段，价值低 |
 | `CapabilityAdaptMode` | 顶层枚举 | 改为 `CapabilityAdapter.Mode` 嵌套枚举 | 收拢 Adapter 相关类型到同一文件 |
+| `CapabilityAdapter.Mode` | 嵌套枚举 | 删除；改为 `enableDelegateAdaptMode: Boolean` 参数 | 简化类型层级；两种模式 Boolean 已足够表达 |
 | Adapter 构造 | 显式 `DelegationAdapter(...)` / `OneToOneAdapter(...)` | 改为 `CapabilityAdapter.of(...)` 工厂方法 | 屏蔽具体子类可见性，统一创建路径 |
 | `SubagentArguments` / `SubagentContextFactory` 可见性 | `public` | `internal` | 仅供 Adapter 内部拼装，无需公开 |
 | `SubagentContext` 是否 data class | 未明确 | 普通 class | 仅作为标记接口 `CapabilityContext` 的载体，无需 data class 等价性 |
