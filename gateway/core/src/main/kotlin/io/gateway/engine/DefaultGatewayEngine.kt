@@ -16,7 +16,6 @@ import io.gateway.model.MessageContent
 import io.gateway.model.OutgoingContent
 import io.gateway.model.PlatformId
 import io.gateway.model.SendResult
-import io.ktor.utils.io.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -319,7 +318,7 @@ internal class DefaultGatewayEngine(
 
         val agentResult = try {
             agentRunner.process(message = message, session = session)
-        } catch (e: CancellationException) {
+        } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
             AgentRunner.Result.Failure(error = e.message ?: "Unknown error", exception = e)

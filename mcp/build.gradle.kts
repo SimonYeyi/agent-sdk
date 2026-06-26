@@ -16,7 +16,7 @@ dependencies {
     api(libs.kotlinx.serialization.json)
     api(libs.kotlinx.coroutines.core)
     api(libs.ktor.client.core)
-    api(libs.ktor.client.okhttp)
+    api(libs.ktor.client.cio)
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlin.test.junit)
