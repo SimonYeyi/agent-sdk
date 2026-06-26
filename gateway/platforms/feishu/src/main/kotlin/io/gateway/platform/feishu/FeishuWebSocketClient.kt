@@ -6,8 +6,9 @@ import io.gateway.model.PlatformId
 import io.gateway.util.gatewayLog
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.webSocketSession
-import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.websocket.Frame
 import io.ktor.websocket.WebSocketSession
@@ -21,6 +22,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -124,15 +127,25 @@ internal class FeishuWebSocketClient(
     }
 
     private suspend fun getWebSocketUrl(token: String): String {
-        val response = httpClient.get("${config.domain}/open-apis/gateway/v1/connect") {
-            header("Authorization", "Bearer $token")
+        // 飞书 WebSocket 长连接需要通过 API 获取连接地址
+        // POST {domain}/callback/ws/endpoint
+        // 请求体: { AppID, AppSecret }
+        // 返回: { code, data: { URL, ClientConfig } }
+        val response = httpClient.post("${config.domain}/callback/ws/endpoint") {
+            header("Content-Type", "application/json")
+            setBody(
+                buildJsonObject {
+                    put("AppID", JsonPrimitive(config.appId))
+                    put("AppSecret", JsonPrimitive(config.appSecret))
+                }.toString()
+            )
         }
 
         val body = response.bodyAsText()
         val responseJson: JsonObject = json.decodeFromString(body)
 
         val code = responseJson["code"]?.jsonPrimitive?.content?.toIntOrNull()
-        val wsUrl = responseJson["data"]?.jsonObject["ws_url"]?.jsonPrimitive?.content
+        val wsUrl = responseJson["data"]?.jsonObject?.get("URL")?.jsonPrimitive?.content
         return wsUrl ?: throw IllegalStateException("Failed to get WebSocket URL, code=$code")
     }
 
