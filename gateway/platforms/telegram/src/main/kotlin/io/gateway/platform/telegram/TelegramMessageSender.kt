@@ -16,6 +16,9 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 
 internal class TelegramMessageSender(
     private val config: TelegramConfig,
@@ -121,17 +124,17 @@ internal class TelegramMessageSender(
             }
 
             val body = response.bodyAsText()
-            val jsonResponse = json.decodeFromString<Map<String, Any>>(body)
+            val jsonResponse = json.decodeFromString<JsonObject>(body)
 
-            if (response.status.value in 200..299 && jsonResponse["ok"] == true) {
-                val result = jsonResponse["result"] as? Map<String, Any>
-                val messageId = (result?.get("message_id") as? Number)?.toInt()?.toString() ?: ""
+            if (response.status.value in 200..299 && jsonResponse["ok"]?.jsonPrimitive?.booleanOrNull == true) {
+                val result = jsonResponse["result"]?.jsonObject
+                val messageId = result?.get("message_id")?.jsonPrimitive?.content?.toIntOrNull()?.toString() ?: ""
                 SendResult.Success(
                     messageId = messageId,
                     platform = PlatformId.TELEGRAM
                 )
             } else {
-                val description = jsonResponse["description"] as? String ?: "Unknown error"
+                val description = jsonResponse["description"]?.jsonPrimitive?.content ?: "Unknown error"
                 SendResult.Failure(
                     error = "Telegram API error: $description",
                     retryable = response.status.value in 500..599

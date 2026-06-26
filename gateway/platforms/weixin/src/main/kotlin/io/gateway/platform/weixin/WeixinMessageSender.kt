@@ -15,6 +15,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 internal class WeixinMessageSender(
     private val config: WeixinConfig,
@@ -109,17 +111,17 @@ internal class WeixinMessageSender(
             }
 
             val responseBody = response.bodyAsText()
-            val responseJson = json.decodeFromString<Map<String, Any>>(responseBody)
+            val responseJson = json.decodeFromString<JsonObject>(responseBody)
 
-            val errcode = (responseJson["errcode"] as? Number)?.toInt() ?: -1
+            val errcode = responseJson["errcode"]?.jsonPrimitive?.content?.toIntOrNull() ?: -1
             if (response.status.value in 200..299 && errcode == 0) {
-                val messageId = responseJson["message_id"] as? String ?: ""
+                val messageId = responseJson["message_id"]?.jsonPrimitive?.content ?: ""
                 SendResult.Success(
                     messageId = messageId,
                     platform = PlatformId.WEIXIN
                 )
             } else {
-                val errmsg = responseJson["errmsg"] as? String ?: "Unknown error"
+                val errmsg = responseJson["errmsg"]?.jsonPrimitive?.content ?: "Unknown error"
                 SendResult.Failure(
                     error = "Weixin API error: $errmsg (code: $errcode)",
                     retryable = errcode == -1 || errcode in 500..599

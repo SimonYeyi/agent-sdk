@@ -22,12 +22,15 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 internal class WeixinPoller(
     private val config: WeixinConfig,
     private val httpClient: HttpClient,
     private val json: Json,
-    private val messageListener: (Map<String, Any>) -> Unit,
+    private val messageListener: (JsonObject) -> Unit,
     private val stateListener: (ConnectionState) -> Unit,
     private val errorListener: (PlatformError) -> Unit
 ) {
@@ -93,8 +96,8 @@ internal class WeixinPoller(
                 header(HttpHeaders.Authorization, "Bearer ${config.loginToken}")
             }
             val body = response.bodyAsText()
-            val jsonResponse = json.decodeFromString<Map<String, Any>>(body)
-            (jsonResponse["errcode"] as? Number)?.toInt() == 0
+            val jsonResponse = json.decodeFromString<JsonObject>(body)
+            jsonResponse["errcode"]?.jsonPrimitive?.content?.toIntOrNull() == 0
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -102,7 +105,6 @@ internal class WeixinPoller(
         }
     }
 
-    @Suppress("UNCHECKED_CAST")
     private suspend fun pollMessages() {
         val body = buildJsonObject {
             put("limit", 100)
@@ -121,17 +123,17 @@ internal class WeixinPoller(
         }
 
         val responseBody = response.bodyAsText()
-        val responseJson = json.decodeFromString<Map<String, Any>>(responseBody)
+        val responseJson = json.decodeFromString<JsonObject>(responseBody)
 
-        if ((responseJson["errcode"] as? Number)?.toInt() == 0) {
-            val messages = responseJson["messages"] as? List<Map<String, Any>> ?: emptyList()
-            val cursor = responseJson["next_cursor"] as? String ?: ""
+        if (responseJson["errcode"]?.jsonPrimitive?.content?.toIntOrNull() == 0) {
+            val messages = responseJson["messages"]?.jsonArray ?: return
+            val cursor = responseJson["next_cursor"]?.jsonPrimitive?.content ?: ""
             if (cursor.isNotBlank()) {
                 lastCursor = cursor
             }
 
             for (msg in messages) {
-                messageListener(msg)
+                msg.jsonObject?.let { messageListener(it) }
             }
 
             if (messages.isEmpty()) {

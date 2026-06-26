@@ -151,22 +151,22 @@ internal class FeishuWebSocketClient(
 
     private suspend fun handleMessage(text: String) {
         try {
-            val jsonMap = json.decodeFromString<Map<String, Any>>(text)
-            val type = jsonMap["type"] as? String
+            val jsonObject = json.decodeFromString<JsonObject>(text)
+            val type = jsonObject["type"]?.jsonPrimitive?.content
 
             when (type) {
                 "event" -> {
-                    val outerEvent = jsonMap["event"] as? Map<String, Any> ?: return
-                    val header = outerEvent["header"] as? Map<String, Any>
-                    val innerEvent = outerEvent["event"] as? Map<String, Any> ?: outerEvent
+                    val outerEvent = jsonObject["event"]?.jsonObject ?: return
+                    val header = outerEvent["header"]?.jsonObject
+                    val innerEvent = outerEvent["event"]?.jsonObject ?: outerEvent
 
-                    val eventType = header?.get("event_type") as? String
+                    val eventType = header?.get("event_type")?.jsonPrimitive?.content
                     if (eventType == "im.message.receive_v1") {
-                        val fullMessage = mapOf(
-                            "header" to header,
-                            "event" to innerEvent
-                        )
-                        messageListener(json.encodeToString(fullMessage))
+                        val fullMessage = buildJsonObject {
+                            header?.let { put("header", it) }
+                            put("event", innerEvent)
+                        }
+                        messageListener(fullMessage.toString())
                     }
                 }
 

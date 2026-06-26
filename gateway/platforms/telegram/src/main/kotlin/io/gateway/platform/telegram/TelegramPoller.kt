@@ -11,7 +11,6 @@ import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
-import io.ktor.http.contentType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -22,14 +21,17 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.booleanOrNull
 
 internal class TelegramPoller(
     private val config: TelegramConfig,
     private val httpClient: HttpClient,
     private val json: Json,
-    private val messageListener: (Map<String, Any>) -> Unit,
+    private val messageListener: (JsonObject) -> Unit,
     private val stateListener: (ConnectionState) -> Unit,
     private val errorListener: (PlatformError) -> Unit
 ) {
@@ -93,8 +95,8 @@ internal class TelegramPoller(
         return try {
             val response = httpClient.get("${config.apiBaseUrl}/bot${config.botToken}/getMe")
             val body = response.bodyAsText()
-            val jsonResponse = json.decodeFromString<Map<String, Any>>(body)
-            jsonResponse["ok"] == true
+            val jsonResponse = json.decodeFromString<JsonObject>(body)
+            jsonResponse["ok"]?.jsonPrimitive?.booleanOrNull == true
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -102,7 +104,6 @@ internal class TelegramPoller(
         }
     }
 
-    @Suppress("UNCHECKED_CAST")
     private suspend fun pollUpdates() {
         val params = buildJsonObject {
             put("offset", lastUpdateId + 1)
@@ -118,16 +119,17 @@ internal class TelegramPoller(
         }
 
         val body = response.bodyAsText()
-        val jsonResponse = json.decodeFromString<Map<String, Any>>(body)
+        val jsonResponse = json.decodeFromString<JsonObject>(body)
 
-        if (jsonResponse["ok"] == true) {
-            val results = jsonResponse["result"] as? List<Map<String, Any>> ?: emptyList()
+        if (jsonResponse["ok"]?.jsonPrimitive?.booleanOrNull == true) {
+            val results = jsonResponse["result"]?.jsonArray ?: return
             for (update in results) {
-                val updateId = (update["update_id"] as? Number)?.toLong() ?: 0
+                val updateObj = update.jsonObject ?: continue
+                val updateId = updateObj["update_id"]?.jsonPrimitive?.content?.toLongOrNull() ?: 0
                 if (updateId > lastUpdateId) {
                     lastUpdateId = updateId
                 }
-                messageListener(update)
+                messageListener(updateObj)
             }
         }
     }

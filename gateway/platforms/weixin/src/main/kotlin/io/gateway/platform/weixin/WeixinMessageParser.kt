@@ -2,25 +2,25 @@ package io.gateway.platform.weixin
 
 import io.gateway.model.*
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 internal class WeixinMessageParser(
     private val config: WeixinConfig,
     private val json: Json
 ) {
-    @Suppress("UNCHECKED_CAST")
-    fun parseMessage(jsonMap: Map<String, Any>): IncomingMessage? {
-        val messageId = jsonMap["message_id"] as? String ?: return null
-        val chatId = jsonMap["chat_id"] as? String ?: return null
-        val userId = jsonMap["sender_id"] as? String ?: return null
+    fun parseMessage(jsonMap: JsonObject): IncomingMessage? {
+        val messageId = jsonMap["message_id"]?.jsonPrimitive?.content ?: return null
+        val chatId = jsonMap["chat_id"]?.jsonPrimitive?.content ?: return null
+        val userId = jsonMap["sender_id"]?.jsonPrimitive?.content ?: return null
 
-        val chatType = when (jsonMap["chat_type"] as? String) {
+        val chatType = when (jsonMap["chat_type"]?.jsonPrimitive?.content) {
             "private" -> ChatType.DIRECT_MESSAGE
             "group" -> ChatType.GROUP
             else -> ChatType.DIRECT_MESSAGE
         }
 
-        val msgType = jsonMap["msg_type"] as? String ?: "text"
+        val msgType = jsonMap["msg_type"]?.jsonPrimitive?.content ?: "text"
         val content = parseContent(msgType, jsonMap)
 
         val source = MessageSource(
@@ -28,12 +28,12 @@ internal class WeixinMessageParser(
             chatId = chatId,
             chatType = chatType,
             userId = userId,
-            userName = (jsonMap["sender_name"] as? String)?.takeIf { it.isNotBlank() },
-            chatName = (jsonMap["chat_name"] as? String)?.takeIf { it.isNotBlank() }
+            userName = jsonMap["sender_name"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() },
+            chatName = jsonMap["chat_name"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
         )
 
         val metadata = MessageMetadata(
-            replyToMessageId = (jsonMap["reply_to_message_id"] as? String)?.takeIf { it.isNotBlank() }
+            replyToMessageId = jsonMap["reply_to_message_id"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
         )
 
         return IncomingMessage(
@@ -44,38 +44,37 @@ internal class WeixinMessageParser(
         )
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun parseContent(msgType: String, json: Map<String, Any>): MessageContent {
+    private fun parseContent(msgType: String, json: JsonObject): MessageContent {
         return when (msgType) {
             "text" -> {
-                val text = json["content"] as? String ?: ""
+                val text = json["content"]?.jsonPrimitive?.content ?: ""
                 MessageContent.Text(text)
             }
             "image" -> {
-                val imageUrl = json["image_url"] as? String ?: ""
+                val imageUrl = json["image_url"]?.jsonPrimitive?.content ?: ""
                 MessageContent.Image(urls = listOf(imageUrl))
             }
             "voice" -> {
-                val voiceUrl = json["voice_url"] as? String ?: ""
+                val voiceUrl = json["voice_url"]?.jsonPrimitive?.content ?: ""
                 MessageContent.Audio(url = voiceUrl)
             }
             "video" -> {
-                val videoUrl = json["video_url"] as? String ?: ""
+                val videoUrl = json["video_url"]?.jsonPrimitive?.content ?: ""
                 MessageContent.Video(url = videoUrl)
             }
             "file" -> {
-                val fileUrl = json["file_url"] as? String ?: ""
-                val fileName = json["file_name"] as? String ?: ""
+                val fileUrl = json["file_url"]?.jsonPrimitive?.content ?: ""
+                val fileName = json["file_name"]?.jsonPrimitive?.content ?: ""
                 MessageContent.Document(url = fileUrl, fileName = fileName)
             }
             "location" -> {
-                val lat = (json["latitude"] as? Number)?.toDouble() ?: 0.0
-                val lng = (json["longitude"] as? Number)?.toDouble() ?: 0.0
-                val name = (json["label"] as? String)?.takeIf { it.isNotBlank() }
+                val lat = json["latitude"]?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
+                val lng = json["longitude"]?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
+                val name = json["label"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
                 MessageContent.Location(latitude = lat, longitude = lng, name = name)
             }
             "event" -> {
-                val eventType = json["event_type"] as? String ?: ""
+                val eventType = json["event_type"]?.jsonPrimitive?.content ?: ""
                 MessageContent.SystemEvent(eventType = eventType)
             }
             else -> MessageContent.Unknown(rawContent = json.toString())

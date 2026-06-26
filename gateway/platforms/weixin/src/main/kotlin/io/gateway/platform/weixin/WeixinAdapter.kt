@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 public class WeixinAdapter(
     private val config: WeixinConfig,
@@ -126,8 +127,7 @@ public class WeixinAdapter(
         return messageSender.deleteMessage(chatId, messageId)
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun handleMessage(jsonMap: Map<String, Any>) {
+    private fun handleMessage(jsonMap: JsonObject) {
         coroutineScope.launch {
             val message = messageParser.parseMessage(jsonMap) ?: return@launch
 

@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 
 public class TelegramAdapter(
     private val config: TelegramConfig,
@@ -128,8 +129,7 @@ public class TelegramAdapter(
         return messageSender.deleteMessage(chatId, messageId)
     }
 
-    @Suppress("UNCHECKED_CAST")
-    private fun handleUpdate(update: Map<String, Any>) {
+    private fun handleUpdate(update: JsonObject) {
         coroutineScope.launch {
             val message = messageParser.parseUpdate(update) ?: return@launch
 

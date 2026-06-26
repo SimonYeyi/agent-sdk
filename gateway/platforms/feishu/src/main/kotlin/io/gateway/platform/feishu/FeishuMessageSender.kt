@@ -16,8 +16,11 @@ import io.ktor.client.statement.readRawBytes
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.Serializable
 import java.util.UUID
 
@@ -56,17 +59,17 @@ internal class FeishuMessageSender(
             }
 
             val responseBody = response.bodyAsText()
-            val responseJson = json.decodeFromString<Map<String, Any>>(responseBody)
+            val responseJson = json.decodeFromString<JsonObject>(responseBody)
 
-            if (response.status.value in 200..299 && (responseJson["code"] as? Number)?.toInt() == 0) {
-                val data = responseJson["data"] as? Map<String, Any>
-                val messageId = data?.get("message_id") as? String ?: ""
+            if (response.status.value in 200..299 && responseJson["code"]?.jsonPrimitive?.content?.toIntOrNull() == 0) {
+                val data = responseJson["data"]?.jsonObject
+                val messageId = data?.get("message_id")?.jsonPrimitive?.content ?: ""
                 return SendResult.Success(
                     messageId = messageId,
                     platform = PlatformId.FEISHU
                 )
             } else {
-                val errorMsg = responseJson["msg"] as? String ?: "Unknown error"
+                val errorMsg = responseJson["msg"]?.jsonPrimitive?.content ?: "Unknown error"
                 return SendResult.Failure(
                     error = "Send failed: $errorMsg",
                     retryable = response.status.value in 500..599
@@ -99,15 +102,15 @@ internal class FeishuMessageSender(
             }
 
             val responseBody = response.bodyAsText()
-            val responseJson = json.decodeFromString<Map<String, Any>>(responseBody)
+            val responseJson = json.decodeFromString<JsonObject>(responseBody)
 
-            if (response.status.value in 200..299 && (responseJson["code"] as? Number)?.toInt() == 0) {
+            if (response.status.value in 200..299 && responseJson["code"]?.jsonPrimitive?.content?.toIntOrNull() == 0) {
                 return SendResult.Success(
                     messageId = messageId,
                     platform = PlatformId.FEISHU
                 )
             } else {
-                val errorMsg = responseJson["msg"] as? String ?: "Unknown error"
+                val errorMsg = responseJson["msg"]?.jsonPrimitive?.content ?: "Unknown error"
                 return SendResult.Failure(
                     error = "Edit failed: $errorMsg",
                     retryable = false
@@ -133,8 +136,8 @@ internal class FeishuMessageSender(
             }
 
             val responseBody = response.bodyAsText()
-            val responseJson = json.decodeFromString<Map<String, Any>>(responseBody)
-            response.status.value in 200..299 && (responseJson["code"] as? Number)?.toInt() == 0
+            val responseJson = json.decodeFromString<JsonObject>(responseBody)
+            response.status.value in 200..299 && responseJson["code"]?.jsonPrimitive?.content?.toIntOrNull() == 0
         } catch (e: kotlinx.coroutines.CancellationException) {
             throw e
         } catch (e: Exception) {
