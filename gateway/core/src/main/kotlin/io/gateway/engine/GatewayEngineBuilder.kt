@@ -7,6 +7,8 @@ import io.gateway.api.GatewayEngine
 import io.gateway.api.GatewaySessionManager
 import io.gateway.api.HookPipeline
 import io.gateway.model.GatewayConfig
+import io.gateway.util.GatewayLogDelegate
+import io.gateway.util.GatewayLogging
 import java.io.File
 
 public class GatewayEngineBuilder {
@@ -17,6 +19,7 @@ public class GatewayEngineBuilder {
     private var hookPipeline: HookPipeline? = null
     private var deliveryRouter: DeliveryRouter? = null
     private var concurrencyController: ConcurrencyController? = null
+    private var logDelegate: GatewayLogDelegate? = null
     private var baseDir: File? = null
 
     public fun withConfig(config: GatewayConfig): GatewayEngineBuilder = apply {
@@ -47,7 +50,13 @@ public class GatewayEngineBuilder {
         this.concurrencyController = controller
     }
 
+    public fun withLogDelegate(delegate: GatewayLogDelegate): GatewayEngineBuilder = apply {
+        this.logDelegate = delegate
+    }
+
     public fun build(): GatewayEngine {
+        logDelegate?.let { GatewayLogging.setDelegate(it) }
+
         val engine = DefaultGatewayEngine(config)
 
         val sessionMgr = sessionManager

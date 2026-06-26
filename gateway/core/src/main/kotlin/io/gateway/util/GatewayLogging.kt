@@ -7,7 +7,7 @@ internal object GatewayLogging {
 
     private var logDelegate: GatewayLogDelegate = DefaultGatewayLogDelegate()
 
-    fun setDelegate(delegate: GatewayLogDelegate) {
+    internal fun setDelegate(delegate: GatewayLogDelegate) {
         logDelegate = delegate
     }
 
@@ -28,11 +28,11 @@ internal object GatewayLogging {
     }
 }
 
-internal interface GatewayLogDelegate {
-    fun debug(tag: String, msg: String)
-    fun info(tag: String, msg: String)
-    fun warn(tag: String, msg: String? = null, e: Throwable? = null)
-    fun error(tag: String, msg: String? = null, e: Throwable? = null)
+public interface GatewayLogDelegate {
+    public fun debug(tag: String, msg: String)
+    public fun info(tag: String, msg: String)
+    public fun warn(tag: String, msg: String? = null, e: Throwable? = null)
+    public fun error(tag: String, msg: String? = null, e: Throwable? = null)
 }
 
 private class DefaultGatewayLogDelegate : GatewayLogDelegate {
