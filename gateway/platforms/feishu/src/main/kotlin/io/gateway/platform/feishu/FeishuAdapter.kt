@@ -210,7 +210,12 @@ public class FeishuAdapter(
             val (msgType, contentJson) = if (isMarkdown) {
                 "post" to buildMarkdownPostContent(content)
             } else {
-                "text" to """{"text":"${content.replace("\"", "\\\"")}"}"""
+                val escaped = content
+                    .replace("\\", "\\\\")
+                    .replace("\"", "\\\"")
+                    .replace("\n", "\\n")
+                    .replace("\r", "\\r")
+                "text" to """{"text":"$escaped"}"""
             }
 
             val request = CreateMessageReq.newBuilder()
