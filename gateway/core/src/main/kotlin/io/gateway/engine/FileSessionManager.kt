@@ -31,8 +31,15 @@ internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager 
         encodeDefaults = true
     }
 
-    init {
-        loadAllGatewaySessions()
+    private var isInitialized = false
+
+    private fun ensureInitialized() {
+        if (isInitialized) return
+        synchronized(sessionCache) {
+            if (isInitialized) return
+            loadAllGatewaySessions()
+            isInitialized = true
+        }
     }
 
     private fun sessionFile(sessionKey: String): File =
@@ -143,6 +150,7 @@ internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager 
     }
 
     override suspend fun getOrCreateSession(source: MessageSource): GatewaySession {
+        ensureInitialized()
         val key = source.sessionKey()
         getLock(key).withLock {
             val existing = sessionCache[key]

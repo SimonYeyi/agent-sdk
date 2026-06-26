@@ -1,8 +1,6 @@
 package io.gateway.engine
 
 import io.gateway.api.AgentRunner
-import io.gateway.api.ConcurrencyController
-import io.gateway.api.DeliveryRouter
 import io.gateway.api.GatewayEngine
 import io.gateway.api.GatewaySessionManager
 import io.gateway.api.HookPipeline
@@ -17,8 +15,6 @@ public class GatewayEngineBuilder {
     private var sessionManager: GatewaySessionManager? = null
     private var agentRunner: AgentRunner? = null
     private var hookPipeline: HookPipeline? = null
-    private var deliveryRouter: DeliveryRouter? = null
-    private var concurrencyController: ConcurrencyController? = null
     private var logDelegate: GatewayLogDelegate? = null
     private var baseDir: File? = null
 
@@ -42,14 +38,6 @@ public class GatewayEngineBuilder {
         this.hookPipeline = pipeline
     }
 
-    public fun withDeliveryRouter(router: DeliveryRouter): GatewayEngineBuilder = apply {
-        this.deliveryRouter = router
-    }
-
-    public fun withConcurrencyController(controller: ConcurrencyController): GatewayEngineBuilder = apply {
-        this.concurrencyController = controller
-    }
-
     public fun withLogDelegate(delegate: GatewayLogDelegate): GatewayEngineBuilder = apply {
         this.logDelegate = delegate
     }
@@ -66,8 +54,6 @@ public class GatewayEngineBuilder {
 
         agentRunner?.let { engine.setAgentRunner(it) }
         hookPipeline?.let { engine.setHookPipeline(it) }
-        deliveryRouter?.let { /* deliveryRouter 内部创建，这里不需要外部设置 */ }
-        concurrencyController?.let { /* concurrencyController 内部创建，暂不支持外部替换 */ }
 
         return engine
     }
