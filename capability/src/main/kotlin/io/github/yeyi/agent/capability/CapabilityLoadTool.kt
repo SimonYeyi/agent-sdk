@@ -22,18 +22,19 @@ import kotlinx.serialization.json.put
  * The LLM-provided `arguments` JSON is forwarded in full to
  * [Capability.activate] so the matched capability can parse what it expects.
  */
-internal class LoadCapabilityTool<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
+internal class CapabilityLoadTool<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
     private val registry: CapabilityRegistry<Ctx, C, T>,
     private val capabilityContextFactory: CapabilityContextFactory<Ctx>,
     private val arguments: CapabilityArguments<T>?
 ) : Tool {
     private val capabilityName = registry.capabilityName
     private val capabilityNameKey = "${capabilityName}_name"
+
     override val name: String = "load_$capabilityName"
 
     override val description: String by lazy {
         """
-        |当以下 $capabilityName 时适用于当前任务时，调用本工具:
+        |当以下 $capabilityName 时适用于当前任务时，调用本工具以激活使用:
         |${registry.all().joinToString("\n") { "- ${it.name}: ${it.description}" }}
     """.trimMargin()
     }
@@ -64,10 +65,7 @@ internal class LoadCapabilityTool<Ctx : CapabilityContext, C : Capability<T, Ctx
     ): ToolExecutionResult {
         val capabilityName = arguments.jsonObject[capabilityNameKey]
             ?.let { (it as? JsonPrimitive)?.content }
-            ?: return ToolExecutionResult(
-                content = "Missing $capabilityNameKey",
-                isError = true
-            )
+            ?: return ToolExecutionResult.error("Missing $capabilityNameKey")
 
         return registry.all().find { it.name == capabilityName }
             ?.let { capability ->
@@ -80,10 +78,6 @@ internal class LoadCapabilityTool<Ctx : CapabilityContext, C : Capability<T, Ctx
                 }
                 ToolExecutionResult(capability.activate(input, capabilityContext))
             }
-            ?: ToolExecutionResult(
-                content = "$capabilityNameKey not found: $capabilityName",
-                isError = true
-            )
+            ?: ToolExecutionResult.error("${this.capabilityName} not found: $capabilityName")
     }
-
 }

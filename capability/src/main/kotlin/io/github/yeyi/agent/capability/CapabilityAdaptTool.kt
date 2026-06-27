@@ -7,7 +7,7 @@ import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
-internal class CapabilityTool<Ctx : CapabilityContext, T : Any>(
+internal class CapabilityAdaptTool<Ctx : CapabilityContext, T : Any>(
     capabilityName: String,
     private val capability: Capability<T, Ctx>,
     private val capabilityContextFactory: CapabilityContextFactory<Ctx>,

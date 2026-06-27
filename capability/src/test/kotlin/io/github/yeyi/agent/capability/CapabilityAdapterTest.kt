@@ -362,7 +362,7 @@ class CapabilityAdapterTest {
         )
 
         assertEquals(true, result.isError)
-        assertTrue(result.content.contains("cat_name"))
         assertTrue(result.content.contains("ghost"))
+        assertTrue(result.content.contains("cat"))
     }
 }

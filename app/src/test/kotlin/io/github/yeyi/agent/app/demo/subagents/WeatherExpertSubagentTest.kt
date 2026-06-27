@@ -48,7 +48,6 @@ class WeatherExpertSubagentTest {
         val sub = WeatherExpertSubagent()
         val instructions = sub.load()
         assertTrue(instructions.isNotBlank(), "instructions should not be blank")
-        assertTrue(instructions.contains("get_location"), "instructions should reference get_location")
         assertTrue(instructions.contains("get_weather"), "instructions should reference get_weather")
         assertTrue(
             instructions.contains("## "),
@@ -81,7 +80,7 @@ class WeatherExpertSubagentTest {
     }
 
     @Test
-    fun `activate passes only GetLocationTool and GetWeatherTool to sub-LLM`() = runTest {
+    fun `activate passes only GetWeatherTool to sub-LLM`() = runTest {
         val llm = FakeLlmProvider(nonStreamResponses = listOf(chatResponse("ok")))
         val sub = WeatherExpertSubagent()
         val ctx = SubagentContext(stubAgentContext(llm))
@@ -90,18 +89,17 @@ class WeatherExpertSubagentTest {
 
         val toolNames = llm.recordedRequests.single().tools.map { it.name }.toSet()
         assertEquals(
-            setOf("get_location", "get_weather"),
+            setOf("get_weather"),
             toolNames,
-            "subagent must expose only weather tools; got $toolNames",
+            "subagent must expose only weather tool; got $toolNames",
         )
     }
 
     @Test
-    fun `subagent tools is non-null explicit list containing only weather tools`() {
+    fun `subagent tools is non-null explicit list containing only weather tool`() {
         val sub = WeatherExpertSubagent()
         val tools = assertNotNull(sub.tools, "subagent should declare explicit tools")
-        assertEquals(2, tools.size, "subagent should declare exactly 2 tools")
-        assertTrue(tools.any { it is GetLocationTool }, "tools should include GetLocationTool")
+        assertEquals(1, tools.size, "subagent should declare exactly 1 tool")
         assertTrue(tools.any { it is GetWeatherTool }, "tools should include GetWeatherTool")
     }
 }

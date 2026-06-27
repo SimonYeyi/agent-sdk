@@ -27,7 +27,8 @@ class GetWeatherTool : Tool {
                     },
                     "time": {
                         "type": "string",
-                        "description": "查询时间，可选值：now(当前)、today(今天)、tomorrow(明天)、day_after_tomorrow(后天)，默认为 now"
+                        "enum": ["now", "today", "tomorrow", "day_after_tomorrow"],
+                        "description": "查询时间，默认为 now"
                     }
                 },
                 "required": ["city"]
@@ -35,10 +36,14 @@ class GetWeatherTool : Tool {
         """.trimIndent()
     )
 
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
-        val city = arguments.jsonObject["city"]?.jsonPrimitive?.content ?: "未知城市"
+    override suspend fun execute(
+        arguments: JsonElement,
+        context: ToolContext
+    ): ToolExecutionResult {
+        val city = arguments.jsonObject["city"]?.jsonPrimitive?.content
+            ?: throw IllegalStateException("Arguments error: $arguments")
         val time = arguments.jsonObject["time"]?.jsonPrimitive?.content ?: "now"
-        
+
         // 根据时间返回不同天气
         val weatherData = when (time.lowercase()) {
             "today", "now" -> mapOf(
@@ -48,6 +53,7 @@ class GetWeatherTool : Tool {
                 "wind_speed" to 12,
                 "description" to "天气炎热，不适宜出行"
             )
+
             "tomorrow" -> mapOf(
                 "temperature" to 28,
                 "condition" to "多云",
@@ -55,6 +61,7 @@ class GetWeatherTool : Tool {
                 "wind_speed" to 8,
                 "description" to "明天多云，温度适宜"
             )
+
             "day_after_tomorrow" -> mapOf(
                 "temperature" to 26,
                 "condition" to "雷雨",
@@ -62,6 +69,7 @@ class GetWeatherTool : Tool {
                 "wind_speed" to 12,
                 "description" to "雷雨交加，谨慎出行"
             )
+
             else -> mapOf(
                 "temperature" to -999,
                 "condition" to "未知",
@@ -70,7 +78,7 @@ class GetWeatherTool : Tool {
                 "description" to "无效的时间参数，请使用 now/today/tomorrow/day_after_tomorrow"
             )
         }
-        
+
         val weather = buildJsonObject {
             put("city", JsonPrimitive(city))
             put("time", JsonPrimitive(time))

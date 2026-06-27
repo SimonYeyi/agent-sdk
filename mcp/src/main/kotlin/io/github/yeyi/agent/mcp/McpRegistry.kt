@@ -1,5 +1,8 @@
 package io.github.yeyi.agent.mcp
 
+import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolDispatcher
+import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.serialization.json.JsonElement
 import java.util.concurrent.ConcurrentHashMap
 
@@ -12,11 +15,19 @@ import java.util.concurrent.ConcurrentHashMap
  * - 统一注入客户端信息（[clientInfo]）
  * - 生成 MCP 服务的统一描述文本，供模型识别
  *
- * 与 [io.github.yeyi.agent.skill.SkillRegistry]、子 agent 注册表模式对齐，
  * 都是"能力注册 → 能力项集合 → 供模型发现与调用"的模式。
  */
-public class McpRegistry(private val clientInfo: ClientInfo) {
+public class McpRegistry(private val clientInfo: ClientInfo) : ToolDispatcher {
     private val mcpMap = ConcurrentHashMap<String, Mcp>()
+
+    override suspend fun dispatch(
+        name: String,
+        arguments: JsonElement,
+        context: ToolContext
+    ): ToolExecutionResult {
+        val content = toolsCall(name, arguments)
+        return ToolExecutionResult.success(content)
+    }
 
     /**
      * 注册一个 MCP 服务。

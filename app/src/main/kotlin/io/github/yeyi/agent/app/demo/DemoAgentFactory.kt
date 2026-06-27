@@ -8,7 +8,10 @@ import io.github.yeyi.agent.app.demo.mcp.CalculatorMcp
 import io.github.yeyi.agent.app.demo.mcp.LiveScoreMcp
 import io.github.yeyi.agent.app.demo.mcp.TestMcp
 import io.github.yeyi.agent.app.demo.skills.NewsSkill
+import io.github.yeyi.agent.app.demo.skills.WeatherSkill
 import io.github.yeyi.agent.app.demo.subagents.WeatherExpertSubagent
+import io.github.yeyi.agent.app.demo.tools.GetLocationTool
+import io.github.yeyi.agent.app.demo.tools.GetWeatherTool
 import io.github.yeyi.agent.app.demo.tools.WebSearchTool
 import io.github.yeyi.agent.app.log.HttpLogger
 import io.github.yeyi.agent.hook.CompositeHook
@@ -97,8 +100,11 @@ object DemoAgentFactory {
             memory(memory ?: InMemoryMemory(), 1)
             llmProvider(llmProvider)
             tool(WebSearchTool())
+            tool(GetLocationTool())
             val skillRegistry = SkillRegistry()
             skillRegistry.register(NewsSkill())
+            skillRegistry.register(WeatherSkill())
+            skillRegistry.registerTools(listOf(GetWeatherTool()))
             skills(skillRegistry)
             mcp(mcpRegistry)
             hook(hook ?: CompositeHook(logging = true))

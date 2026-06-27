@@ -6,14 +6,11 @@ import io.github.yeyi.agent.subagent.SimpleSubagent
 
 /**
  * 天气查询专家 Subagent。
- *
- * 工具集封闭为 GetLocationTool + GetWeatherTool;主 agent 端不挂载 WeatherSkill,
- * 以避免主 agent 与本 subagent 任务域冲突。
  */
 class WeatherExpertSubagent : SimpleSubagent(
     name = "weather",
-    description = "天气查询专家,获取用户位置并按固定格式返回天气信息",
-    tools = listOf(GetLocationTool(), GetWeatherTool()),
+    description = "天气查询专家",
+    tools = listOf(GetWeatherTool()),
 ) {
     override fun load(): String = """
         # 天气查询助手
@@ -22,7 +19,7 @@ class WeatherExpertSubagent : SimpleSubagent(
 
         ## 使用流程
 
-        1. **获取位置**: 调用 `get_location` 工具获取用户当前位置
+        1. **识别位置**: 根据用户描述识别出用户需要查询的天气位置
         2. **查询天气**: 使用上一步的城市名称,调用 `get_weather` 工具
         3. **回复用户**: 按以下固定格式回复(每项必出,顺序、单位、建议词均不可变):
 

@@ -33,7 +33,7 @@ private class DelegationAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>,
     arguments: CapabilityArguments<T>? = null
 ) : CapabilityAdapter<Ctx, C, T>(registry, capabilityContextFactory, arguments) {
     override fun adapt(): List<Tool> =
-        listOf(LoadCapabilityTool(registry, capabilityContextFactory, arguments))
+        listOf(CapabilityLoadTool(registry, capabilityContextFactory, arguments))
 }
 
 private class OneToOneAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
@@ -44,7 +44,7 @@ private class OneToOneAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>, T
     override fun adapt(): List<Tool> =
         registry.all()
             .map { cap ->
-                CapabilityTool(
+                CapabilityAdaptTool(
                     registry.capabilityName,
                     cap,
                     capabilityContextFactory,

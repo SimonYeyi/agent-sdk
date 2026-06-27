@@ -16,4 +16,9 @@ public fun AgentBuilder.skills(
         null,
         enableDelegateAdaptMode
     ).installOn(this)
+
+    if (registry.hasTools()) {
+        tool(SkillToolLoader(registry))
+        tool(SkillToolCaller(registry))
+    }
 }

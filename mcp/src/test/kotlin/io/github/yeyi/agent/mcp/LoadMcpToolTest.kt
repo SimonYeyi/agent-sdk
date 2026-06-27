@@ -109,7 +109,8 @@ class LoadMcpToolTest {
         )
 
         assertFalse(output.isError)
-        assertEquals(tools.toString(), output.content)
+        assertTrue(output.content.contains("tool1"))
+        assertTrue(output.content.contains("tool2"))
     }
 
     @Test

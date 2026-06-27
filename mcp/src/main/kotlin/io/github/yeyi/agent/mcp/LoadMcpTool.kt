@@ -41,8 +41,7 @@ internal class LoadMcpTool(private val registry: McpRegistry) : Tool {
             ?.let { (it as? JsonPrimitive)?.content }
             ?: throw IllegalArgumentException("Missing mcp_name")
 
-        val result = registry.toolsList(mcpName)
-
-        return ToolExecutionResult(content = result)
+        val toolsList = registry.toolsList(mcpName)
+        return ToolExecutionResult.success("发现以下可用 MCP 工具：\n$toolsList")
     }
 }

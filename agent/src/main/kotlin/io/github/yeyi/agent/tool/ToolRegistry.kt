@@ -5,6 +5,7 @@ import io.github.yeyi.agent.llm.ToolDefinition
 import io.github.yeyi.agent.log.Logging
 import io.github.yeyi.agent.log.agent
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.JsonElement
 
 /**
  * Centralized store for the tools an [io.github.yeyi.agent.Agent] can invoke.
@@ -24,7 +25,7 @@ import kotlinx.coroutines.CancellationException
  * sees tools in the order the user declared them — useful for prompts that prime the
  * model toward earlier entries.
  */
-public class ToolRegistry {
+public class ToolRegistry : ToolDispatcher {
     private val byName: MutableMap<String, Tool> = LinkedHashMap()
 
     /**
@@ -44,29 +45,21 @@ public class ToolRegistry {
 
     public fun all(): List<Tool> = byName.values.toList()
 
-    /**
-     * Resolve [call.name] to a registered tool and execute it.
-     *
-     * - Tool not found → returns [ToolExecutionResult] with `isError = true` and a
-     *   message listing the registered names; the agent loop is NOT aborted.
-     * - Tool throws a non-[CancellationException] → wrapped as
-     *   [ToolExecutionResult] with `isError = true`.
-     * - Tool throws a [CancellationException] → rethrown, never swallowed
-     *   (structured concurrency contract).
-     */
-    internal suspend fun execute(call: ToolCall, context: ToolContext): ToolExecutionResult {
-        val tool = byName[call.name]
-            ?: return ToolExecutionResult(
-                content = "Tool '${call.name}' not found. Available: ${byName.keys.joinToString()}",
-                isError = true,
-            )
+    override suspend fun dispatch(
+        name: String,
+        arguments: JsonElement,
+        context: ToolContext
+    ): ToolExecutionResult {
+        val tool = byName[name]
+            ?: return ToolExecutionResult.error("Tool '${name}' not found. Available: ${byName.keys.joinToString()}")
         return try {
-            tool.execute(call.arguments, context)
+            tool.execute(arguments, context)
         } catch (t: CancellationException) {
             throw t
         } catch (t: Throwable) {
-            Logging.agent().warn("Tool execute error: $call", t)
-            ToolExecutionResult(content = "Tool error: ${t.message}", isError = true)
+            val message = "Tool execute error: name=${name}, arguments=$arguments"
+            Logging.agent().warn(message, t)
+            ToolExecutionResult.error("$message ${t.message}")
         }
     }
 

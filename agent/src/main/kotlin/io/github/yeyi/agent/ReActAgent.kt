@@ -151,7 +151,11 @@ public class ReActAgent internal constructor(
                     } else {
                         emit(AgentEvent.ToolCallStart(call.id, call.name))
                         val startMs = System.currentTimeMillis()
-                        val raw = toolRegistry.execute(call, ToolContext(call.id, context))
+                        val raw = toolRegistry.dispatch(
+                            call.name,
+                            call.arguments,
+                            ToolContext(call.id, context)
+                        )
                         val durMs = System.currentTimeMillis() - startMs
                         val final =
                             hook.safeInvoke { afterToolCall(context, call, raw, durMs) } ?: raw

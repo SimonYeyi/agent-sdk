@@ -74,13 +74,9 @@ internal class DefaultDeliveryRouter : DeliveryRouter {
                 retryable = false
             )
 
+        log.info("Sending $message")
         val result = adapter.sendMessage(message)
-
-        if (result is SendResult.Failure) {
-            log.warn(result.error + "\n $message")
-        } else {
-            log.info("Sent $message")
-        }
+        log.info(result.toString())
 
         _deliveryResults.emit(platform to result)
         return result

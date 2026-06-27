@@ -28,7 +28,7 @@ internal class CallMcpTool(private val registry: McpRegistry) : Tool {
                     "properties": {
                         "name": {
                             "type": "string",
-                            "description": "Target tool name from the MCP Server (for example: get_weather)."
+                            "description": "Target tool name from the MCP (for example: get_weather)."
                         },
                         "arguments": {
                             "type": "object",
@@ -56,8 +56,6 @@ internal class CallMcpTool(private val registry: McpRegistry) : Tool {
 
         val params = requireNotNull(argsObj["params"]) { "Missing params" }
 
-        val content = registry.toolsCall(mcpName, params)
-
-        return ToolExecutionResult(content = content)
+        return registry.dispatch(mcpName, params, context)
     }
 }
