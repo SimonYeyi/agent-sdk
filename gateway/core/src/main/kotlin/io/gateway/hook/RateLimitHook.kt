@@ -3,6 +3,7 @@ package io.gateway.hook
 import io.gateway.api.HookPipeline
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -17,7 +18,11 @@ public class RateLimitHook(
 
     override val name: String = "rate-limit"
 
-    override val events: Set<HookPipeline.Event> = setOf(HookPipeline.Event.BEFORE_VALIDATE)
+    override val events: Set<HookPipeline.Event> = setOf(
+        HookPipeline.Event.BEFORE_VALIDATE,
+        HookPipeline.Event.ON_START,
+        HookPipeline.Event.ON_STOP
+    )
 
     override val priority: Int = 20
 
@@ -26,9 +31,11 @@ public class RateLimitHook(
     private val mutex = Mutex()
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var cleanupJob: Job? = null
 
-    init {
-        scope.launch {
+    private fun startCleanupJob() {
+        cleanupJob?.cancel()
+        cleanupJob = scope.launch {
             while (true) {
                 kotlinx.coroutines.delay(cleanupIntervalMs)
                 cleanupStaleEntries()
@@ -62,30 +69,44 @@ public class RateLimitHook(
     }
 
     override suspend fun execute(context: HookPipeline.Context): HookPipeline.Result {
-        val message = context.message ?: return HookPipeline.Result.Continue
-        val sessionKey = message.source.sessionKey()
-        val now = Clock.System.now().toEpochMilliseconds()
-
-        mutex.withLock {
-            val minuteList = minuteTimestamps.getOrPut(sessionKey) { mutableListOf() }
-            val hourList = hourTimestamps.getOrPut(sessionKey) { mutableListOf() }
-
-            val oneMinuteAgo = now - 60_000
-            val oneHourAgo = now - 3_600_000
-
-            minuteList.removeAll { it < oneMinuteAgo }
-            hourList.removeAll { it < oneHourAgo }
-
-            if (minuteList.size >= maxMessagesPerMinute) {
-                return HookPipeline.Result.Halt("Rate limit exceeded: $maxMessagesPerMinute/minute")
+        when (context.event) {
+            HookPipeline.Event.ON_START -> {
+                startCleanupJob()
             }
 
-            if (hourList.size >= maxMessagesPerHour) {
-                return HookPipeline.Result.Halt("Rate limit exceeded: $maxMessagesPerHour/hour")
+            HookPipeline.Event.ON_STOP -> {
+                cleanupJob?.cancel()
             }
 
-            minuteList.add(now)
-            hourList.add(now)
+            HookPipeline.Event.BEFORE_VALIDATE -> {
+                val message = context.message ?: return HookPipeline.Result.Continue
+                val sessionKey = message.source.sessionKey()
+                val now = Clock.System.now().toEpochMilliseconds()
+
+                mutex.withLock {
+                    val minuteList = minuteTimestamps.getOrPut(sessionKey) { mutableListOf() }
+                    val hourList = hourTimestamps.getOrPut(sessionKey) { mutableListOf() }
+
+                    val oneMinuteAgo = now - 60_000
+                    val oneHourAgo = now - 3_600_000
+
+                    minuteList.removeAll { it < oneMinuteAgo }
+                    hourList.removeAll { it < oneHourAgo }
+
+                    if (minuteList.size >= maxMessagesPerMinute) {
+                        return HookPipeline.Result.Halt("Rate limit exceeded: $maxMessagesPerMinute/minute")
+                    }
+
+                    if (hourList.size >= maxMessagesPerHour) {
+                        return HookPipeline.Result.Halt("Rate limit exceeded: $maxMessagesPerHour/hour")
+                    }
+
+                    minuteList.add(now)
+                    hourList.add(now)
+                }
+            }
+
+            else -> {}
         }
 
         return HookPipeline.Result.Continue
