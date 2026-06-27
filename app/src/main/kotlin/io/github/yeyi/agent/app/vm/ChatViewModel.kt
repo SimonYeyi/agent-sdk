@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.app.demo.DemoAgentFactory
 import io.github.yeyi.agent.memory.Memory
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,18 +15,9 @@ import kotlinx.coroutines.launch
 
 enum class RunMode { STREAM, BATCH }
 
-/**
- * UI 渲染时拼接在 [_messages] 末尾的瞬时态——仅在 STREAM 模式累积阶段存在。
- *
- * @param id VM 计数器分配的唯一 LazyColumn key,Final 提交的 [UiMessage.Assistant]
- *   沿用,保证 LazyColumn 把 live → committed 视为同 item 的内容变化,无视觉跳动。
- */
 data class LiveBubble(val id: String, val text: String)
 
-class ChatViewModel(
-    private val agentFactory: () -> Agent,
-    private val memory: Memory? = null,
-) : ViewModel() {
+class ChatViewModel : ViewModel() {
 
     private val _mode = MutableStateFlow(RunMode.STREAM)
     val mode: StateFlow<RunMode> = _mode.asStateFlow()
@@ -41,18 +33,15 @@ class ChatViewModel(
 
     private val inProgressByCallId = mutableMapOf<String, UiMessage.ToolInProgress>()
 
-    private var agent: Agent = agentFactory()
+    private var memory: Memory = io.github.yeyi.agent.memory.InMemoryMemory()
+    private var agent: Agent = DemoAgentFactory.create(memory = memory)
 
     init {
-        memory?.let { mem ->
-            viewModelScope.launch {
-                reloadMessages(mem)
-            }
-        }
+        viewModelScope.launch { reloadMessages() }
     }
 
-    private suspend fun reloadMessages(mem: Memory) {
-        val history = mem.history()
+    private suspend fun reloadMessages() {
+        val history = memory.history()
         _messages.value = history
             .filter { msg ->
                 msg is ChatMessage.User ||
@@ -86,7 +75,8 @@ class ChatViewModel(
         _messages.value = emptyList()
         _liveBubble.value = null
         inProgressByCallId.clear()
-        agent = agentFactory()
+        memory = io.github.yeyi.agent.memory.InMemoryMemory()
+        agent = DemoAgentFactory.create(memory = memory)
     }
 
     /**
@@ -166,24 +156,8 @@ class ChatViewModel(
                 // 等待压缩完成
             }
             is AgentEvent.MemoryCompressed -> {
-                // 记忆压缩完成后，从 Memory 重新加载消息以保持同步
-                memory?.let { mem ->
-                    viewModelScope.launch { reloadMessages(mem) }
-                }
+                viewModelScope.launch { reloadMessages() }
             }
         }
-    }
-}
-
-class ChatViewModelFactory(
-    private val agentFactory: () -> Agent,
-    private val memory: Memory? = null,
-) : androidx.lifecycle.ViewModelProvider.Factory {
-    override fun <T : androidx.lifecycle.ViewModel> create(modelClass: Class<T>): T {
-        require(modelClass.isAssignableFrom(ChatViewModel::class.java)) {
-            "Unknown ViewModel class: ${modelClass.name}"
-        }
-        @Suppress("UNCHECKED_CAST")
-        return ChatViewModel(agentFactory, memory) as T
     }
 }
