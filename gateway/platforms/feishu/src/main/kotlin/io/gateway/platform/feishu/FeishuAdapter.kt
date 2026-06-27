@@ -1,6 +1,7 @@
 package io.gateway.platform.feishu
 
 import com.google.gson.Gson
+import com.lark.oapi.core.token.AccessTokenType
 import com.lark.oapi.core.enums.BaseUrlEnum
 import com.lark.oapi.event.EventDispatcher
 import com.lark.oapi.service.im.ImService
@@ -129,9 +130,12 @@ public class FeishuAdapter(
                     wsClient!!.start()
                 } catch (e: Exception) {
                     log.error("WebSocket disconnected", e)
-                    stateHandler?.invoke(ConnectionState.DISCONNECTED)
+                    disconnect()
                 }
             }
+
+            // 获取机器人身份
+            resolveBotIdentity()
 
             return ConnectResult.Success(PlatformId.FEISHU)
         } catch (e: Exception) {
@@ -405,16 +409,57 @@ public class FeishuAdapter(
     /**
      * 发送 ACK 表情反应
      */
-    private suspend fun sendAckReaction(messageId: String) {
+    private fun sendAckReaction(messageId: String) {
         if (messageId.isEmpty()) return
         if (pendingReactions.containsKey(messageId)) return
 
+        coroutineScope.launch {
+            try {
+                val payload = mapOf(
+                    "reaction_type" to mapOf("emoji_type" to config.ackEmoji)
+                )
+                val response = apiClient!!.post(
+                    "/open-apis/im/v1/messages/$messageId/reactions",
+                    payload,
+                    AccessTokenType.App
+                )
+                val json = Gson().fromJson(String(response.body), Map::class.java)
+                val code = (json as? Map<String, Any>)?.get("code") as? Double ?: -1.0
+                if (code == 0.0) {
+                    val reactionId = ((json as? Map<String, Any>)?.get("data") as? Map<String, Any>)
+                        ?.get("reaction_id") as? String ?: ""
+                    if (reactionId.isNotEmpty()) {
+                        pendingReactions[messageId] = reactionId
+                        log.debug("ACK reaction sent for message: $messageId")
+                    }
+                } else {
+                    log.warn("ACK reaction rejected: code=$code")
+                }
+            } catch (e: Exception) {
+                log.debug("ACK reaction error: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * 获取机器人身份
+     */
+    private fun resolveBotIdentity() {
         try {
-            // 简化处理：记录即可（完整的 reaction API 需要额外实现）
-            pendingReactions[messageId] = messageId
-            log.debug("ACK reaction sent for message: $messageId")
+            val response = apiClient!!.get(
+                "/open-apis/bot/v3/info",
+                null,
+                AccessTokenType.App
+            )
+            val json = Gson().fromJson(String(response.body), Map::class.java)
+            val data = (json as? Map<String, Any>)?.get("bot") as? Map<String, Any>
+            if (data != null) {
+                botOpenId = data["open_id"] as? String ?: ""
+                botName = data["app_name"] as? String ?: "Bot"
+                log.info("Bot identity: $botName ($botOpenId)")
+            }
         } catch (e: Exception) {
-            log.debug("ACK reaction error: ${e.message}")
+            log.warn("Failed to resolve bot identity", e)
         }
     }
 
@@ -744,4 +789,79 @@ public class FeishuAdapter(
 
     public fun getBotOpenId(): String = botOpenId
     public fun getBotName(): String = botName
+
+    /*
+    *
+    // botOpenId 这个字段需要获取，逻辑中需要使用，请参考下方实现
+    private suspend fun _resolveBotIdentity(): Boolean = withContext(Dispatchers.IO) {
+        try {
+            _ensureAccessToken()
+            val request = Request.Builder()
+                .url("$_domain/open-apis/bot/v3/info")
+                .header("Authorization", "Bearer $_accessToken")
+                .get()
+                .build()
+
+            _httpClient.newCall(request).execute().use { resp ->
+                if (!resp.isSuccessful) return@withContext false
+                val data = JSONObject(resp.body!!.string())
+                if (data.optInt("code", -1) != 0) return@withContext false
+                val bot = data.optJSONObject("bot") ?: return@withContext false
+                _botUserId = bot.optString("open_id", "")
+                _botUserName = bot.optString("name", "Bot")
+                Log.i(_TAG, "Bot identity: $_botUserName ($_botUserId)")
+                return@withContext true
+            }
+        } catch (e: Exception) {
+            Log.w(_TAG, "Failed to resolve bot identity: ${e.message}")
+            return@withContext false
+        }
+    }
+    *
+    * */
+
+    /*
+    *
+    // sendAckReaction这个方法没有实现完整，请参考下方实现。
+    rivate fun _sendAckReactionAsync(messageId: String) {
+        if (messageId.isEmpty()) return
+        if (_pendingReactions.containsKey(messageId)) return
+        scope.launch {
+            try {
+                _ensureAccessToken()
+                val payload = JSONObject().apply {
+                    put("reaction_type", JSONObject().apply {
+                        put("emoji_type", _ackEmoji)
+                    })
+                }
+                val body = payload.toString()
+                    .toRequestBody("application/json; charset=utf-8".toMediaType())
+                val request = Request.Builder()
+                    .url("$_domain/open-apis/im/v1/messages/$messageId/reactions")
+                    .header("Authorization", "Bearer $_accessToken")
+                    .post(body)
+                    .build()
+                _httpClient.newCall(request).execute().use { resp ->
+                    if (!resp.isSuccessful) {
+                        Log.w(_TAG, "ACK reaction failed: HTTP ${resp.code}")
+                        return@use
+                    }
+                    val bodyText = resp.body?.string() ?: return@use
+                    val json = try { JSONObject(bodyText) } catch (_: Exception) { return@use }
+                    val code = json.optInt("code", -1)
+                    if (code != 0) {
+                        Log.w(_TAG, "ACK reaction rejected: code=$code msg=${json.optString("msg")}")
+                        return@use
+                    }
+                    val reactionId = json.optJSONObject("data")?.optString("reaction_id", "").orEmpty()
+                    if (reactionId.isNotEmpty()) {
+                        _pendingReactions[messageId] = reactionId
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w(_TAG, "ACK reaction error: ${e.message}")
+            }
+        }
+    }
+    * */
 }
