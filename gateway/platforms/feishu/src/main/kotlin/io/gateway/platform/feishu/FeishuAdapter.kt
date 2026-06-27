@@ -55,8 +55,9 @@ public class FeishuAdapter(
     private var stateHandler: ((ConnectionState) -> Unit)? = null
     private var errorHandler: ((PlatformError) -> Unit)? = null
 
-    private lateinit var apiClient: com.lark.oapi.Client
-    private lateinit var deduplicator: MessageDeduplicator
+    private var deduplicator: MessageDeduplicator? = null
+    private var apiClient: com.lark.oapi.Client? = null
+    private var wsClient: Client? = null
 
     private val gson = Gson()
 
@@ -115,7 +116,7 @@ public class FeishuAdapter(
             stateHandler?.invoke(ConnectionState.CONNECTING)
 
             // 创建并启动 WebSocket 客户端
-            val wsClient = Client.Builder(config.appId, config.appSecret)
+            wsClient = Client.Builder(config.appId, config.appSecret)
                 .domain(BaseUrlEnum.FeiShu.url)
                 .eventHandler(eventDispatcher)
                 .build()
@@ -125,7 +126,7 @@ public class FeishuAdapter(
             // 在协程中启动 WebSocket 客户端
             coroutineScope.launch(Dispatchers.IO) {
                 try {
-                    wsClient.start()
+                    wsClient!!.start()
                 } catch (e: Exception) {
                     log.error("WebSocket disconnected", e)
                     stateHandler?.invoke(ConnectionState.DISCONNECTED)
@@ -143,6 +144,13 @@ public class FeishuAdapter(
     }
 
     override suspend fun disconnect() {
+        // 清理资源
+        deduplicator = null
+        wsClient?.close()
+        wsClient = null
+        apiClient = null
+        pendingReactions.clear()
+
         _connectionState = ConnectionState.DISCONNECTED
         stateHandler?.invoke(ConnectionState.DISCONNECTED)
     }
@@ -229,7 +237,7 @@ public class FeishuAdapter(
                 )
                 .build()
 
-            val response = apiClient.im().message().create(request)
+            val response = apiClient!!.im().message().create(request)
 
             if (response.code == 0) {
                 SendResult.Success(
@@ -271,7 +279,7 @@ public class FeishuAdapter(
                 )
                 .build()
 
-            val response = apiClient.im().message().update(request)
+            val response = apiClient!!.im().message().update(request)
 
             if (response.code == 0) {
                 SendResult.Success(
@@ -300,7 +308,7 @@ public class FeishuAdapter(
                 .messageId(messageId)
                 .build()
 
-            val response = apiClient.im().message().delete(request)
+            val response = apiClient!!.im().message().delete(request)
             response.code == 0
         } catch (e: Exception) {
             log.warn("Failed to delete message $messageId", e)
@@ -321,7 +329,7 @@ public class FeishuAdapter(
                 val message = parseSdkEvent(event) ?: return@launch
 
                 // 去重检查
-                if (deduplicator.isDuplicate(message.id.value)) {
+                if (deduplicator!!.isDuplicate(message.id.value)) {
                     log.info("Duplicate message dropped: ${message.id.value}")
                     return@launch
                 }
