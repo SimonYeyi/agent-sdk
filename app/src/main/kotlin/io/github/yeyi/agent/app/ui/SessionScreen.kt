@@ -191,25 +191,26 @@ private fun ChatArea(
         else uiState.messages + UiMessage.Assistant(live.text, id = live.id)
     }
 
-    // 检测是否在底部附近
-    val isAtBottom = remember(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, displayItems.size) {
-        listState.firstVisibleItemIndex >= displayItems.size - 2
-    }
-
-    // 记录触发加载时用户是否在底部
-    var wasAtBottomBeforeLoad by remember { mutableStateOf(true) }
+    // 标记是否触发了加载更多（用于区分初始加载和加载更多完成）
+    var loadMoreTriggered by remember { mutableStateOf(false) }
 
     // 下拉加载更多：滚动到顶部时触发
     LaunchedEffect(listState.firstVisibleItemIndex) {
         if (listState.firstVisibleItemIndex == 0 && uiState.hasMorePages && !uiState.isLoadingMore && displayItems.isNotEmpty()) {
-            wasAtBottomBeforeLoad = isAtBottom
+            loadMoreTriggered = true
             onLoadMore()
         }
     }
 
-    // 新消息或流式更新时，滚动到底部显示最新内容（仅当用户原本在底部时才滚动）
-    LaunchedEffect(uiState.liveBubble?.text, displayItems.size, uiState.isToolExecutionPending, uiState.isLoadingMore) {
-        if (displayItems.isNotEmpty() && wasAtBottomBeforeLoad && !uiState.isLoadingMore) {
+    // 会话切换或新消息时滚动到底部（加载更多完成时保持位置）
+    val currentSessionId = uiState.currentSession?.id
+    LaunchedEffect(currentSessionId, uiState.liveBubble?.text, displayItems.size, uiState.isToolExecutionPending, uiState.isLoadingMore) {
+        if (displayItems.isNotEmpty()) {
+            // 加载更多完成后（isLoadingMore: true → false）不滚动，保持在当前位置
+            if (loadMoreTriggered) {
+                loadMoreTriggered = false
+                return@LaunchedEffect
+            }
             val lastIndex = if (uiState.isToolExecutionPending) displayItems.size else displayItems.size - 1
             listState.scrollToItem(lastIndex, Int.MAX_VALUE)
         }
