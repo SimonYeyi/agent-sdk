@@ -8,16 +8,9 @@ import com.lark.oapi.service.im.v1.model.P2MessageReceiveV1
 import com.lark.oapi.service.im.v1.model.P2MessageReactionCreatedV1
 import com.lark.oapi.ws.Client
 import io.gateway.api.PlatformAdapter
-import io.gateway.model.ChatType
 import io.gateway.model.ConnectionState
 import io.gateway.model.ConnectResult
 import io.gateway.model.IncomingMessage
-import io.gateway.model.Mention
-import io.gateway.model.MessageContent
-import io.gateway.model.MessageId
-import io.gateway.model.MessageMetadata
-import io.gateway.model.MessageSource
-import io.gateway.model.OutgoingContent
 import io.gateway.model.OutgoingMessage
 import io.gateway.model.PlatformError
 import io.gateway.model.PlatformId
@@ -55,15 +48,16 @@ public class FeishuAdapter(
 
     private val gson = Gson()
 
+    private lateinit var messageParser: FeishuMessageParser
+    private lateinit var messageFormatter: FeishuMessageFormatter
+    private lateinit var messageFilter: FeishuMessageFilter
+
     // 机器人身份
     private var botOpenId: String = ""
     private var botName: String = ""
 
     // 待处理反应的消息ID映射
     private val pendingReactions = ConcurrentHashMap<String, String>()
-
-    // 最大消息长度
-    private val maxMessageLength = 30000
 
     override fun onMessageReceived(handler: (IncomingMessage) -> Unit) {
         this.messageHandler = handler
@@ -81,6 +75,11 @@ public class FeishuAdapter(
         deduplicator = MessageDeduplicator(maxSize = 5000)
 
         try {
+            // 初始化组件
+            messageParser = FeishuMessageParser(gson)
+            messageFormatter = FeishuMessageFormatter(gson)
+            messageFilter = FeishuMessageFilter(config, deduplicator!!)
+
             // 创建 API 客户端
             feishuApi = FeishuApiClient(config.appId, config.appSecret, gson)
 
@@ -151,9 +150,8 @@ public class FeishuAdapter(
 
     override suspend fun sendMessage(message: OutgoingMessage): SendResult {
         return try {
-            // 分块长消息
-            val textContent = extractTextFromContent(message.content)
-            val chunks = splitMessage(textContent, maxMessageLength)
+            val textContent = messageFormatter.extractTextFromContent(message.content)
+            val chunks = messageFormatter.splitMessage(textContent)
             var lastMessageId: String? = null
 
             for (chunk in chunks) {
@@ -164,7 +162,6 @@ public class FeishuAdapter(
                     }
 
                     is SendResult.Failure -> {
-                        // 重试一次
                         if (message.replyToMessageId != null) {
                             val retryResult = sendSingleMessage(message.chatId, chunk, null)
                             when (retryResult) {
@@ -192,33 +189,12 @@ public class FeishuAdapter(
         }
     }
 
-    private fun extractTextFromContent(content: OutgoingContent): String {
-        return when (content) {
-            is OutgoingContent.Text -> content.text
-            is OutgoingContent.Image -> "[Image]"
-            is OutgoingContent.Audio -> "[Audio]"
-            is OutgoingContent.Document -> content.fileName
-        }
-    }
-
     private suspend fun sendSingleMessage(
         chatId: String,
         content: String,
         replyTo: String?
     ): SendResult {
-        // 检测是否包含 Markdown 格式
-        val isMarkdown = containsMarkdown(content)
-        val (msgType, contentJson) = if (isMarkdown) {
-            "post" to buildMarkdownPostContent(content)
-        } else {
-            val escaped = content
-                .replace("\\", "\\\\")
-                .replace("\"", "\\\"")
-                .replace("\n", "\\n")
-                .replace("\r", "\\r")
-            "text" to """{"text":"$escaped"}"""
-        }
-
+        val (msgType, contentJson) = messageFormatter.formatOutgoingMessage(content)
         return feishuApi!!.sendMessage(chatId, msgType, contentJson, replyTo)
     }
 
@@ -239,7 +215,6 @@ public class FeishuAdapter(
     }
 
     override suspend fun onProcessingStart(messageId: String) {
-        // 发送 ACK 表情
         if (config.sendAckReaction) {
             sendAckReaction(messageId)
         }
@@ -260,29 +235,12 @@ public class FeishuAdapter(
     // 内部方法
     // ========================================================================
 
-    /**
-     * 处理消息事件
-     */
     private fun handleMessageEvent(event: P2MessageReceiveV1) {
         coroutineScope.launch {
             try {
-                val message = parseSdkEvent(event) ?: return@launch
+                val message = messageParser.parseSdkEvent(event) ?: return@launch
 
-                // 去重检查
-                if (deduplicator!!.isDuplicate(message.id.value)) {
-                    log.info("Duplicate message dropped: ${message.id.value}")
-                    return@launch
-                }
-
-                // Allowlist 检查
-                if (config.allowedUsers.isNotEmpty() && message.source.userId !in config.allowedUsers) {
-                    log.info("User not in allowlist (message rejected): ${message.source.userId}")
-                    return@launch
-                }
-
-                // Allowlist 检查 - 聊天白名单
-                if (config.allowedChats.isNotEmpty() && message.source.chatId !in config.allowedChats) {
-                    log.info("Chat not in allowlist (message rejected): ${message.source.chatId}")
+                if (!messageFilter.shouldProcess(message)) {
                     return@launch
                 }
 
@@ -293,9 +251,6 @@ public class FeishuAdapter(
         }
     }
 
-    /**
-     * 处理反应事件
-     */
     private fun handleReactionEvent(event: P2MessageReactionCreatedV1) {
         coroutineScope.launch {
             try {
@@ -304,42 +259,21 @@ public class FeishuAdapter(
                 val messageId = eventData.messageId ?: return@launch
                 val operatorId = eventData.userId?.openId ?: return@launch
 
-                // 忽略机器人自己的反应
                 if (operatorId == botOpenId) return@launch
 
-                // 路由为合成命令事件
-                val source = MessageSource(
-                    platform = PlatformId.FEISHU,
-                    chatId = "",
-                    chatType = ChatType.GROUP,
-                    userId = operatorId,
-                    chatName = null,
-                    userName = null,
-                    threadId = null
+                val commandMessage = messageParser.buildReactionCommand(
+                    emojiType = emojiType,
+                    messageId = messageId,
+                    operatorId = operatorId
                 )
 
-                val content = MessageContent.Command(
-                    command = "/reaction",
-                    args = listOf(emojiType, messageId)
-                )
-
-                val incomingMessage = IncomingMessage(
-                    id = MessageId(messageId),
-                    source = source,
-                    content = content,
-                    metadata = MessageMetadata()
-                )
-
-                messageHandler?.invoke(incomingMessage)
+                messageHandler?.invoke(commandMessage)
             } catch (e: Exception) {
                 log.warn("Error handling reaction event", e)
             }
         }
     }
 
-    /**
-     * 发送 ACK 表情反应
-     */
     private fun sendAckReaction(messageId: String) {
         if (messageId.isEmpty()) return
         if (pendingReactions.containsKey(messageId)) return
@@ -358,298 +292,6 @@ public class FeishuAdapter(
             botName = botInfo.name
             log.info("Bot identity: $botName ($botOpenId)")
         }
-    }
-
-    private fun parseSdkEvent(event: P2MessageReceiveV1): IncomingMessage? {
-        try {
-            val sdkMessage = event.event?.message ?: return null
-
-            val messageId = sdkMessage.messageId ?: return null
-            val chatId = sdkMessage.chatId ?: return null
-            val chatType = when (sdkMessage.chatType) {
-                "p2p" -> ChatType.DIRECT_MESSAGE
-                "group" -> ChatType.GROUP
-                else -> ChatType.GROUP
-            }
-
-            val messageType = sdkMessage.messageType ?: "text"
-            val contentStr = sdkMessage.content ?: "{}"
-            val content = parseContent(messageType, contentStr)
-
-            val mentions = parseMentions(contentStr)
-
-            // 从 sender 获取用户信息 - 使用反射获取 sender_id
-            val userId = event.event?.sender?.senderId?.openId
-                ?: event.event?.sender?.senderId?.userId
-                ?: event.event?.sender?.senderId?.unionId
-                ?: "unknown"
-
-            val source = MessageSource(
-                platform = PlatformId.FEISHU,
-                chatId = chatId,
-                chatType = chatType,
-                userId = userId,
-                chatName = null,
-                userName = userId,
-                threadId = sdkMessage.threadId?.takeIf { it.isNotBlank() }
-            )
-
-            val metadata = MessageMetadata(mentions = mentions)
-
-            return IncomingMessage(
-                id = MessageId(messageId),
-                source = source,
-                content = content,
-                metadata = metadata
-            )
-        } catch (e: Exception) {
-            log.warn("Failed to parse SDK event", e)
-            return null
-        }
-    }
-
-    private fun parseContent(messageType: String, contentStr: String): MessageContent {
-        return try {
-            @Suppress("UNCHECKED_CAST")
-            val contentJson = gson.fromJson(contentStr, Map::class.java) as? Map<String, Any>
-                ?: return MessageContent.Unknown(rawContent = contentStr)
-
-            when (messageType) {
-                "text" -> {
-                    val text = contentJson["text"] as? String ?: ""
-                    MessageContent.Text(text)
-                }
-
-                "image" -> {
-                    val imageKey = contentJson["image_key"] as? String ?: ""
-                    MessageContent.Image(urls = listOf(imageKey))
-                }
-
-                "audio" -> {
-                    val fileKey = contentJson["file_key"] as? String ?: ""
-                    MessageContent.Audio(url = fileKey)
-                }
-
-                "video" -> {
-                    val fileKey = contentJson["file_key"] as? String ?: ""
-                    MessageContent.Video(url = fileKey)
-                }
-
-                "file" -> {
-                    val fileKey = contentJson["file_key"] as? String ?: ""
-                    val fileName = contentJson["file_name"] as? String ?: ""
-                    MessageContent.Document(url = fileKey, fileName = fileName)
-                }
-
-                "post" -> {
-                    val text = extractPostText(contentJson)
-                    MessageContent.Text(text)
-                }
-
-                "interactive" -> {
-                    val text = extractCardText(contentStr)
-                    MessageContent.SystemEvent(
-                        eventType = "card_interaction",
-                        data = mapOf("raw" to contentStr, "text" to text)
-                    )
-                }
-
-                "sticker" -> {
-                    val fileKey = contentJson["file_key"] as? String ?: ""
-                    MessageContent.Image(urls = listOf(fileKey))
-                }
-
-                "media" -> {
-                    val fileKey = contentJson["file_key"] as? String ?: ""
-                    MessageContent.Video(url = fileKey)
-                }
-
-                else -> MessageContent.Unknown(rawContent = contentStr)
-            }
-        } catch (e: Exception) {
-            log.debug("Failed to parse content for type $messageType", e)
-            MessageContent.Unknown(rawContent = contentStr)
-        }
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun extractPostText(contentJson: Map<String, Any>): String {
-        val lines = mutableListOf<String>()
-
-        val content = contentJson["content"] as? List<Any> ?: return ""
-        for (lineArray in content) {
-            val lineParts = mutableListOf<String>()
-            val elements = lineArray as? List<Map<String, Any>> ?: continue
-
-            for (element in elements) {
-                when (element["tag"] as? String) {
-                    "text" -> lineParts.add(element["text"] as? String ?: "")
-                    "a" -> lineParts.add(element["text"] as? String ?: "")
-                    "at" -> lineParts.add("@${element["user_name"] as? String ?: ""}")
-                    "img" -> lineParts.add("[图片]")
-                    "media" -> lineParts.add("[媒体]")
-                    "emotion" -> lineParts.add(element["emoji_type"] as? String ?: "")
-                }
-            }
-            if (lineParts.isNotEmpty()) {
-                lines.add(lineParts.joinToString(""))
-            }
-        }
-
-        return lines.joinToString("\n")
-    }
-
-    private fun extractCardText(contentStr: String): String {
-        return try {
-            @Suppress("UNCHECKED_CAST")
-            val contentJson = gson.fromJson(contentStr, Map::class.java) as? Map<String, Any>
-                ?: return ""
-
-            val lines = mutableListOf<String>()
-            val elements = contentJson["elements"] as? List<Map<String, Any>> ?: return ""
-
-            for (elem in elements) {
-                when (elem["tag"] as? String) {
-                    "markdown" -> lines.add(elem["content"] as? String ?: "")
-                    "div" -> {
-                        val text = elem["text"] as? Map<String, Any>
-                        lines.add(text?.get("content") as? String ?: "")
-                    }
-
-                    "action" -> {
-                        val actions = elem["actions"] as? List<Map<String, Any>>
-                        actions?.forEach { action ->
-                            val text = action["text"] as? String
-                            if (!text.isNullOrBlank()) {
-                                lines.add("[$text]")
-                            }
-                        }
-                    }
-                }
-            }
-
-            lines.joinToString("\n")
-        } catch (e: Exception) {
-            ""
-        }
-    }
-
-    @Suppress("UNCHECKED_CAST")
-    private fun parseMentions(contentStr: String): List<Mention> {
-        return try {
-            @Suppress("UNCHECKED_CAST")
-            val contentJson = gson.fromJson(contentStr, Map::class.java) as? Map<String, Any>
-                ?: return emptyList()
-            val mentionsArray =
-                contentJson["mentions"] as? List<Map<String, Any>> ?: return emptyList()
-            mentionsArray.mapNotNull { mention ->
-                val id = mention["id"] as? String
-                Mention(
-                    userId = id ?: return@mapNotNull null,
-                    userName = mention["name"] as? String,
-                    key = mention["key"] as? String
-                )
-            }
-        } catch (e: Exception) {
-            emptyList()
-        }
-    }
-
-    /**
-     * 检测内容是否包含 Markdown 格式
-     */
-    private fun containsMarkdown(content: String): Boolean {
-        val markdownPatterns = listOf(
-            Regex("^#{1,6}\\s", RegexOption.MULTILINE),
-            Regex("^\\s*[-*]\\s", RegexOption.MULTILINE),
-            Regex("```"),
-            Regex("`[^`]+`"),
-            Regex("\\*\\*[^*]+"),
-            Regex("~~[^~]+"),
-            Regex("\\[[^\\]]+\\]\\([^)]+\\)"),
-            Regex("^>\\s", RegexOption.MULTILINE)
-        )
-        return markdownPatterns.any { it.containsMatchIn(content) }
-    }
-
-    /**
-     * 构建 Markdown 富文本内容
-     */
-    private fun buildMarkdownPostContent(content: String): String {
-        // 飞书 post 格式: content 是二维数组，每行是一个对象数组
-        val rows = mutableListOf<List<Map<String, String>>>()
-        val lines = content.split("\n")
-
-        for (line in lines) {
-            // 检测行内是否包含 Markdown 格式
-            val tag = if (containsInlineMarkdown(line)) "md" else "text"
-            rows.add(listOf(mapOf("tag" to tag, "text" to line)))
-        }
-
-        val outer = mutableMapOf<String, Any>()
-        outer["zh_cn"] = mapOf("title" to "", "content" to rows)
-
-        return gson.toJson(outer)
-    }
-
-    /**
-     * 检测行内是否包含 Markdown 格式（用于决定使用 md 还是 text tag）
-     */
-    private fun containsInlineMarkdown(line: String): Boolean {
-        // 检测行首列表标记（需要用 md tag 让飞书渲染为列表）
-        val listPatterns = listOf(
-            Regex("^\\s*[-*+]\\s"),
-            Regex("^\\s*\\d+\\.\\s"),
-            Regex("^\\s*#+\\s"),
-        )
-        if (listPatterns.any { it.containsMatchIn(line) }) return true
-
-        val inlinePatterns = listOf(
-            Regex("```"),
-            Regex("`[^`]+`"),
-            Regex("\\*\\*[^*]+"),
-            Regex("\\*[^*]+\\*"),
-            Regex("~~[^~]+"),
-            Regex("\\[.+?]\\(.+?\\)")
-        )
-        return inlinePatterns.any { it.containsMatchIn(line) }
-    }
-
-    /**
-     * 分割长消息
-     */
-    private fun splitMessage(text: String, maxLength: Int): List<String> {
-        if (text.length <= maxLength) return listOf(text)
-
-        val chunks = mutableListOf<String>()
-        var remaining = text
-
-        while (remaining.isNotEmpty()) {
-            if (remaining.length <= maxLength) {
-                chunks.add(remaining)
-                break
-            }
-
-            // 尝试在换行符处分割
-            val splitAt = remaining.lastIndexOf('\n', maxLength)
-            if (splitAt > maxLength / 2) {
-                chunks.add(remaining.substring(0, splitAt))
-                remaining = remaining.substring(splitAt + 1)
-            } else {
-                // 在空格处分割
-                val spaceAt = remaining.lastIndexOf(' ', maxLength)
-                if (spaceAt > maxLength / 2) {
-                    chunks.add(remaining.substring(0, spaceAt))
-                    remaining = remaining.substring(spaceAt + 1)
-                } else {
-                    // 硬分割
-                    chunks.add(remaining.substring(0, maxLength))
-                    remaining = remaining.substring(maxLength)
-                }
-            }
-        }
-
-        return chunks
     }
 
     public fun getBotOpenId(): String = botOpenId
