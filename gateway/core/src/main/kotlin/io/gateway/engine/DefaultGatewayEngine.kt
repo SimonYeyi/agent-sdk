@@ -196,6 +196,8 @@ internal class DefaultGatewayEngine(
             else -> message
         }
 
+        onProcessingCallback(actualMessage, null)
+
         getSessionMutex(sessionKey).withLock {
             val session = sessionManager.getOrCreateSession(actualMessage.source)
 
@@ -209,10 +211,12 @@ internal class DefaultGatewayEngine(
 
             // 尝试获取全局并发槽
             if (!concurrencyController.acquire()) {
+                val errorMsg = "Concurrency limit reached, message dropped"
+                onProcessingCallback(actualMessage, AgentRunner.Result.Failure(errorMsg))
                 emitError(
                     platform = actualMessage.source.platform,
                     sessionKey = sessionKey,
-                    error = "Concurrency limit reached, message dropped"
+                    error = errorMsg
                 )
                 return
             }
@@ -222,30 +226,41 @@ internal class DefaultGatewayEngine(
             updateStats()
 
             val job = scope.launch {
-                try {
-                    processMessageSafely(actualMessage, session)
-                } catch (e: Exception) {
-                    if (e !is kotlinx.coroutines.CancellationException) {
-                        emitError(
-                            platform = actualMessage.source.platform,
-                            sessionKey = sessionKey,
-                            error = e.message ?: "Unknown error",
-                            throwable = e
-                        )
-                        totalErrors++
-                        updateStats()
-                    }
-                } finally {
-                    // 无论成功/失败/取消，都释放资源
-                    concurrencyController.release()
-                    sessionManager.markProcessingComplete(sessionKey)
-                    processingJobs.remove(sessionKey)
-                    updateStats()
-                    processPendingMessages(sessionKey)
-                }
+                val result = processMessageSafely(actualMessage, session)
+
+                onProcessingCallback(actualMessage, result)
+
+                // 无论成功/失败/取消，都释放资源
+                concurrencyController.release()
+                sessionManager.markProcessingComplete(sessionKey)
+                processingJobs.remove(sessionKey)
+                updateStats()
+                processPendingMessages(sessionKey)
             }
 
             processingJobs[sessionKey] = job
+        }
+    }
+
+    private suspend fun onProcessingCallback(
+        message: IncomingMessage,
+        result: AgentRunner.Result?
+    ) {
+        val adapter = adapters[message.source.platform]
+        try {
+            if (result == null) {
+                adapter?.onProcessingStart(message.id.value)
+            } else {
+                adapter?.onProcessingComplete(
+                    message.id.value,
+                    result is AgentRunner.Result.Success
+                )
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            val callbackName = "onProcessing${if (result == null) "Start" else "Complete"}"
+            log.warn("$adapter.${callbackName}} error: ${message.id}", e)
         }
     }
 
@@ -263,7 +278,10 @@ internal class DefaultGatewayEngine(
         }
     }
 
-    private suspend fun processMessageSafely(message: IncomingMessage, session: GatewaySession) {
+    private suspend fun processMessageSafely(
+        message: IncomingMessage,
+        session: GatewaySession
+    ): AgentRunner.Result {
         hookPipeline.run(
             HookPipeline.Event.AFTER_RECEIVE,
             HookPipeline.Context(
@@ -285,7 +303,7 @@ internal class DefaultGatewayEngine(
         )
 
         if (validateResult is HookPipeline.Result.Halt) {
-            return
+            return AgentRunner.Result.Failure("Validate failed.")
         }
 
         hookPipeline.run(
@@ -367,6 +385,8 @@ internal class DefaultGatewayEngine(
                 // 静默处理，不发送响应
             }
         }
+
+        return agentResult
     }
 
     private suspend fun sendResponse(

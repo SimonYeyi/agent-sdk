@@ -33,4 +33,8 @@ public interface PlatformAdapter {
     public fun onConnectionStateChanged(handler: (ConnectionState) -> Unit)
 
     public fun onError(handler: (PlatformError) -> Unit)
+
+    public suspend fun onProcessingStart(messageId: String)
+
+    public suspend fun onProcessingComplete(messageId: String, success: Boolean)
 }

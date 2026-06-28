@@ -144,4 +144,12 @@ public class TelegramAdapter(
             messageHandler?.invoke(message)
         }
     }
+
+    override suspend fun onProcessingStart(messageId: String) {
+        // Telegram暂无实现
+    }
+
+    override suspend fun onProcessingComplete(messageId: String, success: Boolean) {
+        // Telegram暂无实现
+    }
 }

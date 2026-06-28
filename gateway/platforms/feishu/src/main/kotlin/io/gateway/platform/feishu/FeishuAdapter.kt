@@ -351,11 +351,6 @@ public class FeishuAdapter(
                 }
 
                 messageHandler?.invoke(message)
-
-                // 发送 ACK 表情
-                if (config.sendAckReaction) {
-                    sendAckReaction(message.id.value)
-                }
             } catch (e: Exception) {
                 log.warn("Error handling message event", e)
             }
@@ -441,6 +436,10 @@ public class FeishuAdapter(
         }
     }
 
+    private fun removeAckReaction(messageId: String, reactionId: String) {
+
+    }
+
     /**
      * 获取机器人身份
      */
@@ -464,13 +463,21 @@ public class FeishuAdapter(
     }
 
     /**
+     * 处理消息开始
+     */
+    override suspend fun onProcessingStart(messageId: String) {
+        // 发送 ACK 表情
+        if (config.sendAckReaction) {
+            sendAckReaction(messageId)
+        }
+    }
+
+    /**
      * 处理消息处理完成
      */
-    public suspend fun onProcessingComplete(messageId: String, success: Boolean) {
-        pendingReactions.remove(messageId)
-        if (!success) {
-            log.debug("Message processing failed: $messageId")
-        }
+    override suspend fun onProcessingComplete(messageId: String, success: Boolean) {
+        val reactionId = pendingReactions.remove(messageId) ?: return
+        removeAckReaction(messageId, reactionId)
     }
 
     private fun parseSdkEvent(event: P2MessageReceiveV1): IncomingMessage? {

@@ -142,4 +142,12 @@ public class WeixinAdapter(
             messageHandler?.invoke(message)
         }
     }
+
+    override suspend fun onProcessingStart(messageId: String) {
+        // 微信暂无实现
+    }
+
+    override suspend fun onProcessingComplete(messageId: String, success: Boolean) {
+        // 微信暂无实现
+    }
 }
