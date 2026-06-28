@@ -123,6 +123,13 @@ internal class DefaultGatewayEngine(
     override suspend fun start() {
         if (isRunning) return
 
+        // 清除上次进程中断遗留的标记
+        sessionManager.getActiveSessions().forEach { session ->
+            if (session.isProcessing) {
+                sessionManager.markProcessingComplete(session.key)
+            }
+        }
+
         hookPipeline.run(
             HookPipeline.Event.ON_START,
             HookPipeline.Context(event = HookPipeline.Event.ON_START)
@@ -243,25 +250,25 @@ internal class DefaultGatewayEngine(
         }
     }
 
-    private suspend fun onProcessingCallback(
+    private fun onProcessingCallback(
         message: IncomingMessage,
         result: AgentRunner.Result?
     ) {
-        val adapter = adapters[message.source.platform]
-        try {
-            if (result == null) {
-                adapter?.onProcessingStart(message.id.value)
-            } else {
-                adapter?.onProcessingComplete(
-                    message.id.value,
-                    result is AgentRunner.Result.Success
-                )
+        scope.launch {
+            val adapter = adapters[message.source.platform]
+            try {
+                if (result == null) {
+                    adapter?.onProcessingStart(message.id.value)
+                } else {
+                    adapter?.onProcessingComplete(
+                        message.id.value,
+                        result is AgentRunner.Result.Success
+                    )
+                }
+            } catch (e: Exception) {
+                val callbackName = "onProcessing${if (result == null) "Start" else "Complete"}"
+                log.warn("$adapter.${callbackName}} error: ${message.id}", e)
             }
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            val callbackName = "onProcessing${if (result == null) "Start" else "Complete"}"
-            log.warn("$adapter.${callbackName}} error: ${message.id}", e)
         }
     }
 
@@ -337,8 +344,6 @@ internal class DefaultGatewayEngine(
 
         val agentResult = try {
             agentRunner.process(message = message, session = session)
-        } catch (e: kotlinx.coroutines.CancellationException) {
-            throw e
         } catch (e: Exception) {
             AgentRunner.Result.Failure(error = e.message ?: "Unknown error", exception = e)
         }
