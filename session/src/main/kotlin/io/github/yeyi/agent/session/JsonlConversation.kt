@@ -97,31 +97,33 @@ public class JsonlConversation(
      * val older = messages(2)      // 锚点未建立
      * ```
      */
-    override fun messages(page: Int?): List<ChatMessage> {
-        if (page == null) {
-            return conversationDir.listFiles()
-                ?.filter { it.name.startsWith("page") && it.name.endsWith(".jsonl") }
-                ?.sortedBy { it.name }
-                ?.flatMap { readMessages(it) }
-                ?: emptyList()
+    override suspend fun messages(page: Int?): List<ChatMessage> {
+        return withContext(Dispatchers.IO) {
+            if (page == null) {
+                return@withContext conversationDir.listFiles()
+                    ?.filter { it.name.startsWith("page") && it.name.endsWith(".jsonl") }
+                    ?.sortedBy { it.name }
+                    ?.flatMap { readMessages(it) }
+                    ?: emptyList()
+            }
+
+            if (page <= 0) return@withContext emptyList()
+
+            ensureInitialized()
+
+            // 用户回到最新，重置锚点
+            if (page == 1) {
+                startPage = maxPage
+            }
+
+            val filePage = startPage - (page - 1)
+            if (filePage <= 0) return@withContext emptyList()
+
+            val file = File(conversationDir, "page$filePage.jsonl")
+            if (!file.exists()) return@withContext emptyList()
+
+            readMessages(file)
         }
-
-        if (page <= 0) return emptyList()
-
-        ensureInitialized()
-
-        // 用户回到最新，重置锚点
-        if (page == 1) {
-            startPage = maxPage
-        }
-
-        val filePage = startPage - (page - 1)
-        if (filePage <= 0) return emptyList()
-
-        val file = File(conversationDir, "page$filePage.jsonl")
-        if (!file.exists()) return emptyList()
-
-        return readMessages(file)
     }
 
     private fun readMessages(file: File): List<ChatMessage> {

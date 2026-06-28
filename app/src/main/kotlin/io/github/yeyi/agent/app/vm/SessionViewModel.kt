@@ -25,7 +25,10 @@ public data class SessionUiState(
     val liveBubble: LiveBubble? = null,
     val pendingMessage: String? = null,
     val isNewSessionPending: Boolean = false,
-    val isToolExecutionPending: Boolean = false
+    val isToolExecutionPending: Boolean = false,
+    val currentPage: Int = 1,
+    val hasMorePages: Boolean = true,
+    val isLoadingMore: Boolean = false
 )
 
 public class SessionViewModel(application: Application) : AndroidViewModel(application) {
@@ -76,7 +79,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             try {
                 val session = sessionManager.get(accountId, sessionId)
-                val messages = session.memory.history()
+                val chatMessages = session.conversation.messages(1)
                     .filter { msg ->
                         msg is ChatMessage.User ||
                         (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank())
@@ -84,7 +87,10 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                     .map { it.toUiMessage() }
                 _uiState.value = _uiState.value.copy(
                     currentSession = session,
-                    messages = messages
+                    messages = chatMessages,
+                    currentPage = 1,
+                    hasMorePages = true,
+                    isLoadingMore = false
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(error = e.message)
@@ -192,16 +198,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                             // 等待压缩完成
                         }
                         is AgentEvent.MemoryCompressed -> {
-                            // 记忆压缩完成后，从 Memory 重新加载消息以保持同步
-                            session?.memory?.history()?.let { history ->
-                                val messages = history
-                                    .filter { msg ->
-                                        msg is ChatMessage.User ||
-                                        (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank())
-                                    }
-                                    .map { it.toUiMessage() }
-                                _uiState.value = _uiState.value.copy(messages = messages)
-                            }
+                            // 界面消息已不依赖 memory，无需额外处理
                         }
                     }
                 }
@@ -236,7 +233,44 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     public fun clearError() {
         _uiState.value = _uiState.value.copy(error = null)
     }
-}
+
+    public fun loadMoreMessages() {
+        val session = _uiState.value.currentSession ?: return
+        if (_uiState.value.isLoadingMore || !_uiState.value.hasMorePages) return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoadingMore = true)
+            try {
+                val nextPage = _uiState.value.currentPage + 1
+                val olderMessages = session.conversation.messages(nextPage)
+                    .filter { msg ->
+                        msg is ChatMessage.User ||
+                        (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank())
+                    }
+                    .map { it.toUiMessage() }
+
+                if (olderMessages.isEmpty()) {
+                    _uiState.value = _uiState.value.copy(
+                        hasMorePages = false,
+                        isLoadingMore = false
+                    )
+                } else {
+                    _uiState.value = _uiState.value.copy(
+                        messages = olderMessages + _uiState.value.messages,
+                        currentPage = nextPage,
+                        isLoadingMore = false
+                    )
+                }
+            } catch (e: Exception) {
+                _uiState.value = _uiState.value.copy(
+                    error = e.message,
+                    isLoadingMore = false
+                )
+            }
+        }
+    }
+
+    }
 
 private fun ChatMessage.toUiMessage(): UiMessage {
     return when (this) {

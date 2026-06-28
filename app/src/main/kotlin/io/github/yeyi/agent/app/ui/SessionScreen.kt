@@ -90,7 +90,8 @@ public fun SessionScreen(
                 uiState = uiState,
                 onInputChange = { viewModel.updateInput(it) },
                 onSend = { viewModel.sendMessage() },
-                modifier = Modifier
+                onLoadMore = { viewModel.loadMoreMessages() },
+                                modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
             )
@@ -179,7 +180,8 @@ private fun ChatArea(
     uiState: SessionUiState,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
-    modifier: Modifier = Modifier
+    onLoadMore: () -> Unit,
+        modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
 
@@ -189,10 +191,25 @@ private fun ChatArea(
         else uiState.messages + UiMessage.Assistant(live.text, id = live.id)
     }
 
-    // loading 气泡作为单独 item,位于 displayItems 末尾之后。
-    // 滚动目标:有 loading 时为 displayItems.size,否则为最后一条消息
-    LaunchedEffect(uiState.liveBubble?.text, displayItems.size, uiState.isToolExecutionPending) {
-        if (displayItems.isNotEmpty()) {
+    // 检测是否在底部附近
+    val isAtBottom = remember(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, displayItems.size) {
+        listState.firstVisibleItemIndex >= displayItems.size - 2
+    }
+
+    // 记录触发加载时用户是否在底部
+    var wasAtBottomBeforeLoad by remember { mutableStateOf(true) }
+
+    // 下拉加载更多：滚动到顶部时触发
+    LaunchedEffect(listState.firstVisibleItemIndex) {
+        if (listState.firstVisibleItemIndex == 0 && uiState.hasMorePages && !uiState.isLoadingMore && displayItems.isNotEmpty()) {
+            wasAtBottomBeforeLoad = isAtBottom
+            onLoadMore()
+        }
+    }
+
+    // 新消息或流式更新时，滚动到底部显示最新内容（仅当用户原本在底部时才滚动）
+    LaunchedEffect(uiState.liveBubble?.text, displayItems.size, uiState.isToolExecutionPending, uiState.isLoadingMore) {
+        if (displayItems.isNotEmpty() && wasAtBottomBeforeLoad && !uiState.isLoadingMore) {
             val lastIndex = if (uiState.isToolExecutionPending) displayItems.size else displayItems.size - 1
             listState.scrollToItem(lastIndex, Int.MAX_VALUE)
         }
@@ -207,9 +224,28 @@ private fun ChatArea(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
             ) {
+                // 已到顶部，无更多消息（显示在列表最上方）
+                if (!uiState.hasMorePages) {
+                    item(key = "no-more-messages") {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "没有更多消息了",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
                 items(displayItems, key = { it.id }) { message ->
                     MessageBubble(message)
                 }
+
                 if (uiState.isToolExecutionPending) {
                     item(key = "loading-indicator") {
                         LoadingBubble()
