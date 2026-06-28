@@ -437,7 +437,24 @@ public class FeishuAdapter(
     }
 
     private fun removeAckReaction(messageId: String, reactionId: String) {
-
+        coroutineScope.launch {
+            try {
+                val response = apiClient!!.delete(
+                    "/open-apis/im/v1/messages/$messageId/reactions/$reactionId",
+                    null,
+                    AccessTokenType.App
+                )
+                val json = Gson().fromJson(String(response.body), Map::class.java)
+                val code = (json["code"] as? Number)?.toInt() ?: -1
+                if (code == 0) {
+                    log.debug("ACK reaction removed for message: $messageId")
+                } else {
+                    log.warn("Failed to remove ACK reaction: code=$code")
+                }
+            } catch (e: Exception) {
+                log.debug("Failed to remove ACK reaction: ${e.message}")
+            }
+        }
     }
 
     /**
@@ -796,79 +813,4 @@ public class FeishuAdapter(
 
     public fun getBotOpenId(): String = botOpenId
     public fun getBotName(): String = botName
-
-    /*
-    *
-    // botOpenId 这个字段需要获取，逻辑中需要使用，请参考下方实现
-    private suspend fun _resolveBotIdentity(): Boolean = withContext(Dispatchers.IO) {
-        try {
-            _ensureAccessToken()
-            val request = Request.Builder()
-                .url("$_domain/open-apis/bot/v3/info")
-                .header("Authorization", "Bearer $_accessToken")
-                .get()
-                .build()
-
-            _httpClient.newCall(request).execute().use { resp ->
-                if (!resp.isSuccessful) return@withContext false
-                val data = JSONObject(resp.body!!.string())
-                if (data.optInt("code", -1) != 0) return@withContext false
-                val bot = data.optJSONObject("bot") ?: return@withContext false
-                _botUserId = bot.optString("open_id", "")
-                _botUserName = bot.optString("name", "Bot")
-                Log.i(_TAG, "Bot identity: $_botUserName ($_botUserId)")
-                return@withContext true
-            }
-        } catch (e: Exception) {
-            Log.w(_TAG, "Failed to resolve bot identity: ${e.message}")
-            return@withContext false
-        }
-    }
-    *
-    * */
-
-    /*
-    *
-    // sendAckReaction这个方法没有实现完整，请参考下方实现。
-    rivate fun _sendAckReactionAsync(messageId: String) {
-        if (messageId.isEmpty()) return
-        if (_pendingReactions.containsKey(messageId)) return
-        scope.launch {
-            try {
-                _ensureAccessToken()
-                val payload = JSONObject().apply {
-                    put("reaction_type", JSONObject().apply {
-                        put("emoji_type", _ackEmoji)
-                    })
-                }
-                val body = payload.toString()
-                    .toRequestBody("application/json; charset=utf-8".toMediaType())
-                val request = Request.Builder()
-                    .url("$_domain/open-apis/im/v1/messages/$messageId/reactions")
-                    .header("Authorization", "Bearer $_accessToken")
-                    .post(body)
-                    .build()
-                _httpClient.newCall(request).execute().use { resp ->
-                    if (!resp.isSuccessful) {
-                        Log.w(_TAG, "ACK reaction failed: HTTP ${resp.code}")
-                        return@use
-                    }
-                    val bodyText = resp.body?.string() ?: return@use
-                    val json = try { JSONObject(bodyText) } catch (_: Exception) { return@use }
-                    val code = json.optInt("code", -1)
-                    if (code != 0) {
-                        Log.w(_TAG, "ACK reaction rejected: code=$code msg=${json.optString("msg")}")
-                        return@use
-                    }
-                    val reactionId = json.optJSONObject("data")?.optString("reaction_id", "").orEmpty()
-                    if (reactionId.isNotEmpty()) {
-                        _pendingReactions[messageId] = reactionId
-                    }
-                }
-            } catch (e: Exception) {
-                Log.w(_TAG, "ACK reaction error: ${e.message}")
-            }
-        }
-    }
-    * */
 }
