@@ -1,5 +1,7 @@
 package io.github.yeyi.agent.skill
 
+import io.github.yeyi.agent.Agent
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.capability.CapabilityRegistry
 import io.github.yeyi.agent.capability.DefaultCapabilityRegistry
 import io.github.yeyi.agent.tool.Tool
@@ -24,7 +26,7 @@ public class SkillRegistry :
         context: ToolContext
     ): ToolExecutionResult {
         return tools[name]?.execute(arguments, context)
-            ?: throw NoSuchElementException("Tool not found: $name")
+            ?: throw AgentException.ToolNotFound(name, tools.keys)
     }
 
     /**

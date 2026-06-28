@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.tool
 
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.ToolDefinition
 import io.github.yeyi.agent.log.Logging
@@ -51,7 +52,12 @@ public class ToolRegistry : ToolDispatcher {
         context: ToolContext
     ): ToolExecutionResult {
         val tool = byName[name]
-            ?: return ToolExecutionResult.error("Tool '${name}' not found. Available: ${byName.keys.joinToString()}")
+            ?: return ToolExecutionResult.error(
+                AgentException.ToolNotFound(
+                    name,
+                    byName.keys
+                ).message
+            )
         return try {
             tool.execute(arguments, context)
         } catch (t: CancellationException) {
