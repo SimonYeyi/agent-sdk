@@ -17,7 +17,9 @@ enum class RunMode { STREAM, BATCH }
 
 data class LiveBubble(val id: String, val text: String)
 
-class ChatViewModel : ViewModel() {
+class ChatViewModel(
+    private val agentFactory: (Memory) -> Agent = { memory -> DemoAgentFactory.create(memory = memory) }
+) : ViewModel() {
 
     private val _mode = MutableStateFlow(RunMode.STREAM)
     val mode: StateFlow<RunMode> = _mode.asStateFlow()
@@ -34,7 +36,7 @@ class ChatViewModel : ViewModel() {
     private val inProgressByCallId = mutableMapOf<String, UiMessage.ToolInProgress>()
 
     private var memory: Memory = io.github.yeyi.agent.memory.InMemoryMemory()
-    private var agent: Agent = DemoAgentFactory.create(memory = memory)
+    private var agent: Agent = agentFactory(memory)
 
     init {
         viewModelScope.launch { reloadMessages() }
@@ -76,7 +78,7 @@ class ChatViewModel : ViewModel() {
         _liveBubble.value = null
         inProgressByCallId.clear()
         memory = io.github.yeyi.agent.memory.InMemoryMemory()
-        agent = DemoAgentFactory.create(memory = memory)
+        agent = agentFactory(memory)
     }
 
     /**
