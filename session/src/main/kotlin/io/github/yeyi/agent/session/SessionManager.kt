@@ -1,10 +1,18 @@
 package io.github.yeyi.agent.session
 
+import io.github.yeyi.agent.hook.HookContext
+import io.github.yeyi.agent.hook.HookPipeline
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
 
-public class SessionManager(baseDir: File, private val hook: SessionHook = NoOpAgentHook) {
+/**
+ * Session 管理器，直接使用 [HookPipeline] 发送生命周期事件。
+ */
+public class SessionManager(
+    baseDir: File,
+    private val pipeline: HookPipeline
+) {
     private val repository = SessionRepository(baseDir)
     private val mutex = Mutex()
 
@@ -15,7 +23,7 @@ public class SessionManager(baseDir: File, private val hook: SessionHook = NoOpA
     ): Session {
         return mutex.withLock {
             repository.createSession(accountId, sessionName, sessionId).also {
-                hook.safeInvoke { hook.onSessionCreated(it) }
+                pipeline.run(OnSessionCreated(session = it), HookContext())
             }
         }
     }
@@ -44,7 +52,7 @@ public class SessionManager(baseDir: File, private val hook: SessionHook = NoOpA
     public suspend fun delete(accountId: String, sessionId: String) {
         mutex.withLock {
             repository.deleteSession(accountId, sessionId)
-            hook.safeInvoke { hook.onSessionDeleted(accountId, sessionId) }
+            pipeline.run(OnSessionDeleted(accountId = accountId, sessionId = sessionId), HookContext())
         }
     }
 

@@ -5,7 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.app.demo.DemoAgentFactory
-import io.github.yeyi.agent.hook.CompositeHook
+import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.session.SessionManager
@@ -32,8 +32,8 @@ public data class SessionUiState(
 )
 
 public class SessionViewModel(application: Application) : AndroidViewModel(application) {
-    private val hook = CompositeHook(logging = true)
-    private val sessionManager = SessionManager(application.filesDir,  hook)
+    private val hookPipeline = HookPipeline(logging = true)
+    private val sessionManager = SessionManager(application.filesDir, hookPipeline)
     private val _uiState = MutableStateFlow(SessionUiState())
     public val uiState: StateFlow<SessionUiState> = _uiState.asStateFlow()
 
@@ -148,7 +148,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
 
         viewModelScope.launch {
             try {
-                val agent = DemoAgentFactory.create(session.memory, hook)
+                val agent = DemoAgentFactory.create(session.memory, hookPipeline)
                 agent.runStream(inputText).collect { event ->
                     when (event) {
                         is io.github.yeyi.agent.AgentEvent.Initial -> {

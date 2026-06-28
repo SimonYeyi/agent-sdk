@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.hook
 
-import io.github.yeyi.agent.log.Logging
 import io.github.yeyi.agent.log.LoggingTagged
 
 /**
@@ -11,4 +10,4 @@ import io.github.yeyi.agent.log.LoggingTagged
  * Logging.hook().warn("something happened")
  * ```
  */
-internal fun Logging.hook(): LoggingTagged = LoggingTagged("hook")
+internal val log = LoggingTagged("hook")

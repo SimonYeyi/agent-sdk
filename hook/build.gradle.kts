@@ -12,7 +12,6 @@ kotlin {
 
 dependencies {
     api(project(":agent"))
-    api(project(":session"))
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlin.test.junit)

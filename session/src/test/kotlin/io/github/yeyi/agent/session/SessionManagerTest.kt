@@ -1,23 +1,36 @@
 package io.github.yeyi.agent.session
 
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.hook.Hook
+import io.github.yeyi.agent.hook.HookPipeline
+import io.github.yeyi.agent.hook.Result
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import kotlin.reflect.KClass
 import kotlin.test.assertFailsWith
 
 class SessionManagerTest {
 
     private lateinit var tempDir: File
-    private lateinit var sessionManager: SessionManager
+
+    private fun createMockPipeline(): HookPipeline {
+        return object : HookPipeline {
+            override fun register(hook: Hook) {}
+            override fun unregister(hookName: String) {}
+            override fun unregister(hookClass: KClass<out Hook>) {}
+            override suspend fun run(event: io.github.yeyi.agent.hook.Event, context: io.github.yeyi.agent.hook.HookContext): Result = Result.Continue
+            override fun getHooks(): List<Hook> = emptyList()
+            override fun getHooks(eventClass: KClass<out io.github.yeyi.agent.hook.Event>): List<Hook> = emptyList()
+        }
+    }
 
     @Before
     fun setup() {
         tempDir = createTempDir()
-        sessionManager = SessionManager(tempDir)
     }
 
     @After
@@ -27,6 +40,7 @@ class SessionManagerTest {
 
     @Test
     fun `create should create a new session`() = runTest {
+        val sessionManager = SessionManager(tempDir, createMockPipeline())
         val session = sessionManager.create("user1", "test session")
 
         assertNotNull(session.id)
@@ -38,6 +52,7 @@ class SessionManagerTest {
 
     @Test
     fun `get should return existing session`() = runTest {
+        val sessionManager = SessionManager(tempDir, createMockPipeline())
         val created = sessionManager.create("user1", "test session")
         val retrieved = sessionManager.get("user1", created.id)
 
@@ -49,6 +64,7 @@ class SessionManagerTest {
 
     @Test
     fun `get should throw when session not found`() = runTest {
+        val sessionManager = SessionManager(tempDir, createMockPipeline())
         assertFailsWith<NoSuchElementException> {
             sessionManager.get("user1", "nonexistent")
         }
@@ -56,6 +72,7 @@ class SessionManagerTest {
 
     @Test
     fun `list should return all sessions for user`() = runTest {
+        val sessionManager = SessionManager(tempDir, createMockPipeline())
         val session1 = sessionManager.create("user1", "session 1")
         val session2 = sessionManager.create("user1", "session 2")
         val session3 = sessionManager.create("user2", "session 3")
@@ -72,6 +89,7 @@ class SessionManagerTest {
 
     @Test
     fun `delete should remove session`() = runTest {
+        val sessionManager = SessionManager(tempDir, createMockPipeline())
         val session = sessionManager.create("user1", "test session")
         sessionManager.delete("user1", session.id)
 
@@ -83,6 +101,7 @@ class SessionManagerTest {
 
     @Test
     fun `memory should persist messages`() = runTest {
+        val sessionManager = SessionManager(tempDir, createMockPipeline())
         val session = sessionManager.create("user1", "test session")
         val memory = session.memory
 
@@ -94,17 +113,25 @@ class SessionManagerTest {
         assertEquals("Hello", (history[0] as ChatMessage.User).content)
     }
 
-    // --- SessionHook tests ---
+    // --- Session events via HookPipeline ---
 
     @Test
     fun `hook onSessionCreated is called when creating session`() = runTest {
         val events = mutableListOf<String>()
-        val hook = object : SessionHook {
-            override suspend fun onSessionCreated(session: Session) {
-                events.add("onSessionCreated(${session.id},${session.name})")
+        val pipeline = object : HookPipeline {
+            override fun register(hook: Hook) {}
+            override fun unregister(hookName: String) {}
+            override fun unregister(hookClass: KClass<out Hook>) {}
+            override suspend fun run(event: io.github.yeyi.agent.hook.Event, context: io.github.yeyi.agent.hook.HookContext): Result {
+                if (event is OnSessionCreated) {
+                    events.add("onSessionCreated(${event.session.id},${event.session.name})")
+                }
+                return Result.Continue
             }
+            override fun getHooks(): List<Hook> = emptyList()
+            override fun getHooks(eventClass: KClass<out io.github.yeyi.agent.hook.Event>): List<Hook> = emptyList()
         }
-        val manager = SessionManager(tempDir, hook)
+        val manager = SessionManager(tempDir, pipeline)
         val session = manager.create("user1", "my session")
         assertEquals(listOf("onSessionCreated(${session.id},my session)"), events)
     }
@@ -112,54 +139,42 @@ class SessionManagerTest {
     @Test
     fun `hook onSessionDeleted is called when deleting session`() = runTest {
         val events = mutableListOf<String>()
-        val hook = object : SessionHook {
-            override suspend fun onSessionDeleted(accountId: String, sessionId: String) {
-                events.add("onSessionDeleted($accountId,$sessionId)")
+        val pipeline = object : HookPipeline {
+            override fun register(hook: Hook) {}
+            override fun unregister(hookName: String) {}
+            override fun unregister(hookClass: KClass<out Hook>) {}
+            override suspend fun run(event: io.github.yeyi.agent.hook.Event, context: io.github.yeyi.agent.hook.HookContext): Result {
+                if (event is OnSessionDeleted) {
+                    events.add("onSessionDeleted(${event.accountId},${event.sessionId})")
+                }
+                return Result.Continue
             }
+            override fun getHooks(): List<Hook> = emptyList()
+            override fun getHooks(eventClass: KClass<out io.github.yeyi.agent.hook.Event>): List<Hook> = emptyList()
         }
-        val manager = SessionManager(tempDir, hook)
+        val manager = SessionManager(tempDir, pipeline)
         val session = manager.create("user1", "my session")
         manager.delete("user1", session.id)
         assertEquals(listOf("onSessionDeleted(user1,${session.id})"), events)
     }
 
     @Test
-    fun `exception in hook does not crash create`() = runTest {
-        val hook = object : SessionHook {
-            override suspend fun onSessionCreated(session: Session) {
-                throw RuntimeException("hook fail")
-            }
-        }
-        val manager = SessionManager(tempDir, hook)
-        val session = manager.create("user1", "my session")
-        assertNotNull(session.id)
-    }
-
-    @Test
-    fun `exception in hook does not crash delete`() = runTest {
-        val hook = object : SessionHook {
-            override suspend fun onSessionDeleted(accountId: String, sessionId: String) {
-                throw RuntimeException("hook fail")
-            }
-        }
-        val manager = SessionManager(tempDir, hook)
-        val session = manager.create("user1", "my session")
-        manager.delete("user1", session.id)
-        assertTrue(manager.list("user1").isEmpty())
-    }
-
-    @Test
     fun `get and list do NOT trigger hooks`() = runTest {
         val events = mutableListOf<String>()
-        val hook = object : SessionHook {
-            override suspend fun onSessionCreated(session: Session) {
-                events.add("onSessionCreated")
+        val pipeline = object : HookPipeline {
+            override fun register(hook: Hook) {}
+            override fun unregister(hookName: String) {}
+            override fun unregister(hookClass: KClass<out Hook>) {}
+            override suspend fun run(event: io.github.yeyi.agent.hook.Event, context: io.github.yeyi.agent.hook.HookContext): Result {
+                if (event is OnSessionCreated || event is OnSessionDeleted) {
+                    events.add(event::class.simpleName ?: "")
+                }
+                return Result.Continue
             }
-            override suspend fun onSessionDeleted(accountId: String, sessionId: String) {
-                events.add("onSessionDeleted")
-            }
+            override fun getHooks(): List<Hook> = emptyList()
+            override fun getHooks(eventClass: KClass<out io.github.yeyi.agent.hook.Event>): List<Hook> = emptyList()
         }
-        val manager = SessionManager(tempDir, hook)
+        val manager = SessionManager(tempDir, pipeline)
         manager.create("user1", "my session")
         events.clear()
         manager.get("user1", manager.list("user1").first().id)

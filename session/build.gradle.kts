@@ -13,6 +13,8 @@ kotlin {
 
 dependencies {
     api(project(":agent"))
+    api(project(":hook"))
+
     api(libs.kotlinx.coroutines.core)
     api(libs.kotlinx.serialization.json)
     api(libs.kotlinx.datetime)

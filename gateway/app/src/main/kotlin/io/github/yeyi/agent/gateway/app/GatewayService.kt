@@ -9,11 +9,13 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
+import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.session.SessionManager
 import io.gateway.api.GatewayEngine
 import io.gateway.engine.GatewayEngineBuilder
 import io.gateway.platform.feishu.FeishuAdapter
 import io.gateway.platform.feishu.FeishuConfig
+import io.github.yeyi.agent.Agent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -51,7 +53,7 @@ class GatewayService : Service() {
             model = BuildConfig.ANTHROPIC_MODEL,
             baseUrl = BuildConfig.ANTHROPIC_BASE_URL,
         )
-        val sessionManager = SessionManager(filesDir)
+        val sessionManager = SessionManager(filesDir, HookPipeline())
 
         val feishuConfig = FeishuConfig(
             appId = BuildConfig.FEISHU_APP_ID,
@@ -59,13 +61,14 @@ class GatewayService : Service() {
         )
         val feishuAdapter = FeishuAdapter(feishuConfig, serviceScope)
 
-        val createAgent: suspend (String, String, String) -> io.github.yeyi.agent.Agent = { accountId, sessionId, sessionName ->
-            val session = sessionManager.getOrCreate(accountId, sessionName, sessionId)
-            agent {
-                memory(session.memory)
-                llmProvider(llmProvider)
+        val createAgent: suspend (String, String, String) -> Agent =
+            { accountId, sessionId, sessionName ->
+                val session = sessionManager.getOrCreate(accountId, sessionName, sessionId)
+                agent {
+                    memory(session.memory)
+                    llmProvider(llmProvider)
+                }
             }
-        }
 
         val agentRunner = DefaultAgentRunner(createAgent)
         val builtEngine = GatewayEngineBuilder()
