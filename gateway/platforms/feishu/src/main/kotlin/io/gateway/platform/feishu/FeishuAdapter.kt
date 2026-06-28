@@ -1,18 +1,11 @@
 package io.gateway.platform.feishu
 
 import com.google.gson.Gson
-import com.lark.oapi.core.token.AccessTokenType
 import com.lark.oapi.core.enums.BaseUrlEnum
 import com.lark.oapi.event.EventDispatcher
 import com.lark.oapi.service.im.ImService
-import com.lark.oapi.service.im.v1.enums.ReceiveIdTypeEnum
-import com.lark.oapi.service.im.v1.model.CreateMessageReq
-import com.lark.oapi.service.im.v1.model.CreateMessageReqBody
-import com.lark.oapi.service.im.v1.model.DeleteMessageReq
 import com.lark.oapi.service.im.v1.model.P2MessageReceiveV1
 import com.lark.oapi.service.im.v1.model.P2MessageReactionCreatedV1
-import com.lark.oapi.service.im.v1.model.UpdateMessageReq
-import com.lark.oapi.service.im.v1.model.UpdateMessageReqBody
 import com.lark.oapi.ws.Client
 import io.gateway.api.PlatformAdapter
 import io.gateway.model.ChatType
@@ -57,7 +50,7 @@ public class FeishuAdapter(
     private var errorHandler: ((PlatformError) -> Unit)? = null
 
     private var deduplicator: MessageDeduplicator? = null
-    private var apiClient: com.lark.oapi.Client? = null
+    private var feishuApi: FeishuApiClient? = null
     private var wsClient: Client? = null
 
     private val gson = Gson()
@@ -71,9 +64,6 @@ public class FeishuAdapter(
 
     // 最大消息长度
     private val maxMessageLength = 30000
-
-    // ACK 表情
-    private val ackEmoji = config.ackEmoji
 
     override fun onMessageReceived(handler: (IncomingMessage) -> Unit) {
         this.messageHandler = handler
@@ -92,7 +82,7 @@ public class FeishuAdapter(
 
         try {
             // 创建 API 客户端
-            apiClient = com.lark.oapi.Client.Builder(config.appId, config.appSecret).build()
+            feishuApi = FeishuApiClient(config.appId, config.appSecret, gson)
 
             // 创建事件分发器
             val eventDispatcher = EventDispatcher.newBuilder(
@@ -152,7 +142,7 @@ public class FeishuAdapter(
         deduplicator = null
         wsClient?.close()
         wsClient = null
-        apiClient = null
+        feishuApi = null
         pendingReactions.clear()
 
         _connectionState = ConnectionState.DISCONNECTED
@@ -216,52 +206,20 @@ public class FeishuAdapter(
         content: String,
         replyTo: String?
     ): SendResult {
-        return try {
-            // 检测是否包含 Markdown 格式
-            val isMarkdown = containsMarkdown(content)
-            val (msgType, contentJson) = if (isMarkdown) {
-                "post" to buildMarkdownPostContent(content)
-            } else {
-                val escaped = content
-                    .replace("\\", "\\\\")
-                    .replace("\"", "\\\"")
-                    .replace("\n", "\\n")
-                    .replace("\r", "\\r")
-                "text" to """{"text":"$escaped"}"""
-            }
-
-            val request = CreateMessageReq.newBuilder()
-                .receiveIdType(ReceiveIdTypeEnum.CHAT_ID.getValue())
-                .createMessageReqBody(
-                    CreateMessageReqBody.newBuilder()
-                        .receiveId(chatId)
-                        .msgType(msgType)
-                        .content(contentJson)
-                        .build()
-                )
-                .build()
-
-            val response = apiClient!!.im().message().create(request)
-
-            if (response.code == 0) {
-                SendResult.Success(
-                    messageId = response.data?.messageId ?: "",
-                    platform = PlatformId.FEISHU
-                )
-            } else {
-                SendResult.Failure(
-                    error = "Send failed: ${response.msg}",
-                    retryable = false
-                )
-            }
-        } catch (e: Exception) {
-            log.warn("Failed to send single message", e)
-            SendResult.Failure(
-                error = "Send exception: ${e.message}",
-                retryable = true,
-                exception = e.javaClass.name
-            )
+        // 检测是否包含 Markdown 格式
+        val isMarkdown = containsMarkdown(content)
+        val (msgType, contentJson) = if (isMarkdown) {
+            "post" to buildMarkdownPostContent(content)
+        } else {
+            val escaped = content
+                .replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\n", "\\n")
+                .replace("\r", "\\r")
+            "text" to """{"text":"$escaped"}"""
         }
+
+        return feishuApi!!.sendMessage(chatId, msgType, contentJson, replyTo)
     }
 
     override suspend fun sendTypingIndicator(chatId: String) {
@@ -273,50 +231,28 @@ public class FeishuAdapter(
         messageId: String,
         newText: String
     ): SendResult {
-        return try {
-            val request = UpdateMessageReq.newBuilder()
-                .messageId(messageId)
-                .updateMessageReqBody(
-                    UpdateMessageReqBody.newBuilder()
-                        .content("""{"text":"${newText.replace("\"", "\\\"")}"}""")
-                        .build()
-                )
-                .build()
-
-            val response = apiClient!!.im().message().update(request)
-
-            if (response.code == 0) {
-                SendResult.Success(
-                    messageId = messageId,
-                    platform = PlatformId.FEISHU
-                )
-            } else {
-                SendResult.Failure(
-                    error = "Edit failed: ${response.msg}",
-                    retryable = false
-                )
-            }
-        } catch (e: Exception) {
-            log.warn("Failed to edit message", e)
-            SendResult.Failure(
-                error = "Edit exception: ${e.message}",
-                retryable = true,
-                exception = e.javaClass.name
-            )
-        }
+        return feishuApi!!.updateMessage(messageId, newText)
     }
 
     override suspend fun deleteMessage(chatId: String, messageId: String): Boolean {
-        return try {
-            val request = DeleteMessageReq.newBuilder()
-                .messageId(messageId)
-                .build()
+        return feishuApi!!.deleteMessage(messageId)
+    }
 
-            val response = apiClient!!.im().message().delete(request)
-            response.code == 0
-        } catch (e: Exception) {
-            log.warn("Failed to delete message $messageId", e)
-            false
+    override suspend fun onProcessingStart(messageId: String) {
+        // 发送 ACK 表情
+        if (config.sendAckReaction) {
+            sendAckReaction(messageId)
+        }
+    }
+
+    override suspend fun onProcessingComplete(messageId: String, success: Boolean) {
+        val reactionId = pendingReactions.remove(messageId) ?: return
+        coroutineScope.launch { feishuApi?.removeReaction(messageId, reactionId) }
+        coroutineScope.launch {
+            val reactionType =
+                if (success) FeishuApiClient.ReactionType.DONE
+                else FeishuApiClient.ReactionType.FAILURE
+            feishuApi?.addReaction(messageId, reactionType)
         }
     }
 
@@ -408,93 +344,20 @@ public class FeishuAdapter(
         if (messageId.isEmpty()) return
         if (pendingReactions.containsKey(messageId)) return
 
-        coroutineScope.launch {
-            try {
-                val payload = mapOf(
-                    "reaction_type" to mapOf("emoji_type" to config.ackEmoji)
-                )
-                val response = apiClient!!.post(
-                    "/open-apis/im/v1/messages/$messageId/reactions",
-                    payload,
-                    AccessTokenType.App
-                )
-                val json = Gson().fromJson(String(response.body), Map::class.java)
-                val code = (json as? Map<String, Any>)?.get("code") as? Double ?: -1.0
-                if (code == 0.0) {
-                    val reactionId = ((json as? Map<String, Any>)?.get("data") as? Map<String, Any>)
-                        ?.get("reaction_id") as? String ?: ""
-                    if (reactionId.isNotEmpty()) {
-                        pendingReactions[messageId] = reactionId
-                        log.debug("ACK reaction sent for message: $messageId")
-                    }
-                } else {
-                    log.warn("ACK reaction rejected: code=$code")
-                }
-            } catch (e: Exception) {
-                log.debug("ACK reaction error: ${e.message}")
-            }
+        val result = feishuApi?.addReaction(messageId, FeishuApiClient.ReactionType.ACK)
+        if (result?.success == true && result.reactionId != null) {
+            pendingReactions[messageId] = result.reactionId
+            log.debug("ACK reaction sent for message: $messageId")
         }
     }
 
-    private fun removeAckReaction(messageId: String, reactionId: String) {
-        coroutineScope.launch {
-            try {
-                val response = apiClient!!.delete(
-                    "/open-apis/im/v1/messages/$messageId/reactions/$reactionId",
-                    null,
-                    AccessTokenType.App
-                )
-                val json = Gson().fromJson(String(response.body), Map::class.java)
-                val code = (json["code"] as? Number)?.toInt() ?: -1
-                if (code == 0) {
-                    log.debug("ACK reaction removed for message: $messageId")
-                } else {
-                    log.warn("Failed to remove ACK reaction: code=$code")
-                }
-            } catch (e: Exception) {
-                log.debug("Failed to remove ACK reaction: ${e.message}")
-            }
-        }
-    }
-
-    /**
-     * 获取机器人身份
-     */
     private fun resolveBotIdentity() {
-        try {
-            val response = apiClient!!.get(
-                "/open-apis/bot/v3/info",
-                null,
-                AccessTokenType.App
-            )
-            val json = Gson().fromJson(String(response.body), Map::class.java)
-            val data = (json as? Map<String, Any>)?.get("bot") as? Map<String, Any>
-            if (data != null) {
-                botOpenId = data["open_id"] as? String ?: ""
-                botName = data["app_name"] as? String ?: "Bot"
-                log.info("Bot identity: $botName ($botOpenId)")
-            }
-        } catch (e: Exception) {
-            log.warn("Failed to resolve bot identity", e)
+        val botInfo = feishuApi?.getBotInfo()
+        if (botInfo != null) {
+            botOpenId = botInfo.openId
+            botName = botInfo.name
+            log.info("Bot identity: $botName ($botOpenId)")
         }
-    }
-
-    /**
-     * 处理消息开始
-     */
-    override suspend fun onProcessingStart(messageId: String) {
-        // 发送 ACK 表情
-        if (config.sendAckReaction) {
-            sendAckReaction(messageId)
-        }
-    }
-
-    /**
-     * 处理消息处理完成
-     */
-    override suspend fun onProcessingComplete(messageId: String, success: Boolean) {
-        val reactionId = pendingReactions.remove(messageId) ?: return
-        removeAckReaction(messageId, reactionId)
     }
 
     private fun parseSdkEvent(event: P2MessageReceiveV1): IncomingMessage? {
@@ -542,28 +405,6 @@ public class FeishuAdapter(
         } catch (e: Exception) {
             log.warn("Failed to parse SDK event", e)
             return null
-        }
-    }
-
-    /**
-     * 从 SDK 消息对象中提取发送者 ID
-     */
-    private fun extractSenderId(message: Any): String {
-        return try {
-            // 使用反射获取 sender_id 字段
-            val senderField = message.javaClass.getDeclaredField("senderId")
-            senderField.isAccessible = true
-            val senderId = senderField.get(message)
-            if (senderId != null) {
-                val idField = senderId.javaClass.getDeclaredField("openId")
-                idField.isAccessible = true
-                (idField.get(senderId) as? String) ?: "unknown"
-            } else {
-                "unknown"
-            }
-        } catch (e: Exception) {
-            log.debug("Failed to extract sender ID", e)
-            "unknown"
         }
     }
 
@@ -757,19 +598,19 @@ public class FeishuAdapter(
     private fun containsInlineMarkdown(line: String): Boolean {
         // 检测行首列表标记（需要用 md tag 让飞书渲染为列表）
         val listPatterns = listOf(
-            Regex("^\\s*[-*+]\\s"),   // 无序列表: - * +
-            Regex("^\\s*\\d+\\.\\s"),  // 有序列表: 1. 2.
-            Regex("^\\s*#+\\s"),       // 标题: # ## ###
+            Regex("^\\s*[-*+]\\s"),
+            Regex("^\\s*\\d+\\.\\s"),
+            Regex("^\\s*#+\\s"),
         )
         if (listPatterns.any { it.containsMatchIn(line) }) return true
 
         val inlinePatterns = listOf(
-            Regex("```"),              // 代码块
-            Regex("`[^`]+`"),          // 行内代码
-            Regex("\\*\\*[^*]+"),      // 粗体
-            Regex("\\*[^*]+\\*"),      // 斜体
-            Regex("~~[^~]+"),          // 删除线
-            Regex("\\[.+?]\\(.+?\\)")  // 链接
+            Regex("```"),
+            Regex("`[^`]+`"),
+            Regex("\\*\\*[^*]+"),
+            Regex("\\*[^*]+\\*"),
+            Regex("~~[^~]+"),
+            Regex("\\[.+?]\\(.+?\\)")
         )
         return inlinePatterns.any { it.containsMatchIn(line) }
     }

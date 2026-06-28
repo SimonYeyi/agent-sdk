@@ -206,6 +206,7 @@ internal class DefaultGatewayEngine(
                 val pending = pendingMessages.getOrPut(sessionKey) { mutableListOf() }
                 pending.add(actualMessage)
                 processingJobs[sessionKey]?.cancel()
+                log.debug("Session is processing, message pending...")
                 return
             }
 

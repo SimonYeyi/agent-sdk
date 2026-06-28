@@ -9,5 +9,4 @@ public data class FeishuConfig(
     val allowedUsers: Set<String> = emptySet(),
     val allowedChats: Set<String> = emptySet(),
     val sendAckReaction: Boolean = true,
-    val ackEmoji: String = "Typing"
 )
