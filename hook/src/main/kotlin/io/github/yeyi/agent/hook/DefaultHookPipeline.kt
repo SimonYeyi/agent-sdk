@@ -20,8 +20,8 @@ import kotlin.reflect.KClass
  * 内部按 priority 排序调用 sub-hooks。
  *
  * 调度语义：
- * - [BeforeToolCall]：首个返回 [Result.Halt] 的 hook 短路
- * - [AfterToolCall]：链式改写，后续 hook 收到前一个的输出
+ * - [AgentHookEvent.BeforeToolCall]：首个返回 [HookResult.Halt] 的 hook 短路
+ * - [AgentHookEvent.AfterToolCall]：链式改写，后续 hook 收到前一个的输出
  * - 其他事件：fan-out，所有匹配的 hook 按 priority 顺序被调用
  *
  * 异常隔离：任意内部 hook 抛 [kotlinx.coroutines.CancellationException] 会被原样抛出；
@@ -54,26 +54,28 @@ internal class DefaultHookPipeline(initialHooks: List<Hook> = emptyList(), loggi
         hooks.removeAll { it::class == hookClass }
     }
 
-    override suspend fun run(event: Event, context: HookContext): Result {
+    override suspend fun run(event: HookEvent, context: HookContext): HookResult {
         val eventClass = event::class
-        val matchingHooks = hooks.filter { eventClass in (it.events ?: setOf(eventClass)) }
+        val matchingHooks = hooks.filter { hook ->
+            hook.events?.any { subscribed -> subscribed.java.isAssignableFrom(eventClass.java) } ?: true
+        }
         if (matchingHooks.isEmpty()) {
-            return Result.Continue
+            return HookResult.Continue
         }
 
         return when (event) {
-            is BeforeToolCall -> runBeforeToolCall(matchingHooks, event, context)
-            is AfterToolCall -> runAfterToolCall(matchingHooks, event, context)
+            is AgentHookEvent.BeforeToolCall -> runBeforeToolCall(matchingHooks, event, context)
+            is AgentHookEvent.AfterToolCall -> runAfterToolCall(matchingHooks, event, context)
             else -> runFanOut(matchingHooks, event, context)
         }
     }
 
     private suspend fun runFanOut(
         hooks: List<Hook>,
-        event: Event,
+        event: HookEvent,
         context: HookContext
-    ): Result {
-        var lastResult: Result = Result.Continue
+    ): HookResult {
+        var lastResult: HookResult = HookResult.Continue
         for (hook in hooks) {
             lastResult = invokeHook(hook, event, context)
         }
@@ -82,90 +84,92 @@ internal class DefaultHookPipeline(initialHooks: List<Hook> = emptyList(), loggi
 
     private suspend fun runBeforeToolCall(
         hooks: List<Hook>,
-        event: BeforeToolCall,
+        event: AgentHookEvent.BeforeToolCall,
         context: HookContext
-    ): Result {
+    ): HookResult {
         for (hook in hooks) {
             val result = invokeHook(hook, event, context)
-            if (result is Result.Halt) {
+            if (result is HookResult.Halt) {
                 return result
             }
         }
-        return Result.Continue
+        return HookResult.Continue
     }
 
     private suspend fun runAfterToolCall(
         hooks: List<Hook>,
-        event: AfterToolCall,
+        event: AgentHookEvent.AfterToolCall,
         context: HookContext
-    ): Result {
+    ): HookResult {
         var currentEvent = event
         for (hook in hooks) {
             when (val result = invokeHook(hook, currentEvent, context)) {
-                is Result.Modify -> {
-                    currentEvent = AfterToolCall(
+                is HookResult.Modify -> {
+                    currentEvent = AgentHookEvent.AfterToolCall(
                         toolCall = currentEvent.toolCall,
                         result = result.newResult as ToolExecutionResult,
                         durationMs = currentEvent.durationMs
                     )
                 }
 
-                is Result.Halt -> {
+                is HookResult.Halt -> {
                     return result
                 }
 
-                is Result.Continue -> {
+                is HookResult.Continue -> {
                     // 继续
                 }
             }
         }
-        return Result.Modify(currentEvent.result)
+        return HookResult.Modify(currentEvent.result)
     }
 
     private suspend fun invokeHook(
         hook: Hook,
-        event: Event,
+        event: HookEvent,
         context: HookContext
-    ): Result {
+    ): HookResult {
         return try {
             hook.execute(event, context)
         } catch (t: kotlinx.coroutines.CancellationException) {
             throw t
         } catch (t: Throwable) {
             log.warn("${hook.name} hook exception", t)
-            Result.Continue
+            HookResult.Continue
         }
     }
 
     override fun getHooks(): List<Hook> = hooks.toList()
 
-    override fun getHooks(eventClass: KClass<out Event>): List<Hook> =
-        hooks.filter { eventClass in (it.events ?: setOf(eventClass)) }
+    override fun getHooks(eventClass: KClass<out HookEvent>): List<Hook> =
+        hooks.filter { hook ->
+            hook.events?.any { subscribed -> subscribed.java.isAssignableFrom(eventClass.java) } ?: true
+        }
 
     // ==================== AgentHook 实现（委托给 run） ====================
 
     override suspend fun beforeMemoryCompress(context: AgentContext, summaries: List<Summary>) {
-        run(BeforeMemoryCompress(summaries), HookContext(context))
+        run(AgentHookEvent.BeforeMemoryCompress(summaries), HookContext(context))
     }
 
     override suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>) {
-        run(AfterMemoryCompress(summaries), HookContext(context))
+        run(AgentHookEvent.AfterMemoryCompress(summaries), HookContext(context))
     }
 
     override suspend fun beforeLlmCall(context: AgentContext) {
-        run(BeforeLlmCall, HookContext(context))
+        run(AgentHookEvent.BeforeLlmCall, HookContext(context))
     }
 
     override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
-        run(AfterLlmResponse(response), HookContext(context))
+        run(AgentHookEvent.AfterLlmResponse(response), HookContext(context))
     }
 
     override suspend fun beforeToolCall(
         context: AgentContext,
         call: ToolCall
     ): ToolExecutionResult? {
-        return when (val result = run(BeforeToolCall(call), HookContext(context))) {
-            is Result.Halt -> ToolExecutionResult.error(result.syntheticResult)
+        return when (val result = run(AgentHookEvent.BeforeToolCall(call), HookContext(context))) {
+            is HookResult.Halt -> ToolExecutionResult.error(result.syntheticResult)
             else -> null
         }
     }
@@ -176,18 +180,18 @@ internal class DefaultHookPipeline(initialHooks: List<Hook> = emptyList(), loggi
         result: ToolExecutionResult,
         durationMs: Long
     ): ToolExecutionResult {
-        return when (val pipelineResult = run(AfterToolCall(call, result, durationMs), HookContext(context))) {
-            is Result.Modify -> pipelineResult.newResult as ToolExecutionResult
+        return when (val pipelineResult = run(AgentHookEvent.AfterToolCall(call, result, durationMs), HookContext(context))) {
+            is HookResult.Modify -> pipelineResult.newResult as ToolExecutionResult
             else -> result
         }
     }
 
     override suspend fun onRunFinished(context: AgentContext, result: AgentResult) {
-        run(OnRunFinished(result), HookContext(context))
+        run(AgentHookEvent.RunCompleted(result), HookContext(context))
     }
 
     override suspend fun onError(context: AgentContext, cause: AgentException) {
-        run(OnError(cause), HookContext(context))
+        run(AgentHookEvent.RunFailed(cause), HookContext(context))
     }
 }
 

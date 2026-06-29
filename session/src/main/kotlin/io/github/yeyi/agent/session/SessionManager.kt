@@ -23,7 +23,7 @@ public class SessionManager(
     ): Session {
         return mutex.withLock {
             repository.createSession(accountId, sessionName, sessionId).also {
-                pipeline.run(OnSessionCreated(session = it), HookContext())
+                pipeline.run(SessionHookEvent.Created(session = it), HookContext())
             }
         }
     }
@@ -52,7 +52,7 @@ public class SessionManager(
     public suspend fun delete(accountId: String, sessionId: String) {
         mutex.withLock {
             repository.deleteSession(accountId, sessionId)
-            pipeline.run(OnSessionDeleted(accountId = accountId, sessionId = sessionId), HookContext())
+            pipeline.run(SessionHookEvent.Deleted(accountId = accountId, sessionId = sessionId), HookContext())
         }
     }
 

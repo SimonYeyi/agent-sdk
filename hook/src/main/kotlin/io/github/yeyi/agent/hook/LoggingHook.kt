@@ -4,8 +4,8 @@ internal class LoggingHook : Hook {
 
     override val priority: Int = Int.MAX_VALUE
 
-    override suspend fun execute(event: Event, context: HookContext): Result {
+    override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
         log.info("$event $context")
-        return Result.Continue
+        return HookResult.Continue
     }
 }

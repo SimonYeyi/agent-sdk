@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.hook
 
-import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentHook
 import kotlin.reflect.KClass
 
@@ -24,31 +23,11 @@ public interface HookPipeline : AgentHook {
     public fun unregister(hookClass: KClass<out Hook>)
 
     /** 执行流水线 */
-    public suspend fun run(event: Event, context: HookContext): Result
+    public suspend fun run(event: HookEvent, context: HookContext): HookResult
 
     /** 获取所有已注册的 hooks */
     public fun getHooks(): List<Hook>
 
     /** 获取订阅指定事件类型的 hooks */
-    public fun getHooks(eventClass: KClass<out Event>): List<Hook>
-}
-
-// ==================== 事件定义 ====================
-
-/** 事件基类，session 模块可扩展 */
-public interface Event
-
-/**
- * Hook 执行上下文。
- */
-public data class HookContext(
-    val agentContext: AgentContext? = null,
-    val metadata: MutableMap<String, String> = mutableMapOf()
-)
-
-/** Hook 执行结果 */
-public sealed class Result {
-    public object Continue : Result()
-    public data class Halt(val syntheticResult: String) : Result()
-    public data class Modify(val newResult: Any) : Result()
+    public fun getHooks(eventClass: KClass<out HookEvent>): List<Hook>
 }

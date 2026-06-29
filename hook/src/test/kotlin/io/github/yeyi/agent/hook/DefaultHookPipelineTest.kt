@@ -36,67 +36,70 @@ class DefaultHookPipelineTest {
     )
 
     private val allEvents = setOf(
-        BeforeMemoryCompress::class,
-        AfterMemoryCompress::class,
-        BeforeLlmCall::class,
-        AfterLlmResponse::class,
-        BeforeToolCall::class,
-        AfterToolCall::class,
-        OnRunFinished::class,
-        OnError::class
+        AgentHookEvent.BeforeMemoryCompress::class,
+        AgentHookEvent.AfterMemoryCompress::class,
+        AgentHookEvent.BeforeLlmCall::class,
+        AgentHookEvent.AfterLlmResponse::class,
+        AgentHookEvent.BeforeToolCall::class,
+        AgentHookEvent.AfterToolCall::class,
+        AgentHookEvent.RunCompleted::class,
+        AgentHookEvent.RunFailed::class
     )
 
     /** Records every lifecycle call via execute() for assertion. Implements [Hook]. */
     private inner class RecordingHook(
         private val hookName: String,
-        val subscribedEvents: Set<kotlin.reflect.KClass<out Event>> = allEvents
+        val subscribedEvents: Set<kotlin.reflect.KClass<out HookEvent>> = allEvents
     ) : Hook {
         override val name: String = hookName
         val recordedEvents: MutableList<String> = mutableListOf()
         var nextSynthetic: String? = null
         var nextRewritten: ToolExecutionResult? = null
 
-        override val events: Set<kotlin.reflect.KClass<out Event>> = subscribedEvents
+        override val events: Set<kotlin.reflect.KClass<out HookEvent>> = subscribedEvents
         override val priority: Int = 100
 
-        override suspend fun execute(event: Event, context: HookContext): Result {
+        override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
             when (event) {
-                is BeforeLlmCall -> {
+                is AgentHookEvent.BeforeLlmCall -> {
                     recordedEvents += "${name}:beforeLlmCall(${context.agentContext?.currentIteration})"
                 }
-                is AfterLlmResponse -> {
+                is AgentHookEvent.AfterLlmResponse -> {
                     recordedEvents += "${name}:afterLlmResponse(${context.agentContext?.currentIteration})"
                 }
-                is BeforeToolCall -> {
+                is AgentHookEvent.BeforeToolCall -> {
                     recordedEvents += "${name}:beforeToolCall(${event.toolCall.name})"
                     return if (nextSynthetic != null) {
-                        Result.Halt(nextSynthetic!!)
+                        HookResult.Halt(nextSynthetic!!)
                     } else {
-                        Result.Continue
+                        HookResult.Continue
                     }
                 }
-                is AfterToolCall -> {
+                is AgentHookEvent.AfterToolCall -> {
                     recordedEvents += "${name}:afterToolCall(${event.toolCall.name},${event.result.content})"
                     return if (nextRewritten != null) {
-                        Result.Modify(nextRewritten!!)
+                        HookResult.Modify(nextRewritten!!)
                     } else {
-                        Result.Continue
+                        HookResult.Continue
                     }
                 }
-                is OnError -> {
+                is AgentHookEvent.RunFailed -> {
                     recordedEvents += "${name}:onError(${event.error.javaClass.simpleName})"
                 }
-                is OnRunFinished -> {
+                is AgentHookEvent.RunCompleted -> {
                     recordedEvents += "${name}:onRunFinished(iter=${event.result.iterations})"
                 }
-                is BeforeMemoryCompress -> {
+                is AgentHookEvent.BeforeMemoryCompress -> {
                     recordedEvents += "${name}:beforeMemoryCompress"
                 }
-                is AfterMemoryCompress -> {
+                is AgentHookEvent.AfterMemoryCompress -> {
                     recordedEvents += "${name}:afterMemoryCompress"
                 }
+                else -> {
+                    // ignore other events
+                }
             }
-            return Result.Continue
+            return HookResult.Continue
         }
     }
 
@@ -203,8 +206,8 @@ class DefaultHookPipelineTest {
     fun `exception in beforeLlmCall is swallowed and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
             override val name: String = "throwing"
-            override val events: Set<kotlin.reflect.KClass<out Event>> = setOf(BeforeLlmCall::class)
-            override suspend fun execute(event: Event, context: HookContext): Result {
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent.BeforeLlmCall::class)
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
                 throw RuntimeException("oops")
             }
         }
@@ -218,8 +221,8 @@ class DefaultHookPipelineTest {
     fun `exception in afterLlmResponse is swallowed and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
             override val name: String = "throwing"
-            override val events: Set<kotlin.reflect.KClass<out Event>> = setOf(AfterLlmResponse::class)
-            override suspend fun execute(event: Event, context: HookContext): Result {
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent.AfterLlmResponse::class)
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
                 throw RuntimeException("oops")
             }
         }
@@ -233,8 +236,8 @@ class DefaultHookPipelineTest {
     fun `exception in onError is swallowed and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
             override val name: String = "throwing"
-            override val events: Set<kotlin.reflect.KClass<out Event>> = setOf(OnError::class)
-            override suspend fun execute(event: Event, context: HookContext): Result {
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent.RunFailed::class)
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
                 throw RuntimeException("oops")
             }
         }
@@ -248,8 +251,8 @@ class DefaultHookPipelineTest {
     fun `exception in onRunFinished is swallowed and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
             override val name: String = "throwing"
-            override val events: Set<kotlin.reflect.KClass<out Event>> = setOf(OnRunFinished::class)
-            override suspend fun execute(event: Event, context: HookContext): Result {
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent.RunCompleted::class)
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
                 throw RuntimeException("oops")
             }
         }
@@ -264,8 +267,8 @@ class DefaultHookPipelineTest {
     fun `exception in beforeToolCall is treated as Continue and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
             override val name: String = "throwing"
-            override val events: Set<kotlin.reflect.KClass<out Event>> = setOf(BeforeToolCall::class)
-            override suspend fun execute(event: Event, context: HookContext): Result {
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent.BeforeToolCall::class)
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
                 throw RuntimeException("oops")
             }
         }
@@ -279,8 +282,8 @@ class DefaultHookPipelineTest {
     fun `exception in afterToolCall keeps previous value and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
             override val name: String = "throwing"
-            override val events: Set<kotlin.reflect.KClass<out Event>> = setOf(AfterToolCall::class)
-            override suspend fun execute(event: Event, context: HookContext): Result {
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent.AfterToolCall::class)
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
                 throw RuntimeException("oops")
             }
         }
@@ -295,9 +298,9 @@ class DefaultHookPipelineTest {
     fun `CancellationException in beforeLlmCall propagates and stops fan-out`() = runTest {
         val throwing = object : Hook {
             override val name: String = "throwing"
-            override val events: Set<kotlin.reflect.KClass<out Event>> = setOf(BeforeLlmCall::class)
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent.BeforeLlmCall::class)
             override val priority: Int = Int.MAX_VALUE
-            override suspend fun execute(event: Event, context: HookContext): Result {
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
                 throw CancellationException("cancelled")
             }
         }
@@ -317,9 +320,9 @@ class DefaultHookPipelineTest {
     fun `CancellationException in beforeToolCall propagates immediately`() = runTest {
         val throwing = object : Hook {
             override val name: String = "throwing"
-            override val events: Set<kotlin.reflect.KClass<out Event>> = setOf(BeforeToolCall::class)
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent.BeforeToolCall::class)
             override val priority: Int = Int.MAX_VALUE
-            override suspend fun execute(event: Event, context: HookContext): Result {
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
                 throw CancellationException("cancelled")
             }
         }
@@ -339,8 +342,8 @@ class DefaultHookPipelineTest {
     fun `CancellationException in afterToolCall propagates immediately`() = runTest {
         val throwing = object : Hook {
             override val name: String = "throwing"
-            override val events: Set<kotlin.reflect.KClass<out Event>> = setOf(AfterToolCall::class)
-            override suspend fun execute(event: Event, context: HookContext): Result {
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent.AfterToolCall::class)
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
                 throw CancellationException("cancelled")
             }
         }
@@ -386,5 +389,96 @@ class DefaultHookPipelineTest {
             ),
             a.recordedEvents + b.recordedEvents
         )
+    }
+
+    // --- Event subscription matching ---
+
+    @Test
+    fun `hook with events null receives all events`() = runTest {
+        val universal = object : Hook {
+            override val name: String = "universal"
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>>? = null
+            val recorded = mutableListOf<String>()
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
+                recorded += event.javaClass.simpleName
+                return HookResult.Continue
+            }
+        }
+        val composite = DefaultHookPipeline(listOf(universal))
+        composite.beforeLlmCall(context(1))
+        composite.afterLlmResponse(context(1), emptyResponse())
+        composite.beforeToolCall(context(), toolCall())
+        assertEquals(
+            listOf("BeforeLlmCall", "AfterLlmResponse", "BeforeToolCall"),
+            universal.recorded
+        )
+    }
+
+    @Test
+    fun `hook subscribing to parent AgentHookEvent receives all agent events`() = runTest {
+        val parentHook = object : Hook {
+            override val name: String = "parentHook"
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent::class)
+            val recorded = mutableListOf<String>()
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
+                recorded += event.javaClass.simpleName
+                return HookResult.Continue
+            }
+        }
+        val composite = DefaultHookPipeline(listOf(parentHook))
+        composite.beforeLlmCall(context(1))
+        composite.afterLlmResponse(context(1), emptyResponse())
+        composite.beforeMemoryCompress(context(1), emptyList())
+        assertEquals(
+            listOf("BeforeLlmCall", "AfterLlmResponse", "BeforeMemoryCompress"),
+            parentHook.recorded
+        )
+    }
+
+    @Test
+    fun `hook subscribing to specific event only receives that event`() = runTest {
+        val specificHook = object : Hook {
+            override val name: String = "specificHook"
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent.BeforeLlmCall::class)
+            val recorded = mutableListOf<String>()
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
+                recorded += event.javaClass.simpleName
+                return HookResult.Continue
+            }
+        }
+        val composite = DefaultHookPipeline(listOf(specificHook))
+        composite.beforeLlmCall(context(1))
+        composite.afterLlmResponse(context(1), emptyResponse())
+        assertEquals(listOf("BeforeLlmCall"), specificHook.recorded)
+    }
+
+    @Test
+    fun `getHooks returns all hooks when events is null`() {
+        val a = object : Hook {
+            override val name: String = "a"
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>>? = null
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult = HookResult.Continue
+        }
+        val b = RecordingHook("b", setOf(AgentHookEvent.BeforeLlmCall::class))
+        val composite = DefaultHookPipeline(listOf(a, b))
+        assertEquals(2, composite.getHooks(AgentHookEvent.BeforeLlmCall::class).size)
+        assertEquals(1, composite.getHooks(AgentHookEvent.RunFailed::class).size)
+    }
+
+    @Test
+    fun `getHooks returns hooks subscribed to parent class`() {
+        val parentSub = object : Hook {
+            override val name: String = "parentSub"
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent::class)
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult = HookResult.Continue
+        }
+        val specificSub = object : Hook {
+            override val name: String = "specificSub"
+            override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent.RunFailed::class)
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult = HookResult.Continue
+        }
+        val composite = DefaultHookPipeline(listOf(parentSub, specificSub))
+        assertEquals(2, composite.getHooks(AgentHookEvent.RunFailed::class).size)
+        assertEquals(1, composite.getHooks(AgentHookEvent.BeforeLlmCall::class).size)
     }
 }

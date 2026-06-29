@@ -2,8 +2,9 @@ package io.github.yeyi.agent.session
 
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.hook.Hook
+import io.github.yeyi.agent.hook.HookEvent
 import io.github.yeyi.agent.hook.HookPipeline
-import io.github.yeyi.agent.hook.Result
+import io.github.yeyi.agent.hook.HookResult
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
@@ -23,16 +24,16 @@ class SessionManagerTest {
      * [onEvent] 收到所有转发过来的事件,测试侧负责断言。
      */
     private fun recordingPipeline(
-        onEvent: (io.github.yeyi.agent.hook.Event) -> Unit,
+        onEvent: (HookEvent) -> Unit,
     ): HookPipeline {
         val hook = object : Hook {
             override val name: String = "recording"
             override suspend fun execute(
-                event: io.github.yeyi.agent.hook.Event,
+                event: HookEvent,
                 context: io.github.yeyi.agent.hook.HookContext,
-            ): Result {
+            ): HookResult {
                 onEvent(event)
-                return Result.Continue
+                return HookResult.Continue
             }
         }
         return HookPipeline(listOf(hook))
@@ -129,7 +130,7 @@ class SessionManagerTest {
     fun `hook onSessionCreated is called when creating session`() = runTest {
         val events = mutableListOf<String>()
         val pipeline = recordingPipeline { event ->
-            if (event is OnSessionCreated) {
+            if (event is SessionHookEvent.Created) {
                 events.add("onSessionCreated(${event.session.id},${event.session.name})")
             }
         }
@@ -142,7 +143,7 @@ class SessionManagerTest {
     fun `hook onSessionDeleted is called when deleting session`() = runTest {
         val events = mutableListOf<String>()
         val pipeline = recordingPipeline { event ->
-            if (event is OnSessionDeleted) {
+            if (event is SessionHookEvent.Deleted) {
                 events.add("onSessionDeleted(${event.accountId},${event.sessionId})")
             }
         }
@@ -156,7 +157,7 @@ class SessionManagerTest {
     fun `get and list do NOT trigger hooks`() = runTest {
         val events = mutableListOf<String>()
         val pipeline = recordingPipeline { event ->
-            if (event is OnSessionCreated || event is OnSessionDeleted) {
+            if (event is SessionHookEvent.Created || event is SessionHookEvent.Deleted) {
                 events.add(event::class.simpleName ?: "")
             }
         }
