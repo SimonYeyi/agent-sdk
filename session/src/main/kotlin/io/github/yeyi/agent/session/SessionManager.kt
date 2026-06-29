@@ -15,6 +15,7 @@ public class SessionManager(
 ) {
     private val repository = SessionRepository(baseDir)
     private val mutex = Mutex()
+    private val activeSessionMap = mutableMapOf<String, Session>()
 
     public suspend fun create(
         accountId: String,
@@ -22,9 +23,10 @@ public class SessionManager(
         sessionId: String? = null
     ): Session {
         return mutex.withLock {
-            repository.createSession(accountId, sessionName, sessionId).also {
-                pipeline.run(SessionHookEvent.Created(session = it), HookContext())
-            }
+            repository.createSession(accountId, sessionName, sessionId)
+        }.also {
+            pipeline.run(SessionHookEvent.Created(session = it), HookContext())
+            start(it)
         }
     }
 
@@ -49,11 +51,40 @@ public class SessionManager(
         )
     }
 
+    public suspend fun start(session: Session) {
+        val newlyActive = mutex.withLock {
+            activeSessionMap.put(session.id, session) == null
+        }
+        if (!newlyActive) return
+        pipeline.run(SessionHookEvent.Start(session), HookContext())
+    }
+
+    public suspend fun stop(session: Session) {
+        val wasActive = mutex.withLock {
+            activeSessionMap.remove(session.id) != null
+        }
+        if (!wasActive) return
+        pipeline.run(SessionHookEvent.Stop(session), HookContext())
+    }
+
+    public suspend fun switchTo(session: Session) {
+        actives().filter { it.id != session.id }.forEach { stop(it) }
+        start(session)
+    }
+
+    public suspend fun actives(): List<Session> = mutex.withLock {
+        activeSessionMap.values.toList()
+    }
+
     public suspend fun delete(accountId: String, sessionId: String) {
+        val session = mutex.withLock {
+            repository.findSession(accountId, sessionId) ?: return
+        }
+        stop(session)
         mutex.withLock {
             repository.deleteSession(accountId, sessionId)
-            pipeline.run(SessionHookEvent.Deleted(accountId = accountId, sessionId = sessionId), HookContext())
         }
+        pipeline.run(SessionHookEvent.Deleted(session), HookContext())
     }
 
     public suspend fun list(accountId: String): List<Session> {

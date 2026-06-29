@@ -27,7 +27,10 @@ import kotlin.reflect.KClass
  * 异常隔离：任意内部 hook 抛 [kotlinx.coroutines.CancellationException] 会被原样抛出；
  * 其他 [Throwable] 会被吞掉并记录，继续执行。
  */
-internal class DefaultHookPipeline(initialHooks: List<Hook> = emptyList(), logging: Boolean = false) :
+internal class DefaultHookPipeline(
+    initialHooks: List<Hook> = emptyList(),
+    logging: Boolean = false
+) :
     HookPipeline {
     private val hooks = mutableListOf<Hook>()
 
@@ -40,6 +43,20 @@ internal class DefaultHookPipeline(initialHooks: List<Hook> = emptyList(), loggi
     private fun sortHooks() {
         hooks.sortByDescending { it.priority }
     }
+
+    private fun matches(hook: Hook, eventClass: KClass<out HookEvent>): Boolean =
+        hook.events?.any { it.java.isAssignableFrom(eventClass.java) } ?: true
+
+    private fun requireToolResult(
+        hook: Hook,
+        event: HookEvent,
+        raw: Any
+    ): ToolExecutionResult = raw as? ToolExecutionResult
+        ?: throw IllegalArgumentException(
+            "Hook '${hook.name}' returned HookResult.Modify for ${event::class.simpleName}, " +
+                    "but newResult is ${raw::class.qualifiedName}; " +
+                    "${event::class.simpleName} requires newResult to be a ToolExecutionResult."
+        )
 
     override fun register(hook: Hook) {
         hooks.add(hook)
@@ -56,9 +73,7 @@ internal class DefaultHookPipeline(initialHooks: List<Hook> = emptyList(), loggi
 
     override suspend fun run(event: HookEvent, context: HookContext): HookResult {
         val eventClass = event::class
-        val matchingHooks = hooks.filter { hook ->
-            hook.events?.any { subscribed -> subscribed.java.isAssignableFrom(eventClass.java) } ?: true
-        }
+        val matchingHooks = hooks.filter { matches(it, eventClass) }
         if (matchingHooks.isEmpty()) {
             return HookResult.Continue
         }
@@ -107,7 +122,7 @@ internal class DefaultHookPipeline(initialHooks: List<Hook> = emptyList(), loggi
                 is HookResult.Modify -> {
                     currentEvent = AgentHookEvent.AfterToolCall(
                         toolCall = currentEvent.toolCall,
-                        result = result.newResult as ToolExecutionResult,
+                        result = requireToolResult(hook, event, result.newResult),
                         durationMs = currentEvent.durationMs
                     )
                 }
@@ -142,9 +157,7 @@ internal class DefaultHookPipeline(initialHooks: List<Hook> = emptyList(), loggi
     override fun getHooks(): List<Hook> = hooks.toList()
 
     override fun getHooks(eventClass: KClass<out HookEvent>): List<Hook> =
-        hooks.filter { hook ->
-            hook.events?.any { subscribed -> subscribed.java.isAssignableFrom(eventClass.java) } ?: true
-        }
+        hooks.filter { matches(it, eventClass) }
 
     // ==================== AgentHook 实现（委托给 run） ====================
 
@@ -169,7 +182,7 @@ internal class DefaultHookPipeline(initialHooks: List<Hook> = emptyList(), loggi
         call: ToolCall
     ): ToolExecutionResult? {
         return when (val result = run(AgentHookEvent.BeforeToolCall(call), HookContext(context))) {
-            is HookResult.Halt -> ToolExecutionResult.error(result.syntheticResult)
+            is HookResult.Halt -> ToolExecutionResult.error(result.reason)
             else -> null
         }
     }
@@ -180,7 +193,9 @@ internal class DefaultHookPipeline(initialHooks: List<Hook> = emptyList(), loggi
         result: ToolExecutionResult,
         durationMs: Long
     ): ToolExecutionResult {
-        return when (val pipelineResult = run(AgentHookEvent.AfterToolCall(call, result, durationMs), HookContext(context))) {
+        val event = AgentHookEvent.AfterToolCall(call, result, durationMs)
+        return when (val pipelineResult = run(event, HookContext(context))) {
+            // AfterToolCall 事件经 runAfterToolCall 处理后,Modify.newResult 必然为 ToolExecutionResult
             is HookResult.Modify -> pipelineResult.newResult as ToolExecutionResult
             else -> result
         }

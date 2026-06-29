@@ -27,6 +27,6 @@ public data class HookContext(
 /** Hook 执行结果 */
 public sealed class HookResult {
     public object Continue : HookResult()
-    public data class Halt(val syntheticResult: String) : HookResult()
+    public data class Halt(val reason: String) : HookResult()
     public data class Modify(val newResult: Any) : HookResult()
 }

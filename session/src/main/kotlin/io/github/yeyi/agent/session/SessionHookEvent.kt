@@ -10,16 +10,15 @@ public sealed interface SessionHookEvent : HookEvent {
         val session: Session
     ) : SessionHookEvent
 
-/*    public data class Start(
+    public data class Start(
         val session: Session
     ) : SessionHookEvent
 
     public data class Stop(
         val session: Session
-    ) : SessionHookEvent*/
+    ) : SessionHookEvent
 
     public data class Deleted(
-        val accountId: String,
-        val sessionId: String
+        val session: Session
     ) : SessionHookEvent
 }

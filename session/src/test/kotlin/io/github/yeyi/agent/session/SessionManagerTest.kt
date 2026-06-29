@@ -144,7 +144,7 @@ class SessionManagerTest {
         val events = mutableListOf<String>()
         val pipeline = recordingPipeline { event ->
             if (event is SessionHookEvent.Deleted) {
-                events.add("onSessionDeleted(${event.accountId},${event.sessionId})")
+                events.add("onSessionDeleted(${event.session.accountId},${event.session.id})")
             }
         }
         val manager = SessionManager(tempDir, pipeline)
