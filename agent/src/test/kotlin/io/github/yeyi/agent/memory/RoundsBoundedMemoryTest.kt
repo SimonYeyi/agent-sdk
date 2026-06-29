@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.memory
 
 import io.github.yeyi.agent.AgentContext
-import io.github.yeyi.agent.AgentHook
+import io.github.yeyi.agent.EmptyAgentHook
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
@@ -398,7 +398,7 @@ class RoundsBoundedMemoryTest {
             maxRounds = 2,
         )
         val events = mutableListOf<String>()
-        val hook = object : AgentHook {
+        val hook = object : EmptyAgentHook() {
             override suspend fun beforeMemoryCompress(
                 context: AgentContext,
                 summaries: List<Summary>
@@ -442,7 +442,7 @@ class RoundsBoundedMemoryTest {
         )
         var beforeCalls = 0
         var afterCalls = 0
-        val hook = object : AgentHook {
+        val hook = object : EmptyAgentHook() {
             override suspend fun beforeMemoryCompress(
                 context: AgentContext,
                 summaries: List<Summary>
@@ -494,7 +494,7 @@ class RoundsBoundedMemoryTest {
             maxRounds = 2,
         )
         val afterSnapshots = mutableListOf<List<Summary>>()
-        val hook = object : AgentHook {
+        val hook = object : EmptyAgentHook() {
             override suspend fun afterMemoryCompress(
                 context: AgentContext,
                 summaries: List<Summary>

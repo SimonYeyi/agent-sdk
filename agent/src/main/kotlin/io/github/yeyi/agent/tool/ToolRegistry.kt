@@ -3,8 +3,7 @@ package io.github.yeyi.agent.tool
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.ToolDefinition
-import io.github.yeyi.agent.log.Logging
-import io.github.yeyi.agent.log.agent
+import io.github.yeyi.agent.log.log
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonElement
 
@@ -64,7 +63,7 @@ public class ToolRegistry : ToolDispatcher {
             throw t
         } catch (t: Throwable) {
             val message = "Tool execute error: name=${name}, arguments=$arguments"
-            Logging.agent().warn(message, t)
+            log.warn(message, t)
             ToolExecutionResult.error("$message ${t.message}")
         }
     }

@@ -26,7 +26,7 @@ import kotlin.test.assertTrue
 
 class AgentHookTest {
 
-    private class RecordingHook : AgentHook {
+    private class RecordingHook : EmptyAgentHook() {
         val events: MutableList<String> = mutableListOf()
         override suspend fun beforeLlmCall(context: AgentContext) {
             events += "beforeLlmCall(${context.currentIteration})"
@@ -120,7 +120,7 @@ class AgentHookTest {
 
     @Test
     fun `exception in hook does not crash agent`() = runTest {
-        val throwingHook = object : AgentHook {
+        val throwingHook = object : EmptyAgentHook() {
             override suspend fun beforeLlmCall(context: AgentContext) {
                 throw RuntimeException("hook fail")
             }
@@ -139,7 +139,7 @@ class AgentHookTest {
 
     @Test
     fun `onError fires when agent throws`() = runTest {
-        val errorHook = object : AgentHook {
+        val errorHook = object : EmptyAgentHook() {
             val errors: MutableList<AgentException> = mutableListOf()
             override suspend fun onError(context: AgentContext, cause: AgentException) {
                 errors += cause
@@ -165,7 +165,7 @@ class AgentHookTest {
 
     @Test
     fun `exception in afterLlmResponse does not crash agent`() = runTest {
-        val throwingHook = object : AgentHook {
+        val throwingHook = object : EmptyAgentHook() {
             override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
                 throw RuntimeException("afterLlm fail")
             }
@@ -184,7 +184,7 @@ class AgentHookTest {
 
     @Test
     fun `exception in afterToolCall does not crash agent`() = runTest {
-        val throwingHook = object : AgentHook {
+        val throwingHook = object : EmptyAgentHook() {
             override suspend fun afterToolCall(
                 context: AgentContext,
                 call: ToolCall,
@@ -216,7 +216,7 @@ class AgentHookTest {
     @Test
     fun `onError fires for LLM provider throw (not just MaxIterations)`() = runTest {
         val boom = AgentException.LlmError(RuntimeException("llm unavailable"))
-        val errorHook = object : AgentHook {
+        val errorHook = object : EmptyAgentHook() {
             val errors: MutableList<AgentException> = mutableListOf()
             override suspend fun onError(context: AgentContext, cause: AgentException) {
                 errors += cause
@@ -238,7 +238,7 @@ class AgentHookTest {
 
     @Test
     fun `CancellationException does not trigger onError`() = runTest {
-        val errorHook = object : AgentHook {
+        val errorHook = object : EmptyAgentHook() {
             val errors: MutableList<AgentException> = mutableListOf()
             override suspend fun onError(context: AgentContext, cause: AgentException) {
                 errors += cause
@@ -265,7 +265,7 @@ class AgentHookTest {
     fun `beforeToolCall returning non-null short-circuits tool execution and emits no tool events`() = runTest {
         val events: MutableList<String> = mutableListOf()
         val shortCircuit = ToolExecutionResult("synthetic-from-hook", isError = false)
-        val hook = object : AgentHook {
+        val hook = object : EmptyAgentHook() {
             override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
                 events += "beforeToolCall(${call.name})"
                 return shortCircuit
@@ -295,7 +295,7 @@ class AgentHookTest {
 
     @Test
     fun `beforeToolCall short-circuit still records the synthetic result into AgentResult`() = runTest {
-        val hook = object : AgentHook {
+        val hook = object : EmptyAgentHook() {
             override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? =
                 ToolExecutionResult("synthetic-from-hook", isError = false)
         }
@@ -323,7 +323,7 @@ class AgentHookTest {
 
     @Test
     fun `beforeToolCall returning isError=true feeds synthetic error into memory`() = runTest {
-        val hook = object : AgentHook {
+        val hook = object : EmptyAgentHook() {
             override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? =
                 ToolExecutionResult("blocked by hook", isError = true)
         }
@@ -353,7 +353,7 @@ class AgentHookTest {
     @Test
     fun `afterToolCall return value overrides raw result`() = runTest {
         val rewritten = ToolExecutionResult("rewritten-by-hook", isError = false)
-        val hook = object : AgentHook {
+        val hook = object : EmptyAgentHook() {
             override suspend fun afterToolCall(
                 context: AgentContext,
                 call: ToolCall,
@@ -384,7 +384,7 @@ class AgentHookTest {
 
     @Test
     fun `exception in beforeToolCall is swallowed and tool runs normally`() = runTest {
-        val hook = object : AgentHook {
+        val hook = object : EmptyAgentHook() {
             override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
                 throw RuntimeException("oops")
             }
@@ -413,7 +413,7 @@ class AgentHookTest {
     @Test
     fun `metadata is shared between hooks`() = runTest {
         var capturedMetadata: Map<String, String>? = null
-        val hook = object : AgentHook {
+        val hook = object : EmptyAgentHook() {
             override suspend fun beforeLlmCall(context: AgentContext) {
                 context.metadata["key"] = "value"
             }

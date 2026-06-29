@@ -30,7 +30,7 @@ class LoggingTest {
 
     @Test
     fun `debug outputs with DEBUG prefix and tag`() {
-        val log = Logging.agent()
+        val log = LoggingTagged("agent")
         log.debug("test debug message")
         val out = stderr()
         assertTrue(out.contains("[DEBUG]"))
@@ -42,7 +42,7 @@ class LoggingTest {
 
     @Test
     fun `info outputs with INFO prefix and tag`() {
-        val log = Logging.agent()
+        val log = LoggingTagged("agent")
         log.info("test info message")
         val out = stderr()
         assertTrue(out.contains("[INFO]"))
@@ -54,7 +54,7 @@ class LoggingTest {
 
     @Test
     fun `warn outputs with WARN prefix and tag`() {
-        val log = Logging.agent()
+        val log = LoggingTagged("agent")
         log.warn("test warn message")
         val out = stderr()
         assertTrue(out.contains("[WARN]"))
@@ -66,7 +66,7 @@ class LoggingTest {
 
     @Test
     fun `error outputs with ERROR prefix and tag`() {
-        val log = Logging.agent()
+        val log = LoggingTagged("agent")
         log.error("test error message")
         val out = stderr()
         assertTrue(out.contains("[ERROR]"))
@@ -78,7 +78,7 @@ class LoggingTest {
 
     @Test
     fun `multiple log calls produce separate lines`() {
-        val log = Logging.agent()
+        val log = LoggingTagged("agent")
         log.debug("debug msg")
         log.info("info msg")
         log.warn("warn msg")
@@ -96,7 +96,7 @@ class LoggingTest {
 
     @Test
     fun `different tags appear in output`() {
-        val agentLog = Logging.agent()
+        val agentLog = LoggingTagged("agent")
         val hookLog = LoggingTagged("hook")
         agentLog.info("from agent")
         hookLog.info("from hook")

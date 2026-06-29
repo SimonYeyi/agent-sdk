@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.mcp
 
-import io.github.yeyi.agent.log.Logging
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.ServerResponseException
 import io.ktor.client.request.accept
@@ -91,7 +90,7 @@ public class SseTransport(
     override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
         val body = json.encodeToString(request)
 
-        return try {
+        try {
             val response: HttpResponse = httpClient.post(endpoint) {
                 contentType(ContentType.Application.Json)
                 header(
@@ -164,7 +163,7 @@ public class SseTransport(
                     readSseEvents(channel)
                 } catch (e: Exception) {
                     if (e is IOException || e is ServerResponseException) {
-                        Logging.mcp().warn("SSE connection failed, retrying...", e)
+                        log.warn("SSE connection failed, retrying...", e)
                         delay(Defaults.SSE_RECONNECT_DELAY_MS)
                     } else {
                         throw e

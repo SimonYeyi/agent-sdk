@@ -3,7 +3,7 @@ package io.github.yeyi.agent
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.log.Logging
-import io.github.yeyi.agent.log.agent
+import io.github.yeyi.agent.log.log
 import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.tool.ToolExecutionResult
 
@@ -44,18 +44,19 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  *   使用 `hook` 模块的 `CompositeHook` 组合
  */
 public interface AgentHook {
-    public suspend fun beforeMemoryCompress(context: AgentContext, summaries: List<Summary>) {}
-    public suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>) {}
+    public suspend fun beforeMemoryCompress(context: AgentContext, summaries: List<Summary>)
+    public suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>)
 
-    public suspend fun beforeLlmCall(context: AgentContext) {}
-    public suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {}
+    public suspend fun beforeLlmCall(context: AgentContext)
+    public suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse)
 
     /**
      * 工具执行前的拦截点。
      * @return 非 null 表示跳过真实工具执行,把该返回值作为"合成结果"注入 memory;
      *         null 表示按正常流程执行工具。
      */
-    public suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? = null
+    public suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? =
+        null
 
     /**
      * 工具执行后的改写点。
@@ -68,9 +69,9 @@ public interface AgentHook {
         durationMs: Long,
     ): ToolExecutionResult = result
 
-    public suspend fun onRunFinished(context: AgentContext, result: AgentResult) {}
+    public suspend fun onRunFinished(context: AgentContext, result: AgentResult)
 
-    public suspend fun onError(context: AgentContext, cause: AgentException) {}
+    public suspend fun onError(context: AgentContext, cause: AgentException)
 }
 
 /**
@@ -78,7 +79,40 @@ public interface AgentHook {
  *
  * 标记 `internal` — 仅供 agent 模块内部作为"未挂载 hook"的占位实现
  */
-internal object NoOpAgentHook : AgentHook
+internal object NoOpAgentHook : AgentHook {
+    override suspend fun beforeMemoryCompress(
+        context: AgentContext,
+        summaries: List<Summary>
+    ) {
+    }
+
+    override suspend fun afterMemoryCompress(
+        context: AgentContext,
+        summaries: List<Summary>
+    ) {
+    }
+
+    override suspend fun beforeLlmCall(context: AgentContext) {
+    }
+
+    override suspend fun afterLlmResponse(
+        context: AgentContext,
+        response: ChatResponse
+    ) {
+    }
+
+    override suspend fun onRunFinished(
+        context: AgentContext,
+        result: AgentResult
+    ) {
+    }
+
+    override suspend fun onError(
+        context: AgentContext,
+        cause: AgentException
+    ) {
+    }
+}
 
 /**
  * 调用 hook 方法的统一异常隔离包装。
@@ -101,7 +135,7 @@ internal suspend inline fun <T> AgentHook.safeInvoke(
     } catch (t: kotlinx.coroutines.CancellationException) {
         throw t
     } catch (t: Throwable) {
-        Logging.agent().warn("${this::class.simpleName} hook exception", t)
+        log.warn("${this::class.simpleName} hook exception", t)
         null
     }
 }

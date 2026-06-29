@@ -1,7 +1,6 @@
 package io.github.yeyi.agent
 
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.log.agent
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.tool.Tool

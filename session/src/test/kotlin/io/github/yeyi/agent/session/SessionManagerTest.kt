@@ -10,22 +10,32 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import java.io.File
-import kotlin.reflect.KClass
 import kotlin.test.assertFailsWith
 
 class SessionManagerTest {
 
     private lateinit var tempDir: File
 
-    private fun createMockPipeline(): HookPipeline {
-        return object : HookPipeline {
-            override fun register(hook: Hook) {}
-            override fun unregister(hookName: String) {}
-            override fun unregister(hookClass: KClass<out Hook>) {}
-            override suspend fun run(event: io.github.yeyi.agent.hook.Event, context: io.github.yeyi.agent.hook.HookContext): Result = Result.Continue
-            override fun getHooks(): List<Hook> = emptyList()
-            override fun getHooks(eventClass: KClass<out io.github.yeyi.agent.hook.Event>): List<Hook> = emptyList()
+    private fun createMockPipeline(): HookPipeline = HookPipeline()
+
+    /**
+     * 构造一个带单个录制 [Hook] 的 [HookPipeline]。
+     * [onEvent] 收到所有转发过来的事件,测试侧负责断言。
+     */
+    private fun recordingPipeline(
+        onEvent: (io.github.yeyi.agent.hook.Event) -> Unit,
+    ): HookPipeline {
+        val hook = object : Hook {
+            override val name: String = "recording"
+            override suspend fun execute(
+                event: io.github.yeyi.agent.hook.Event,
+                context: io.github.yeyi.agent.hook.HookContext,
+            ): Result {
+                onEvent(event)
+                return Result.Continue
+            }
         }
+        return HookPipeline(listOf(hook))
     }
 
     @Before
@@ -118,18 +128,10 @@ class SessionManagerTest {
     @Test
     fun `hook onSessionCreated is called when creating session`() = runTest {
         val events = mutableListOf<String>()
-        val pipeline = object : HookPipeline {
-            override fun register(hook: Hook) {}
-            override fun unregister(hookName: String) {}
-            override fun unregister(hookClass: KClass<out Hook>) {}
-            override suspend fun run(event: io.github.yeyi.agent.hook.Event, context: io.github.yeyi.agent.hook.HookContext): Result {
-                if (event is OnSessionCreated) {
-                    events.add("onSessionCreated(${event.session.id},${event.session.name})")
-                }
-                return Result.Continue
+        val pipeline = recordingPipeline { event ->
+            if (event is OnSessionCreated) {
+                events.add("onSessionCreated(${event.session.id},${event.session.name})")
             }
-            override fun getHooks(): List<Hook> = emptyList()
-            override fun getHooks(eventClass: KClass<out io.github.yeyi.agent.hook.Event>): List<Hook> = emptyList()
         }
         val manager = SessionManager(tempDir, pipeline)
         val session = manager.create("user1", "my session")
@@ -139,18 +141,10 @@ class SessionManagerTest {
     @Test
     fun `hook onSessionDeleted is called when deleting session`() = runTest {
         val events = mutableListOf<String>()
-        val pipeline = object : HookPipeline {
-            override fun register(hook: Hook) {}
-            override fun unregister(hookName: String) {}
-            override fun unregister(hookClass: KClass<out Hook>) {}
-            override suspend fun run(event: io.github.yeyi.agent.hook.Event, context: io.github.yeyi.agent.hook.HookContext): Result {
-                if (event is OnSessionDeleted) {
-                    events.add("onSessionDeleted(${event.accountId},${event.sessionId})")
-                }
-                return Result.Continue
+        val pipeline = recordingPipeline { event ->
+            if (event is OnSessionDeleted) {
+                events.add("onSessionDeleted(${event.accountId},${event.sessionId})")
             }
-            override fun getHooks(): List<Hook> = emptyList()
-            override fun getHooks(eventClass: KClass<out io.github.yeyi.agent.hook.Event>): List<Hook> = emptyList()
         }
         val manager = SessionManager(tempDir, pipeline)
         val session = manager.create("user1", "my session")
@@ -161,18 +155,10 @@ class SessionManagerTest {
     @Test
     fun `get and list do NOT trigger hooks`() = runTest {
         val events = mutableListOf<String>()
-        val pipeline = object : HookPipeline {
-            override fun register(hook: Hook) {}
-            override fun unregister(hookName: String) {}
-            override fun unregister(hookClass: KClass<out Hook>) {}
-            override suspend fun run(event: io.github.yeyi.agent.hook.Event, context: io.github.yeyi.agent.hook.HookContext): Result {
-                if (event is OnSessionCreated || event is OnSessionDeleted) {
-                    events.add(event::class.simpleName ?: "")
-                }
-                return Result.Continue
+        val pipeline = recordingPipeline { event ->
+            if (event is OnSessionCreated || event is OnSessionDeleted) {
+                events.add(event::class.simpleName ?: "")
             }
-            override fun getHooks(): List<Hook> = emptyList()
-            override fun getHooks(eventClass: KClass<out io.github.yeyi.agent.hook.Event>): List<Hook> = emptyList()
         }
         val manager = SessionManager(tempDir, pipeline)
         manager.create("user1", "my session")

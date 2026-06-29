@@ -36,15 +36,7 @@ public object Logging {
     }
 }
 
-/**
- * agent 模块专用日志扩展,固定 tag 为 "agent"。
- *
- * 用法:
- * ```kotlin
- * Logging.agent().warn("something happened")
- * ```
- */
-public fun Logging.agent(): LoggingTagged = LoggingTagged("agent")
+internal val log = LoggingTagged("agent")
 
 /**
  * 带固定 tag 的日志包装器。
