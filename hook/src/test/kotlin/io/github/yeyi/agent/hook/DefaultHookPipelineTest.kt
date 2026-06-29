@@ -49,7 +49,8 @@ class DefaultHookPipelineTest {
     /** Records every lifecycle call via execute() for assertion. Implements [Hook]. */
     private inner class RecordingHook(
         private val hookName: String,
-        val subscribedEvents: Set<kotlin.reflect.KClass<out HookEvent>> = allEvents
+        val subscribedEvents: Set<kotlin.reflect.KClass<out HookEvent>> = allEvents,
+        var priorityOverride: Int = 100
     ) : Hook {
         override val name: String = hookName
         val recordedEvents: MutableList<String> = mutableListOf()
@@ -57,7 +58,7 @@ class DefaultHookPipelineTest {
         var nextRewritten: ToolExecutionResult? = null
 
         override val events: Set<kotlin.reflect.KClass<out HookEvent>> = subscribedEvents
-        override val priority: Int = 100
+        override val priority: Int get() = priorityOverride
 
         override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
             when (event) {
@@ -480,5 +481,66 @@ class DefaultHookPipelineTest {
         val composite = DefaultHookPipeline(listOf(parentSub, specificSub))
         assertEquals(2, composite.getHooks(AgentHookEvent.RunFailed::class).size)
         assertEquals(1, composite.getHooks(AgentHookEvent.BeforeLlmCall::class).size)
+    }
+
+    // --- Priority ordering ---
+
+    @Test
+    fun `hooks are sorted by priority descending`() = runTest {
+        val low = RecordingHook("low").apply { priorityOverride = 10 }
+        val high = RecordingHook("high").apply { priorityOverride = 100 }
+        val mid = RecordingHook("mid").apply { priorityOverride = 50 }
+        val composite = DefaultHookPipeline(listOf(low, high, mid))
+        composite.beforeLlmCall(context(1))
+
+        assertEquals(
+            listOf("high:beforeLlmCall(1)", "mid:beforeLlmCall(1)", "low:beforeLlmCall(1)"),
+            listOf(high, mid, low).flatMap { it.recordedEvents }
+        )
+    }
+
+    @Test
+    fun `register adds hook and re-sorts by priority`() = runTest {
+        val low = RecordingHook("low").apply { priorityOverride = 10 }
+        val composite = DefaultHookPipeline(listOf(low))
+        val high = RecordingHook("high").apply { priorityOverride = 100 }
+        composite.register(high)
+
+        composite.beforeLlmCall(context(1))
+        assertEquals(
+            listOf("high:beforeLlmCall(1)", "low:beforeLlmCall(1)"),
+            listOf(high, low).flatMap { it.recordedEvents }
+        )
+    }
+
+    @Test
+    fun `unregister removes hook by name`() = runTest {
+        val a = RecordingHook("a")
+        val b = RecordingHook("b")
+        val composite = DefaultHookPipeline(listOf(a, b))
+        composite.unregister("a")
+
+        composite.beforeLlmCall(context(1))
+        assertTrue(a.recordedEvents.isEmpty())
+        assertEquals(listOf("b:beforeLlmCall(1)"), b.recordedEvents)
+    }
+
+    @Test
+    fun `unregister non-existent name does nothing`() = runTest {
+        val a = RecordingHook("a")
+        val composite = DefaultHookPipeline(listOf(a))
+        composite.unregister("nonexistent")
+
+        composite.beforeLlmCall(context(1))
+        assertEquals(listOf("a:beforeLlmCall(1)"), a.recordedEvents)
+    }
+
+    // --- DefaultHookPipeline constructor ---
+
+    @Test
+    fun `no-arg constructor creates empty pipeline`() = runTest {
+        val composite = DefaultHookPipeline()
+        assertTrue(composite.getHooks().isEmpty())
+        assertNull(composite.beforeToolCall(context(), toolCall()))
     }
 }
