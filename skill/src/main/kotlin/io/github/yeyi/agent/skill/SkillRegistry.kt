@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.skill
 
-import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.capability.CapabilityRegistry
 import io.github.yeyi.agent.capability.DefaultCapabilityRegistry

@@ -12,12 +12,12 @@ import kotlinx.serialization.json.jsonPrimitive
 /**
  * 代理执行延迟加载的工具。
  */
-public class SkillToolCaller(private val toolDispatcher: ToolDispatcher) :
+internal class SkillToolCaller(private val toolDispatcher: ToolDispatcher) :
     Tool {
 
     override val name: String = "skill_tool_caller"
 
-    override val description: String = "Skill 工具调用代理。代理调用动态注册的 Skill 工具。"
+    override val description: String = "Skill 工具调用代理。代理调用动态加载的 Skill 工具。"
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """
@@ -26,11 +26,11 @@ public class SkillToolCaller(private val toolDispatcher: ToolDispatcher) :
             "properties": {
                 "tool_name": {
                     "type": "string",
-                    "description": "The name of the target Skill tool (not the tool name)"
+                    "description": "The name of the target tool of Skill (not the tool name)"
                 },
                 "arguments": {
                     "type": "object",
-                    "description": "Actual parameters schema of the target Skill tool. Replace this object with the specific parameters required by the tool."
+                    "description": "Actual parameters schema of the target tool of Skill. Replace this object with the specific parameters required by the tool."
                 }
             },
             "required": ["tool_name", "arguments"],
