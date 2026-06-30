@@ -13,6 +13,7 @@ kotlin {
 
 dependencies {
     api(project(":agent"))
+    api(project(":capability"))
     api(libs.kotlinx.serialization.json)
     api(libs.kotlinx.coroutines.core)
     api(libs.ktor.client.core)

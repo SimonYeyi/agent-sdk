@@ -7,10 +7,13 @@ public interface CapabilityRegistry<Ctx : CapabilityContext, C : Capability<T, C
 
     public fun register(capability: C)
 
-    public fun register(capabilities: Iterable<C>): Unit =
-        capabilities.forEach(::register)
+    public fun register(capabilities: Iterable<C>)
+
+    public fun get(name: String): C
 
     public fun all(): List<C>
+
+    public fun unregisterAll()
 }
 
 public class DefaultCapabilityRegistry<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
@@ -23,5 +26,14 @@ public class DefaultCapabilityRegistry<Ctx : CapabilityContext, C : Capability<T
         capabilities[capability.name] = capability
     }
 
+    override fun register(capabilities: Iterable<C>): Unit = capabilities.forEach(::register)
+
+    override fun get(name: String): C {
+        return capabilities[name]
+            ?: throw NoSuchElementException("$capabilityName with name '$name' not found")
+    }
+
     override fun all(): List<C> = capabilities.values.toList()
+
+    override fun unregisterAll(): Unit = capabilities.clear()
 }

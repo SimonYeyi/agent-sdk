@@ -1,15 +1,18 @@
 package io.github.yeyi.agent.mcp
 
 import io.github.yeyi.agent.AgentBuilder
+import io.github.yeyi.agent.capability.CapabilityAdapter
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 
 /**
  * 将 MCP 能力注册到 Agent Builder。
  *
- * 调用后会向 Agent 添加两个工具：
- * - [LoadMcpTool]（`load_mcp`）：发现指定 MCP 服务下的可用工具
- * - [CallMcpTool]（`call_mcp`）：调用指定 MCP 服务上的工具
+ * 调用后会向 Agent 添加：
+ * - 复用能力框架生成的 `load_mcp` 工具（[CapabilityAdapter] + [McpContextFactory]），
+ *   用于发现指定 MCP 服务下的可用工具
+ * - [CallMcpTool]（`call_mcp_tool`）：调用指定 MCP 服务上的工具。
+ *   该工具的代理调用不在 [io.github.yeyi.agent.capability.Capability] 框架管辖范围内，所以单独注册。
  *
  * 示例：
  * ```kotlin
@@ -25,7 +28,14 @@ import kotlinx.serialization.json.JsonElement
  * ```
  */
 public fun AgentBuilder.mcp(registry: McpRegistry) {
-    tool(LoadMcpTool(registry))
+    CapabilityAdapter.of(
+        registry,
+        McpContextFactory(),
+        null,
+        true,
+    ).installOn(this)
+
+    // MCP 工具的代理调用不在 Capability 框架管辖范围,这里单独注册。
     tool(CallMcpTool(registry))
 }
 

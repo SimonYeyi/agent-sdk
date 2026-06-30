@@ -108,12 +108,14 @@ class CallMcpToolTest {
     @Test
     fun `throws exception when isError true`() = runTest {
         val content = JsonArray(listOf(JsonPrimitive("error result")))
-        val registry = McpRegistry(ClientInfo("", "")).register(
-            createFakeMcp(
-                toolCallResult = content,
-                toolCallError = true,
+        val registry = McpRegistry(ClientInfo("", "")).apply {
+            register(
+                createFakeMcp(
+                    toolCallResult = content,
+                    toolCallError = true,
+                )
             )
-        )
+        }
         val tool = CallMcpTool(registry)
 
         val exception = assertFailsWith<RuntimeException> {
@@ -135,12 +137,14 @@ class CallMcpToolTest {
     @Test
     fun `returns content when isError false`() = runTest {
         val content = JsonArray(listOf(JsonPrimitive("ok")))
-        val registry = McpRegistry(ClientInfo("", "")).register(
-            createFakeMcp(
-                toolCallResult = content,
-                toolCallError = false,
+        val registry = McpRegistry(ClientInfo("", "")).apply {
+            register(
+                createFakeMcp(
+                    toolCallResult = content,
+                    toolCallError = false,
+                )
             )
-        )
+        }
         val tool = CallMcpTool(registry)
 
         val output = tool.execute(
@@ -160,12 +164,14 @@ class CallMcpToolTest {
 
     @Test
     fun `returns null string when content absent`() = runTest {
-        val registry = McpRegistry(ClientInfo("", "")).register(
-            createFakeMcp(
-                toolCallResult = JsonNull,
-                toolCallError = false,
+        val registry = McpRegistry(ClientInfo("", "")).apply {
+            register(
+                createFakeMcp(
+                    toolCallResult = JsonNull,
+                    toolCallError = false,
+                )
             )
-        )
+        }
         val tool = CallMcpTool(registry)
 
         val output = tool.execute(

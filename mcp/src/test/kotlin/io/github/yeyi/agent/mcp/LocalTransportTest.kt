@@ -114,9 +114,10 @@ class LocalTransportTest {
 
     @Test
     fun `listAllTools returns tools`() = runTest {
-        val (server, registry) = createRegistry()
+        val (_, registry) = createRegistry()
+        val mcp = registry.all().single()
 
-        val result = registry.toolsList("local-demo")
+        val result = mcp.client.toolsList().tools.toString()
 
         val json = kotlinx.serialization.json.Json.parseToJsonElement(result).jsonArray
         assertEquals(1, json.size)
@@ -164,8 +165,9 @@ class LocalTransportTest {
     @Test
     fun `server initialize is called`() = runTest {
         val (server, registry) = createRegistry()
+        val mcp = registry.all().single()
 
-        registry.toolsList("local-demo")
+        mcp.client.toolsList()
 
         assertTrue(server.isInitialized())
     }
@@ -173,8 +175,9 @@ class LocalTransportTest {
     @Test
     fun `server receives notifications initialized`() = runTest {
         val (server, registry) = createRegistry()
+        val mcp = registry.all().single()
 
-        registry.toolsList("local-demo")
+        mcp.client.toolsList()
 
         val notification = server.lastReceivedNotification()
         assertNotNull(notification)
@@ -186,7 +189,13 @@ class LocalTransportTest {
         val (_, registry) = createRegistry()
 
         val exception = kotlin.test.assertFailsWith<NoSuchElementException> {
-            registry.toolsList("non-existent")
+            registry.toolsCall(
+                "non-existent",
+                buildJsonObject {
+                    put("name", "x")
+                    put("arguments", buildJsonObject { })
+                }
+            )
         }
         assertTrue(exception.message?.contains("non-existent") == true)
     }

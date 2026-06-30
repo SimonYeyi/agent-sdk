@@ -1,16 +1,14 @@
 package io.github.yeyi.agent.mcp
 
+import io.github.yeyi.agent.capability.Capability
 import kotlinx.serialization.json.JsonElement
 
 /**
  * MCP 能力注册项 —— Agent 视角下一个可被模型发现和调用的 MCP 服务。
  *
- * 这是 MCP 模块与 Agent 能力框架对齐的顶层接口，定位类似 [io.github.yeyi.agent.skill.Skill]
- * 或子 agent 能力：提供 [name] 和 [description] 供模型识别，内部通过 [client] 执行实际的
- * MCP 协议调用。
- *
- * 模型通过 `load_mcp` 工具看到所有已注册的 MCP 名称和描述，再通过 `call_mcp` 工具
- * 调用具体 MCP 服务上的工具。
+ * 本接口实现 [Capability]，复用能力框架的注册与发现流程：
+ * - 通过 [activate] 暴露 [toolsList] 的结果，让 [io.github.yeyi.agent.capability.CapabilityAdapter] 把本能力适配为
+ *   `load_mcp` 工具供 LLM 调用。
  *
  * 使用方式：
  * ```kotlin
@@ -21,31 +19,29 @@ import kotlinx.serialization.json.JsonElement
  * }
  * ```
  */
-public interface Mcp {
+public interface Mcp : Capability<Unit, McpContext> {
     /** MCP 服务的唯一标识，用于模型选择调用哪个 MCP。 */
-    public val name: String
+    public override val name: String
 
     /** MCP 服务的自然语言描述，告诉模型这个服务能做什么。 */
-    public val description: String
+    public override val description: String
 
     /** MCP 客户端实现，负责与远端或本地 MCP 服务进行协议通信。 */
     public val client: McpClient
 
     /**
-     * 获取该 MCP 服务下所有可用工具列表，返回 JSON 字符串。
+     * 能力框架调用入口：返回该 MCP 服务的工具列表，供 LLM 发现可用工具。
      *
-     * 返回格式为 MCP 协议 `tools/list` 的 tools 数组 JSON 字符串，
-     * 每个元素是一个工具定义对象，包含 name、description、inputSchema 等字段。
+     * 返回内容是带提示前缀的 `toolsList()` 结果，直接作为工具返回文本暴露给 LLM。
+     * 实际的 MCP 工具调用（代理调用）由 [CallMcpTool] 负责，不在本能力管辖范围内。
      */
-    public suspend fun toolsList(): String =  client.toolsList().tools.toString()
+    public override suspend fun activate(arguments: Unit?, context: McpContext): String {
+        val toolsList = client.toolsList().tools.toString()
+        return "发现以下可用 MCP 工具：\n$toolsList"
+    }
 
-    /**
-     * 调用该 MCP 服务上的指定工具，返回结果 JSON 字符串。
-     *
-     * [params] 为 MCP 协议 `tools/call` 的参数对象，包含 `name`（工具名）和
-     * `arguments`（工具入参）。返回值为工具执行结果的 JSON 字符串。
-     *
-     * @throws McpException 工具执行失败或 MCP 服务返回错误时抛出
-     */
-    public suspend fun toolsCall(params: JsonElement): String = client.callTool(params).toString()
+    public companion object {
+        /** 能力框架中的路由类别名，生成工具名 `load_mcp`。 */
+        public const val CAPABILITY_NAME: String = "mcp"
+    }
 }
