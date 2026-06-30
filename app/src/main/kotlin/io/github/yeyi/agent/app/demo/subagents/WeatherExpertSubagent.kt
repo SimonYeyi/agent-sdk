@@ -1,18 +1,19 @@
 package io.github.yeyi.agent.app.demo.subagents
 
-import io.github.yeyi.agent.app.demo.tools.GetLocationTool
 import io.github.yeyi.agent.app.demo.tools.GetWeatherTool
-import io.github.yeyi.agent.subagent.SimpleSubagent
+import io.github.yeyi.agent.subagent.Subagent
+import io.github.yeyi.agent.subagent.SubagentContext
+import io.github.yeyi.agent.subagent.subagent
 
 /**
  * 天气查询专家 Subagent。
  */
-class WeatherExpertSubagent : SimpleSubagent(
-    name = "weather",
-    description = "天气查询专家",
-    tools = listOf(GetWeatherTool()),
-) {
-    override fun load(): String = """
+class WeatherExpertSubagent(
+    name: String = "weather",
+    description: String = "天气查询专家",
+    tools: List<GetWeatherTool> = listOf(GetWeatherTool()),
+) : Subagent by subagent(name, description, tools = tools) {
+    override fun load(context: SubagentContext): String = """
         # 天气查询助手
 
         你是一个专业的天气查询助手。当收到任务时,按以下流程操作:

@@ -22,23 +22,25 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
     public fun load(context: SubagentContext): String
 
     override suspend fun activate(arguments: SubagentTask?, context: SubagentContext): String {
-        val task = arguments?.task
-            ?: throw IllegalArgumentException("Missing 'task' argument")
+        arguments?.task ?: throw IllegalArgumentException("Missing 'task' argument")
+        return run(arguments, context)
+    }
 
+    public suspend fun run(subagentTask: SubagentTask, context: SubagentContext): String {
         val memory = memory ?: InMemoryMemory()
         val resolvedTools = tools
             ?: context.agentContext.tools.filter { !it.name.contains(CAPABILITY_NAME) }
-        val instructions = load(context)
+        val instruction = load(context)
 
         val sub = agent {
-            persona(Persona(instructions))
+            persona(Persona(instruction))
             llmProvider(context.agentContext.llmProvider)
             memory(memory, context.agentContext.maxRounds)
             maxIterations(maxIterations ?: context.agentContext.maxIterations)
             tools(resolvedTools)
         }
 
-        return sub.run(task).awaitResult().message.content
+        return sub.run(subagentTask.task).awaitResult().message.content
             ?: throw IllegalStateException("Subagent '${name}' returned empty content")
     }
 

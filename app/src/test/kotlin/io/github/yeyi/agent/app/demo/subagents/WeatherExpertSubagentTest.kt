@@ -10,6 +10,7 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.skill.SkillContext
 import io.github.yeyi.agent.subagent.SubagentContext
 import io.github.yeyi.agent.subagent.SubagentTask
 import kotlinx.coroutines.test.runTest
@@ -45,8 +46,9 @@ class WeatherExpertSubagentTest {
 
     @Test
     fun `loadInstructions returns non-empty multi-section markdown`() {
+        val llm = FakeLlmProvider(nonStreamResponses = listOf(chatResponse("")),)
         val sub = WeatherExpertSubagent()
-        val instructions = sub.load()
+        val instructions = sub.load(SubagentContext(stubAgentContext(llm)))
         assertTrue(instructions.isNotBlank(), "instructions should not be blank")
         assertTrue(instructions.contains("get_weather"), "instructions should reference get_weather")
         assertTrue(
