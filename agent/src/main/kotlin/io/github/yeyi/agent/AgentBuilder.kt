@@ -24,7 +24,7 @@ import io.github.yeyi.agent.tool.ToolRegistry
  * memory, hooks, and the LLM provider.
  */
 public class AgentBuilder {
-    private var maxIterations: Int = 10
+    private var maxIterations: Int = 20
     public var persona: Persona? = null
         private set
     private var llmProvider: LlmProvider? = null
