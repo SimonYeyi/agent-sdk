@@ -78,12 +78,9 @@ public class SessionManager(
 
     public suspend fun delete(accountId: String, sessionId: String) {
         val session = mutex.withLock {
-            repository.findSession(accountId, sessionId) ?: return
-        }
-        stop(session)
-        mutex.withLock {
             repository.deleteSession(accountId, sessionId)
-        }
+        } ?: return
+        stop(session)
         pipeline.run(SessionHookEvent.Deleted(session), HookContext())
     }
 

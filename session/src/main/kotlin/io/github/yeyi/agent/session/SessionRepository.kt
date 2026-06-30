@@ -42,32 +42,30 @@ public class SessionRepository(baseDir: File) {
     public fun createSession(accountId: String, sessionName: String, sessionId: String?): Session {
         val now = Clock.System.now()
         val id = sessionId ?: UUID.randomUUID().toString()
-        val memoryFile = getMemoryFile(accountId, id)
-        val rawMemory = JsonlBackedMemory(memoryFile)
-        val conversation = JsonlConversation(getConversationDir(accountId, id), rawMemory)
+        require(findSession(accountId, id) == null) { "Session already exists: $id" }
         val session = Session(
             id = id,
             accountId = accountId,
             name = sessionName,
             createdAt = now,
-            lastActiveAt = now,
-            _memory = conversation,
-            _conversation = conversation
-        )
+            lastActiveAt = now
+        ).let { hydrateSession(it) }
         saveSession(session)
         return session
     }
 
+    private fun hydrateSession(session: Session): Session {
+        val rawMemory = JsonlBackedMemory(getMemoryFile(session.accountId, session.id))
+        val conversation =
+            JsonlConversation(getConversationDir(session.accountId, session.id), rawMemory)
+        return session.copy(
+            _memory = conversation,
+            _conversation = conversation
+        )
+    }
+
     public fun findSessions(accountId: String): List<Session> {
-        return readSessionsFromFile(accountId).map { session ->
-            val rawMemory = JsonlBackedMemory(getMemoryFile(accountId, session.id))
-            val conversation =
-                JsonlConversation(getConversationDir(accountId, session.id), rawMemory)
-            session.copy(
-                _memory = conversation,
-                _conversation = conversation
-            )
-        }
+        return readSessionsFromFile(accountId).map { hydrateSession(it) }
     }
 
     public fun findSession(accountId: String, sessionId: String): Session? {
@@ -86,11 +84,13 @@ public class SessionRepository(baseDir: File) {
         file.writeText(sessions.joinToString("\n") { json.encodeToString(it) })
     }
 
-    public fun deleteSession(accountId: String, sessionId: String) {
-        val filtered = readSessionsFromFile(accountId).filter { it.id != sessionId }
+    public fun deleteSession(accountId: String, sessionId: String): Session? {
+        val sessions = readSessionsFromFile(accountId)
+        val toDelete = sessions.firstOrNull { it.id == sessionId } ?: return null
+        val remaining = sessions.filterNot { it.id == sessionId }
 
         val sessionsFile = getSessionsFile(accountId)
-        sessionsFile.writeText(filtered.joinToString("\n") { json.encodeToString(it) })
+        sessionsFile.writeText(remaining.joinToString("\n") { json.encodeToString(it) })
 
         val memoryFile = getMemoryFile(accountId, sessionId)
         if (memoryFile.exists()) {
@@ -101,5 +101,7 @@ public class SessionRepository(baseDir: File) {
         if (conversationDir.exists()) {
             conversationDir.deleteRecursively()
         }
+
+        return hydrateSession(toDelete)
     }
 }
