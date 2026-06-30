@@ -53,7 +53,7 @@ println(result.message.content)
 - **Skill 加载**:一组 `skills(...)` 的可复用包,通过 Skill 扩展以 `persona.other(...)` 形式
   注入索引到最终 persona，与 `LoadSkillTool` 工具配对注册（详见 `agent/src/main/kotlin/io/github/yeyi/agent/skill/Skill.kt`）。
 - **Hook 生命周期**:`AgentHook` 允许在 `beforeLlmCall` / `afterLlmResponse` /
-  `beforeToolCall` / `afterToolCall` / `onError` / `onRunFinished` 六个时点插入横切逻辑
+  `beforeToolCall` / `afterToolCall` / `onRunFailed` / `onRunCompleted` 六个时点插入横切逻辑
   (日志、监控、安全审计等);`run` 和 `runStream` 路径均触发。
 - **多协议 Provider**:OpenAI 与 Anthropic 均实现同一 `LlmProvider` 接口,二者都支持
   非流式 `chat()` 与 SSE 流式 `chatStream()`。

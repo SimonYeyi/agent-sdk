@@ -195,11 +195,11 @@ internal class DefaultHookPipeline(
         }
     }
 
-    override suspend fun onRunFinished(context: AgentContext, result: AgentResult) {
+    override suspend fun onRunCompleted(context: AgentContext, result: AgentResult) {
         run(AgentHookEvent.RunCompleted(result), HookContext(context))
     }
 
-    override suspend fun onError(context: AgentContext, cause: AgentException) {
+    override suspend fun onRunFailed(context: AgentContext, cause: AgentException) {
         run(AgentHookEvent.RunFailed(cause), HookContext(context))
     }
 }

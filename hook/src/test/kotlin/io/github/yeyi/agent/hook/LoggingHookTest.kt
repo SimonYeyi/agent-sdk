@@ -109,15 +109,15 @@ class LoggingHookTest {
     }
 
     @Test
-    fun `onError writes a warn line`() = runTest {
+    fun `onRunFailed writes a warn line`() = runTest {
         val pipeline = DefaultHookPipeline(listOf(LoggingHook()))
-        pipeline.onError(context(), AgentException.LlmError(RuntimeException("boom")))
+        pipeline.onRunFailed(context(), AgentException.LlmError(RuntimeException("boom")))
         val out = stderr()
         assertTrue(out.isNotEmpty(), "should log something")
     }
 
     @Test
-    fun `onRunFinished writes an info line`() = runTest {
+    fun `onRunCompleted writes an info line`() = runTest {
         val pipeline = DefaultHookPipeline(listOf(LoggingHook()))
         val r = AgentResult(
             message = ChatMessage.Assistant(content = "done"),
@@ -132,7 +132,7 @@ class LoggingHookTest {
             ),
             usage = null,
         )
-        pipeline.onRunFinished(context(iter = 5), r)
+        pipeline.onRunCompleted(context(iter = 5), r)
         val out = stderr()
         assertTrue(out.isNotEmpty(), "should log something")
     }
@@ -153,8 +153,8 @@ class LoggingHookTest {
         pipeline.afterLlmResponse(context(), emptyResponse())
         pipeline.beforeToolCall(context(), toolCall())
         pipeline.afterToolCall(context(), toolCall(), ToolExecutionResult("x"), 1)
-        pipeline.onError(context(), AgentException.LlmError(RuntimeException("e")))
-        pipeline.onRunFinished(
+        pipeline.onRunFailed(context(), AgentException.LlmError(RuntimeException("e")))
+        pipeline.onRunCompleted(
             context(),
             AgentResult(
                 message = ChatMessage.Assistant(content = "ok"),

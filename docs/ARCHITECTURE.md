@@ -157,8 +157,8 @@ public interface AgentHook {
     suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {}
     suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult?
     suspend fun afterToolCall(context: AgentContext, call: ToolCall, result: ToolExecutionResult, durationMs: Long): ToolExecutionResult
-    suspend fun onError(context: AgentContext, cause: AgentException) {}
-    suspend fun onRunFinished(context: AgentContext, result: AgentResult) {}
+    suspend fun onRunFailed(context: AgentContext, cause: AgentException) {}
+    suspend fun onRunCompleted(context: AgentContext, result: AgentResult) {}
 }
 ```
 

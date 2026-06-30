@@ -85,10 +85,10 @@ class DefaultHookPipelineTest {
                     }
                 }
                 is AgentHookEvent.RunFailed -> {
-                    recordedEvents += "${name}:onError(${event.error.javaClass.simpleName})"
+                    recordedEvents += "${name}:onRunFailed(${event.error.javaClass.simpleName})"
                 }
                 is AgentHookEvent.RunCompleted -> {
-                    recordedEvents += "${name}:onRunFinished(iter=${event.result.iterations})"
+                    recordedEvents += "${name}:onRunCompleted(iter=${event.result.iterations})"
                 }
                 is AgentHookEvent.BeforeMemoryCompress -> {
                     recordedEvents += "${name}:beforeMemoryCompress"
@@ -125,18 +125,18 @@ class DefaultHookPipelineTest {
         val r = emptyResponse()
         composite.beforeLlmCall(context(1))
         composite.afterLlmResponse(context(1), r)
-        composite.onError(context(1), AgentException.LlmError(RuntimeException("x")))
-        composite.onRunFinished(context(1), AgentResult(r.message, 1, emptyList(), null))
+        composite.onRunFailed(context(1), AgentException.LlmError(RuntimeException("x")))
+        composite.onRunCompleted(context(1), AgentResult(r.message, 1, emptyList(), null))
         assertEquals(
             listOf(
                 "a:beforeLlmCall(1)",
                 "a:afterLlmResponse(1)",
-                "a:onError(LlmError)",
-                "a:onRunFinished(iter=1)",
+                "a:onRunFailed(LlmError)",
+                "a:onRunCompleted(iter=1)",
                 "b:beforeLlmCall(1)",
                 "b:afterLlmResponse(1)",
-                "b:onError(LlmError)",
-                "b:onRunFinished(iter=1)",
+                "b:onRunFailed(LlmError)",
+                "b:onRunCompleted(iter=1)",
             ),
             a.recordedEvents + b.recordedEvents
         )
@@ -234,7 +234,7 @@ class DefaultHookPipelineTest {
     }
 
     @Test
-    fun `exception in onError is swallowed and remaining hooks still called`() = runTest {
+    fun `exception in onRunFailed is swallowed and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
             override val name: String = "throwing"
             override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent.RunFailed::class)
@@ -244,12 +244,12 @@ class DefaultHookPipelineTest {
         }
         val b = RecordingHook("b")
         val composite = DefaultHookPipeline(listOf(throwing, b))
-        composite.onError(context(1), AgentException.LlmError(RuntimeException("orig")))
-        assertEquals(listOf("b:onError(LlmError)"), b.recordedEvents)
+        composite.onRunFailed(context(1), AgentException.LlmError(RuntimeException("orig")))
+        assertEquals(listOf("b:onRunFailed(LlmError)"), b.recordedEvents)
     }
 
     @Test
-    fun `exception in onRunFinished is swallowed and remaining hooks still called`() = runTest {
+    fun `exception in onRunCompleted is swallowed and remaining hooks still called`() = runTest {
         val throwing = object : Hook {
             override val name: String = "throwing"
             override val events: Set<kotlin.reflect.KClass<out HookEvent>> = setOf(AgentHookEvent.RunCompleted::class)
@@ -260,8 +260,8 @@ class DefaultHookPipelineTest {
         val b = RecordingHook("b")
         val composite = DefaultHookPipeline(listOf(throwing, b))
         val r = emptyResponse()
-        composite.onRunFinished(context(1), AgentResult(r.message, 1, emptyList(), null))
-        assertEquals(listOf("b:onRunFinished(iter=1)"), b.recordedEvents)
+        composite.onRunCompleted(context(1), AgentResult(r.message, 1, emptyList(), null))
+        assertEquals(listOf("b:onRunCompleted(iter=1)"), b.recordedEvents)
     }
 
     @Test

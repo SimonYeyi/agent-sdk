@@ -2,7 +2,6 @@ package io.github.yeyi.agent
 
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ToolCall
-import io.github.yeyi.agent.log.Logging
 import io.github.yeyi.agent.log.log
 import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -14,7 +13,7 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  * 1. Hook 抛异常不影响主流程,会被 SDK 吞掉并 log
  * 2. Hook 不应阻塞/sleep,可能影响 agent 延迟
  * 3. Hook 不能修改 memory([AgentContext.memory] 是只读包装器,调用 add/clear 会抛异常)
- * 4. 调用顺序: beforeLlmCall → afterLlmResponse → (beforeToolCall → afterToolCall)* → onRunFinished
+ * 4. 调用顺序: beforeLlmCall → afterLlmResponse → (beforeToolCall → afterToolCall)* → onRunCompleted
  *    - beforeMemoryCompress → afterMemoryCompress (压缩时,0 或 1 次;未压缩则不触发)
  *
  * 工具调用拦截语义(v1.1):
@@ -26,15 +25,15 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  *   支持逐 hook 链式改写
  *
  * 错误语义:
- * - onError 在主流程 emit `Failed` 事件前调用;cause 一定为 [AgentException] 家族成员
+ * - onRunFailed 在主流程 emit `Failed` 事件前调用;cause 一定为 [AgentException] 家族成员
  *   (非 AgentException 已被 Agent 边界通过 [toAgentException] 抬升)
- * - onError 不接收 CancellationException(由结构化并发保证)
- * - 工具执行错误若被 SDK 转换为 ToolExecutionResult(isError=true)不会触发 onError;只有真正
+ * - onRunFailed 不接收 CancellationException(由结构化并发保证)
+ * - 工具执行错误若被 SDK 转换为 ToolExecutionResult(isError=true)不会触发 onRunFailed;只有真正
  *   抛出的异常才会触发
  *
  * 终止语义:
- * - onRunFinished 仅在成功完成时触发(对应 AgentResult 正常返回)
- * - 若需保证终止埋点,使用调用方的 try/finally 包装 agent.run,或依赖 onError 处理失败路径
+ * - onRunCompleted 仅在成功完成时触发(对应 AgentResult 正常返回)
+ * - 若需保证终止埋点,使用调用方的 try/finally 包装 agent.run,或依赖 onRunFailed 处理失败路径
  *
  * v1 实现范围:
  * - 仅 `run` 路径触发上述回调;`runStream` 在 v1.x 中暂不触发 hook(由 v1.1 任务补齐)
@@ -69,9 +68,9 @@ public interface AgentHook {
         durationMs: Long,
     ): ToolExecutionResult = result
 
-    public suspend fun onRunFinished(context: AgentContext, result: AgentResult)
+    public suspend fun onRunCompleted(context: AgentContext, result: AgentResult)
 
-    public suspend fun onError(context: AgentContext, cause: AgentException)
+    public suspend fun onRunFailed(context: AgentContext, cause: AgentException)
 }
 
 /**
@@ -101,13 +100,13 @@ internal object NoOpAgentHook : AgentHook {
     ) {
     }
 
-    override suspend fun onRunFinished(
+    override suspend fun onRunCompleted(
         context: AgentContext,
         result: AgentResult
     ) {
     }
 
-    override suspend fun onError(
+    override suspend fun onRunFailed(
         context: AgentContext,
         cause: AgentException
     ) {

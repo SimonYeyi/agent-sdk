@@ -329,12 +329,12 @@ sealed interface AgentEvent {
  * Agent 生命周期回调。所有方法都有默认 no-op 实现，consumer 按需 override。
  *
  * **关键契约**：
- * 1. Hook 抛出的异常**不影响主流程**——会被吞掉并通过 `onError` 之外的辅助通道记日志
+ * 1. Hook 抛出的异常**不影响主流程**——会被吞掉并通过 `onRunFailed` 之外的辅助通道记日志
  * 2. Hook 不应阻塞或 sleep——可能影响 agent 整体延迟
  * 3. Hook 不能修改 `AgentConfig`/`Memory`——只读视图
  * 4. Hook 调用顺序：BeforeLlmCall → LlmCall → AfterLlmResponse → (BeforeToolCall → ToolCall → AfterToolCall)* → AfterRun
- * 5. **v1.1 错误契约**：`onError(cause)` 的 `cause` 一定为 [AgentException] 家族成员(非 AgentException
- *    已被 Agent 边界通过 [toAgentException] 抬升);`onError` **不**传出 iteration 计数——
+ * 5. **v1.1 错误契约**：`onRunFailed(cause)` 的 `cause` 一定为 [AgentException] 家族成员(非 AgentException
+ *    已被 Agent 边界通过 [toAgentException] 抬升);`onRunFailed` **不**传出 iteration 计数——
  *    该计数是 Agent 内部业务细节,Hook 不应关心
  */
 interface AgentHook {
@@ -342,8 +342,8 @@ interface AgentHook {
     suspend fun afterLlmResponse(iteration: Int, response: ChatResponse) {}
     suspend fun beforeToolCall(call: ToolCall) {}
     suspend fun afterToolCall(call: ToolCall, result: ToolExecutionResult, durationMs: Long) {}
-    suspend fun onError(cause: AgentException) {}            // v1.1:去掉 iteration,cause 收窄为 AgentException
-    suspend fun onRunFinished(result: AgentResult) {}
+    suspend fun onRunFailed(cause: AgentException) {}            // v1.1:去掉 iteration,cause 收窄为 AgentException
+    suspend fun onRunCompleted(result: AgentResult) {}
 }
 
 /** v1 默认提供的 NoOp hook */
@@ -546,7 +546,7 @@ override fun run(input: String): Flow<AgentEvent> = flow {
 - 每次 LLM 调用前后统一触发 `beforeLlmCall` / `afterLlmResponse` hook
 - `invokeTool` 内部吞业务异常转 `ToolExecutionResult(isError=true)` 喂回 LLM,**不吞 `CancellationException`**
 - 工具结果回写 `memory` 后,emit `ToolCallStart` / `ToolCallEnd` 两个事件
-- 终态 emit `Final(AgentResult(message, iterations, toolCalls))`,并触发 `onRunFinished` hook
+- 终态 emit `Final(AgentResult(message, iterations, toolCalls))`,并触发 `onRunCompleted` hook
 - 超过 `maxIterations` 抛 `AgentException.MaxIterations`
 
 ### 5.2 算法（流式）
@@ -616,7 +616,7 @@ override fun runStream(input: String): Flow<AgentEvent> = flow {
 - 所有 `suspend` 方法尊重 coroutine 取消
 - 循环顶部 `coroutineContext.ensureActive()` 检查
 - `invokeTool` 内部吞业务异常（转 `ToolExecutionResult(isError=true)` 喂回 LLM），**不吞 `CancellationException`**
-- 业务异常触发 `onError` hook 并 emit `AgentEvent.Failed`(不再抛异常)
+- 业务异常触发 `onRunFailed` hook 并 emit `AgentEvent.Failed`(不再抛异常)
 - LLM 错误抛 `LlmError`（见第 8 章）
 - 超过 max iterations 抛 `AgentException.MaxIterations`
 
@@ -634,14 +634,14 @@ override fun runStream(input: String): Flow<AgentEvent> = flow {
 
 ### 5.6 Hook 集成点
 
-- v1.1 起,`run` 和 `runStream` 两条路径均触发全部 6 个 hook。底层是共享的 `loop` 内核,在 `beforeLlmCall` / `afterLlmResponse` / `beforeToolCall` / `afterToolCall` / `onError` / `onRunFinished` 处统一触发。
+- v1.1 起,`run` 和 `runStream` 两条路径均触发全部 6 个 hook。底层是共享的 `loop` 内核,在 `beforeLlmCall` / `afterLlmResponse` / `beforeToolCall` / `afterToolCall` / `onRunFailed` / `onRunCompleted` 处统一触发。
 - `ReActAgent` 在以下时点调用 `config.hooks` 中的所有 `AgentHook`：
   - 每次 LLM 调用前：`beforeLlmCall(iteration, messages)`
   - 每次 LLM 响应后：`afterLlmResponse(iteration, response)`
   - 每次 Tool 调用前：`beforeToolCall(call)`
   - 每次 Tool 调用后：`afterToolCall(call, result, durationMs)`
-  - 错误发生时：`onError(cause)`(v1.1 起;cause 一定为 AgentException,不再传 iteration)
-  - Run 结束时：`onRunFinished(result)`
+  - 错误发生时：`onRunFailed(cause)`(v1.1 起;cause 一定为 AgentException,不再传 iteration)
+  - Run 结束时：`onRunCompleted(result)`
 - Hook 异常被吞掉并通过 SDK 内部 logger 记录（不向主流程传播,但 `CancellationException` 必须重新抛出）
 
 **证据**：`agent/src/test/kotlin/io/github/yeyi/agent/AgentHookTest.kt` 的 `runStream also fires all hooks in order` 测试用例显式验证 `runStream` 路径上 6 个 hook 全部按序触发。

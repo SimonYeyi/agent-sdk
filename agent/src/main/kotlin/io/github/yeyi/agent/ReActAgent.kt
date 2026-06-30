@@ -133,7 +133,7 @@ public class ReActAgent internal constructor(
                         toolCalls = toolCalls.toList(),
                         usage = response.usage,
                     )
-                    hook.safeInvoke { onRunFinished(context, result) }
+                    hook.safeInvoke { onRunCompleted(context, result) }
                     emit(AgentEvent.Final(result))
                     return
                 }
@@ -170,7 +170,7 @@ public class ReActAgent internal constructor(
             // 边界处统一抬升为 AgentException:对外只暴露领域异常家族。
             // wrap() 对已是 AgentException 的返回同一实例,避免重复包装。
             val cause = t.toAgentException()
-            hook.safeInvoke { onError(buildContext(iterations), cause) }
+            hook.safeInvoke { onRunFailed(buildContext(iterations), cause) }
             emit(AgentEvent.Failed(cause))
         }
     }

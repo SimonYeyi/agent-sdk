@@ -47,8 +47,8 @@ class AgentHookTest {
             events += "afterToolCall(${call.name})"
             return result
         }
-        override suspend fun onRunFinished(context: AgentContext, result: AgentResult) {
-            events += "onRunFinished(iter=${result.iterations})"
+        override suspend fun onRunCompleted(context: AgentContext, result: AgentResult) {
+            events += "onRunCompleted(iter=${result.iterations})"
         }
     }
 
@@ -78,7 +78,7 @@ class AgentHookTest {
                 "afterToolCall(echo)",
                 "beforeLlmCall(2)",
                 "afterLlmResponse(2)",
-                "onRunFinished(iter=2)"
+                "onRunCompleted(iter=2)"
             ),
             hook.events
         )
@@ -112,7 +112,7 @@ class AgentHookTest {
                 "afterToolCall(echo)",
                 "beforeLlmCall(2)",
                 "afterLlmResponse(2)",
-                "onRunFinished(iter=2)"
+                "onRunCompleted(iter=2)"
             ),
             hook.events
         )
@@ -138,10 +138,10 @@ class AgentHookTest {
     }
 
     @Test
-    fun `onError fires when agent throws`() = runTest {
+    fun `onRunFailed fires when agent throws`() = runTest {
         val errorHook = object : EmptyAgentHook() {
             val errors: MutableList<AgentException> = mutableListOf()
-            override suspend fun onError(context: AgentContext, cause: AgentException) {
+            override suspend fun onRunFailed(context: AgentContext, cause: AgentException) {
                 errors += cause
             }
         }
@@ -214,11 +214,11 @@ class AgentHookTest {
     }
 
     @Test
-    fun `onError fires for LLM provider throw (not just MaxIterations)`() = runTest {
+    fun `onRunFailed fires for LLM provider throw (not just MaxIterations)`() = runTest {
         val boom = AgentException.LlmError(RuntimeException("llm unavailable"))
         val errorHook = object : EmptyAgentHook() {
             val errors: MutableList<AgentException> = mutableListOf()
-            override suspend fun onError(context: AgentContext, cause: AgentException) {
+            override suspend fun onRunFailed(context: AgentContext, cause: AgentException) {
                 errors += cause
             }
         }
@@ -237,10 +237,10 @@ class AgentHookTest {
     }
 
     @Test
-    fun `CancellationException does not trigger onError`() = runTest {
+    fun `CancellationException does not trigger onRunFailed`() = runTest {
         val errorHook = object : EmptyAgentHook() {
             val errors: MutableList<AgentException> = mutableListOf()
-            override suspend fun onError(context: AgentContext, cause: AgentException) {
+            override suspend fun onRunFailed(context: AgentContext, cause: AgentException) {
                 errors += cause
             }
         }
@@ -257,7 +257,7 @@ class AgentHookTest {
         try { agent.run("hi").toList() } catch (t: Throwable) {
             assertTrue(t is kotlinx.coroutines.CancellationException)
         }
-        // onError MUST NOT be called for cancellation
+        // onRunFailed MUST NOT be called for cancellation
         assertEquals(0, errorHook.errors.size)
     }
 
