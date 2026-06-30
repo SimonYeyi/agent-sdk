@@ -2,6 +2,9 @@ package io.github.yeyi.agent.session
 
 import io.github.yeyi.agent.llm.ChatMessage
 
+/**
+ * 对话记录只读接口，通过 [Session.conversation] 获取。
+ */
 public interface Conversation {
     /**
      * 获取对话消息

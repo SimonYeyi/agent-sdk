@@ -20,6 +20,22 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 
+/**
+ * OpenAI API LLM Provider。
+ *
+ * 构造参数说明：
+ * - [apiKey] OpenAI API Key（必填）
+ * - [model] 模型名称，默认 [DEFAULT_MODEL]
+ * - [baseUrl] API 地址，默认 [DEFAULT_BASE_URL]
+ * - [httpClient] 可自定义 Ktor HTTP Client，不传则使用 [defaultHttpClient]
+ *
+ * 快捷构造：[official] 使用官方 endpoint 和默认 HTTP Client。
+ *
+ * 示例：
+ * ```
+ * val provider = OpenAiProvider.official(apiKey = "sk-...")
+ * ```
+ */
 public class OpenAiProvider(
     private val apiKey: String,
     private val model: String,

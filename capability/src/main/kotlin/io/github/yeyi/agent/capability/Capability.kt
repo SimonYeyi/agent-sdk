@@ -60,7 +60,15 @@ public interface Capability<T : Any, Ctx : CapabilityContext> {
     public suspend fun activate(arguments: T?, context: Ctx): String
 }
 
+/**
+ * Capability 参数 schema 描述。
+ *
+ * @param T arguments 的类型
+ */
 public interface CapabilityArguments<T> {
+    /** JSON Schema 字符串，用于告诉 LLM arguments 的结构。 */
     public val schema: String
+
+    /** Kotlinx Serialization serializer，用于解析 LLM 传来的 JSON。 */
     public val serializer: KSerializer<T>
 }

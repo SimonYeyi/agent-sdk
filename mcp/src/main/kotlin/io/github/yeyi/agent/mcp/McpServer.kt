@@ -105,6 +105,7 @@ public sealed class Implementation {
     public abstract val version: String
 }
 
+/** 客户端标识信息，在 `initialize` 握手时发送给 MCP 服务端。 */
 @Serializable
 public data class ClientInfo(
     override val name: String,
@@ -135,6 +136,7 @@ public object SamplingObject
 @Serializable
 public object ElicitationObject
 
+/** 服务端标识信息，`initialize` 握手响应中返回。 */
 @Serializable
 public data class ServerInfo(
     override val name: String,

@@ -34,28 +34,39 @@ public class AgentBuilder {
 
     private var hook: AgentHook = NoOpAgentHook
 
+    /** 设置最大迭代次数（LLM 调用次数），默认 20。 */
     public fun maxIterations(iterations: Int) {
         require(iterations > 0) { "maxIterations must be positive" }
         maxIterations = iterations
     }
 
+    /** 设置 Agent 人设。 */
     public fun persona(persona: Persona) {
         this.persona = persona
     }
 
+    /** 设置 LLM Provider。必须在 [build] 前调用。 */
     public fun llmProvider(provider: LlmProvider) {
         llmProvider = provider
     }
 
+    /**
+     * 设置 Memory 实现及历史轮次上限。
+     *
+     * @param memory 对话历史存储，默认 [InMemoryMemory]
+     * @param maxRounds Memory 中保留的最大对话轮数（每轮含 user+assistant），超限后旧轮次会被摘要压缩
+     */
     public fun memory(memory: Memory, maxRounds: Int = 20) {
         this.memory = memory
         this.maxRounds = maxRounds
     }
 
+    /** 注册单个工具。 */
     public fun tool(tool: Tool) {
         toolRegistry.register(tool)
     }
 
+    /** 注册多个工具。 */
     public fun tools(tools: Iterable<Tool>) {
         toolRegistry.register(tools)
     }

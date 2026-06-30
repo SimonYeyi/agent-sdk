@@ -10,10 +10,20 @@ public abstract class CapabilityAdapter<Ctx : CapabilityContext, C : Capability<
 ) {
     protected abstract fun adapt(): List<Tool>
 
+    /**
+     * 将 adapter 产生的 Tool 注册到 [AgentBuilder]。
+     *
+     * 内部调用 [adapt] 生成 Tool 列表，然后逐个通过 [AgentBuilder.tool] 注册。
+     */
     public fun installOn(agentBuilder: AgentBuilder): Unit =
         adapt().forEach { agentBuilder.tool(it) }
 
     public companion object {
+        /**
+         * 创建 CapabilityAdapter 实例。
+         *
+         * @param enableDelegateAdaptMode true 使用委托模式（单一 Delegate Tool），false 使用一一映射模式（每个 Capability 对应一个 Tool）
+         */
         public fun <Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any> of(
             registry: CapabilityRegistry<Ctx, C, T>,
             capabilityContextFactory: CapabilityContextFactory<Ctx>,

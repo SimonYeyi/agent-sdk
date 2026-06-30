@@ -43,6 +43,7 @@ public class ToolRegistry : ToolDispatcher {
         tools.forEach(::register)
     }
 
+    /** 返回所有已注册工具的快照列表，保持注册顺序。 */
     public fun all(): List<Tool> = byName.values.toList()
 
     override suspend fun dispatch(

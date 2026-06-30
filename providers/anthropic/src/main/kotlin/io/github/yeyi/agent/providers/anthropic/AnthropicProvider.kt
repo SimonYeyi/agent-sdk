@@ -20,6 +20,22 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 
+/**
+ * Anthropic API LLM Provider。
+ *
+ * 构造参数说明：
+ * - [apiKey] Anthropic API Key（必填）
+ * - [model] 模型名称，默认 [DEFAULT_MODEL]
+ * - [baseUrl] API 地址，默认 [DEFAULT_BASE_URL]
+ * - [httpClient] 可自定义 Ktor HTTP Client，不传则使用 [defaultAnthropicHttpClient]
+ *
+ * 快捷构造：[official] 使用官方 endpoint 和默认 HTTP Client。
+ *
+ * 示例：
+ * ```
+ * val provider = AnthropicProvider.official(apiKey = "sk-ant-...")
+ * ```
+ */
 public class AnthropicProvider(
     private val apiKey: String,
     private val model: String,

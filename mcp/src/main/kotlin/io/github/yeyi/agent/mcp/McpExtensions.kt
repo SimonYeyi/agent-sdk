@@ -44,7 +44,7 @@ public fun AgentBuilder.mcp(registry: McpRegistry) {
  *
  * 本扩展不做缓存，每次调用都会发起完整的分页请求。返回结果的 `nextCursor` 始终为 null。
  */
-public suspend fun McpClient.toolsList(): ListToolsResult {
+internal suspend fun McpClient.toolsList(): ListToolsResult {
     val allTools = mutableListOf<JsonElement>()
     var cursor: String? = null
     do {

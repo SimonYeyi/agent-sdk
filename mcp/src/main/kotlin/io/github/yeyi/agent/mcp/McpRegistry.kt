@@ -8,6 +8,13 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 
+/**
+ * MCP 服务注册中心，同时实现 [ToolDispatcher]（用于 [CallMcpTool] 的代理调用）
+ * 和 [CapabilityRegistry]（用于 [CapabilityAdapter] 挂载到 Agent）。
+ *
+ * `register` 时自动将 [clientInfo] 注入每个注册的 [Mcp] 实例的 [Mcp.client]；
+ * `unregisterAll` 时关闭所有 MCP 连接。
+ */
 public class McpRegistry(
     private val clientInfo: ClientInfo,
     private val delegate: DefaultCapabilityRegistry<McpContext, Mcp, Unit> = DefaultCapabilityRegistry(

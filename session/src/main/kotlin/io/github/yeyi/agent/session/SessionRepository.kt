@@ -39,6 +39,14 @@ public class SessionRepository(baseDir: File) {
             .map { json.decodeFromString<Session>(it) }
     }
 
+    /**
+     * 创建新 session。
+     *
+     * @param accountId 账号标识
+     * @param sessionName session 名称
+     * @param sessionId 可选指定 ID，不传则自动生成 UUID
+     * @throws IllegalArgumentException sessionId 已存在
+     */
     public fun createSession(accountId: String, sessionName: String, sessionId: String?): Session {
         val now = Clock.System.now()
         val id = sessionId ?: UUID.randomUUID().toString()
@@ -64,10 +72,12 @@ public class SessionRepository(baseDir: File) {
         )
     }
 
+    /** 列出账号下所有 session。 */
     public fun findSessions(accountId: String): List<Session> {
         return readSessionsFromFile(accountId).map { hydrateSession(it) }
     }
 
+    /** 按 ID 查找 session，找不到返回 null。 */
     public fun findSession(accountId: String, sessionId: String): Session? {
         return findSessions(accountId).find { it.id == sessionId }
     }
@@ -84,6 +94,11 @@ public class SessionRepository(baseDir: File) {
         file.writeText(sessions.joinToString("\n") { json.encodeToString(it) })
     }
 
+    /**
+     * 删除指定 session，清理关联的 memory 和 conversation 文件。
+     *
+     * @return 被删除的 session（删除前状态），找不到返回 null
+     */
     public fun deleteSession(accountId: String, sessionId: String): Session? {
         val sessions = readSessionsFromFile(accountId)
         val toDelete = sessions.firstOrNull { it.id == sessionId } ?: return null

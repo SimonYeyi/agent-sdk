@@ -121,6 +121,15 @@ public class LocalTransport(private val localServer: McpServer) : McpTransport {
     }
 
     public companion object {
+        /**
+         * 为进程内 [McpServer] 创建满足 [McpServer.transport] 契约的 dummy transport。
+         *
+         * 本 transport 的 [send][McpTransport.send] 方法永远抛出 [UnsupportedOperationException]——
+         * 进程内 server 不需要走传输层，直接调用方法即可。
+         *
+         * @param notifications 服务端通知流，用于向客户端发送通知，默认空流
+         * @param sendNotification 发送通知的回调，用于服务端接收客户端的通知，默认空操作
+         */
         public fun forServer(
             notifications: Flow<JsonRpcNotification<JsonElement>> = flow { },
             sendNotification: (request: JsonRpcRequest<JsonElement>) -> Unit = {}

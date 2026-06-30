@@ -63,10 +63,12 @@ public class LoggingTagged(private val tag: String) {
         Logging.warn(tag, msg, null)
     }
 
+    /** 输出警告日志，仅异常信息。 */
     public fun warn(e: Throwable) {
         Logging.warn(tag, null, e)
     }
 
+    /** 输出警告日志，带消息和异常。 */
     public fun warn(msg: String, e: Throwable) {
         Logging.warn(tag, msg, e)
     }
@@ -78,10 +80,12 @@ public class LoggingTagged(private val tag: String) {
         Logging.error(tag, msg, null)
     }
 
+    /** 输出错误日志，仅异常信息。 */
     public fun error(e: Throwable) {
         Logging.error(tag, null, e)
     }
 
+    /** 输出错误日志，带消息和异常。 */
     public fun error(msg: String, e: Throwable) {
         Logging.error(tag, msg, e)
     }
