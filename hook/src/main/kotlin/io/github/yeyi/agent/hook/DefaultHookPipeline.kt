@@ -44,20 +44,6 @@ internal class DefaultHookPipeline(
         hooks.sortByDescending { it.priority }
     }
 
-    private fun matches(hook: Hook, eventClass: KClass<out HookEvent>): Boolean =
-        hook.events?.any { it.java.isAssignableFrom(eventClass.java) } ?: true
-
-    private fun requireToolResult(
-        hook: Hook,
-        event: HookEvent,
-        raw: Any
-    ): ToolExecutionResult = raw as? ToolExecutionResult
-        ?: throw IllegalArgumentException(
-            "Hook '${hook.name}' returned HookResult.Modify for ${event::class.simpleName}, " +
-                    "but newResult is ${raw::class.qualifiedName}; " +
-                    "${event::class.simpleName} requires newResult to be a ToolExecutionResult."
-        )
-
     override fun register(hook: Hook) {
         hooks.add(hook)
         sortHooks()
@@ -70,6 +56,11 @@ internal class DefaultHookPipeline(
     override fun unregister(hookClass: KClass<out Hook>) {
         hooks.removeAll { it::class == hookClass }
     }
+
+    override fun getHooks(): List<Hook> = hooks.toList()
+
+    override fun getHooks(eventClass: KClass<out HookEvent>): List<Hook> =
+        hooks.filter { matches(it, eventClass) }
 
     override suspend fun run(event: HookEvent, context: HookContext): HookResult {
         val eventClass = event::class
@@ -122,7 +113,12 @@ internal class DefaultHookPipeline(
                 is HookResult.Modify -> {
                     currentEvent = AgentHookEvent.AfterToolCall(
                         toolCall = currentEvent.toolCall,
-                        result = requireToolResult(hook, event, result.newResult),
+                        result = result.newResult as? ToolExecutionResult
+                            ?: throw IllegalArgumentException(
+                                "Hook '${hook.name}' returned HookResult.Modify for ${event::class.simpleName}, " +
+                                        "but newResult is ${result.newResult::class.qualifiedName}; " +
+                                        "${event::class.simpleName} requires newResult to be a ToolExecutionResult."
+                            ),
                         durationMs = currentEvent.durationMs
                     )
                 }
@@ -154,10 +150,8 @@ internal class DefaultHookPipeline(
         }
     }
 
-    override fun getHooks(): List<Hook> = hooks.toList()
-
-    override fun getHooks(eventClass: KClass<out HookEvent>): List<Hook> =
-        hooks.filter { matches(it, eventClass) }
+    private fun matches(hook: Hook, eventClass: KClass<out HookEvent>): Boolean =
+        hook.events?.any { it.java.isAssignableFrom(eventClass.java) } ?: true
 
     // ==================== AgentHook 实现（委托给 run） ====================
 
