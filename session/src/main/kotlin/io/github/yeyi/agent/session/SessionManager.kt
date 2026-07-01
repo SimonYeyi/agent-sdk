@@ -83,12 +83,13 @@ public class SessionManager(
     }
 
     /** 删除指定 session。发送 [SessionHookEvent.Deleted]。 */
-    public suspend fun delete(accountId: String, sessionId: String) {
-        val session = mutex.withLock {
-            repository.deleteSession(accountId, sessionId)
-        } ?: return
+    public suspend fun delete(session: Session) {
         stop(session)
-        pipeline.run(SessionHookEvent.Deleted(session), HookContext())
+        mutex.withLock {
+            repository.deleteSession(session.accountId, session.id)
+        }?.let {
+            pipeline.run(SessionHookEvent.Deleted(session), HookContext())
+        }
     }
 
     /** 列出账号下所有 session（不限活跃状态）。 */

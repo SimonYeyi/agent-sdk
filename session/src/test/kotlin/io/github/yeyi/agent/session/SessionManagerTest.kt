@@ -102,7 +102,7 @@ class SessionManagerTest {
     fun `delete should remove session`() = runTest {
         val sessionManager = SessionManager(tempDir, createMockPipeline())
         val session = sessionManager.create("user1", "test session")
-        sessionManager.delete("user1", session.id)
+        sessionManager.delete(session)
 
         assertFailsWith<NoSuchElementException> {
             sessionManager.get("user1", session.id)
@@ -149,7 +149,7 @@ class SessionManagerTest {
         }
         val manager = SessionManager(tempDir, pipeline)
         val session = manager.create("user1", "my session")
-        manager.delete("user1", session.id)
+        manager.delete(session)
         assertEquals(listOf("onSessionDeleted(user1,${session.id})"), events)
     }
 

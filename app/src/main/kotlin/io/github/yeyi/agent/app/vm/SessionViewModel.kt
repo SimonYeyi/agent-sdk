@@ -216,7 +216,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     public fun deleteSession(sessionId: String) {
         viewModelScope.launch {
             try {
-                sessionManager.delete(accountId, sessionId)
+                sessionManager.delete(sessionManager.get(accountId, sessionId))
                 if (_uiState.value.currentSession?.id == sessionId) {
                     _uiState.value = _uiState.value.copy(
                         currentSession = null,
