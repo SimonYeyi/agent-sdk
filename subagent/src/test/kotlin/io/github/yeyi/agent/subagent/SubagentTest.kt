@@ -211,7 +211,7 @@ class SubagentTest {
     }
 
     @Test
-    fun `activate uses explicit tools verbatim when subagent tools is non-empty`() = runTest {
+    fun `activate uses explicit tools minus subagent-named ones when subagent tools is non-empty`() = runTest {
         val explicitKeep = StubTool("keep_me")
         val explicitDrop = StubTool("subagent_something")
         val llm = StubLlmProvider()
@@ -221,7 +221,7 @@ class SubagentTest {
         )))
         sub.activate(SubagentTask("x"), ctx)
         val visible = llm.chatRequests.single().tools.map { it.name }.toSet()
-        assertEquals(setOf("keep_me", "subagent_something"), visible)
+        assertEquals(setOf("keep_me"), visible)
     }
 
     @Test

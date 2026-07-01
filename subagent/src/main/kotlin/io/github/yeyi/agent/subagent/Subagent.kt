@@ -39,8 +39,8 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
 
     public suspend fun run(subagentTask: SubagentTask, context: SubagentContext): String {
         val memory = memory ?: InMemoryMemory()
-        val resolvedTools = tools
-            ?: context.agentContext.tools.filter { !it.name.contains(CAPABILITY_NAME) }
+        val resolvedTools = (tools ?: context.agentContext.tools)
+            .filter { !it.name.contains(CAPABILITY_NAME) }
         val instruction = load(context)
 
         val sub = agent {
