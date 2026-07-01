@@ -11,11 +11,11 @@ import java.io.File
  */
 public class SessionManager(
     baseDir: File,
-    private val pipeline: HookPipeline
+    private val hookPipeline: HookPipeline? = null
 ) {
     private val repository = SessionRepository(baseDir)
     private val mutex = Mutex()
-    private val activeSessionMap = mutableMapOf<String, Session>()
+    private val activeSessions = mutableMapOf<String, Session>()
 
     public suspend fun create(
         accountId: String,
@@ -25,7 +25,7 @@ public class SessionManager(
         return mutex.withLock {
             repository.createSession(accountId, sessionName, sessionId)
         }.also {
-            pipeline.run(SessionHookEvent.Created(session = it), HookContext())
+            hookPipeline?.run(SessionHookEvent.Created(session = it), HookContext())
             start(it)
         }
     }
@@ -56,19 +56,19 @@ public class SessionManager(
     /** 将 session 标记为活跃（发送 [SessionHookEvent.Start]）。已在活跃状态则忽略。 */
     public suspend fun start(session: Session) {
         val newlyActive = mutex.withLock {
-            activeSessionMap.put(session.id, session) == null
+            activeSessions.put(session.id, session) == null
         }
         if (!newlyActive) return
-        pipeline.run(SessionHookEvent.Start(session), HookContext())
+        hookPipeline?.run(SessionHookEvent.Start(session), HookContext())
     }
 
     /** 将 session 标记为非活跃（发送 [SessionHookEvent.Stop]）。已非活跃则忽略。 */
     public suspend fun stop(session: Session) {
         val wasActive = mutex.withLock {
-            activeSessionMap.remove(session.id) != null
+            activeSessions.remove(session.id) != null
         }
         if (!wasActive) return
-        pipeline.run(SessionHookEvent.Stop(session), HookContext())
+        hookPipeline?.run(SessionHookEvent.Stop(session), HookContext())
     }
 
     /** 切换到目标 session：先停其他活跃 session，再启动目标 session。 */
@@ -79,7 +79,12 @@ public class SessionManager(
 
     /** 返回当前所有活跃 session。 */
     public suspend fun actives(): List<Session> = mutex.withLock {
-        activeSessionMap.values.toList()
+        activeSessions.values.toList()
+    }
+
+    /** 返回当前活跃 session。如果存在多个，只会返回第一个。如果没有，则返回 null。 */
+    public suspend fun current(): Session? = mutex.withLock {
+        activeSessions.firstNotNullOfOrNull { it.value }
     }
 
     /** 删除指定 session。发送 [SessionHookEvent.Deleted]。 */
@@ -88,7 +93,7 @@ public class SessionManager(
         mutex.withLock {
             repository.deleteSession(session.accountId, session.id)
         }?.let {
-            pipeline.run(SessionHookEvent.Deleted(session), HookContext())
+            hookPipeline?.run(SessionHookEvent.Deleted(session), HookContext())
         }
     }
 
