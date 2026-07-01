@@ -96,6 +96,7 @@ internal class DynamicSubagentTool : Tool {
             )
             ToolExecutionResult(sub.run(SubagentTask(task), SubagentContext(agentContext)))
         } catch (e: Exception) {
+            log.warn("dynamic subagent execute failed: task=$task", e)
             ToolExecutionResult.error(e.message ?: "<no message>")
         }
     }
@@ -114,7 +115,19 @@ internal class DynamicSubagentTool : Tool {
     )
 }
 
-public fun AgentBuilder.subagent(dynamic: Boolean) {
-    if (dynamic.not()) throw IllegalArgumentException("dynamic subagent requires dynamic=true")
-    tool(DynamicSubagentTool())
+/**
+ * 将静态 Subagent 注册表与可选的动态 Subagent 工具注册到 Agent。
+ *
+ * 静态部分（[registry] 非 null）通过 [io.github.yeyi.agent.capability.CapabilityAdapter] 注入；动态部分（[dynamic] = true）注册
+ * `dynamic_subagent` 工具，允许 LLM 在调用时按 role/context/tasks 并发派生临时子代理。
+ *
+ * @param dynamic true 注册 `dynamic_subagent` 工具，false 不注册
+ * @param registry 静态 Subagent 注册中心；为 null 时跳过静态注册（仅注册动态）
+ */
+public fun AgentBuilder.subagents(
+    dynamic: Boolean,
+    registry: SubagentRegistry? = null
+) {
+    if (dynamic) tool(DynamicSubagentTool())
+    if (registry != null) subagents(registry)
 }

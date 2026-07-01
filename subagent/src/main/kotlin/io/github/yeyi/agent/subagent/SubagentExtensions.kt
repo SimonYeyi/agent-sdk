@@ -2,6 +2,7 @@ package io.github.yeyi.agent.subagent
 
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.capability.CapabilityAdapter
+import io.github.yeyi.agent.log.LoggingTagged
 
 /**
  * 将 SubagentRegistry 注册到 Agent。
@@ -20,3 +21,5 @@ public fun AgentBuilder.subagents(
         enableDelegateAdaptMode
     ).installOn(this)
 }
+
+internal val log = LoggingTagged("hook")

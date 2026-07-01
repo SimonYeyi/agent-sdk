@@ -1,7 +1,8 @@
 package io.github.yeyi.agent.subagent
 
-import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.agent
+import io.github.yeyi.agent.awaitResult
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
@@ -15,7 +16,6 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
-import io.github.yeyi.agent.tool.ToolRegistry
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -38,14 +38,6 @@ import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class DynamicSubagentTest {
-
-    private class NoopLlm : LlmProvider {
-        override val name = "noop"
-        override suspend fun chat(request: ChatRequest) =
-            throw UnsupportedOperationException()
-        override fun chatStream(request: ChatRequest) =
-            throw UnsupportedOperationException()
-    }
 
     private class StubLlmProvider(
         private val responses: List<ChatResponse> = listOf(
@@ -134,18 +126,30 @@ class DynamicSubagentTest {
     }
 
     @Test
-    fun `subagent(dynamic=true) DSL registers the tool on AgentBuilder`() {
-        val builder = AgentBuilder().apply { llmProvider(NoopLlm()) }
-        builder.subagent(dynamic = true)
-        // AgentBuilder.toolRegistry is private; access it via reflection so we can assert
-        // the DSL actually registered a tool under the expected name.
-        val field = AgentBuilder::class.java.getDeclaredField("toolRegistry").apply { isAccessible = true }
-        val registry = field.get(builder) as ToolRegistry
-        val names = registry.all().map { it.name }
+    fun `subagents(dynamic=true) DSL registers the tool for the LLM`() = runTest {
+        val llm = StubLlmProvider(listOf(chatResponse("ok")))
+        val a = agent {
+            llmProvider(llm)
+            subagents(dynamic = true)
+        }
+        a.run("hi").awaitResult()
+        val toolNames = llm.chatRequests.single().tools.map { it.name }
         assertTrue(
-            "dynamic_subagent" in names,
-            "expected 'dynamic_subagent' in $names"
+            "dynamic_subagent" in toolNames,
+            "expected 'dynamic_subagent' in $toolNames"
         )
+    }
+
+    @Test
+    fun `subagents(dynamic=false) DSL registers nothing`() = runTest {
+        val llm = StubLlmProvider(listOf(chatResponse("ok")))
+        val a = agent {
+            llmProvider(llm)
+            subagents(dynamic = false)
+        }
+        a.run("hi").awaitResult()
+        val toolNames = llm.chatRequests.single().tools.map { it.name }
+        assertTrue(toolNames.isEmpty(), "dynamic=false must not register any tool, got $toolNames")
     }
 
     @Test

@@ -108,7 +108,7 @@ object DemoAgentFactory {
             hook(hook ?: HookPipeline(logging = true))
             val subagentRegistry = SubagentRegistry()
             subagentRegistry.register(WeatherExpertSubagent())
-            subagents(subagentRegistry)
+            subagents(registry = subagentRegistry, dynamic = true)
         }
     }
 

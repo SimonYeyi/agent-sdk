@@ -30,7 +30,7 @@ public class AgentBuilder {
     private var llmProvider: LlmProvider? = null
     private var memory: Memory = InMemoryMemory()
     private var maxRounds: Int = 20
-    private val toolRegistry = ToolRegistry()
+    private var toolRegistry = ToolRegistry()
 
     private var hook: AgentHook = NoOpAgentHook
 
@@ -69,6 +69,12 @@ public class AgentBuilder {
     /** 注册多个工具。 */
     public fun tools(tools: Iterable<Tool>) {
         toolRegistry.register(tools)
+    }
+
+    /** 注册完整工具集。 */
+    public fun tools(registry: ToolRegistry) {
+        registry.register(toolRegistry.all())
+        toolRegistry = registry
     }
 
     /**
