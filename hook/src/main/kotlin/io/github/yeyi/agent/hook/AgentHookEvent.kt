@@ -22,7 +22,9 @@ public sealed interface AgentHookEvent : HookEvent {
     ) : AgentHookEvent
 
     /** 每次 LLM 调用前触发。 */
-    public object BeforeLlmCall : AgentHookEvent
+    public object BeforeLlmCall : AgentHookEvent {
+        override fun toString(): String = "BeforeLlmCall"
+    }
 
     /** 每次 LLM 响应后触发，response 含 LLM 本次回复内容。 */
     public data class AfterLlmResponse(
