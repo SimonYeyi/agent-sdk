@@ -43,10 +43,13 @@ internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager 
     }
 
     private fun sessionFile(sessionKey: String): File =
-        File(sessionsDir, "$sessionKey/session.jsonl")
+        File(sessionsDir, "${sanitizeForPath(sessionKey)}/session.jsonl")
 
     private fun sessionDir(sessionKey: String): File =
-        File(sessionsDir, sessionKey)
+        File(sessionsDir, sanitizeForPath(sessionKey))
+
+    private fun sanitizeForPath(s: String): String =
+        s.replace(Regex("""[<>:"/\\|?*]"""), "-")
 
     private fun getLock(sessionKey: String): ReentrantLock =
         sessionLocks.getOrPut(sessionKey) { ReentrantLock() }
