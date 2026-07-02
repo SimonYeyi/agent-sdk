@@ -345,6 +345,7 @@ internal class DefaultGatewayEngine(
         val agentResult = try {
             agentRunner.process(message = message, session = session)
         } catch (e: Exception) {
+            log.warn("Agent run failed.", e)
             AgentRunner.Result.Failure(error = e.message ?: "Unknown error", exception = e)
         }
 
