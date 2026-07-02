@@ -1,0 +1,3 @@
+# Secrets-bearing local config — never commit. Only application.properties.example
+# is tracked; copy it to application.properties and fill in values locally.
+application.properties
