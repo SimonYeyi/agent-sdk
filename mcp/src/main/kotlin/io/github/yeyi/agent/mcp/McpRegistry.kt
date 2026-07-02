@@ -5,12 +5,14 @@ import io.github.yeyi.agent.capability.DefaultCapabilityRegistry
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolDispatcher
 import io.github.yeyi.agent.tool.ToolExecutionResult
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.GlobalScope
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 
 /**
  * MCP 服务注册中心，同时实现 [ToolDispatcher]（用于 [CallMcpTool] 的代理调用）
- * 和 [CapabilityRegistry]（用于 [CapabilityAdapter] 挂载到 Agent）。
+ * 和 [CapabilityRegistry]（用于 [io.github.yeyi.agent.capability.CapabilityAdapter] 挂载到 Agent）。
  *
  * `register` 时自动将 [clientInfo] 注入每个注册的 [Mcp] 实例的 [Mcp.client]；
  * `unregisterAll` 时关闭所有 MCP 连接。
@@ -27,11 +29,10 @@ public class McpRegistry(
         delegate.register(capability)
     }
 
+    @OptIn(DelicateCoroutinesApi::class)
     override fun unregisterAll() {
-        runBlocking {
-            all().forEach { runCatching { it.client.close() } }
-            delegate.unregisterAll()
-        }
+        GlobalScope.launch { all().forEach { runCatching { it.client.close() } } }
+        delegate.unregisterAll()
     }
 
     override suspend fun dispatch(
