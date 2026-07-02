@@ -19,7 +19,7 @@ android {
         versionName = "0.1.0"
 
         val localProps = Properties().apply {
-            val f = rootProject.file("local.properties")
+            val f = file("local.properties")
             if (f.exists()) f.inputStream().use { load(it) }
         }
         fun raw(key: String) = localProps.getProperty(key).orEmpty()
