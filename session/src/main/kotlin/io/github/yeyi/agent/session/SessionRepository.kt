@@ -11,8 +11,11 @@ public class SessionRepository(baseDir: File) {
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    private fun sanitizeForPath(s: String): String =
+        s.replace(Regex("""[<>:"/\\|?*]"""), "-")
+
     private fun getUserDir(accountId: String): File {
-        return File(sessionsDir, accountId).also { it.mkdirs() }
+        return File(sessionsDir, sanitizeForPath(accountId)).also { it.mkdirs() }
     }
 
     private fun getSessionsFile(accountId: String): File {
@@ -20,13 +23,16 @@ public class SessionRepository(baseDir: File) {
     }
 
     private fun getMemoryFile(accountId: String, sessionId: String): File {
-        return File(File(getUserDir(accountId), "memories"), "$sessionId.jsonl").also {
+        return File(
+            File(getUserDir(accountId), "memories"),
+            "${sanitizeForPath(sessionId)}.jsonl"
+        ).also {
             it.parentFile.mkdirs()
         }
     }
 
     private fun getConversationDir(accountId: String, sessionId: String): File {
-        return File(File(getUserDir(accountId), "conversations"), sessionId).also {
+        return File(File(getUserDir(accountId), "conversations"), sanitizeForPath(sessionId)).also {
             it.mkdirs()
         }
     }
