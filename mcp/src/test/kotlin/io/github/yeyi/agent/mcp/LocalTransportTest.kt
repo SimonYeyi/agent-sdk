@@ -1,6 +1,17 @@
 package io.github.yeyi.agent.mcp
 
+import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.llm.LlmProvider
+import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatRequest
+import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.toolset.ToolsetRegistry
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -100,22 +111,41 @@ private class LocalMcpServerForTest : McpServer {
 }
 
 class LocalTransportTest {
-    private fun createRegistry(): Pair<LocalMcpServerForTest, McpRegistry> {
+    private object UnusedLlm : LlmProvider {
+        override val name: String = "unused"
+        override suspend fun chat(request: ChatRequest): ChatResponse =
+            error("LlmProvider.chat must not be called in LocalTransportTest")
+        override fun chatStream(request: ChatRequest): Flow<StreamEvent> =
+            flowOf(StreamEvent.Error(IllegalStateException("unused")))
+    }
+
+    private fun stubToolContext(): ToolContext = ToolContext(
+        toolCallId = "test",
+        agentContext = AgentContext(
+            persona = Persona(""),
+            maxIterations = 1,
+            currentIteration = 1,
+            memory = InMemoryMemory(),
+            llmProvider = UnusedLlm,
+            tools = emptyList(),
+            maxRounds = 20,
+        ),
+    )
+
+    private fun createRegistry(): Triple<LocalMcpServerForTest, Mcp, McpRegistry> {
         val server = LocalMcpServerForTest()
-        val registry = McpRegistry(ClientInfo("test", "1.0")).apply {
-            register(object : Mcp {
-                override val name: String = "local-demo"
-                override val description: String = "Local demo server"
-                override val client: McpClient = McpClient(LocalTransport(server))
-            })
+        val mcp = object : Mcp {
+            override val name: String = "local-demo"
+            override val description: String = "Local demo server"
+            override val client: McpClient = McpClient(LocalTransport(server))
         }
-        return server to registry
+        val registry = McpRegistry(ToolsetRegistry(), ClientInfo("test", "1.0")).apply { register(mcp) }
+        return Triple(server, mcp, registry)
     }
 
     @Test
     fun `listAllTools returns tools`() = runTest {
-        val (_, registry) = createRegistry()
-        val mcp = registry.all().single()
+        val (_, mcp, _) = createRegistry()
 
         val result = mcp.client.toolsList().tools.toString()
 
@@ -126,20 +156,18 @@ class LocalTransportTest {
 
     @Test
     fun `callTool add returns correct result`() = runTest {
-        val (_, registry) = createRegistry()
+        val (_, mcp, _) = createRegistry()
 
-        val result = registry.toolsCall(
-            "local-demo",
+        val out = mcp.dispatch(
+            "add",
             buildJsonObject {
-                put("name", "add")
-                put("arguments", buildJsonObject {
-                    put("a", 3)
-                    put("b", 7)
-                })
-            }
+                put("a", 3)
+                put("b", 7)
+            },
+            stubToolContext(),
         )
 
-        val json = kotlinx.serialization.json.Json.parseToJsonElement(result).jsonObject
+        val json = kotlinx.serialization.json.Json.parseToJsonElement(out.content).jsonObject
         val text = json["content"]
             ?.jsonArray?.get(0)?.jsonObject?.get("text")
             ?.jsonPrimitive?.content
@@ -147,25 +175,20 @@ class LocalTransportTest {
     }
 
     @Test
-    fun `callTool unknown tool returns error`() = runTest {
-        val (_, registry) = createRegistry()
+    fun `callTool unknown tool returns isError in content`() = runTest {
+        val (_, mcp, _) = createRegistry()
 
-        val result = registry.toolsCall(
-            "local-demo",
-            buildJsonObject {
-                put("name", "unknown_tool")
-                put("arguments", buildJsonObject { })
-            }
-        )
+        val out = mcp.dispatch("unknown_tool", buildJsonObject { }, stubToolContext())
 
-        val json = kotlinx.serialization.json.Json.parseToJsonElement(result).jsonObject
+        // LocalTransport 总是把 isError=false 包成 CallToolResult，所以 McpClient 不会抛异常；
+        // 错误信号留在 server 返回的 content 里的 isError 字段。
+        val json = kotlinx.serialization.json.Json.parseToJsonElement(out.content).jsonObject
         assertTrue(json["isError"]?.jsonPrimitive?.content?.toBoolean() == true)
     }
 
     @Test
     fun `server initialize is called`() = runTest {
-        val (server, registry) = createRegistry()
-        val mcp = registry.all().single()
+        val (server, mcp, _) = createRegistry()
 
         mcp.client.toolsList()
 
@@ -174,8 +197,7 @@ class LocalTransportTest {
 
     @Test
     fun `server receives notifications initialized`() = runTest {
-        val (server, registry) = createRegistry()
-        val mcp = registry.all().single()
+        val (server, mcp, _) = createRegistry()
 
         mcp.client.toolsList()
 
@@ -185,18 +207,12 @@ class LocalTransportTest {
     }
 
     @Test
-    fun `server not found throws`() = runTest {
-        val (_, registry) = createRegistry()
+    fun `server not found throws NoSuchElementException`() = runTest {
+        val (_, _, registry) = createRegistry()
 
-        val exception = kotlin.test.assertFailsWith<NoSuchElementException> {
-            registry.toolsCall(
-                "non-existent",
-                buildJsonObject {
-                    put("name", "x")
-                    put("arguments", buildJsonObject { })
-                }
-            )
+        val ex = kotlin.test.assertFailsWith<NoSuchElementException> {
+            registry.toolsetRegistry.get("non-existent")
         }
-        assertTrue(exception.message?.contains("non-existent") == true)
+        assertTrue(ex.message?.contains("non-existent") == true)
     }
 }

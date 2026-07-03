@@ -19,7 +19,7 @@ import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.mcp.ClientInfo
 import io.github.yeyi.agent.mcp.McpRegistry
-import io.github.yeyi.agent.mcp.mcp
+import io.github.yeyi.agent.mcp.mcps
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
 import io.github.yeyi.agent.providers.openai.OpenAiProvider
@@ -27,6 +27,7 @@ import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.skill.skills
 import io.github.yeyi.agent.subagent.SubagentRegistry
 import io.github.yeyi.agent.subagent.subagents
+import io.github.yeyi.agent.toolset.ToolsetRegistry
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
@@ -86,12 +87,16 @@ object DemoAgentFactory {
             OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl, httpClient)
         }
 
-        val mcpRegistry = McpRegistry(ClientInfo("agent-sdk-app", "0.1.0")).apply {
-            // Local MCP server
-            register(CalculatorMcp())
-            // Online MCP servers
-            register(LiveScoreMcp(httpClient))
-        }
+        val mcpRegistry =
+            McpRegistry(
+                ToolsetRegistry(),
+                ClientInfo(BuildConfig.APPLICATION_ID, BuildConfig.VERSION_NAME)
+            ).apply {
+                // Local MCP server
+                register(CalculatorMcp())
+                // Online MCP servers
+                register(LiveScoreMcp(httpClient))
+            }
 
         return agent {
             persona(Persona(role = "你是一个 helpful 助手，优先使用工具完成任务。"))
@@ -104,7 +109,7 @@ object DemoAgentFactory {
             skillRegistry.register(WeatherSkill())
             skillRegistry.registerTools(listOf(GetWeatherTool()))
             skills(skillRegistry)
-            mcp(mcpRegistry)
+            mcps(mcpRegistry)
             hook(hook ?: HookPipeline(logging = true))
             val subagentRegistry = SubagentRegistry()
             subagentRegistry.register(WeatherExpertSubagent())

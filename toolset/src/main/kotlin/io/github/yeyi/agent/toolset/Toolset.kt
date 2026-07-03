@@ -32,6 +32,17 @@ public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
     /** 批量添加子 Tool。 */
     public fun add(tools: Iterable<Tool>)
 
+    public fun definitions(): JsonElement
+
+    /**
+     * 默认实现:把 [definitions] 拼上 "Toolset '$name' 包含以下子工具..." 前缀返回给 LLM。
+     * 子类通常只需重写 [definitions] 即可;若需自定义文案再覆写本方法。
+     */
+    public override suspend fun activate(
+        arguments: Unit?,
+        context: ToolsetContext,
+    ): String = "Toolset '$name' 包含以下子工具 (完整 schema):\n${definitions()}"
+
     public companion object {
         /** 能力框架中的路由类别名，生成工具名 `load_toolset`、路由字段 `toolset_name`。 */
         public const val CAPABILITY_NAME: String = "toolset"
@@ -58,10 +69,17 @@ private class DefaultToolset(
         tools.forEach(::add)
     }
 
-    override suspend fun activate(
-        arguments: Unit?,
-        context: ToolsetContext
-    ): String = renderListing()
+    override fun definitions(): JsonElement {
+        return buildJsonArray {
+            subTools.values.forEach { tool ->
+                add(buildJsonObject {
+                    put("name", tool.name)
+                    put("description", tool.description)
+                    put("parametersSchema", parametersSchemaOf(tool.parametersSchema))
+                })
+            }
+        }
+    }
 
     override suspend fun dispatch(
         name: String,
@@ -76,19 +94,6 @@ private class DefaultToolset(
                 ).message
             )
         return tool.execute(arguments, context)
-    }
-
-    private fun renderListing(): String {
-        val definitions = buildJsonArray {
-            subTools.values.forEach { tool ->
-                add(buildJsonObject {
-                    put("name", tool.name)
-                    put("description", tool.description)
-                    put("parametersSchema", parametersSchemaOf(tool.parametersSchema))
-                })
-            }
-        }
-        return "Toolset '$name' 包含以下子工具 (完整 schema):\n$definitions"
     }
 
     private fun parametersSchemaOf(params: ToolParameters): JsonElement = when (params) {

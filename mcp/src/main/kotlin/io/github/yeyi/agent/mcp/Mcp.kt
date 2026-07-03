@@ -1,16 +1,28 @@
 package io.github.yeyi.agent.mcp
 
-import io.github.yeyi.agent.capability.Capability
+import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionResult
+import io.github.yeyi.agent.toolset.Toolset
+import io.github.yeyi.agent.toolset.ToolsetContext
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
- * MCP 能力注册项 —— Agent 视角下一个可被模型发现和调用的 MCP 服务。
+ * MCP 能力 — 一个 [Toolset] 形态的远端 MCP 服务。
  *
- * 本接口实现 [Capability]，复用能力框架的注册与发现流程：
- * - 通过 [activate] 暴露 [toolsList] 的结果，让 [io.github.yeyi.agent.capability.CapabilityAdapter] 把本能力适配为
- *   `load_mcp` 工具供 LLM 调用。
+ * 本接口继承 [Toolset],接入 toolset 框架(委托模式 `load_toolset` 或
+ * 一一映射模式 `toolset_<name>`),由 [McpRegistry] 统一管理,经 [mcps] DSL
+ * 挂载到 Agent。
  *
- * 使用方式：
+ * 子 Tool **不**通过 [add] 注入——MCP 服务的工具列表是动态的,由 [client] 与
+ * 远端 MCP server 协商产生。`load_toolset` 触发时通过 [definitions] 拉取
+ * [toolsList] 并按 Toolset 统一格式渲染;`sub_tool_delegate` 触发时由 [dispatch]
+ * 把子工具名 + 参数包装成 MCP `tools/call` 信封交给 [client]。
+ *
+ * 使用方式:
  * ```kotlin
  * class MyMcp(httpClient: HttpClient) : Mcp {
  *     override val name = "my_service"
@@ -19,29 +31,42 @@ import kotlinx.serialization.json.JsonElement
  * }
  * ```
  */
-public interface Mcp : Capability<Unit, McpContext> {
-    /** MCP 服务的唯一标识，用于模型选择调用哪个 MCP。 */
-    public override val name: String
-
-    /** MCP 服务的自然语言描述，告诉模型这个服务能做什么。 */
-    public override val description: String
-
+public interface Mcp : Toolset {
     /** MCP 客户端实现，负责与远端或本地 MCP 服务进行协议通信。 */
     public val client: McpClient
 
     /**
-     * 能力框架调用入口：返回该 MCP 服务的工具列表，供 LLM 发现可用工具。
-     *
-     * 返回内容是带提示前缀的 `toolsList()` 结果，直接作为工具返回文本暴露给 LLM。
-     * 实际的 MCP 工具调用（代理调用）由 [CallMcpTool] 负责，不在本能力管辖范围内。
+     * MCP 子工具是动态管理的，调用本方法抛 [UnsupportedOperationException]。
+     * 静态子 Tool 集合请直接使用 [io.github.yeyi.agent.toolset.Toolset]。
      */
-    public override suspend fun activate(arguments: Unit?, context: McpContext): String {
-        val toolsList = client.toolsList().tools.toString()
-        return "发现以下可用 MCP 工具：\n$toolsList"
+    override fun add(tool: Tool) {
+        throw UnsupportedOperationException(
+            "Mcp '$name' tools are dynamic, managed by the MCP server"
+        )
     }
 
-    public companion object {
-        /** 能力框架中的路由类别名，生成工具名 `load_mcp`。 */
-        public const val CAPABILITY_NAME: String = "mcp"
+    /** MCP 子工具是动态管理的，调用本方法抛 [UnsupportedOperationException]。 */
+    override fun add(tools: Iterable<Tool>) {
+        throw UnsupportedOperationException(
+            "Mcp '$name' tools are dynamic, managed by the MCP server"
+        )
+    }
+
+    override fun definitions(): JsonElement = runBlocking { client.toolsList().tools }
+
+    /**
+     * `sub_tool_delegate` 触发时调用,把 `[name, arguments]` 包装成 MCP `tools/call`
+     * 信封交给 [client] 执行。
+     */
+    override suspend fun dispatch(
+        name: String,
+        arguments: JsonElement,
+        context: ToolContext,
+    ): ToolExecutionResult {
+        val envelope = buildJsonObject {
+            put("name", name)
+            put("arguments", arguments)
+        }
+        return ToolExecutionResult.success(client.callTool(envelope).toString())
     }
 }

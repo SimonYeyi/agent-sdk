@@ -34,7 +34,9 @@ public class ToolRegistry : ToolDispatcher {
      * tool calls ambiguous.
      */
     public fun register(tool: Tool) {
-        require(tool.name !in byName) { "Duplicate tool name: ${tool.name}" }
+        if (tool.name in byName) {
+            throw ToolDuplicateException(tool.name, byName.keys)
+        }
         byName[tool.name] = tool
     }
 
