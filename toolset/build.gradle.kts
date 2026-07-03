@@ -12,6 +12,7 @@ kotlin {
 
 dependencies {
     api(project(":agent"))
+    api(project(":capability"))
     api(libs.kotlinx.serialization.json)
 
     testImplementation(libs.kotlin.test)

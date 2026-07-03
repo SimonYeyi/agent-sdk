@@ -34,7 +34,7 @@ internal class CapabilityLoadTool<Ctx : CapabilityContext, C : Capability<T, Ctx
 
     override val description: String by lazy {
         """
-        |当以下 $capabilityName 时适用于本次任务时，调用本工具以激活使用：
+        |当以下 $capabilityName 适用于本次任务时，调用本工具以激活使用：
         |${registry.all().joinToString("\n") { "- ${it.name}：${it.description}" }}
         |如果本次任务需要多个 $capabilityName 并行处理，可以生成多个工具调用。
     """.trimMargin()
