@@ -201,4 +201,92 @@ class ExecutionParserTest {
         // 对象类型返回原始字符串，暂不验证内部结构
         assertTrue(result.jsonObject["config"] != null)
     }
+
+    @Test
+    fun parseMusicControlPlayAction() {
+        // 播放歌曲：action=play + song + 可选的 artist
+        val signature = FunctionSignature(
+            name = "music_control",
+            params = listOf(
+                Param("action", ParamType.EnumType(listOf("play", "pause", "stop", "prev", "next", "volume", "mode")), required = true),
+                Param("song", ParamType.StringType(), required = false),
+                Param("artist", ParamType.StringType(), required = false),
+                Param("volume", ParamType.NumberType(), required = false),
+                Param("mode", ParamType.EnumType(listOf("normal", "repeat", "shuffle")), required = false)
+            )
+        )
+
+        val result = parser.parse("music_control(action=play, song='海阔天空', artist='Beyond')", signature)
+
+        assertEquals("play", result.jsonObject["action"]?.jsonPrimitive?.content)
+        assertEquals("海阔天空", result.jsonObject["song"]?.jsonPrimitive?.content)
+        assertEquals("Beyond", result.jsonObject["artist"]?.jsonPrimitive?.content)
+        assertNull(result.jsonObject["volume"])
+        assertNull(result.jsonObject["mode"])
+    }
+
+    @Test
+    fun parseMusicControlVolumeAction() {
+        // 调节音量：action=volume + volume 参数
+        val signature = FunctionSignature(
+            name = "music_control",
+            params = listOf(
+                Param("action", ParamType.EnumType(listOf("play", "pause", "stop", "prev", "next", "volume", "mode")), required = true),
+                Param("song", ParamType.StringType(), required = false),
+                Param("artist", ParamType.StringType(), required = false),
+                Param("volume", ParamType.NumberType(), required = false),
+                Param("mode", ParamType.EnumType(listOf("normal", "repeat", "shuffle")), required = false)
+            )
+        )
+
+        val result = parser.parse("music_control(action=volume, volume=75)", signature)
+
+        assertEquals("volume", result.jsonObject["action"]?.jsonPrimitive?.content)
+        assertEquals(75.0, result.jsonObject["volume"]?.jsonPrimitive?.content?.toDouble())
+        assertNull(result.jsonObject["song"])
+    }
+
+    @Test
+    fun parseMusicControlModeAction() {
+        // 切换模式：action=mode + mode 参数
+        val signature = FunctionSignature(
+            name = "music_control",
+            params = listOf(
+                Param("action", ParamType.EnumType(listOf("play", "pause", "stop", "prev", "next", "volume", "mode")), required = true),
+                Param("song", ParamType.StringType(), required = false),
+                Param("artist", ParamType.StringType(), required = false),
+                Param("volume", ParamType.NumberType(), required = false),
+                Param("mode", ParamType.EnumType(listOf("normal", "repeat", "shuffle")), required = false)
+            )
+        )
+
+        val result = parser.parse("music_control(action=mode, mode=shuffle)", signature)
+
+        assertEquals("mode", result.jsonObject["action"]?.jsonPrimitive?.content)
+        assertEquals("shuffle", result.jsonObject["mode"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parseMusicControlSimpleAction() {
+        // 简单操作：action=pause/stop/prev/next 不需要额外参数
+        val signature = FunctionSignature(
+            name = "music_control",
+            params = listOf(
+                Param("action", ParamType.EnumType(listOf("play", "pause", "stop", "prev", "next", "volume", "mode")), required = true),
+                Param("song", ParamType.StringType(), required = false),
+                Param("artist", ParamType.StringType(), required = false),
+                Param("volume", ParamType.NumberType(), required = false),
+                Param("mode", ParamType.EnumType(listOf("normal", "repeat", "shuffle")), required = false)
+            )
+        )
+
+        val result = parser.parse("music_control(action=pause)", signature)
+
+        assertEquals("pause", result.jsonObject["action"]?.jsonPrimitive?.content)
+        // 只有 action 字段有值，其他字段不存在于 result 中
+        assertNull(result.jsonObject["song"])
+        assertNull(result.jsonObject["artist"])
+        assertNull(result.jsonObject["volume"])
+        assertNull(result.jsonObject["mode"])
+    }
 }
