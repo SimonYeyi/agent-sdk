@@ -138,6 +138,55 @@ class ExecutionParserTest {
     }
 
     @Test
+    fun parseEnumWithQuotes() {
+        val signature = FunctionSignature(
+            name = "update_status",
+            params = listOf(
+                Param("status", ParamType.EnumType(listOf("todo", "in_progress", "done")), required = true)
+            )
+        )
+
+        // 枚举值带双引号
+        val result = parser.parse("update_status(status=\"in_progress\")", signature)
+        assertEquals("in_progress", result.jsonObject["status"]?.jsonPrimitive?.content)
+
+        // 枚举值带单引号
+        val result2 = parser.parse("update_status(status='done')", signature)
+        assertEquals("done", result2.jsonObject["status"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parseNumberWithQuotes() {
+        val signature = FunctionSignature(
+            name = "create_user",
+            params = listOf(
+                Param("age", ParamType.NumberType(), required = true)
+            )
+        )
+
+        // 数字带双引号应仍能正确解析
+        val result = parser.parse("create_user(age=\"25\")", signature)
+        assertEquals(25.0, result.jsonObject["age"]?.jsonPrimitive?.content?.toDouble())
+    }
+
+    @Test
+    fun parseBooleanWithQuotes() {
+        val signature = FunctionSignature(
+            name = "set_flag",
+            params = listOf(
+                Param("enabled", ParamType.BooleanType(), required = true)
+            )
+        )
+
+        // 布尔带双引号应仍能正确解析
+        val resultTrue = parser.parse("set_flag(enabled=\"true\")", signature)
+        assertTrue(resultTrue.jsonObject["enabled"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() == true)
+
+        val resultFalse = parser.parse("set_flag(enabled=\"false\")", signature)
+        assertTrue(resultFalse.jsonObject["enabled"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() == false)
+    }
+
+    @Test
     fun parseExecutionWithObjectType() {
         // 对象类型解析暂不支持复杂场景，简化测试
         val signature = FunctionSignature(

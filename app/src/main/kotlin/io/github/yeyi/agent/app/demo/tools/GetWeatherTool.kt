@@ -24,7 +24,7 @@ enum class WeatherTime {
 data class GetWeatherRequest(
     @Description("城市名称")
     val city: String,
-    @Description("查询时间，默认为 now")
+    @Description("查询时间，默认为 NOW")
     val time: WeatherTime? = null
 )
 

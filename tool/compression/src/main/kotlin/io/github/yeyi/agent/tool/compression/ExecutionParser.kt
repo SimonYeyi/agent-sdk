@@ -223,7 +223,13 @@ private class ExecutionStringParser(
             sb.append(input[pos])
             pos++
         }
-        val value = sb.toString().trim()
+        var value = sb.toString().trim()
+
+        // 去掉两侧的引号（单引号或双引号）
+        if ((value.startsWith("'") && value.endsWith("'")) ||
+            (value.startsWith("\"") && value.endsWith("\""))) {
+            value = value.substring(1, value.length - 1)
+        }
 
         return when (type) {
             is ParamType.NumberType -> {
