@@ -9,7 +9,7 @@ import kotlinx.serialization.json.buildJsonObject
  * 获取当前位置（固定返回珠海）
  */
 val getLocationTool = CompressTool(
-    tool<Unit, String>("get_location", "获取当前位置") { _, _ ->
+    tool("get_location", "获取当前位置") { _, _ ->
         val location = buildJsonObject {
             put("city", JsonPrimitive("珠海"))
             put("province", JsonPrimitive("广东"))

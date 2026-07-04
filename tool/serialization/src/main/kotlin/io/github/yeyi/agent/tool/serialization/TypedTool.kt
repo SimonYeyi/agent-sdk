@@ -38,6 +38,7 @@ public abstract class TypedTool<P : @Serializable Any, R : @Serializable Any>(
     ): ToolExecutionResult {
         val parameters = Json.decodeFromJsonElement(parameterType.serializer, arguments)
         val result = execute(parameters, context)
+        if (result is ToolExecutionResult) return result
         return ToolExecutionResult.success(Json.encodeToString(resultType.serializer, result))
     }
 
@@ -91,7 +92,7 @@ public abstract class TypedTool<P : @Serializable Any, R : @Serializable Any>(
  *
  * 使用方式：
  * ```kotlin
- * val tool = typedTool<EmailRequest, SendEmailResult>("send_email", "发送邮件") { params, ctx ->
+ * val tool = tool<EmailRequest, SendEmailResult>("send_email", "发送邮件") { params, ctx ->
  *     // 业务逻辑
  *     SendEmailResult("msg-123", "2024-01-01")
  * }
@@ -109,3 +110,23 @@ public inline fun <reified P : @Serializable Any, reified R : @Serializable Any>
             execute(parameters, context)
     }
 }
+
+/**
+ * 便捷方法，结果类型固定为 String。
+ */
+@JvmName("toolAsText")
+public inline fun <reified P : @Serializable Any> tool(
+    name: String,
+    description: String,
+    noinline execute: suspend (P, ToolContext) -> String
+): Tool = tool<P, String>(name, description, execute)
+
+/**
+ * 便捷方法，无参数且结果类型固定为 String。
+ */
+@JvmName("toolAsTextNoArg")
+public fun tool(
+    name: String,
+    description: String,
+    execute: suspend (Unit, ToolContext) -> String
+): Tool = tool<Unit>(name, description, execute)
