@@ -27,12 +27,10 @@ public interface ExecutionParser {
 /**
  * 默认实现 — 使用递归下降 parser 解析 execution 字符串。
  */
-public class DefaultExecutionParser : ExecutionParser {
-    private val json = Json { ignoreUnknownKeys = true }
+internal class DefaultExecutionParser : ExecutionParser {
 
     override fun parse(execution: String, signature: FunctionSignature): JsonElement {
-        val parser = ExecutionStringParser(execution, signature)
-        return parser.parse()
+        return ExecutionStringParser(execution, signature).parse()
     }
 }
 
@@ -120,6 +118,7 @@ private class ExecutionStringParser(
                     pos++ // skip closing quote
                     break
                 }
+
                 '\\' -> {
                     pos++ // skip escape char
                     if (pos < input.length) {
@@ -127,6 +126,7 @@ private class ExecutionStringParser(
                         pos++
                     }
                 }
+
                 else -> {
                     sb.append(input[pos])
                     pos++
@@ -176,6 +176,7 @@ private class ExecutionStringParser(
                     sb.append(input[pos])
                     pos++
                 }
+
                 '}' -> {
                     braceCount--
                     if (braceCount > 0) {
@@ -183,6 +184,7 @@ private class ExecutionStringParser(
                     }
                     pos++
                 }
+
                 '\'' -> {
                     sb.append(input[pos])
                     pos++
@@ -199,6 +201,7 @@ private class ExecutionStringParser(
                         pos++
                     }
                 }
+
                 else -> {
                     sb.append(input[pos])
                     pos++
@@ -229,6 +232,7 @@ private class ExecutionStringParser(
                 value.toDoubleOrNull()?.let { JsonPrimitive(it) }
                     ?: JsonPrimitive(value)
             }
+
             is ParamType.BooleanType -> {
                 when (value.lowercase()) {
                     "true" -> JsonPrimitive(true)
@@ -236,6 +240,7 @@ private class ExecutionStringParser(
                     else -> JsonPrimitive(value)
                 }
             }
+
             is ParamType.EnumType -> JsonPrimitive(value)
             else -> JsonPrimitive(value)
         }

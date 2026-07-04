@@ -30,7 +30,7 @@ public interface SignatureCompressor {
 /**
  * 默认压缩器实现。
  */
-public class DefaultSignatureCompressor : SignatureCompressor {
+internal class DefaultSignatureCompressor : SignatureCompressor {
 
     private val json = Json { ignoreUnknownKeys = true }
 

@@ -4,8 +4,8 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
+import io.github.yeyi.agent.tool.serialization.typedTool
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -20,15 +20,13 @@ public class CompressTool(private val delegate: Tool) : Tool {
     override val name: String = delegate.name
     override val description: String = delegate.description
 
-    override val parametersSchema: ToolParameters
-        get() {
-            return when (val params = delegate.parametersSchema) {
-                is ToolParameters.Empty -> params
-                is ToolParameters.JsonSchema -> compressor.compress(delegate.name, params.schema)
-                    .also { compressionResult = it }
-                    .let { ToolParameters.JsonSchema(it.compressedSchema) }
-            }
-        }
+    override val parametersSchema: ToolParameters by lazy {
+        (delegate.parametersSchema as? ToolParameters.JsonSchema)
+            ?.let { compressor.compress(name, it.schema) }
+            ?.also { compressionResult = it }
+            ?.let { ToolParameters.JsonSchema(it.compressedSchema) }
+            ?: delegate.parametersSchema
+    }
 
     override suspend fun execute(
         arguments: JsonElement,
@@ -41,18 +39,14 @@ public class CompressTool(private val delegate: Tool) : Tool {
         } ?: arguments
         return delegate.execute(originalArgs, context)
     }
+}
 
-    public companion object {
-        /**
-         * 从 execution 参数中提取原始 JSON。
-         */
-        public fun extractArguments(
-            arguments: JsonElement,
-            signature: FunctionSignature
-        ): JsonElement {
-            if (arguments !is JsonObject) return arguments
-            val execution = arguments["execution"]?.jsonPrimitive?.content ?: return arguments
-            return DefaultExecutionParser().parse(execution, signature)
-        }
-    }
+public inline fun <reified P, reified R> tool(
+    name: String,
+    description: String,
+    compress: Boolean = false,
+    noinline execute: suspend (P, ToolContext) -> R
+): Tool {
+    val typedTool = typedTool<P, R>(name, description, execute)
+    return if (compress) CompressTool(typedTool) else typedTool
 }
