@@ -5,6 +5,7 @@ import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -32,9 +33,14 @@ public class CompressTool(private val delegate: Tool) : Tool {
         context: ToolContext
     ): ToolExecutionResult {
         val originalArgs = compressionResult?.let {
-            val execution = arguments.jsonObject["execution"]?.jsonPrimitive?.content
+            val execution = arguments.jsonObject["execution"]
                 ?: throw IllegalArgumentException("Missing 'execution'")
-            parser.parse(execution, it.signature)
+            // 有时模型不准从约定，依然通过 jsonObject 返回
+            if (execution is JsonPrimitive) {
+                parser.parse(execution.content, it.signature)
+            } else {
+                execution
+            }
         } ?: arguments
         return delegate.execute(originalArgs, context)
     }
