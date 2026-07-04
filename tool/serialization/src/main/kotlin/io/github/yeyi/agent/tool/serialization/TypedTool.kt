@@ -87,11 +87,11 @@ public abstract class TypedTool<P, R>(
  * }
  * ```
  */
-public inline fun <reified P, reified R> typedTool(
+public inline fun <reified P, reified R> tool(
     name: String,
     description: String,
     noinline execute: suspend (P, ToolContext) -> R
-): TypedTool<P, R> {
+): Tool {
     return object : TypedTool<P, R>(TypeToken(), TypeToken()) {
         override val name: String = name
         override val description: String = description

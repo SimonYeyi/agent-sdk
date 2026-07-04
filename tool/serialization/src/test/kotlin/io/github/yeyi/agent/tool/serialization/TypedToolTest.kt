@@ -191,7 +191,7 @@ class TypedToolTest {
 
     @Test
     fun `typedTool factory creates tool without subclassing`() = runTest {
-        val tool = typedTool<EmailRequest, SendEmailResult>("send_email", "发送邮件") { params, ctx ->
+        val tool = tool<EmailRequest, SendEmailResult>("send_email", "发送邮件") { params, ctx ->
             assertEquals("x@x.com", params.to)
             assertEquals("hello", params.subject)
             SendEmailResult("msg-123", "2024-01-01")
@@ -209,7 +209,7 @@ class TypedToolTest {
 
     @Test
     fun `typedTool factory generates schema with descriptions`() {
-        val tool = typedTool<EmailRequest, SendEmailResult>("send_email", "发送邮件") { params, ctx ->
+        val tool = tool<EmailRequest, SendEmailResult>("send_email", "发送邮件") { params, ctx ->
             SendEmailResult("msg-123", "2024-01-01")
         }
 
