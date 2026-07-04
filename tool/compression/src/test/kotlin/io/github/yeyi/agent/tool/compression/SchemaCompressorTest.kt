@@ -227,4 +227,91 @@ class SchemaCompressorTest {
         assertTrue(description.contains("volume?: number"), "volume number missing: $description")
         assertTrue(description.contains("调节音量时必填"), "volume desc missing: $description")
     }
+
+    @Test
+    fun compressOneOfSchema() {
+        // oneOf 条件参数 schema
+        val result = compressor.compress("music_control", """
+            {
+                "oneOf": [
+                    {
+                        "properties": {
+                            "action": {"const": "play"},
+                            "song": {"type": "string", "description": "歌曲名"},
+                            "artist": {"type": "string", "description": "歌手"}
+                        },
+                        "required": ["action", "song"]
+                    },
+                    {
+                        "properties": {
+                            "action": {"const": "pause"}
+                        },
+                        "required": ["action"]
+                    },
+                    {
+                        "properties": {
+                            "action": {"const": "volume"},
+                            "volume": {"type": "integer", "description": "音量0-100"}
+                        },
+                        "required": ["action", "volume"]
+                    }
+                ]
+            }
+        """.trimIndent())
+
+        assertEquals("music_control", result.signature.name)
+        assertTrue(result.signature.isOneOf)
+        assertEquals(3, result.signature.branches.size)
+
+        // 验证第一个分支 (play)
+        val playBranch = result.signature.branches[0]
+        assertEquals("action=play", playBranch.condition)
+        assertEquals(2, playBranch.params.size)
+        assertEquals("song", playBranch.params[0].name)
+        assertEquals("artist", playBranch.params[1].name)
+
+        // 验证第二个分支 (pause) - 空分支
+        val pauseBranch = result.signature.branches[1]
+        assertEquals("action=pause", pauseBranch.condition)
+        assertEquals(0, pauseBranch.params.size)
+
+        // 验证第三个分支 (volume)
+        val volumeBranch = result.signature.branches[2]
+        assertEquals("action=volume", volumeBranch.condition)
+        assertEquals(1, volumeBranch.params.size)
+        assertEquals("volume", volumeBranch.params[0].name)
+    }
+
+    @Test
+    fun compressedSchemaWithOneOf() {
+        val result = compressor.compress("music_control", """
+            {
+                "oneOf": [
+                    {
+                        "properties": {
+                            "action": {"const": "play"},
+                            "song": {"type": "string"}
+                        },
+                        "required": ["action", "song"]
+                    },
+                    {
+                        "properties": {
+                            "action": {"const": "pause"}
+                        },
+                        "required": ["action"]
+                    }
+                ]
+            }
+        """.trimIndent())
+
+        val schemaJson = kotlinx.serialization.json.Json.parseToJsonElement(result.compressedSchema)
+        val execution = schemaJson.jsonObject["properties"]?.jsonObject?.get("execution")?.jsonObject
+        val description = execution?.get("description")?.jsonPrimitive?.content ?: ""
+
+        // 验证 oneOf 格式：action=play, song: string; action=pause
+        assertTrue(description.contains("action=play,"), "play branch missing: $description")
+        assertTrue(description.contains("song: string"), "song param missing: $description")
+        assertTrue(description.contains("action=pause"), "pause branch missing: $description")
+        assertTrue(description.contains(";"), "branches should be separated by ;")
+    }
 }

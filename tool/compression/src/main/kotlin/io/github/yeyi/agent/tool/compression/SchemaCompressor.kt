@@ -45,6 +45,15 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
             return FunctionSignature(name, emptyList())
         }
 
+        // 检查是否有 oneOf
+        val oneOf = element["oneOf"]?.jsonArray
+        if (oneOf != null) {
+            val branches = oneOf.mapNotNull { branch -> parseBranch(branch.jsonObject) }
+            if (branches.isNotEmpty()) {
+                return FunctionSignature(name, emptyList(), branches)
+            }
+        }
+
         val properties = element["properties"]?.jsonObject ?: return FunctionSignature(name, emptyList())
         val requiredSet = element["required"]?.jsonArray
             ?.map { it.jsonPrimitive.content }
@@ -56,6 +65,36 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
         }
 
         return FunctionSignature(name, params)
+    }
+
+    private fun parseBranch(branch: JsonObject): Branch? {
+        val properties = branch["properties"]?.jsonObject ?: return null
+        val requiredSet = branch["required"]?.jsonArray
+            ?.map { it.jsonPrimitive.content }
+            ?.toSet()
+            ?: emptySet()
+
+        // 找出 const 字段作为条件
+        var condition: String? = null
+        for ((fieldName, schema) in properties.entries) {
+            val constValue = schema.jsonObject["const"]?.jsonPrimitive?.content
+            if (constValue != null) {
+                condition = "$fieldName=$constValue"
+                break
+            }
+        }
+        if (condition == null) return null
+
+        val params = properties.entries
+            .filter { (_, schema) ->
+                // 排除 const 字段本身（它用于条件，不作为参数）
+                schema.jsonObject["const"] == null
+            }
+            .mapNotNull { (paramName, schema) ->
+                parseParam(paramName, schema, requiredSet.contains(paramName))
+            }
+
+        return Branch(condition, params)
     }
 
     private fun parseParam(name: String, schema: JsonElement, required: Boolean): Param? {
@@ -123,13 +162,33 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
     }
 
     private fun formatSignature(signature: FunctionSignature): String {
-        val params = signature.params.joinToString(", ") { param ->
-            val typeStr = formatType(param.type)
-            val required = if (param.required) "" else "?"
-            val desc = param.description?.let { " | \"$it\"" } ?: ""
-            "${param.name}$required: $typeStr$desc"
+        val paramsStr = if (signature.isOneOf) {
+            // oneOf 模式：action=play, song: string; action=pause; action=volume, volume: number
+            signature.branches.joinToString("; ") { branch ->
+                // 条件字段作为第一个"参数"，格式为 field=value
+                val conditionParam = branch.condition
+                val branchParams = branch.params.joinToString(", ") { param ->
+                    val typeStr = formatType(param.type)
+                    val required = if (param.required) "" else "?"
+                    val desc = param.description?.let { " | \"$it\"" } ?: ""
+                    "${param.name}$required: $typeStr$desc"
+                }
+                if (branchParams.isEmpty()) {
+                    conditionParam
+                } else {
+                    "$conditionParam, $branchParams"
+                }
+            }
+        } else {
+            // 普通模式
+            signature.params.joinToString(", ") { param ->
+                val typeStr = formatType(param.type)
+                val required = if (param.required) "" else "?"
+                val desc = param.description?.let { " | \"$it\"" } ?: ""
+                "${param.name}$required: $typeStr$desc"
+            }
         }
-        return "${signature.name}($params)"
+        return "${signature.name}($paramsStr)"
     }
 
     private fun formatType(type: ParamType): String {

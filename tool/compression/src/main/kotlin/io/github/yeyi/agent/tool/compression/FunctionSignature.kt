@@ -6,11 +6,30 @@ import kotlinx.serialization.Serializable
  * 函数签名 — 压缩后的工具参数表示。
  *
  * @param name 函数名
- * @param params 参数列表
+ * @param params 顶层参数列表（用于没有 oneOf 的简单场景）
+ * @param branches oneOf 分支列表（用于条件参数场景）
  */
 @Serializable
 public data class FunctionSignature(
     val name: String,
+    val params: List<Param> = emptyList(),
+    val branches: List<Branch> = emptyList()
+) {
+    /**
+     * 判断是否为 oneOf 模式
+     */
+    public val isOneOf: Boolean get() = branches.isNotEmpty()
+}
+
+/**
+ * oneOf 分支 — 表示一个条件分支及其参数。
+ *
+ * @param condition 条件表达式，如 `action=play`
+ * @param params 该分支下的参数列表
+ */
+@Serializable
+public data class Branch(
+    val condition: String,
     val params: List<Param>
 )
 

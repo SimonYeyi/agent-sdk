@@ -289,4 +289,71 @@ class ExecutionParserTest {
         assertNull(result.jsonObject["volume"])
         assertNull(result.jsonObject["mode"])
     }
+
+    @Test
+    fun parseOneOfExecutionPlay() {
+        val signature = FunctionSignature(
+            name = "music_control",
+            params = emptyList(),
+            branches = listOf(
+                Branch("action=play", listOf(
+                    Param("song", ParamType.StringType(), required = true),
+                    Param("artist", ParamType.StringType(), required = false)
+                )),
+                Branch("action=pause", emptyList()),
+                Branch("action=volume", listOf(
+                    Param("volume", ParamType.NumberType(), required = true)
+                ))
+            )
+        )
+
+        val result = parser.parse("music_control(action=play, song='海阔天空', artist='Beyond')", signature)
+
+        assertEquals("play", result.jsonObject["action"]?.jsonPrimitive?.content)
+        assertEquals("海阔天空", result.jsonObject["song"]?.jsonPrimitive?.content)
+        assertEquals("Beyond", result.jsonObject["artist"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parseOneOfExecutionPause() {
+        val signature = FunctionSignature(
+            name = "music_control",
+            params = emptyList(),
+            branches = listOf(
+                Branch("action=play", listOf(
+                    Param("song", ParamType.StringType(), required = true)
+                )),
+                Branch("action=pause", emptyList()),
+                Branch("action=volume", listOf(
+                    Param("volume", ParamType.NumberType(), required = true)
+                ))
+            )
+        )
+
+        val result = parser.parse("music_control(action=pause)", signature)
+
+        assertEquals("pause", result.jsonObject["action"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parseOneOfExecutionVolume() {
+        val signature = FunctionSignature(
+            name = "music_control",
+            params = emptyList(),
+            branches = listOf(
+                Branch("action=play", listOf(
+                    Param("song", ParamType.StringType(), required = true)
+                )),
+                Branch("action=pause", emptyList()),
+                Branch("action=volume", listOf(
+                    Param("volume", ParamType.NumberType(), required = true)
+                ))
+            )
+        )
+
+        val result = parser.parse("music_control(action=volume, volume=75)", signature)
+
+        assertEquals("volume", result.jsonObject["action"]?.jsonPrimitive?.content)
+        assertEquals(75.0, result.jsonObject["volume"]?.jsonPrimitive?.content?.toDouble())
+    }
 }

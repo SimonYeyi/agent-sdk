@@ -10,7 +10,7 @@
 
 ## 格式规范
 
-### 函数签名格式
+### 函数签名格式（普通场景）
 
 ```
 function_name(
@@ -19,6 +19,16 @@ function_name(
     param3?: string[] | "描述",
     status: enum(todo, in_progress, done) | "状态",
     config: object
+)
+```
+
+### 函数签名格式（oneOf 条件场景）
+
+```
+function_name(
+    action=play, song: string, artist?: string | "歌手";
+    action=pause;
+    action=volume, volume: number | "0-100"
 )
 ```
 
@@ -33,18 +43,26 @@ function_name(
 | 布尔 | `boolean` | — |
 | 字符串数组 | `string[]` | — |
 | 数字数组 | `number[]` | — |
-| 对象 | `object` | 嵌套结构 |
+| 对象 | `object` | 嵌套结构 `{key: value}` |
 | 枚举 | `enum(v1, v2, v3)` | 逗号分隔 |
-| 参数描述 | `type \| "描述"` | 末尾加 `|` + 引号 |
+| 参数描述 | `type \| "描述"` | 末尾加 `\|` + 引号 |
+| oneOf 分支 | `cond, params` | 条件参数 + 逗号 + 其他参数 |
+| 分支分隔 | `;` | 分号分隔多个分支 |
+| 空分支 | `cond` | 只有条件，无其他参数 |
+
+**oneOf 说明**：
+- 每个分支有一个共同的条件字段（如 `action`），通过 `const` 值区分
+- 条件字段在 execution 中作为第一个参数，如 `action=play`
+- 解析时根据条件字段的值找到对应分支
 
 ### execution 格式
 
 LLM 返回：
 ```json
 {
-  "name": "send_email",
+  "name": "music_control",
   "arguments": {
-    "execution": "send_email(to='x@x.com', tags=['work'])"
+    "execution": "music_control(action=play, song='海阔天空')"
   }
 }
 ```
@@ -52,10 +70,20 @@ LLM 返回：
 解析还原后：
 ```json
 {
-  "to": "x@x.com",
-  "tags": ["work"]
+  "action": "play",
+  "song": "海阔天空"
 }
 ```
+
+### oneOf execution 格式
+
+```
+music_control(action=play, song='海阔天空')
+music_control(action=volume, volume=75)
+music_control(action=pause)
+```
+
+**注意**：oneOf 的 execution 格式和普通格式完全一样，模型无需特殊处理。分支信息只在 schema 描述中体现，告诉模型每种条件需要哪些参数。
 
 ## 类型映射
 
@@ -74,12 +102,22 @@ LLM 返回：
 ### FunctionSignature
 
 ```kotlin
+@Serializable
 public data class FunctionSignature(
     val name: String,
-    val params: List<Param>,
-    val description: String? = null
+    val params: List<Param> = emptyList(),  // 普通模式参数
+    val branches: List<Branch> = emptyList() // oneOf 模式分支
+) {
+    public val isOneOf: Boolean get() = branches.isNotEmpty()
+}
+
+@Serializable
+public data class Branch(
+    val condition: String,  // 如 "action=play"
+    val params: List<Param>
 )
 
+@Serializable
 public data class Param(
     val name: String,
     val type: ParamType,
@@ -87,6 +125,7 @@ public data class Param(
     val description: String? = null
 )
 
+@Serializable
 public sealed class ParamType {
     public data class StringType(val isArray: Boolean = false) : ParamType()
     public data class NumberType(val isArray: Boolean = false) : ParamType()
@@ -96,12 +135,25 @@ public sealed class ParamType {
 }
 ```
 
-### SignatureCompressor
+### SchemaCompressor
 
 ```kotlin
-public interface SignatureCompressor {
-    fun compress(schema: String): FunctionSignature
-    fun compress(tool: Tool): FunctionSignature
+public interface SchemaCompressor {
+    fun compress(name: String, schema: String): CompressionResult
+}
+
+public data class CompressionResult(
+    val compressedSchema: String,
+    val signature: FunctionSignature
+)
+```
+
+### CompressTool
+
+```kotlin
+public class CompressTool(private val delegate: Tool) : Tool {
+    // 装饰原 Tool，将 parametersSchema 替换为压缩后的 execution 格式
+    // execute 时将 execution 字符串还原为原始 JSON 参数
 }
 ```
 
@@ -113,45 +165,72 @@ public interface ExecutionParser {
 }
 ```
 
-### ToolSchemaMapper
-
-```kotlin
-public object ToolSchemaMapper {
-    public fun mapToExecutionSchema(
-        tool: Tool,
-        compressor: SignatureCompressor
-    ): Tool
-}
-```
-
 ## 使用方式
 
+### 普通工具
+
 ```kotlin
-val originalTool: Tool = ...
-val compressor = DefaultSignatureCompressor()
-val parser = DefaultExecutionParser()
+// 原始 tool
+val originalTool: Tool = tool<EmailRequest, SendEmailResult>("send_email", "发送邮件") { ... }
 
-// 1. 将 Tool 映射为 execution 格式
-val mappedTool = ToolSchemaMapper.mapToExecutionSchema(originalTool, compressor)
-val signature = compressor.compress(mappedTool)
+// 用 CompressTool 包装，自动压缩 schema 并解析 execution
+val compressedTool = CompressTool(originalTool)
 
-// 2. LLM 返回 execution 字符串
-val executionStr = "send_email(to='x@x.com', tags=['work'])"
+// LLM 看到的 schema 是：
+// send_email(to: string, subject: string, body?: string | "可选")
 
-// 3. 解析为结构化 JSON
-val jsonArgs = parser.parse(executionStr, signature)
+// LLM 返回 execution 字符串
+val executionStr = "send_email(to='x@x.com', subject='hello')"
+
+// CompressTool.execute() 自动解析为原始 JSON
+val jsonArgs = compressedTool.execute(arguments, context)
+// jsonArgs = {"to": "x@x.com", "subject": "hello"}
+```
+
+### oneOf 条件工具
+
+```kotlin
+// JSON Schema 使用 oneOf 描述条件参数
+val schema = """
+{
+    "oneOf": [
+        {
+            "properties": {
+                "action": {"const": "play"},
+                "song": {"type": "string"}
+            },
+            "required": ["action", "song"]
+        },
+        {
+            "properties": {
+                "action": {"const": "volume"},
+                "volume": {"type": "integer"}
+            },
+            "required": ["action", "volume"]
+        }
+    ]
+}
+"""
+
+val result = compressor.compress("music_control", schema)
+// result.signature.branches 包含多个分支
+// result.compressedSchema 格式如：
+// music_control(action=play: song: string; action=volume: volume: number)
 ```
 
 ## 实现要点
 
-### SignatureCompressor
+### SchemaCompressor
 
 解析 JSON Schema 字符串，提取：
 - 参数名、类型、是否必填
 - 枚举值（从 enum 中提取）
 - 描述（从 description 字段提取）
+- oneOf 分支（从 oneOf 数组提取）
 
-忽略：`maxLength`, `pattern`, `format`, `default` 等校验细节。
+支持两种模式：
+1. **普通模式**：properties 下直接列出所有参数
+2. **oneOf 模式**：检测 oneOf 关键字，每个分支通过 const 字段区分
 
 ### ExecutionParser
 
@@ -159,27 +238,8 @@ val jsonArgs = parser.parse(executionStr, signature)
 - 引号嵌套：`'it\'s'` 不当成分隔符
 - 逗号在引号内：`'John, Smith'`
 - 转义字符
-
-### ToolSchemaMapper
-
-将原 Tool 的 parametersSchema 替换为 execution 格式：
-
-```kotlin
-// 映射前
-parametersSchema: "{ type: 'object', properties: { to: { type: 'string' } } }"
-
-// 映射后
-parametersSchema: "{
-  type: 'object',
-  properties: {
-    execution: {
-      type: 'string',
-      description: 'send_email(to: string, subject: string)'
-    }
-  },
-  required: ['execution']
-}"
-```
+- 对象字面量：`{key: 'value'}`
+- oneOf 分支：`action=play, song='x'; action=volume, volume=75`
 
 ## 语法教学 System Prompt
 
@@ -212,9 +272,11 @@ parametersSchema: "{
 
 ## 完整示例
 
+### 普通工具
+
 工具签名：
 ```
-send_email(to: string, subject: string, body: string, cc?: string[], tags?: string[])
+send_email(to: string, subject: string, body?: string, cc?: string[], tags?: string[])
 ```
 
 正确返回：
@@ -227,6 +289,43 @@ send_email(to: string, subject: string, body: string, cc?: string[], tags?: stri
 }
 ```
 
+### oneOf 条件工具
+
+工具签名：
+```
+music_control(action=play, song: string, artist?: string; action=pause; action=volume, volume: number)
+```
+
+正确返回（播放）：
+```json
+{
+  "name": "music_control",
+  "arguments": {
+    "execution": "music_control(action=play, song='海阔天空', artist='Beyond')"
+  }
+}
+```
+
+正确返回（暂停）：
+```json
+{
+  "name": "music_control",
+  "arguments": {
+    "execution": "music_control(action=pause)"
+  }
+}
+```
+
+正确返回（音量）：
+```json
+{
+  "name": "music_control",
+  "arguments": {
+    "execution": "music_control(action=volume, volume=75)"
+  }
+}
+```
+
 ## 注意事项
 
 - 必填参数必须提供
@@ -234,4 +333,4 @@ send_email(to: string, subject: string, body: string, cc?: string[], tags?: stri
 - 字符串值必须用单引号包裹
 - 数组用 `[]`，元素用逗号分隔
 - 枚举值直接写，不要加引号
-```
+- oneOf 分支用 `;` 分隔，模型根据条件字段（如 action）值决定传哪些参数
