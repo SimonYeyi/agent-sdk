@@ -13,6 +13,12 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -166,6 +172,33 @@ class TypedToolTest {
         assertTrue(schema.schema.contains("\"string\""), "schema should contain string type")
         assertTrue(schema.schema.contains("\"number\""), "schema should contain number type")
         assertTrue(schema.schema.contains("\"boolean\""), "schema should contain boolean type")
+        // 验证枚举
+        assertTrue(schema.schema.contains("\"enum\""), "schema should contain enum")
+        assertTrue(schema.schema.contains("PENDING"), "schema should contain enum value PENDING")
+        assertTrue(schema.schema.contains("APPROVED"), "schema should contain enum value APPROVED")
+        assertTrue(schema.schema.contains("REJECTED"), "schema should contain enum value REJECTED")
+    }
+
+    @Test
+    fun `parametersSchema is valid JSON with correct structure`() {
+        val tool = AllTypesToolImpl()
+        val schema = tool.parametersSchema as ToolParameters.JsonSchema
+        val json = Json.parseToJsonElement(schema.schema).jsonObject
+
+        assertEquals("object", json["type"]!!.jsonPrimitive.content)
+
+        val properties = json["properties"]!!.jsonObject
+
+        // 验证基本类型
+        assertEquals("string", properties["str"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals("number", properties["num"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        assertEquals("boolean", properties["bool"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+
+        // 验证枚举
+        val status = properties["status"]!!.jsonObject
+        assertEquals("string", status["type"]!!.jsonPrimitive.content)
+        val enumValues = status["enum"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertEquals(listOf("PENDING", "APPROVED", "REJECTED"), enumValues)
     }
 
     @Test

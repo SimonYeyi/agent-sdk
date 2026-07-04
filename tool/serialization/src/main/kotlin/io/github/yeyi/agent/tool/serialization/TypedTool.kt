@@ -4,6 +4,7 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
+import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
@@ -16,7 +17,7 @@ import kotlinx.serialization.json.JsonElement
  * @param P 参数类型
  * @param R 结果类型
  */
-public abstract class TypedTool<P, R>(
+public abstract class TypedTool<P : @Serializable Any, R : @Serializable Any>(
     private val parameterType: TypeToken<P>,
     private val resultType: TypeToken<R>
 ) : Tool {
@@ -54,12 +55,21 @@ public abstract class TypedTool<P, R>(
         val properties = (0 until descriptor.elementsCount).mapNotNull { index ->
             val elementName = descriptor.getElementName(index)
             if (elementName.isEmpty()) return@mapNotNull null
-            val kind = descriptor.getElementDescriptor(index).kind.toString()
+            val elementDescriptor = descriptor.getElementDescriptor(index)
+            val kind = elementDescriptor.kind.toString()
             val descAnnotation = descriptor.getElementAnnotations(index)
                 .filterIsInstance<Description>()
                 .firstOrNull()
+            val typePart = if (kind == "ENUM") {
+                val enumValues = (0 until elementDescriptor.elementsCount).map {
+                    elementDescriptor.getElementName(it)
+                }
+                """"type":"string","enum":[${enumValues.joinToString(",") { "\"$it\"" }}]"""
+            } else {
+                """"type":"${mapKindToType(kind)}""""
+            }
             val descPart = descAnnotation?.let { ""","description":"${it.value}"""" } ?: ""
-            """"$elementName":{"type":"${mapKindToType(kind)}"$descPart}"""
+            """"$elementName":{$typePart$descPart}"""
         }.joinToString(",")
 
         return """{"type":"object","properties":{$properties}}"""
@@ -87,7 +97,7 @@ public abstract class TypedTool<P, R>(
  * }
  * ```
  */
-public inline fun <reified P, reified R> tool(
+public inline fun <reified P : @Serializable Any, reified R : @Serializable Any> tool(
     name: String,
     description: String,
     noinline execute: suspend (P, ToolContext) -> R

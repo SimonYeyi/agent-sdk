@@ -60,6 +60,8 @@ dependencies {
     implementation(project(":subagent"))
     implementation(project(":providers:openai"))
     implementation(project(":providers:anthropic"))
+    implementation(project(":tool:serialization"))
+    implementation(project(":tool:compression"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

@@ -10,9 +10,9 @@ import io.github.yeyi.agent.app.demo.mcp.LiveScoreMcp
 import io.github.yeyi.agent.app.demo.skills.NewsSkill
 import io.github.yeyi.agent.app.demo.skills.WeatherSkill
 import io.github.yeyi.agent.app.demo.subagents.WeatherExpertSubagent
-import io.github.yeyi.agent.app.demo.tools.GetLocationTool
-import io.github.yeyi.agent.app.demo.tools.GetWeatherTool
 import io.github.yeyi.agent.app.demo.tools.WebSearchTool
+import io.github.yeyi.agent.app.demo.tools.getLocationTool
+import io.github.yeyi.agent.app.demo.tools.getWeatherTool
 import io.github.yeyi.agent.app.log.HttpLogger
 import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.LlmProvider
@@ -103,11 +103,11 @@ object DemoAgentFactory {
             memory(memory ?: InMemoryMemory(), 1)
             llmProvider(llmProvider)
             tool(WebSearchTool())
-            tool(GetLocationTool())
+            tool(getLocationTool)
             val skillRegistry = SkillRegistry()
             skillRegistry.register(NewsSkill())
             skillRegistry.register(WeatherSkill())
-            skillRegistry.registerTools(listOf(GetWeatherTool()))
+            skillRegistry.registerTools(listOf(getWeatherTool))
             skills(skillRegistry)
             mcps(mcpRegistry)
             hook(hook ?: HookPipeline(logging = true))

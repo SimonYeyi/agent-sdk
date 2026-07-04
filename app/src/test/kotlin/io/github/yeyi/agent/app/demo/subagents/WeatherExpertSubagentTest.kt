@@ -2,8 +2,7 @@ package io.github.yeyi.agent.app.demo.subagents
 
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.Persona
-import io.github.yeyi.agent.app.demo.tools.GetLocationTool
-import io.github.yeyi.agent.app.demo.tools.GetWeatherTool
+import io.github.yeyi.agent.app.demo.tools.getWeatherTool
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
@@ -102,6 +101,6 @@ class WeatherExpertSubagentTest {
         val sub = WeatherExpertSubagent()
         val tools = assertNotNull(sub.tools, "subagent should declare explicit tools")
         assertEquals(1, tools.size, "subagent should declare exactly 1 tool")
-        assertTrue(tools.any { it is GetWeatherTool }, "tools should include GetWeatherTool")
+        assertTrue(tools.any { it.name == "get_weather" }, "tools should include get_weather tool")
     }
 }
