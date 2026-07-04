@@ -14,7 +14,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * 并在 execute 时将 execution 字符串还原为原始参数。
  */
 public class CompressTool(private val delegate: Tool) : Tool {
-    private val compressor: SignatureCompressor = DefaultSignatureCompressor()
+    private val compressor: SchemaCompressor = DefaultSchemaCompressor()
     private val parser: ExecutionParser = DefaultExecutionParser()
     private var compressionResult: CompressionResult? = null
     override val name: String = delegate.name

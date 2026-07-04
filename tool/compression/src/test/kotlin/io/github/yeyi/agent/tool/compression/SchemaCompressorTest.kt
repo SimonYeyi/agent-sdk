@@ -27,9 +27,9 @@ private fun createEmptyTool(name: String): Tool = object : Tool {
     }
 }
 
-class SignatureCompressorTest {
+class SchemaCompressorTest {
 
-    private val compressor = DefaultSignatureCompressor()
+    private val compressor = DefaultSchemaCompressor()
 
     @Test
     fun compressSimpleSchema() {

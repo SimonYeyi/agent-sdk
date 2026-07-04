@@ -23,15 +23,14 @@ public data class CompressionResult(
 /**
  * Schema 压缩器 — 将 JSON Schema 压缩为函数签名格式。
  */
-public interface SignatureCompressor {
+public interface SchemaCompressor {
     public fun compress(name: String, schema: String): CompressionResult
 }
 
 /**
  * 默认压缩器实现。
  */
-internal class DefaultSignatureCompressor : SignatureCompressor {
-
+internal class DefaultSchemaCompressor : SchemaCompressor {
     private val json = Json { ignoreUnknownKeys = true }
 
     override fun compress(name: String, schema: String): CompressionResult {
