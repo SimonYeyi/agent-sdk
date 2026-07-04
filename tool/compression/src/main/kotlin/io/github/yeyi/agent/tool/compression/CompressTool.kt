@@ -4,7 +4,6 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
-import io.github.yeyi.agent.tool.serialization.tool
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -39,14 +38,4 @@ public class CompressTool(private val delegate: Tool) : Tool {
         } ?: arguments
         return delegate.execute(originalArgs, context)
     }
-}
-
-public inline fun <reified P, reified R> tool(
-    name: String,
-    description: String,
-    compress: Boolean,
-    noinline execute: suspend (P, ToolContext) -> R
-): Tool {
-    val typedTool = tool<P, R>(name, description, execute)
-    return if (compress) CompressTool(typedTool) else typedTool
 }

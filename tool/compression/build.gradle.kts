@@ -13,7 +13,6 @@ kotlin {
 
 dependencies {
     api(project(":agent"))
-    api(project(":tool:serialization"))
     api(libs.kotlinx.serialization.json)
 
     testImplementation(libs.kotlin.test)
