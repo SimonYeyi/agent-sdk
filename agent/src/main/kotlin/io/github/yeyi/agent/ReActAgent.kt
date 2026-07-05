@@ -8,6 +8,7 @@ import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
+import io.github.yeyi.agent.log.log
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.ReadOnlyMemory
 import io.github.yeyi.agent.memory.RoundsBoundedMemory
@@ -32,11 +33,7 @@ public class ReActAgent internal constructor(
     private val memory = RoundsBoundedMemory(memory, maxRounds, llmProvider)
 
     override fun run(input: String): Flow<AgentEvent> = flow {
-        loop(
-            input = input,
-            llmCall = { req -> llmProvider.chat(req) },
-            emit = { emit(it) }
-        )
+        loop(input, { req -> llmProvider.chat(req) }, { emit(it) })
     }
 
     override fun runStream(input: String): Flow<AgentEvent> = flow {
@@ -80,11 +77,7 @@ public class ReActAgent internal constructor(
                 val arguments = argumentsBuffers[id]?.toString()
                     ?.let { Json.parseToJsonElement(it) }
                     ?: JsonNull
-                ToolCall(
-                    id = id,
-                    name = callNames[id]!!,
-                    arguments = arguments
-                )
+                ToolCall(id = id, name = callNames[id]!!, arguments = arguments)
             }
             ChatResponse(
                 message = ChatMessage.Assistant(
@@ -95,11 +88,7 @@ public class ReActAgent internal constructor(
                 finishReason = finishReason!!
             )
         }
-        loop(
-            input = input,
-            llmCall = llmCall,
-            emit = { emit(it) },
-        )
+        loop(input = input, llmCall = llmCall, emit = { emit(it) })
     }
 
     private suspend fun loop(
@@ -117,50 +106,14 @@ public class ReActAgent internal constructor(
             memory.add(ChatMessage.User(input))
 
             while (iterations < maxIterations) {
-                iterations++
-                val context = buildContext(iterations)
-
-                val request = buildRequest()
-                hook.safeInvoke { beforeLlmCall(context) }
-                val response = llmCall(request)
-                hook.safeInvoke { afterLlmResponse(context, response) }
-                memory.add(response.message)
-
-                if (response.message.toolCalls.isEmpty()) {
-                    val result = AgentResult(
-                        message = response.message,
-                        iterations = iterations,
-                        toolCalls = toolCalls.toList(),
-                        usage = response.usage,
-                    )
-                    hook.safeInvoke { onRunCompleted(context, result) }
-                    emit(AgentEvent.Final(result))
-                    return
-                }
-
-                response.message.content.takeIf { it != "" }.let {
-                    emit(AgentEvent.ToolCallExplanation(it))
-                }
-
-                for (call in response.message.toolCalls) {
-                    val synthetic = hook.safeInvoke { beforeToolCall(context, call) }
-                    if (synthetic != null) {
-                        // 工具被 hook 短路:跳过实际执行,synthetic result 写进 memory,
-                        // **不** emit ToolCallStarted / ToolCallFinished(工具压根没被调用)。
-                        recordToMemory(call, synthetic.copy(isError = true), toolCalls)
+                try {
+                    loopOnce(++iterations, toolCalls, llmCall, emit)
+                } catch (e: Throwable) {
+                    if (e.isContextOverflow()) {
+                        log.warn(e)
+                        memory.handleContextOverflow()
                     } else {
-                        emit(AgentEvent.ToolCallStart(call.id, call.name))
-                        val startMs = System.currentTimeMillis()
-                        val raw = toolRegistry.dispatch(
-                            call.name,
-                            call.arguments,
-                            ToolContext(call.id, context)
-                        )
-                        val durMs = System.currentTimeMillis() - startMs
-                        val final =
-                            hook.safeInvoke { afterToolCall(context, call, raw, durMs) } ?: raw
-                        recordToMemory(call, final, toolCalls)
-                        emit(AgentEvent.ToolCallEnd(call.id, final))
+                        throw e
                     }
                 }
             }
@@ -172,6 +125,55 @@ public class ReActAgent internal constructor(
             val cause = t.toAgentException()
             hook.safeInvoke { onRunFailed(buildContext(iterations), cause) }
             emit(AgentEvent.Failed(cause))
+        }
+    }
+
+    private suspend fun loopOnce(
+        iterations: Int,
+        toolCalls: MutableList<AgentResult.ToolCallRecord>,
+        llmCall: suspend (ChatRequest) -> ChatResponse,
+        emit: suspend (AgentEvent) -> Unit
+    ) {
+        val context = buildContext(iterations)
+
+        val request = buildRequest()
+        hook.safeInvoke { beforeLlmCall(context) }
+        val response = llmCall(request)
+        hook.safeInvoke { afterLlmResponse(context, response) }
+        memory.add(response.message)
+
+        if (response.message.toolCalls.isEmpty()) {
+            val result = AgentResult(
+                message = response.message,
+                iterations = iterations,
+                toolCalls = toolCalls.toList(),
+                usage = response.usage,
+            )
+            hook.safeInvoke { onRunCompleted(context, result) }
+            emit(AgentEvent.Final(result))
+            return
+        }
+
+        response.message.content.takeIf { it != "" }.let {
+            emit(AgentEvent.ToolCallExplanation(it))
+        }
+
+        for (call in response.message.toolCalls) {
+            val synthetic = hook.safeInvoke { beforeToolCall(context, call) }
+            if (synthetic != null) {
+                // 工具被 hook 短路:跳过实际执行,synthetic result 写进 memory,
+                // **不** emit ToolCallStarted / ToolCallFinished(工具压根没被调用)。
+                recordToMemory(call, synthetic.copy(isError = true), toolCalls)
+            } else {
+                emit(AgentEvent.ToolCallStart(call.id, call.name))
+                val startMs = System.currentTimeMillis()
+                val raw =
+                    toolRegistry.dispatch(call.name, call.arguments, ToolContext(call.id, context))
+                val durMs = System.currentTimeMillis() - startMs
+                val final = hook.safeInvoke { afterToolCall(context, call, raw, durMs) } ?: raw
+                recordToMemory(call, final, toolCalls)
+                emit(AgentEvent.ToolCallEnd(call.id, final))
+            }
         }
     }
 

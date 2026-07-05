@@ -101,7 +101,7 @@ object DemoAgentFactory {
 
         return agent {
             persona(Persona(role = "你是一个 helpful 助手，优先使用工具完成任务。"))
-            memory(memory ?: InMemoryMemory(), 1)
+            memory(memory ?: InMemoryMemory())
             llmProvider(llmProvider)
             tool(WebSearchTool())
             tool(getLocationTool)

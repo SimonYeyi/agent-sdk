@@ -36,14 +36,51 @@ public sealed class AgentException(message: String, cause: Throwable? = null) :
         public val reason: String,
         cause: Throwable? = null
     ) : AgentException("Context overflow: $reason", cause)
-
-    /** 记忆压缩到极限后仍超出 context 限制，无法恢复。 */
-    public class MemoryOverflow(
-        public val reason: String,
-        cause: Throwable? = null
-    ) : AgentException("Memory overflow: $reason", cause)
 }
 
 internal fun Throwable.toAgentException(): AgentException {
     return this as? AgentException ?: AgentException.Unknown(this)
+}
+
+internal fun Throwable.isContextOverflow(): Boolean {
+    if (this is AgentException.ContextOverflow) return true
+
+    val rawMessage = buildString {
+        this@isContextOverflow.message?.let { append(it) }
+        this@isContextOverflow.cause?.message?.let {
+            if (isNotEmpty()) append(" $it")
+        }
+    }.lowercase().ifEmpty { return false }
+
+    val normalizedMessage = rawMessage.replace("_", " ")
+
+    val patterns = listOf(
+        "context length exceeded",
+        "maximum context length",
+        "too many tokens",
+        "token limit",
+        "context overflow",
+        "payload too large",
+        "max tokens exceeded",
+        "prompt is too long",
+        "input exceeds max tokens",
+        "context window full",
+        "input token count exceeds limit",
+        "text length exceeds maximum allowed",
+        "request size limit exceeded",
+        "request entity too large",
+        "content too large",
+        "ctx exceeded",
+        "sequence length exceeds configured context size",
+        "kv cache full",
+        "message too long",
+        "exceeds the maximum number of tokens",
+        "conversation history too long",
+        "prompt too big",
+        "input too long",
+        "sequence too long",
+        "tokens limit reached"
+    )
+
+    return patterns.any { it in normalizedMessage }
 }

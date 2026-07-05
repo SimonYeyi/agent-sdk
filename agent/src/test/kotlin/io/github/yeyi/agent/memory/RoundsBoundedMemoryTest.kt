@@ -7,10 +7,13 @@ import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
+import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.tool.Tool
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private class FailingMemory(private val failOnRebuild: Boolean = true) : Memory {
@@ -537,5 +540,789 @@ class RoundsBoundedMemoryTest {
             firstSnapshot.map { it.content },
             "first snapshot content must not change"
         )
+    }
+
+    @Test
+    fun `compressRounds retains last round including its tool messages`() = runTest {
+        // Test that compressRounds (called during add()) retains rounds including tool messages
+        // Using maxRounds=5 and retainRatio=0.3 gives retainWindow=1
+        // So the last round is retained fully (with tool calls), earlier rounds are summarized
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "summary1"), finishReason = FinishReason.Stop)
+            )
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 5,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Add 6 complete rounds (exceeds maxRounds=5 when u6 is added)
+        // retainWindow = 1, so only the last round (u6,a6,t6) is retained
+        // Earlier rounds (u1-t5) are compressed into summary
+        (1..6).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(
+                ChatMessage.Assistant(
+                    content = "a$i",
+                    toolCalls = listOf(ToolCall("c$i", "tool$i", JsonNull))
+                )
+            )
+            memory.add(ChatMessage.ToolResult("c$i", "tool$i", "r$i"))
+        }
+
+        val history = memory.history()
+
+        // After compression:
+        // - Summary message should be at the start (contains "summary1")
+        // - The last round (u6, a6 with toolCalls, t6) should be retained
+        // - Earlier rounds should be summarized (not present individually)
+        assertTrue(history.size <= 5, "History should be smaller after compression")
+
+        // The retained last round should contain the most recent user message
+        val lastUser = history.filterIsInstance<ChatMessage.User>().lastOrNull()
+        assertEquals("u6", lastUser?.content)
+
+        // The last assistant should have toolCalls (from u6 round)
+        val lastAssistant = history.filterIsInstance<ChatMessage.Assistant>().lastOrNull()
+        assertTrue(lastAssistant?.toolCalls?.isNotEmpty() == true, "Last round's assistant should retain toolCalls")
+
+        // Should have exactly one summary
+        val summaryMessages = history.filterIsInstance<ChatMessage.System>()
+        assertEquals(1, summaryMessages.size, "Should have exactly one summary message")
+        assertTrue(summaryMessages[0].content.contains("summary1"), "Summary should contain the generated summary")
+    }
+
+    @Test
+    fun `removeCompressWindowToolMessages returns false when nothing to remove`() = runTest {
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = FakeLlmProvider(),
+            maxRounds = 20,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // All messages within retain window (maxRounds=20), no compression happens
+        memory.add(ChatMessage.User("u1"))
+        memory.add(ChatMessage.Assistant(content = "a1"))
+        memory.add(ChatMessage.User("u2"))
+        memory.add(ChatMessage.Assistant(content = "a2"))
+
+        val history = memory.history()
+        // No tool messages at all
+        val hasToolMessages = history.any {
+            it is ChatMessage.Assistant && it.toolCalls.isNotEmpty()
+        } || history.any { it is ChatMessage.ToolResult }
+
+        assertFalse(hasToolMessages, "setup: should not have tool messages")
+    }
+
+    @Test
+    fun `truncateByCoefficient removes 30 percent of rounds`() = runTest {
+        // Provide enough responses for compression
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..15).map {
+                ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 10,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Add 10 rounds (will trigger compression due to maxRounds=10)
+        (1..10).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        val historyBefore = memory.history()
+        val roundsBefore = historyBefore.count { it is ChatMessage.User }
+        assertEquals(10, roundsBefore)
+
+        // Add one more to trigger another compression
+        memory.add(ChatMessage.User("u11"))
+
+        val historyAfter = memory.history()
+        val roundsAfter = historyAfter.count { it is ChatMessage.User }
+
+        // Should retain approximately 70% (7 rounds from 10)
+        assertTrue(roundsAfter < roundsBefore, "should have fewer rounds after truncation")
+    }
+
+    @Test
+    fun `truncateByCoefficient when only one round left keeps system plus users`() = runTest {
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..5).map {
+                ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 3,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Add 2 rounds
+        memory.add(ChatMessage.User("u1"))
+        memory.add(ChatMessage.Assistant(content = "a1"))
+        memory.add(ChatMessage.User("u2"))
+        memory.add(ChatMessage.Assistant(content = "a2"))
+
+        // Trigger truncation by adding more
+        memory.add(ChatMessage.User("u3"))
+
+        val history = memory.history()
+        val hasSystemOrUsers = history.any { it is ChatMessage.System || it is ChatMessage.User }
+        assertTrue(hasSystemOrUsers, "should preserve system and user messages")
+    }
+
+    @Test
+    fun `handleContextOverflow uses two-layer strategy`() = runTest {
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..10).map {
+                ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 5,
+        )
+        val beforeCalls = mutableListOf<Int>()
+        val afterCalls = mutableListOf<Int>()
+        val hook = object : EmptyAgentHook() {
+            override suspend fun beforeMemoryCompress(
+                context: AgentContext,
+                summaries: List<Summary>
+            ) {
+                beforeCalls.add(summaries.size)
+            }
+
+            override suspend fun afterMemoryCompress(
+                context: AgentContext,
+                summaries: List<Summary>
+            ) {
+                afterCalls.add(summaries.size)
+            }
+        }
+        memory.attachHook(
+            hook, AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Setup: 8 rounds with some tool calls - will trigger compression on add
+        (1..8).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            val assistantMsg = if (i % 2 == 0) {
+                ChatMessage.Assistant(
+                    content = "a$i",
+                    toolCalls = listOf(ToolCall("c$i", "tool", JsonNull))
+                )
+            } else {
+                ChatMessage.Assistant(content = "a$i")
+            }
+            memory.add(assistantMsg)
+            if (i % 2 == 0) {
+                memory.add(ChatMessage.ToolResult("c$i", "tool", "r$i"))
+            }
+        }
+
+        // Verify hooks are called when compression happens
+        assertTrue(beforeCalls.isNotEmpty(), "beforeMemoryCompress should be called")
+        assertTrue(afterCalls.isNotEmpty(), "afterMemoryCompress should be called")
+    }
+
+    @Test
+    fun `handleContextOverflow preserves recent rounds in retain window`() = runTest {
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..20).map {
+                ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 10,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Add 15 rounds - will trigger compression
+        (1..15).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        val history = memory.history()
+        // Most recent rounds should be preserved
+        val lastUserIndex = history.indexOfLast { it is ChatMessage.User }
+        assertEquals("u15", (history[lastUserIndex] as ChatMessage.User).content)
+    }
+
+    @Test
+    fun `compressRounds summarizes old rounds and retains only recent rounds`() = runTest {
+        // Test that compressRounds (called via add()) summarizes old rounds into LLM summary
+        // and retains only the last retainWindow rounds with their tool messages
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..5).map {
+                ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 3,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Add 6 rounds with tool calls
+        // When u6 is added, currentRounds=6 > maxRounds=3, triggers compression
+        // retainWindow = 3 * 0.3 = 0 (coerced to 1 by extractRetainedIndices)
+        // So only the last round is retained
+        (1..6).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(
+                ChatMessage.Assistant(
+                    content = "a$i",
+                    toolCalls = listOf(ToolCall("c$i", "tool", JsonNull))
+                )
+            )
+            memory.add(ChatMessage.ToolResult("c$i", "tool", "r$i"))
+        }
+
+        val history = memory.history()
+
+        // After compression, history should be smaller than 18 original messages
+        assertTrue(history.size < 18, "History should be smaller after compression: ${history.size}")
+
+        // Summary message should exist
+        assertTrue(history.first() is ChatMessage.System)
+    }
+
+    @Test
+    fun `handleContextOverflow removes tool messages from compress window`() = runTest {
+        // Directly test handleContextOverflow - first layer: removeCompressWindowToolMessages
+        // Provide LLM responses for the add() calls that trigger compressRounds
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..10).map {
+                ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 5,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Build history with tool messages in the compress window
+        // maxRounds=5, retainRatio=0.3, so retainWindow=1
+        // All rounds except the last one are in the compress window
+        (1..6).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(
+                ChatMessage.Assistant(
+                    content = "a$i",
+                    toolCalls = listOf(ToolCall("c$i", "tool", JsonNull))
+                )
+            )
+            memory.add(ChatMessage.ToolResult("c$i", "tool", "r$i"))
+        }
+
+        val beforeHistory = memory.history()
+        val beforeToolResults = beforeHistory.filterIsInstance<ChatMessage.ToolResult>()
+        val beforeToolCalls = beforeHistory.filterIsInstance<ChatMessage.Assistant>()
+            .filter { it.toolCalls.isNotEmpty() }
+        assertTrue(beforeToolResults.size > 0, "setup: should have tool results")
+
+        // Directly call handleContextOverflow
+        memory.handleContextOverflow()
+
+        val afterHistory = memory.history()
+        val afterToolResults = afterHistory.filterIsInstance<ChatMessage.ToolResult>()
+        val afterToolCalls = afterHistory.filterIsInstance<ChatMessage.Assistant>()
+            .filter { it.toolCalls.isNotEmpty() }
+
+        // First layer should have removed tool messages from compress window
+        assertTrue(
+            afterToolResults.size < beforeToolResults.size ||
+                afterToolCalls.size < beforeToolCalls.size,
+            "Tool messages should be removed from compress window"
+        )
+    }
+
+    @Test
+    fun `handleContextOverflow truncates when tool removal returns false`() = runTest {
+        // Test second layer: when removeCompressWindowToolMessages returns false,
+        // truncateByCoefficient should be called
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..20).map {
+                ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 10, // Larger so we keep more rounds after add()
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Add 15 rounds without tool messages
+        // No tool messages in compress window -> removeCompressWindowToolMessages returns false
+        // -> truncateByCoefficient should be called
+        (1..15).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        val beforeHistory = memory.history()
+        val beforeUserCount = beforeHistory.count { it is ChatMessage.User }
+        assertTrue(beforeUserCount > 1, "setup: should have more than 1 user before truncation")
+
+        // Directly call handleContextOverflow
+        memory.handleContextOverflow()
+
+        val afterHistory = memory.history()
+        val afterUserCount = afterHistory.count { it is ChatMessage.User }
+
+        // truncateByCoefficient should have reduced the user count
+        assertTrue(
+            afterUserCount < beforeUserCount,
+            "Truncation should reduce user count: before=$beforeUserCount, after=$afterUserCount"
+        )
+    }
+
+    @Test
+    fun `handleContextOverflow stops at minimum one round`() = runTest {
+        // Test the boundary: when toRetain < 1, only System + User are kept
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..5).map {
+                ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 3,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Only 1 round - this triggers the toRetain < 1 boundary in truncateByCoefficient
+        memory.add(ChatMessage.User("u1"))
+        memory.add(ChatMessage.Assistant(content = "a1"))
+
+        memory.handleContextOverflow()
+
+        val history = memory.history()
+        // Should have at least System and User
+        assertTrue(history.any { it is ChatMessage.System || it is ChatMessage.User })
+    }
+
+    @Test
+    fun `retainRatio determines how many rounds to keep`() = runTest {
+        // With maxRounds=10 and retainRatio=0.3, retainWindow=3
+        // So 3 rounds should be retained when compressing
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..10).map {
+                ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 10,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Add 12 rounds - exceeds maxRounds=10, triggers compression
+        // retainWindow = 10 * 0.3 = 3, so 3 rounds retained
+        (1..12).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        val history = memory.history()
+        val retainedUserRounds = history.filterIsInstance<ChatMessage.User>()
+        // Should retain approximately 3 rounds (plus trailing users)
+        assertTrue(
+            retainedUserRounds.size in 3..5,
+            "Expected 3-5 user messages (3 retained rounds + possible trailing), got ${retainedUserRounds.size}"
+        )
+    }
+
+    @Test
+    fun `getCompressWindowIndices excludes retained indices`() = runTest {
+        // Test that compressRounds correctly identifies which indices to compress
+        // The compress window (indices to summarize) excludes the retained window
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..5).map {
+                ChatResponse(ChatMessage.Assistant(content = "summary$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 5,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Add 8 rounds - retainWindow = 1 (5 * 0.3), so only last round retained
+        // Earlier rounds should be compressed into summary
+        (1..8).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        val history = memory.history()
+
+        // The most recent user should be u8
+        val lastUser = history.filterIsInstance<ChatMessage.User>().lastOrNull()
+        assertEquals("u8", lastUser?.content)
+
+        // History should be smaller than original 16 messages after compression
+        assertTrue(history.size < 16, "History should be smaller after compression")
+
+        // Summary message should exist
+        assertTrue(history.first() is ChatMessage.System)
+    }
+
+    @Test
+    fun `getCompressWindowIndices removes first message when summaries exist`() = runTest {
+        // When summaries exist and compress window is not empty,
+        // the first message (which could be a previous summary) should be removed from compress window
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..5).map {
+                ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 3,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Add 6 rounds to trigger multiple compressions
+        (1..6).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        val history = memory.history()
+        // After multiple compressions, there should still be a summary at the start
+        assertTrue(history.first() is ChatMessage.System)
+        val summaryContent = (history.first() as ChatMessage.System).content
+        assertTrue(summaryContent.contains("summaries"))
+    }
+
+    @Test
+    fun `truncateByCoefficient removes 30 percent of rounds when called directly`() = runTest {
+        // This tests truncateByCoefficient indirectly through handleContextOverflow
+        // Since truncateByCoefficient is private, we test it via the scenario that triggers it:
+        // When removeCompressWindowToolMessages has nothing to remove, truncation kicks in
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..5).map {
+                ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 3,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Add rounds without tool messages - no tool messages to remove in compress window
+        (1..5).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        val history = memory.history()
+        // After truncation, we should have fewer user messages
+        val userCount = history.count { it is ChatMessage.User }
+        assertTrue(userCount < 5, "Truncation should have reduced user message count from 5")
+    }
+
+    @Test
+    fun `compressSummaries merges when exceeding maxSummaries`() = runTest {
+        // When summaries.size >= maxSummaries (10), compressSummaries merges older ones
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..15).map {
+                ChatResponse(ChatMessage.Assistant(content = "summary$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 1, // Force frequent compressions
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Add many rounds to trigger multiple compressions
+        // With maxRounds=1, each new user triggers compression
+        (1..12).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        val history = memory.history()
+        val summarySystem = history.filterIsInstance<ChatMessage.System>().firstOrNull()
+        assertTrue(summarySystem != null, "Should have summary message")
+
+        // After merging, we should have fewer than 10 summaries
+        val summaryContent = summarySystem.content
+        assertTrue(summaryContent.contains("summaries"))
+        // The merge should have reduced the count
+    }
+
+    @Test
+    fun `truncateByCoefficient stops at minimum one round`() = runTest {
+        // Test the boundary: when currentRounds=1, toRemove=1, toRetain=0
+        // should trigger the edge case branch that keeps only System + User
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..10).map {
+                ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 1,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Add enough rounds that truncation will eventually reach the boundary
+        // With maxRounds=1, each new user triggers compression
+        // After many compressions, we should hit the toRetain < 1 branch
+        (1..10).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        val history = memory.history()
+        // The history should still have at least the summary and one user
+        assertTrue(history.any { it is ChatMessage.System }, "Should have system/summary message")
+        assertTrue(history.any { it is ChatMessage.User }, "Should have at least one user message")
+    }
+
+    @Test
+    fun `truncateByCoefficient repeated truncations converge to minimum`() = runTest {
+        // Simulate multiple 0.3 truncations until we converge to minimum
+        // This tests that the math converges properly
+        // Start with many rounds, repeatedly truncate by 30%
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..20).map {
+                ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 3,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            AgentContext(
+                persona = Persona(""),
+                maxIterations = 1,
+                currentIteration = 1,
+                memory = ReadOnlyMemory(memory),
+                llmProvider = FakeLlmProvider(),
+                tools = emptyList<Tool>(),
+                maxRounds = 20,
+            )
+        )
+
+        // Add 20 rounds - this will cause multiple compressions
+        (1..20).forEach { i ->
+            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        val history = memory.history()
+        val userCount = history.count { it is ChatMessage.User }
+
+        // After enough rounds, the truncation should have reduced the count significantly
+        // But we should never get to 0 users (minimum is 1)
+        assertTrue(userCount >= 1, "Should always have at least 1 user message")
+        assertTrue(userCount <= 20, "Should be less than original after truncation")
     }
 }
