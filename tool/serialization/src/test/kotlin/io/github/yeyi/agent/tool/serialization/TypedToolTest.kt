@@ -295,12 +295,32 @@ class TypedToolTest {
 
         // 验证 oneOf 分支
         val oneOfArray = actionField?.get("oneOf")?.jsonArray
-        assertEquals(2, oneOfArray?.size, "should have 2 branches: $oneOfArray")
+        assertEquals(4, oneOfArray?.size, "should have 4 branches: $oneOfArray")
 
         // 验证 discriminator 值
         val branches = oneOfArray?.map { it.jsonObject } ?: emptyList()
         assertTrue(branches.any { it.toString().contains("\"play\"") }, "should have play branch")
         assertTrue(branches.any { it.toString().contains("\"pause\"") }, "should have pause branch")
+        assertTrue(branches.any { it.toString().contains("\"volume\"") }, "should have volume branch")
+        assertTrue(branches.any { it.toString().contains("\"stop\"") }, "should have stop branch")
+    }
+
+    @Test
+    fun `typedTool oneOf schema includes object subclass`() {
+        val tool = tool<MusicControlRequest, String>("music_control", "音乐控制") { params, ctx ->
+            "ok"
+        }
+
+        val schema = tool.parametersSchema as ToolParameters.JsonSchema
+        val json = Json.parseToJsonElement(schema.schema)
+
+        val actionField = json.jsonObject["properties"]?.jsonObject?.get("action")?.jsonObject
+        val oneOfArray = actionField?.get("oneOf")?.jsonArray
+
+        // 验证 Stop 分支存在（object 子类）
+        assertTrue(oneOfArray?.any { branch ->
+            branch.jsonObject.toString().contains("\"stop\"")
+        } == true, "should have stop branch: $oneOfArray")
     }
 
     @Test

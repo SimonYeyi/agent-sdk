@@ -62,7 +62,7 @@ public abstract class TypedTool<P : @Serializable Any, R : @Serializable Any>(
             if (elementName.isEmpty()) return@mapNotNull null
             val elementDescriptor = descriptor.getElementDescriptor(index)
 
-            // 检查是否为 sealed class（通过 elementsCount > 0 判断）
+            // 检查是否为 sealed class
             if (elementDescriptor.kind == PolymorphicKind.SEALED && elementDescriptor.elementsCount > 0) {
                 // oneOf 直接返回，不包装外层
                 return@mapNotNull """"$elementName":${generateOneOfSchema(elementDescriptor)}"""
@@ -91,32 +91,35 @@ public abstract class TypedTool<P : @Serializable Any, R : @Serializable Any>(
         // discriminator 字段名默认为 "type"，暂不支持自定义
         val discriminatorField = "type"
 
+        // kotlinx.serialization 1.9.0 sealed class 结构：
+        // elements[0] = "type" (STRING) -  discriminator 字段名
+        // elements[1] = "value" (CONTEXTUAL) - 实际子类在这里，elementsCount = 子类数量
+        val valueDescriptor = elementDescriptor.getElementDescriptor(1)
+        val subclassCount = valueDescriptor.elementsCount
+
         // 遍历子类，收集每个分支
-        val branches = (0 until elementDescriptor.elementsCount).mapNotNull { subIndex ->
-            val subDescriptor: SerialDescriptor
-            val subName: String
-            val discriminatorValue: String
+        val branches = (0 until subclassCount).mapNotNull { subIndex ->
+            val subDescriptor = valueDescriptor.getElementDescriptor(subIndex)
+            val subName = valueDescriptor.getElementName(subIndex)
+            if (subName.isEmpty()) return@mapNotNull null
 
-            try {
-                subDescriptor = elementDescriptor.getElementDescriptor(subIndex)
-                subName = elementDescriptor.getElementName(subIndex)
-                if (subName.isEmpty()) return@mapNotNull null
+            // 获取 discriminator 值 - 有 @SerialName 用它，没有用 simpleName
+            val discriminatorValue = subDescriptor.annotations
+                .filterIsInstance<SerialName>()
+                .firstOrNull()
+                ?.value ?: subName
 
-                // 获取子类名（用于 discriminator 值）- 有 @SerialName 用它，没有用 simpleName
-                discriminatorValue = subDescriptor.annotations
-                    .filterIsInstance<SerialName>()
-                    .firstOrNull()
-                    ?.value ?: subName
-            } catch (e: IllegalStateException) {
-                // primitive descriptor（如 object Stop）获取 annotations 会失败
-                return@mapNotNull null
-            }
+            // 收集所有属性：discriminator 字段 + 子类自身属性
+            val allProps = mutableListOf<String>()
 
-            // 收集子类的属性（排除 discriminator 字段本身）
-            val subProperties = try {
-                (0 until subDescriptor.elementsCount).mapNotNull { propIndex ->
+            // 首先添加 discriminator 字段作为属性条目
+            allProps.add(""""$discriminatorField":{"const":"$discriminatorValue"}""")
+
+            // 添加子类自身的属性
+            if (subDescriptor.elementsCount > 0) {
+                (0 until subDescriptor.elementsCount).forEach { propIndex ->
                     val propName = subDescriptor.getElementName(propIndex)
-                    if (propName.isEmpty()) return@mapNotNull null
+                    if (propName.isEmpty()) return@forEach
                     val propDescriptor = subDescriptor.getElementDescriptor(propIndex)
                     val propKind = propDescriptor.kind.toString()
                     val propDesc = subDescriptor.getElementAnnotations(propIndex)
@@ -131,19 +134,13 @@ public abstract class TypedTool<P : @Serializable Any, R : @Serializable Any>(
                         """"type":"${mapKindToType(propKind)}""""
                     }
                     val propDescPart = propDesc?.let { ""","description":"${it.value}"""" } ?: ""
-                    """"$propName":{$propTypePart$propDescPart}"""
-                }.joinToString(",")
-            } catch (e: IllegalStateException) {
-                // primitive descriptor 没有 elements
-                ""
+                    allProps.add(""""$propName":{$propTypePart$propDescPart}""")
+                }
             }
 
-            // 构建带 const 约束的分支
-            if (subProperties.isEmpty()) {
-                """{"$discriminatorField":{"const":"$discriminatorValue"}}"""
-            } else {
-                """{"$discriminatorField":{"const":"$discriminatorValue"},"type":"object","properties":{$subProperties}}"""
-            }
+            // 构建分支：type: object, properties 包含所有字段
+            val propsStr = allProps.joinToString(",")
+            """{"type":"object","properties":{$propsStr}}"""
         }
 
         return """{"oneOf":[${branches.joinToString(",")}]}"""
