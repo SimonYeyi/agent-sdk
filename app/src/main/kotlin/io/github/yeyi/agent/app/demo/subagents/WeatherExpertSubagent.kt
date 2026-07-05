@@ -4,6 +4,7 @@ import io.github.yeyi.agent.app.demo.tools.getWeatherTool
 import io.github.yeyi.agent.subagent.Subagent
 import io.github.yeyi.agent.subagent.SubagentContext
 import io.github.yeyi.agent.subagent.subagent
+import io.github.yeyi.agent.tool.Tool
 
 /**
  * 天气查询专家 Subagent。
@@ -11,7 +12,7 @@ import io.github.yeyi.agent.subagent.subagent
 class WeatherExpertSubagent(
     name: String = "weather",
     description: String = "天气查询专家",
-    tools: List<io.github.yeyi.agent.tool.Tool> = listOf(getWeatherTool),
+    tools: List<Tool> = listOf(getWeatherTool),
 ) : Subagent by subagent(name, description, tools = tools) {
     override fun load(context: SubagentContext): String = """
         # 天气查询助手

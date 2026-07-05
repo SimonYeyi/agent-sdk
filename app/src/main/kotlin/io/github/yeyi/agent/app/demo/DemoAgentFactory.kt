@@ -9,6 +9,7 @@ import io.github.yeyi.agent.app.demo.mcp.CalculatorMcp
 import io.github.yeyi.agent.app.demo.mcp.LiveScoreMcp
 import io.github.yeyi.agent.app.demo.skills.NewsSkill
 import io.github.yeyi.agent.app.demo.skills.WeatherSkill
+import io.github.yeyi.agent.app.demo.subagents.ExternalHelpSubagent
 import io.github.yeyi.agent.app.demo.subagents.WeatherExpertSubagent
 import io.github.yeyi.agent.app.demo.tools.WebSearchTool
 import io.github.yeyi.agent.app.demo.tools.getLocationTool
@@ -113,6 +114,7 @@ object DemoAgentFactory {
             hook(hook ?: HookPipeline(logging = true))
             val subagentRegistry = SubagentRegistry()
             subagentRegistry.register(WeatherExpertSubagent())
+            subagentRegistry.register(ExternalHelpSubagent())
             subagents(registry = subagentRegistry, dynamic = true)
         }
     }
