@@ -3,6 +3,7 @@ package io.github.yeyi.agent.tool.serialization
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.json.JsonClassDiscriminator
 import kotlinx.serialization.descriptors.PolymorphicKind
 import kotlinx.serialization.descriptors.SerialDescriptor
 
@@ -51,9 +52,13 @@ public object SchemaGenerator {
         return """{"type":"object","properties":{$properties}}"""
     }
 
+    @OptIn(ExperimentalSerializationApi::class)
     private fun generateOneOfSchema(elementDescriptor: SerialDescriptor): String {
-        // discriminator 字段名默认为 "type"，暂不支持自定义
-        val discriminatorField = "type"
+        // 获取 discriminator 字段名：优先使用 @JsonClassDiscriminator 注解，否则默认 "type"
+        val discriminatorField = elementDescriptor.annotations
+            .filterIsInstance<JsonClassDiscriminator>()
+            .firstOrNull()
+            ?.discriminator ?: "type"
 
         // kotlinx.serialization 1.9.0 sealed class 结构：
         // elements[0] = "type" (STRING) -  discriminator 字段名
@@ -110,6 +115,7 @@ public object SchemaGenerator {
         return """{"oneOf":[${branches.joinToString(",")}]}"""
     }
 
+    @OptIn(ExperimentalSerializationApi::class)
     private fun mapKindToType(kind: String): String {
         return when (kind) {
             "STRING" -> "string"

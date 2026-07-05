@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.json.JsonClassDiscriminator
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -82,6 +83,25 @@ sealed class MusicAction {
 data class MusicControlRequest(
     @Description("音乐操作")
     val action: MusicAction
+)
+
+// 自定义 discriminator 字段名
+@Serializable
+@JsonClassDiscriminator("event")
+sealed class DeviceEvent {
+    @Serializable
+    @SerialName("turned_on")
+    data class TurnedOn(val deviceId: String) : DeviceEvent()
+
+    @Serializable
+    @SerialName("turned_off")
+    data class TurnedOff(val deviceId: String) : DeviceEvent()
+}
+
+@Serializable
+data class DeviceControlRequest(
+    @Description("设备事件")
+    val event: DeviceEvent
 )
 
 // ==================== Tool 实现 ====================
@@ -341,5 +361,28 @@ class TypedToolTest {
             assertTrue(branchObj.containsKey("type") || branchObj.containsKey("properties"),
                 "branch should have type or properties: $branchObj")
         }
+    }
+
+    @Test
+    fun `typedTool oneOf schema uses custom discriminator field name`() {
+        val tool = tool<DeviceControlRequest, String>("device_control", "设备控制") { params, ctx ->
+            "ok"
+        }
+
+        val schema = tool.parametersSchema as ToolParameters.JsonSchema
+        val json = Json.parseToJsonElement(schema.schema)
+
+        val eventField = json.jsonObject["properties"]?.jsonObject?.get("event")?.jsonObject
+        val oneOfArray = eventField?.get("oneOf")?.jsonArray
+
+        // 验证 discriminator 字段名为 "event" 而非默认的 "type"
+        assertTrue(oneOfArray?.any { branch ->
+            branch.jsonObject["properties"]?.jsonObject?.containsKey("event") == true
+        } == true, "should use 'event' as discriminator field: $oneOfArray")
+
+        // 验证 discriminator 值为 "turned_on" 和 "turned_off"
+        val branches = oneOfArray?.map { it.jsonObject } ?: emptyList()
+        assertTrue(branches.any { it.toString().contains("turned_on") }, "should have turned_on branch")
+        assertTrue(branches.any { it.toString().contains("turned_off") }, "should have turned_off branch")
     }
 }

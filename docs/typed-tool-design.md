@@ -266,8 +266,8 @@ data class MusicControlRequest(
 ### 约束
 
 1. sealed class 子类必须加 `@SerialName` 注解指定 discriminator 值
-2. 子类为 data class 时支持属性，object 子类暂不支持
-3. discriminator 字段名固定为 `"type"`，暂不支持自定义
+2. 支持 data class 子类（含属性）和 object 子类
+3. discriminator 字段名可通过 `@JsonClassDiscriminator` 自定义，默认 `"type"`
 
 ## 约束
 
@@ -275,6 +275,7 @@ data class MusicControlRequest(
 2. TypedTool 自动生成标准 JSON Schema
 3. 如需字段描述，在属性上加 `@Description("...")` 注解
 4. oneOf 场景：sealed class 属性 + @SerialName 注解
+5. discriminator 字段名可通过 `@JsonClassDiscriminator` 自定义
 
 ## 功能对比
 
