@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.memory
 
 import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
@@ -71,13 +72,8 @@ internal class RoundsBoundedMemory(
         // 1. 从后往前找到保留窗口索引
         val retainedIndices = extractRetainedIndices(history, retainWindow)
 
-        // 2. 计算压缩窗口（全部 - 保留）
-        val compressedIndices = history.indices.toMutableSet().also {
-            it.removeAll(retainedIndices.toSet())
-            if (summaries.isNotEmpty() && it.isNotEmpty()) {
-                it.remove(history.indices.first())
-            }
-        }
+        // 2. 计算压缩窗口
+        val compressedIndices = getCompressWindowIndices(history, retainedIndices)
 
         if (compressedIndices.isEmpty()) return
 
@@ -145,7 +141,7 @@ internal class RoundsBoundedMemory(
     private suspend fun rebuildUnderlying(
         history: List<ChatMessage>,
         retainedIndices: List<Int>,
-        summaries: MutableList<Summary>
+        summaries: List<Summary>
     ) {
         val roundsMessages = history.filterIndexed { index, _ -> index in retainedIndices }
 
@@ -173,7 +169,7 @@ internal class RoundsBoundedMemory(
             val msg = history[index]
             result.add(index)
             if (msg is ChatMessage.User) {
-                if (skippingTrailingUsers) continue
+                if (skippingTrailingUsers && retainWindow > 1) continue
                 if (++roundsFound >= retainWindow) break
             } else {
                 skippingTrailingUsers = false
@@ -181,6 +177,83 @@ internal class RoundsBoundedMemory(
         }
 
         return result
+    }
+
+    /**
+     * 获取压缩窗口的索引（排除保留窗口的部分）。
+     */
+    private fun getCompressWindowIndices(
+        history: List<ChatMessage>,
+        retainedIndices: List<Int>
+    ): Set<Int> {
+        return history.indices.toMutableSet().also {
+            it.removeAll(retainedIndices.toSet())
+            if (summaries?.isNotEmpty() == true && it.isNotEmpty()) {
+                it.remove(history.indices.first())
+            }
+        }
+    }
+
+    internal suspend fun handleContextOverflow() {
+        hook?.beforeMemoryCompress(agentContext, summaries!!)
+        if (removeCompressWindowToolMessages().not()) {
+            truncateByCoefficient()
+        }
+        hook?.afterMemoryCompress(agentContext, summaries!!)
+    }
+
+    /**
+     * 移除压缩窗口内的工具消息（Assistant.toolCalls + ToolResult），
+     * 保留窗口内的消息不动。用于 context 超限时的第一层兜底。
+     * @return 被移除的消息数量
+     */
+    private suspend fun removeCompressWindowToolMessages(): Boolean {
+        val history = underlying.history()
+        val retainWindow = (maxRounds * retainRatio).toInt()
+        val retainedIndices = extractRetainedIndices(history, retainWindow)
+        val compressIndices = getCompressWindowIndices(history, retainedIndices)
+
+        if (compressIndices.isEmpty()) return false
+
+        val filtered = history.filterIndexed { index, msg ->
+            if (index !in compressIndices) return@filterIndexed true
+            // 保留：User、Assistant（无toolCalls）、System
+            // 移除：Assistant（有toolCalls）、ToolResult
+            when (msg) {
+                is ChatMessage.User -> true
+                is ChatMessage.Assistant -> msg.toolCalls.isEmpty()
+                is ChatMessage.ToolResult -> false
+                is ChatMessage.System -> true
+            }
+        }
+
+        val removed = history.size - filtered.size
+        if (removed > 0) rebuild(filtered)
+        return removed > 0
+    }
+
+    /**
+     * 按轮次裁剪旧消息，用 0.3 系数，硬裁剪不调 LLM。
+     * 裁剪完整的一轮（从 User 到下一个 User 之前的所有消息）。
+     * 用于 context 超限时的第二层兜底。
+     */
+    private suspend fun truncateByCoefficient() {
+        val history = underlying.history()
+        val currentRounds = history.count { it is ChatMessage.User }
+        val toRemove = (currentRounds * 0.3).toInt().coerceAtLeast(1)
+        val toRetain = currentRounds - toRemove
+
+        // 只剩一轮对话的情况
+        if (toRetain < 1) {
+            history
+                .filter { it is ChatMessage.System || it is ChatMessage.User }
+                .let { rebuild(it) }
+            return
+        }
+
+        // 用 extractRetainedIndices 从后往前保留 toRetain 轮
+        val retainedIndices = extractRetainedIndices(history, toRetain)
+        rebuildUnderlying(history, retainedIndices, summaries!!)
     }
 }
 

@@ -30,6 +30,18 @@ public sealed class AgentException(message: String, cause: Throwable? = null) :
     /** 未知异常兜底。 */
     public class Unknown(cause: Throwable) :
         AgentException(cause.message ?: cause::class.simpleName ?: "Unknown", cause)
+
+    /** LLM context 超限。 */
+    public class ContextOverflow(
+        public val reason: String,
+        cause: Throwable? = null
+    ) : AgentException("Context overflow: $reason", cause)
+
+    /** 记忆压缩到极限后仍超出 context 限制，无法恢复。 */
+    public class MemoryOverflow(
+        public val reason: String,
+        cause: Throwable? = null
+    ) : AgentException("Memory overflow: $reason", cause)
 }
 
 internal fun Throwable.toAgentException(): AgentException {
