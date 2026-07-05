@@ -1,8 +1,8 @@
-# TypedTool / CompressibleTool 设计文档
+# TypedTool 设计文档
 
 ## 背景
 
-当前 Tool 接口的 execute 方法接收 `JsonElement`，调用方需要自行处理：
+Tool 接口的 `execute` 方法接收 `JsonElement`，调用方需要自行处理：
 1. JSON 反序列化 → 业务类型
 2. 业务类型 → JSON 序列化
 
@@ -10,89 +10,54 @@
 
 ## 目标
 
-提供两层抽象：
+提供类型安全的 Tool 抽象：自动完成 `JsonElement ↔ typed对象` 转换，业务逻辑在纯 typed 世界。
 
-1. **TypedTool**：自动完成 `JsonElement ↔ typed对象` 转换，业务逻辑在纯 typed 世界
-2. **CompressibleTool**：在 TypedTool 基础上叠加 schema 压缩，LLM 用 execution 字符串调用
-
-## 设计
+## 核心概念
 
 ### TypeToken
 
 用于携带类型信息，同时获取 serializer。
 
 ```kotlin
-package io.github.yeyi.agent.schema
-
-import kotlin.reflect.KType
-import kotlinx.serialization.KSerializer
-import kotlinx.serialization.serializer
-
-data class TypeToken<T : @Serializable Any>(
-    val kType: KType,
+public data class TypeToken<T : @Serializable Any>(
     val serializer: KSerializer<T>
 )
 
-inline fun <reified T : @Serializable Any> typeToken(): TypeToken<T> =
-    TypeToken(typeOf<T>(), serializer<T>())
+public inline fun <reified T : @Serializable Any> TypeToken(): TypeToken<T> =
+    TypeToken(serializer())
 ```
 
-### Layer 1: TypedTool
+### TypedTool
 
 纯类型转换，隔离 JsonElement 世界。
 
 ```kotlin
-public abstract class TypedTool<in P : @Serializable Any, out R : @Serializable Any>(
-    public val parameterType: TypeToken<P>,
-    public val resultType: TypeToken<R>
+public abstract class TypedTool<P : @Serializable Any, R : @Serializable Any>(
+    private val parameterType: TypeToken<P>,
+    private val resultType: TypeToken<R>
 ) : Tool {
 
     abstract override val name: String
     abstract override val description: String
-    override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    open suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
-        val request = parameterType.serializer.deserialize(arguments)
-        val response = execute(request, context)
-        return ToolExecutionResult.success(resultType.serializer.serialize(response))
+    final override val parametersSchema: ToolParameters =
+        ToolParameters.JsonSchema(signatureToJsonSchema())
+
+    final override suspend fun execute(
+        arguments: JsonElement,
+        context: ToolContext
+    ): ToolExecutionResult {
+        val parameters = Json.decodeFromJsonElement(parameterType.serializer, arguments)
+        val result = execute(parameters, context)
+        if (result is ToolExecutionResult) return result
+        return ToolExecutionResult.success(Json.encodeToString(resultType.serializer, result))
     }
 
-    protected abstract suspend fun execute(request: P, context: ToolContext): R
-}
-```
-
-### Layer 2: CompressibleTool
-
-继承 TypedTool，叠加 execution 字符串解析和 schema 压缩。
-
-```kotlin
-public abstract class CompressibleTool<in P : @Serializable Any, out R : @Serializable Any>(
-    parameterType: TypeToken<P>,
-    resultType: TypeToken<R>
-) : TypedTool<P, R>(parameterType, resultType) {
-
-    private val signature: FunctionSignature
-    private val compressor = DefaultSignatureCompressor()
-
-    init {
-        signature = buildSignature(parameterType.serializer.descriptor)
-    }
-
-    override val parametersSchema: ToolParameters
-        get() = ToolParameters.JsonSchema(buildCompressedSchema(signature))
-
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
-        val originalArgs = extractArguments(arguments, signature)
-        return super.execute(originalArgs, context)
-    }
-
-    protected abstract override suspend fun execute(request: P, context: ToolContext): R
+    protected abstract suspend fun execute(parameters: P, context: ToolContext): R
 }
 ```
 
 ## 调用链
-
-### TypedTool
 
 ```
 execute(jsonElement)
@@ -102,59 +67,66 @@ execute(request: P, context)  ← 子类实现纯业务逻辑
 ToolExecutionResult
 ```
 
-### CompressibleTool
-
-```
-execute(execution_string)
-  ↓ extractArguments → parse execution string → original JSON
-super.execute(original_json)
-  ↓ deserialize
-execute(request: P, context)  ← 子类实现纯业务逻辑
-  ↓ serialize
-ToolExecutionResult
-```
-
 ## Schema 生成
 
-通过 `KSerializer.descriptor` 遍历类型结构，生成函数签名。
+通过 `KSerializer.descriptor` 遍历类型结构，生成标准 JSON Schema。
 
 ```kotlin
-@Target(AnnotationTarget.PROPERTY)
-annotation class Description(val value: String)
-
-private fun buildSignature(descriptor: SerialDescriptor): FunctionSignature {
-    val params = (0 until descriptor.elementsCount).mapNotNull { index ->
+private fun signatureToJsonSchema(): String {
+    val descriptor = parameterType.serializer.descriptor
+    val properties = (0 until descriptor.elementsCount).mapNotNull { index ->
+        val elementName = descriptor.getElementName(index)
+        if (elementName.isEmpty()) return@mapNotNull null
         val elementDescriptor = descriptor.getElementDescriptor(index)
-        val name = descriptor.getElementName(index)
-        val type = mapType(elementDescriptor.kind, elementDescriptor)
-        val isOptional = !descriptor.isElementRequired(index)
-        val desc = descriptor.getElementAnnotations(index)
+        val kind = elementDescriptor.kind.toString()
+        val descAnnotation = descriptor.getElementAnnotations(index)
             .filterIsInstance<Description>()
             .firstOrNull()
-            ?.value
-        Param(name, type, !isOptional, desc)
-    }
-    return FunctionSignature(name, params)
-}
-
-private fun mapType(kind: SerialKind, descriptor: SerialDescriptor): ParamType = when (kind) {
-    is PrimitivesKind.STRING -> ParamType.StringType()
-    is PrimitivesKind.INT, is PrimitivesKind.LONG,
-    is PrimitivesKind.FLOAT, is PrimitivesKind.DOUBLE -> ParamType.NumberType()
-    is PrimitivesKind.BOOLEAN -> ParamType.BooleanType()
-    is SerialKind.ENUM -> ParamType.EnumType(
-        (0 until descriptor.elementsCount).map { descriptor.getElementName(it) }
-    )
-    is StructureKind.LIST, is StructureKind.COLLECTION -> ParamType.StringType(isArray = true)
-    is StructureKind.OBJECT -> ParamType.ObjectType()
-    else -> ParamType.StringType()
+        val typePart = if (kind == "ENUM") {
+            val enumValues = (0 until elementDescriptor.elementsCount).map {
+                elementDescriptor.getElementName(it)
+            }
+            """"type":"string","enum":[${enumValues.joinToString(",") { "\"$it\"" }}]"""
+        } else {
+            """"type":"${mapKindToType(kind)}""""
+        }
+        val descPart = descAnnotation?.let { ""","description":"${it.value}"""" } ?: ""
+        """"$elementName":{$typePart$descPart}"""
+    }.joinToString(",")
+    return """{"type":"object","properties":{$properties}}"""
 }
 ```
 
 **关键点**：
 - `descriptor.getElementAnnotations(index)` 可获取字段注解，**不需要反射**
-- 这是 kotlinx.serialization 内置 API，直接可用
+- 这是 kotlinx.serialization 内置 API
 - 枚举值通过 `descriptor.getElementName(it)` 获取
+
+## 工厂方法
+
+提供 `tool()` 工厂方法，通过 inline reified 特性自动获取 serializer。
+
+```kotlin
+public inline fun <reified P : @Serializable Any, reified R : @Serializable Any> tool(
+    name: String,
+    description: String,
+    noinline execute: suspend (P, ToolContext) -> R
+): Tool
+
+// 便捷重载：结果类型为 String
+public inline fun <reified P : @Serializable Any> tool(
+    name: String,
+    description: String,
+    noinline execute: suspend (P, ToolContext) -> String
+): Tool
+
+// 便捷重载：无参数
+public fun tool(
+    name: String,
+    description: String,
+    execute: suspend (Unit, ToolContext) -> String
+): Tool
+```
 
 ## 使用示例
 
@@ -174,90 +146,105 @@ data class SendEmailResult(
     val sentAt: String
 )
 
-@Serializable
-enum class Status {
-    TODO, IN_PROGRESS, DONE
+// 使用工厂方法
+val tool = tool<EmailRequest, SendEmailResult>("send_email", "发送邮件") { params, ctx ->
+    SendEmailResult(messageId = "123", sentAt = "2024-01-01")
 }
 
-// 不压缩的 Tool
+// 子类化
 class SendEmailTool : TypedTool<EmailRequest, SendEmailResult>(
-    parameterType = typeToken<EmailRequest>(),
-    resultType = typeToken<SendEmailResult>()
+    parameterType = TypeToken(),
+    resultType = TypeToken()
 ) {
     override val name = "send_email"
     override val description = "发送邮件"
 
-    override suspend fun execute(request: EmailRequest, context: ToolContext): SendEmailResult {
-        // 纯 typed 业务逻辑，不需要 JsonElement
-        return SendEmailResult(messageId = "123", sentAt = "2024-01-01")
-    }
-}
-
-// 压缩的 Tool
-class SendEmailTool2 : CompressibleTool<EmailRequest, SendEmailResult>(
-    parameterType = typeToken<EmailRequest>(),
-    resultType = typeToken<SendEmailResult>()
-) {
-    override val name = "send_email"
-    override val description = "发送邮件"
-
-    override suspend fun execute(request: EmailRequest, context: ToolContext): SendEmailResult {
+    override suspend fun execute(params: EmailRequest, context: ToolContext): SendEmailResult {
         // 纯 typed 业务逻辑
+        return SendEmailResult(messageId = "123", sentAt = "2024-01-01")
     }
 }
 ```
 
-**生成的压缩 schema**：
+**生成的 JSON Schema**：
 
 ```json
 {
   "type": "object",
   "properties": {
-    "execution": {
-      "type": "string",
-      "description": "send_email(to: string | \"收件人邮箱\", subject: string | \"邮件主题\", body?: string)"
-    }
-  },
-  "required": ["execution"]
+    "to": {"type": "string", "description": "收件人邮箱"},
+    "subject": {"type": "string", "description": "邮件主题"},
+    "body": {"type": "string"}
+  }
 }
+```
+
+## Description 注解
+
+用于标注字段描述，自动生成到 schema 中。
+
+```kotlin
+@Target(AnnotationTarget.PROPERTY)
+@SerialInfo
+public annotation class Description(public val value: String)
+```
+
+```kotlin
+@Serializable
+data class EmailRequest(
+    @Description("收件人邮箱")
+    val to: String
+)
 ```
 
 ## 文件结构
 
 ```
-schema/src/main/kotlin/io/github/yeyi/agent/schema/
-├── TypeToken.kt              # TypeToken 数据类 + typeToken() 工厂方法
-├── Description.kt            # @Description 注解，供字段描述使用
-├── TypedTool.kt              # TypedTool 抽象类
-├── CompressibleTool.kt       # CompressibleTool 抽象类
-├── SignatureGenerator.kt     # 从 SerialDescriptor 生成 FunctionSignature
-└── CompressTool.kt           # 保留，用于 extractArguments
+tool/serialization/src/main/kotlin/io/github/yeyi/agent/tool/serialization/
+├── TypeToken.kt          # TypeToken 数据类
+├── Description.kt        # @Description 注解
+└── TypedTool.kt          # TypedTool 抽象类 + tool() 工厂方法
 ```
 
-## 依赖
+## 与 CompressTool 的关系
 
-```kotlin
-// schema/build.gradle.kts
-dependencies {
-    api(project(":agent"))
-    api(libs.kotlinx.serialization.json)
-    api(libs.kotlinx.serialization.core)
-}
+```
+TypedTool                          # 类型安全 + 标准 JSON Schema
+    ↓
+CompressTool(TypedTool)            # 叠加 schema 压缩 + execution 解析
+```
+
+- TypedTool：生成标准 JSON Schema，适合直接发送给 LLM
+- CompressTool：包装 TypedTool，生成压缩的 execution 格式 schema
+
+## oneOf 支持
+
+TypedTool **不支持 oneOf** schema 生成。它从单个 `@Serializable` 类的属性生成 schema。
+
+如果需要 oneOf（条件参数场景），有两种方式：
+
+1. **用 CompressTool**：手动构造 oneOf JSON Schema，用 `CompressTool` 包装
+2. **直接用 ToolParameters.JsonSchema**：手动传入 oneOf 格式的 schema 字符串
+
+oneOf 压缩格式示例（详见 schema-compression.md）：
+
+```
+music_control(action=play, song: string; action=pause; action=volume, volume: number)
 ```
 
 ## 约束
 
 1. `P` 和 `R` 必须加 `@Serializable` 注解
-2. CompressibleTool 的 schema 由 serializer 自动生成
+2. TypedTool 自动生成标准 JSON Schema
 3. 如需字段描述，在属性上加 `@Description("...")` 注解
-4. CompressibleTool 依赖 CompressTool.extractArguments 解析 execution 字符串
+4. oneOf 场景不适合用 TypedTool，需使用 CompressTool 或手动 schema
 
 ## 功能对比
 
-| 功能 | TypedTool | CompressibleTool |
-|---|---|---|
+| 功能 | TypedTool | CompressTool |
+|------|-----------|--------------|
 | JsonElement → typed | ✅ 自动 | ✅ 自动 |
 | typed → JsonElement | ✅ 自动 | ✅ 自动 |
-| schema 压缩 | ❌ 原样 | ✅ 自动生成 |
-| execution 解析 | ❌ 无 | ✅ 自动 |
-| 字段描述注解 | ❌ 不支持 | ✅ 支持 |
+| 标准 JSON Schema | ✅ 自动生成 | ❌ 压缩格式 |
+| 字段描述注解 | ✅ 支持 | ❌ 通过压缩格式描述 |
+| oneOf 支持 | ❌ 不支持 | ✅ 支持 |

@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -54,6 +55,33 @@ enum class Status { PENDING, APPROVED, REJECTED }
 data class OptionalFieldsRequest(
     @Description("必填字段") val required: String,
     @Description("可选字段") val optional: String? = null
+)
+
+// ==================== oneOf 测试数据类 ====================
+
+@Serializable
+sealed class MusicAction {
+    @Serializable
+    @SerialName("play")
+    data class Play(val song: String, val artist: String? = null) : MusicAction()
+
+    @Serializable
+    @SerialName("pause")
+    data class Pause(val duration: Int? = null) : MusicAction()
+
+    @Serializable
+    @SerialName("volume")
+    data class Volume(val level: Int) : MusicAction()
+
+    @Serializable
+    @SerialName("stop")
+    object Stop : MusicAction()
+}
+
+@Serializable
+data class MusicControlRequest(
+    @Description("音乐操作")
+    val action: MusicAction
 )
 
 // ==================== Tool 实现 ====================
@@ -250,5 +278,48 @@ class TypedToolTest {
         assertTrue(schema.schema.contains("\"to\""), "schema should contain 'to'")
         assertTrue(schema.schema.contains("\"subject\""), "schema should contain 'subject'")
         assertTrue(schema.schema.contains("收件人邮箱"), "schema should contain description")
+    }
+
+    @Test
+    fun `typedTool generates oneOf schema for sealed class`() {
+        val tool = tool<MusicControlRequest, String>("music_control", "音乐控制") { params, ctx ->
+            "ok"
+        }
+
+        val schema = tool.parametersSchema as ToolParameters.JsonSchema
+        val json = Json.parseToJsonElement(schema.schema)
+
+        // 验证有 oneOf 结构
+        val actionField = json.jsonObject["properties"]?.jsonObject?.get("action")?.jsonObject
+        assertTrue(actionField?.containsKey("oneOf") == true, "schema should contain oneOf: $schema")
+
+        // 验证 oneOf 分支
+        val oneOfArray = actionField?.get("oneOf")?.jsonArray
+        assertEquals(2, oneOfArray?.size, "should have 2 branches: $oneOfArray")
+
+        // 验证 discriminator 值
+        val branches = oneOfArray?.map { it.jsonObject } ?: emptyList()
+        assertTrue(branches.any { it.toString().contains("\"play\"") }, "should have play branch")
+        assertTrue(branches.any { it.toString().contains("\"pause\"") }, "should have pause branch")
+    }
+
+    @Test
+    fun `typedTool oneOf schema with const discriminator`() {
+        val tool = tool<MusicControlRequest, String>("music_control", "音乐控制") { params, ctx ->
+            "ok"
+        }
+
+        val schema = tool.parametersSchema as ToolParameters.JsonSchema
+        val json = Json.parseToJsonElement(schema.schema)
+
+        val actionField = json.jsonObject["properties"]?.jsonObject?.get("action")?.jsonObject
+        val oneOfArray = actionField?.get("oneOf")?.jsonArray
+
+        // 验证每个分支都有 type 字段
+        oneOfArray?.forEach { branch ->
+            val branchObj = branch.jsonObject
+            assertTrue(branchObj.containsKey("type") || branchObj.containsKey("properties"),
+                "branch should have type or properties: $branchObj")
+        }
     }
 }
