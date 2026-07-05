@@ -219,25 +219,62 @@ CompressTool(TypedTool)            # 叠加 schema 压缩 + execution 解析
 
 ## oneOf 支持
 
-TypedTool **不支持 oneOf** schema 生成。它从单个 `@Serializable` 类的属性生成 schema。
+TypedTool **支持 oneOf** schema 生成。当参数类中有 sealed class 属性时，会自动生成 oneOf 结构。
 
-如果需要 oneOf（条件参数场景），有两种方式：
+### 使用方式
 
-1. **用 CompressTool**：手动构造 oneOf JSON Schema，用 `CompressTool` 包装
-2. **直接用 ToolParameters.JsonSchema**：手动传入 oneOf 格式的 schema 字符串
+```kotlin
+@Serializable
+sealed class MusicAction {
+    @Serializable
+    @SerialName("play")
+    data class Play(val song: String, val artist: String? = null) : MusicAction()
 
-oneOf 压缩格式示例（详见 schema-compression.md）：
+    @Serializable
+    @SerialName("pause")
+    data class Pause(val duration: Int? = null) : MusicAction()
 
+    @Serializable
+    @SerialName("volume")
+    data class Volume(val level: Int) : MusicAction()
+}
+
+@Serializable
+data class MusicControlRequest(
+    @Description("音乐操作")
+    val action: MusicAction
+)
 ```
-music_control(action=play, song: string; action=pause; action=volume, volume: number)
+
+### 生成结果
+
+```json
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "oneOf": [
+        {"type": {"const": "play"}, "type": "object", "properties": {"song": {...}, "artist": {...}}},
+        {"type": {"const": "pause"}, "type": "object", "properties": {"duration": {...}}},
+        {"type": {"const": "volume"}, "type": "object", "properties": {"level": {...}}}
+      ]
+    }
+  }
+}
 ```
+
+### 约束
+
+1. sealed class 子类必须加 `@SerialName` 注解指定 discriminator 值
+2. 子类为 data class 时支持属性，object 子类暂不支持
+3. discriminator 字段名固定为 `"type"`，暂不支持自定义
 
 ## 约束
 
 1. `P` 和 `R` 必须加 `@Serializable` 注解
 2. TypedTool 自动生成标准 JSON Schema
 3. 如需字段描述，在属性上加 `@Description("...")` 注解
-4. oneOf 场景不适合用 TypedTool，需使用 CompressTool 或手动 schema
+4. oneOf 场景：sealed class 属性 + @SerialName 注解
 
 ## 功能对比
 
@@ -247,4 +284,4 @@ music_control(action=play, song: string; action=pause; action=volume, volume: nu
 | typed → JsonElement | ✅ 自动 | ✅ 自动 |
 | 标准 JSON Schema | ✅ 自动生成 | ❌ 压缩格式 |
 | 字段描述注解 | ✅ 支持 | ❌ 通过压缩格式描述 |
-| oneOf 支持 | ❌ 不支持 | ✅ 支持 |
+| oneOf 支持 | ✅ sealed class | ✅ 手动 schema |
