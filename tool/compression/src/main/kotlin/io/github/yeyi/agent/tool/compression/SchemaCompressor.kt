@@ -88,6 +88,7 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
             ?.map { it.jsonPrimitive.content }
             ?.toSet()
             ?: emptySet()
+        val branchDesc = branch["description"]?.jsonPrimitive?.content
 
         // 找判别字段:优先 const,回退单值 enum(等价 const)。condition 为空表示 catch-all
         var condition = ""
@@ -120,7 +121,7 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
                 parseParam(paramName, schema, requiredSet.contains(paramName))
             }
 
-        return Branch(condition, params)
+        return Branch(condition, params, branchDesc)
     }
 
     private fun parseParam(name: String, schema: JsonElement, required: Boolean): Param? {
@@ -130,23 +131,36 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
         val type = parseType(schema)
             ?: return Param(name, ParamType.StringType(), required, description)
 
-        return Param(name, type, required, description)
+        // type 为 object/oneOf 时,描述的去重规则:
+        // - 如果字段 description 和 type description 相同(常见:field 本身是 object),让 type 独占
+        // - 如果不同(常见:array of object,字段 desc 是数组的、type desc 是 items 的),两者并存
+        // - 如果 type 无 description,字段 description 必须保留
+        val typeDesc = when (type) {
+            is ParamType.ObjectType -> type.description
+            is ParamType.OneOfType -> type.description
+            else -> null
+        }
+        val paramDesc = if (typeDesc != null && typeDesc == description) null else description
+        return Param(name, type, required, paramDesc)
     }
 
     private fun parseType(schema: JsonElement): ParamType? {
         if (schema !is JsonObject) return null
 
+        // 内层 schema 的 description 透传到 OneOfType/ObjectType,供嵌套场景渲染
+        val innerDesc = schema["description"]?.jsonPrimitive?.content
+
         // oneOf / anyOf / allOf 优先级最高(覆盖 type)—— 让判别式字段能嵌套在任意位置
         schema["oneOf"]?.jsonArray?.let { oneOf ->
             val branches = oneOf.mapNotNull { parseBranch(it.jsonObject) }
-            if (branches.isNotEmpty()) return ParamType.OneOfType(branches)
+            if (branches.isNotEmpty()) return ParamType.OneOfType(branches, description = innerDesc)
         }
         schema["anyOf"]?.jsonArray?.let { anyOf ->
             val branches = anyOf.mapNotNull { parseBranch(it.jsonObject) }
-            if (branches.isNotEmpty()) return ParamType.OneOfType(branches)
+            if (branches.isNotEmpty()) return ParamType.OneOfType(branches, description = innerDesc)
         }
         schema["allOf"]?.jsonArray?.let { allOf ->
-            return parseAllOf(allOf)
+            return parseAllOf(allOf, innerDesc)
         }
 
         val enumValues = schema["enum"]?.jsonArray
@@ -177,15 +191,15 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
             "number" -> ParamType.NumberType()
             "integer" -> ParamType.NumberType()
             "boolean" -> ParamType.BooleanType()
-            "object" -> ParamType.ObjectType(fields = parseObjectFields(schema))
+            "object" -> ParamType.ObjectType(fields = parseObjectFields(schema), description = innerDesc)
             "array" -> ParamType.StringType(isArray = true)
             else -> null
         }
     }
 
-    private fun parseAllOf(allOf: JsonArray): ParamType? {
-        val synthetic = mergeAllOf(allOf) ?: return ParamType.ObjectType()
-        return ParamType.ObjectType(fields = parseObjectFields(synthetic))
+    private fun parseAllOf(allOf: JsonArray, description: String? = null): ParamType? {
+        val synthetic = mergeAllOf(allOf) ?: return ParamType.ObjectType(description = description)
+        return ParamType.ObjectType(fields = parseObjectFields(synthetic), description = description)
     }
 
     /**
@@ -254,10 +268,11 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
                     val desc = param.description?.let { " | \"$it\"" } ?: ""
                     "${param.name}$required: $typeStr$desc"
                 }
+                val branchDesc = branch.description?.let { " | \"$it\"" } ?: ""
                 when {
-                    branchParams.isEmpty() -> conditionParam.ifEmpty { "*" }
-                    conditionParam.isEmpty() -> "* $branchParams"
-                    else -> "$conditionParam, $branchParams"
+                    branchParams.isEmpty() -> (conditionParam.ifEmpty { "*" }) + branchDesc
+                    conditionParam.isEmpty() -> "* $branchParams$branchDesc"
+                    else -> "$conditionParam, $branchParams$branchDesc"
                 }
             }
         } else {
@@ -285,20 +300,26 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
 
     private fun formatObjectType(type: ParamType.ObjectType): String {
         if (type.fields.isEmpty()) {
-            return if (type.isArray) "object[]" else "object"
+            val bare = if (type.isArray) "object[]" else "object"
+            return bare + (type.description?.let { " | \"$it\"" } ?: "")
         }
         val fieldsStr = type.fields.joinToString(", ") { param ->
             val typeStr = formatType(param.type)
             val required = if (param.required) "" else "?"
-            "${param.name}$required: $typeStr"
+            val desc = param.description?.let { " | \"$it\"" } ?: ""
+            "${param.name}$required: $typeStr$desc"
         }
-        return if (type.isArray) "[{$fieldsStr}]" else "{$fieldsStr}"
+        val rendered = if (type.isArray) "[{$fieldsStr}]" else "{$fieldsStr}"
+        val wrapperDesc = type.description?.let { " | \"$it\"" } ?: ""
+        return rendered + wrapperDesc
     }
 
     private fun formatOneOfType(type: ParamType.OneOfType): String {
         // 用 ; 分隔分支,跟顶层 oneOf 一致( | 已被描述字段占用)
         val branchesStr = type.branches.joinToString("; ") { branch -> formatBranchBody(branch) }
-        return if (type.isArray) "[$branchesStr]" else branchesStr
+        val rendered = if (type.isArray) "[$branchesStr]" else branchesStr
+        val wrapperDesc = type.description?.let { " | \"$it\"" } ?: ""
+        return rendered + wrapperDesc
     }
 
     private fun formatBranchBody(branch: Branch): String {
@@ -306,13 +327,15 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
         val paramsStr = branch.params.joinToString(", ") { param ->
             val typeStr = formatType(param.type)
             val required = if (param.required) "" else "?"
-            "${param.name}$required: $typeStr"
+            val desc = param.description?.let { " | \"$it\"" } ?: ""
+            "${param.name}$required: $typeStr$desc"
         }
         val body = paramsStr.ifEmpty { "" }
-        return if (condition.isEmpty()) {
+        val rendered = if (condition.isEmpty()) {
             "{* $body}".trim()  // catch-all 分支用 * 标识
         } else {
             "{$condition, $body}"
         }
+        return rendered + (branch.description?.let { " | \"$it\"" } ?: "")
     }
 }

@@ -26,11 +26,13 @@ public data class FunctionSignature(
  *
  * @param condition 条件表达式，如 `action=play`
  * @param params 该分支下的参数列表
+ * @param description 分支自身的描述（可选）
  */
 @Serializable
 public data class Branch(
     val condition: String,
-    val params: List<Param>
+    val params: List<Param>,
+    val description: String? = null,
 )
 
 /**
@@ -71,6 +73,7 @@ public sealed class ParamType {
     public data class ObjectType(
         public val isArray: Boolean = false,
         public val fields: List<Param> = emptyList(),
+        public val description: String? = null,
     ) : ParamType()
 
     /**
@@ -84,6 +87,7 @@ public sealed class ParamType {
     public data class OneOfType(
         public val branches: List<Branch>,
         public val isArray: Boolean = false,
+        public val description: String? = null,
     ) : ParamType()
 
     /** 枚举类型。 */

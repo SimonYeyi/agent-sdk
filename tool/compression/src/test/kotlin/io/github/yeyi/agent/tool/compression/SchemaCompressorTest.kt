@@ -726,4 +726,244 @@ class SchemaCompressorTest {
         assertTrue("{type=email" in desc, "email branch missing: $desc")
         assertTrue("{type=webhook" in desc, "webhook branch missing: $desc")
     }
+
+    @Test
+    fun nestedObjectFieldsKeepTheirDescriptions() {
+        // 嵌套 object 里的字段描述不应被丢(用户写的内容必须保留)
+        val result = compressor.compress("create_user", """
+            {
+                "type": "object",
+                "properties": {
+                    "user": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string", "description": "用户姓名"},
+                            "age": {"type": "integer", "description": "用户年龄"}
+                        },
+                        "required": ["name"]
+                    }
+                },
+                "required": ["user"]
+            }
+        """.trimIndent())
+
+        val desc = result.compressedSchema
+        assertTrue("用户姓名" in desc, "name description missing in nested object: $desc")
+        assertTrue("用户年龄" in desc, "age description missing in nested object: $desc")
+    }
+
+    @Test
+    fun nestedOneOfBranchParamsKeepTheirDescriptions() {
+        // 嵌套 oneOf 分支的参数描述不应被丢
+        val result = compressor.compress("send", """
+            {
+                "type": "object",
+                "properties": {
+                    "channel": {
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "type": {"const": "email"},
+                                    "to": {"type": "string", "description": "收件人邮箱"},
+                                    "subject": {"type": "string", "description": "邮件主题"}
+                                },
+                                "required": ["type", "to"]
+                            },
+                            {
+                                "properties": {
+                                    "type": {"const": "webhook"},
+                                    "url": {"type": "string", "description": "回调 URL"}
+                                },
+                                "required": ["type", "url"]
+                            }
+                        ]
+                    }
+                },
+                "required": ["channel"]
+            }
+        """.trimIndent())
+
+        val desc = result.compressedSchema
+        assertTrue("收件人邮箱" in desc, "email branch to desc missing: $desc")
+        assertTrue("邮件主题" in desc, "email branch subject desc missing: $desc")
+        assertTrue("回调 URL" in desc, "webhook branch url desc missing: $desc")
+    }
+
+    @Test
+    fun objectWrapperDescriptionRendered() {
+        // object 自身的 description 也要渲染(挂在类型上,不是 Param)
+        val result = compressor.compress("config", """
+            {
+                "type": "object",
+                "properties": {
+                    "db": {
+                        "type": "object",
+                        "description": "数据库连接配置",
+                        "properties": {
+                            "host": {"type": "string"},
+                            "port": {"type": "integer"}
+                        },
+                        "required": ["host"]
+                    }
+                },
+                "required": ["db"]
+            }
+        """.trimIndent())
+
+        val desc = result.compressedSchema
+        // 描述只渲染一次(不在 Param 上重复)
+        assertEquals(1, desc.split("数据库连接配置").size - 1, "wrapper description duplicated: $desc")
+        assertTrue("host: string" in desc, "host field missing: $desc")
+        assertTrue("port?: number" in desc, "port field missing: $desc")
+    }
+
+    @Test
+    fun descriptionNotDuplicatedBetweenParamAndType() {
+        // 同一 description 不应同时挂到 Param 和 inner ObjectType(避免渲染两次)
+        val result = compressor.compress("cfg", """
+            {
+                "type": "object",
+                "properties": {
+                    "server": {
+                        "type": "object",
+                        "description": "服务器设置",
+                        "properties": {
+                            "host": {"type": "string"}
+                        }
+                    }
+                },
+                "required": ["server"]
+            }
+        """.trimIndent())
+
+        val desc = result.compressedSchema
+        assertEquals(1, desc.split("服务器设置").size - 1, "description should appear exactly once: $desc")
+    }
+
+    @Test
+    fun arrayOfObjectKeepsOuterArrayDescription() {
+        // array of object:外层数组的 description 不应被丢(常见:数组的语义和 items 不同)
+        val result = compressor.compress("query", """
+            {
+                "type": "object",
+                "properties": {
+                    "impacts": {
+                        "type": "array",
+                        "description": "影响关系数组(API 必填)",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {"type": "string"}
+                            }
+                        }
+                    }
+                },
+                "required": ["impacts"]
+            }
+        """.trimIndent())
+
+        val desc = result.compressedSchema
+        assertTrue("影响关系数组(API 必填)" in desc, "outer array description lost: $desc")
+        // id 不在 required 数组里 → 渲染为可选
+        assertTrue("id" in desc && "string" in desc, "items field missing: $desc")
+    }
+
+    @Test
+    fun arrayOfObjectKeepsBothDescriptions() {
+        // array of object:外层数组和 items 都有 description 时,两者都保留
+        val result = compressor.compress("query", """
+            {
+                "type": "object",
+                "properties": {
+                    "events": {
+                        "type": "array",
+                        "description": "事件列表",
+                        "items": {
+                            "type": "object",
+                            "description": "单个事件",
+                            "properties": {
+                                "name": {"type": "string"}
+                            }
+                        }
+                    }
+                },
+                "required": ["events"]
+            }
+        """.trimIndent())
+
+        val desc = result.compressedSchema
+        assertEquals(1, desc.split("事件列表").size - 1, "outer description missing or duplicated: $desc")
+        assertEquals(1, desc.split("单个事件").size - 1, "items description missing or duplicated: $desc")
+    }
+
+    @Test
+    fun oneOfBranchDescriptionPreserved() {
+        // oneOf 分支的 description 不应被丢
+        val result = compressor.compress("send", """
+            {
+                "type": "object",
+                "properties": {
+                    "channel": {
+                        "oneOf": [
+                            {
+                                "description": "邮件发送",
+                                "properties": {
+                                    "type": {"const": "email"},
+                                    "to": {"type": "string"}
+                                },
+                                "required": ["type", "to"]
+                            },
+                            {
+                                "description": "短信发送",
+                                "properties": {
+                                    "type": {"const": "sms"},
+                                    "phone": {"type": "string"}
+                                },
+                                "required": ["type", "phone"]
+                            }
+                        ]
+                    }
+                },
+                "required": ["channel"]
+            }
+        """.trimIndent())
+
+        val desc = result.compressedSchema
+        assertTrue("邮件发送" in desc, "email branch desc missing: $desc")
+        assertTrue("短信发送" in desc, "sms branch desc missing: $desc")
+    }
+
+    @Test
+    fun topLevelOneOfBranchDescriptionPreserved() {
+        // 顶层 oneOf 分支的 description 也保留
+        val result = compressor.compress("music_control", """
+            {
+                "oneOf": [
+                    {
+                        "description": "播放一首歌曲",
+                        "properties": {
+                            "action": {"const": "play"},
+                            "song": {"type": "string"}
+                        },
+                        "required": ["action", "song"]
+                    },
+                    {
+                        "description": "调整音量",
+                        "properties": {
+                            "action": {"const": "volume"},
+                            "volume": {"type": "number"}
+                        },
+                        "required": ["action", "volume"]
+                    }
+                ]
+            }
+        """.trimIndent())
+
+        val desc = result.compressedSchema
+        assertTrue("播放一首歌曲" in desc, "play branch desc missing: $desc")
+        assertTrue("调整音量" in desc, "volume branch desc missing: $desc")
+        // 也要保留条件分支本身
+        assertTrue("action=play" in desc, "play condition missing: $desc")
+        assertTrue("action=volume" in desc, "volume condition missing: $desc")
+    }
 }
