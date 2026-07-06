@@ -66,9 +66,12 @@ public sealed class ParamType {
     @Serializable
     public data class BooleanType(public val isArray: Boolean = false) : ParamType()
 
-    /** 对象类型。 */
+    /** 对象类型。`fields` 非空时携带内层字段结构（递归支持嵌套 object / array of object）。 */
     @Serializable
-    public data class ObjectType(public val isArray: Boolean = false) : ParamType()
+    public data class ObjectType(
+        public val isArray: Boolean = false,
+        public val fields: List<Param> = emptyList(),
+    ) : ParamType()
 
     /** 枚举类型。 */
     @Serializable

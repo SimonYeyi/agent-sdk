@@ -1,12 +1,10 @@
 package io.github.yeyi.agent.tool.compression
 
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
 
 /**
  * Execution 解析器 — 将 execution 字符串还原为结构化 JSON。
@@ -38,7 +36,6 @@ private class ExecutionStringParser(
 ) {
     private var pos = 0
     private val paramMap = signature.params.associateBy { it.name }
-    private val parserJson = Json { ignoreUnknownKeys = true }
 
     public fun parse(): JsonObject {
         // 解析 function_name
@@ -102,7 +99,7 @@ private class ExecutionStringParser(
         return when (input[pos]) {
             '\'' -> parseStringValue()
             '[' -> parseArrayValue(type)
-            '{' -> parseObjectValue()
+            '{' -> parseObjectValue(type)
             else -> parseSimpleValue(type)
         }
     }
@@ -135,18 +132,12 @@ private class ExecutionStringParser(
     }
 
     private fun parseArrayValue(type: ParamType): JsonArray {
+        val elementType = arrayElementType(type)
         pos++ // skip '['
         val elements = mutableListOf<JsonElement>()
         skipWhitespace()
 
         while (pos < input.length && input[pos] != ']') {
-            val elementType = when (type) {
-                is ParamType.StringType -> ParamType.StringType()
-                is ParamType.NumberType -> ParamType.NumberType()
-                is ParamType.BooleanType -> ParamType.BooleanType()
-                is ParamType.ObjectType -> ParamType.ObjectType()
-                is ParamType.EnumType -> ParamType.StringType()
-            }
             elements.add(parseValue(elementType))
             skipWhitespace()
             if (pos < input.length && input[pos] == ',') {
@@ -162,64 +153,53 @@ private class ExecutionStringParser(
         return JsonArray(elements)
     }
 
-    private fun parseObjectValue(): JsonObject {
+    private fun arrayElementType(type: ParamType): ParamType = when (type) {
+        is ParamType.StringType -> ParamType.StringType()
+        is ParamType.NumberType -> ParamType.NumberType()
+        is ParamType.BooleanType -> ParamType.BooleanType()
+        is ParamType.ObjectType -> type.copy(isArray = false)
+        is ParamType.EnumType -> type
+    }
+
+    private fun parseObjectValue(type: ParamType): JsonObject {
+        // 从 schema 里查字段类型,O(1) 查表;没有 schema 时退化为 StringType
+        val fields = (type as? ParamType.ObjectType)?.fields ?: emptyList()
+        val fieldMap = fields.associateBy { it.name }
+
         pos++ // skip '{'
-        val sb = StringBuilder()
-        var braceCount = 1
+        skipWhitespace()
 
-        while (pos < input.length && braceCount > 0) {
-            when (input[pos]) {
-                '{' -> {
-                    braceCount++
-                    sb.append(input[pos])
-                    pos++
-                }
+        val result = mutableMapOf<String, JsonElement>()
+        while (pos < input.length && input[pos] != '}') {
+            val name = parseIdentifier()
+            skipWhitespace()
+            if (pos < input.length && input[pos] == '=') {
+                pos++
+            }
+            skipWhitespace()
 
-                '}' -> {
-                    braceCount--
-                    if (braceCount > 0) {
-                        sb.append(input[pos])
-                    }
-                    pos++
-                }
-
-                '\'' -> {
-                    sb.append(input[pos])
-                    pos++
-                    while (pos < input.length && input[pos] != '\'') {
-                        if (input[pos] == '\\' && pos + 1 < input.length) {
-                            sb.append(input[pos])
-                            pos++
-                        }
-                        sb.append(input[pos])
-                        pos++
-                    }
-                    if (pos < input.length) {
-                        sb.append(input[pos])
-                        pos++
-                    }
-                }
-
-                else -> {
-                    sb.append(input[pos])
-                    pos++
-                }
+            val fieldType = fieldMap[name]?.type ?: ParamType.StringType()
+            result[name] = parseValue(fieldType)
+            skipWhitespace()
+            if (pos < input.length && input[pos] == ',') {
+                pos++
+                skipWhitespace()
             }
         }
 
-        val objStr = sb.toString().trim()
-        if (objStr.isEmpty()) return JsonObject(emptyMap())
-
-        return try {
-            parserJson.parseToJsonElement("{$objStr}").jsonObject
-        } catch (e: Exception) {
-            JsonObject(emptyMap())
+        if (pos < input.length && input[pos] == '}') {
+            pos++
         }
+        return JsonObject(result)
     }
 
     private fun parseSimpleValue(type: ParamType): JsonElement {
         val sb = StringBuilder()
-        while (pos < input.length && !input[pos].isWhitespace() && input[pos] != ',' && input[pos] != ')') {
+        while (pos < input.length &&
+            !input[pos].isWhitespace() &&
+            input[pos] != ',' && input[pos] != ')' &&
+            input[pos] != '}' && input[pos] != ']'
+        ) {
             sb.append(input[pos])
             pos++
         }

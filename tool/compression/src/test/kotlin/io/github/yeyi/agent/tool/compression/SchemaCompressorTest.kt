@@ -9,6 +9,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private fun createTool(name: String, schema: String): Tool = object : Tool {
@@ -280,6 +281,112 @@ class SchemaCompressorTest {
         assertEquals("action=volume", volumeBranch.condition)
         assertEquals(1, volumeBranch.params.size)
         assertEquals("volume", volumeBranch.params[0].name)
+    }
+
+    @Test
+    fun compressNestedObjectRecursesFields() {
+        // 内层对象类型应保留 fields 结构(以前会压扁成 ObjectType())
+        val result = compressor.compress("create_user", """
+            {
+                "type": "object",
+                "properties": {
+                    "user": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "age": {"type": "integer"}
+                        },
+                        "required": ["name"]
+                    }
+                },
+                "required": ["user"]
+            }
+        """.trimIndent())
+
+        val userParam = result.signature.params.find { it.name == "user" }!!
+        assertTrue(userParam.type is ParamType.ObjectType)
+        val userType = userParam.type as ParamType.ObjectType
+        assertEquals(2, userType.fields.size)
+        assertEquals("name", userType.fields[0].name)
+        assertTrue(userType.fields[0].required)
+        assertTrue(userType.fields[0].type is ParamType.StringType)
+        assertEquals("age", userType.fields[1].name)
+        assertFalse(userType.fields[1].required)
+    }
+
+    @Test
+    fun compressArrayOfObjectsKeepsElementSchema() {
+        // 数组元素的 schema 应当被保留到 ObjectType(isArray=true).fields
+        val result = compressor.compress("create_users", """
+            {
+                "type": "object",
+                "properties": {
+                    "users": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "role": {"type": "string", "enum": ["admin", "user"]}
+                            },
+                            "required": ["name"]
+                        }
+                    }
+                },
+                "required": ["users"]
+            }
+        """.trimIndent())
+
+        val usersParam = result.signature.params.find { it.name == "users" }!!
+        assertTrue(usersParam.type is ParamType.ObjectType)
+        val usersType = usersParam.type as ParamType.ObjectType
+        assertTrue(usersType.isArray)
+        assertEquals(2, usersType.fields.size)
+        val roleField = usersType.fields.find { it.name == "role" }!!
+        assertTrue(roleField.type is ParamType.EnumType)
+        assertEquals(listOf("admin", "user"), (roleField.type as ParamType.EnumType).values)
+    }
+
+    @Test
+    fun formatSignatureRendersNestedStructure() {
+        // 签名应把内层结构渲染为 { name: type, ... }(数组对象则是 [{...}])
+        val result = compressor.compress("create_orders", """
+            {
+                "type": "object",
+                "properties": {
+                    "orders": {
+                        "type": "object",
+                        "properties": {
+                            "order_id": {"type": "string"},
+                            "items": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "sku": {"type": "string"},
+                                        "qty": {"type": "integer"}
+                                    },
+                                    "required": ["sku", "qty"]
+                                }
+                            }
+                        },
+                        "required": ["order_id", "items"]
+                    }
+                },
+                "required": ["orders"]
+            }
+        """.trimIndent())
+
+        val schemaJson = kotlinx.serialization.json.Json.parseToJsonElement(result.compressedSchema)
+        val description = schemaJson.jsonObject["properties"]?.jsonObject
+            ?.get("execution")?.jsonObject?.get("description")?.jsonPrimitive?.content ?: ""
+
+        assertTrue(description.contains("orders:"), "orders missing: $description")
+        assertTrue(description.contains("order_id:"), "order_id missing: $description")
+        assertTrue(description.contains("items: [{"), "items array-of-object missing: $description")
+        assertTrue(description.contains("sku:"), "sku missing: $description")
+        assertTrue(description.contains("qty:"), "qty missing: $description")
+        assertTrue(description.contains("qty: number"), "qty should be number: $description")
     }
 
     @Test

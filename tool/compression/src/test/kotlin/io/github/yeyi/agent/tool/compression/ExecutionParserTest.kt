@@ -188,7 +188,7 @@ class ExecutionParserTest {
 
     @Test
     fun parseExecutionWithObjectType() {
-        // 对象类型解析暂不支持复杂场景，简化测试
+        // 不透明 object(没有 fields):内层用 key=value 语法,未知字段退化为 StringType
         val signature = FunctionSignature(
             name = "create_config",
             params = listOf(
@@ -196,10 +196,96 @@ class ExecutionParserTest {
             )
         )
 
-        val result = parser.parse("create_config(config={timeout: 30})", signature)
+        val result = parser.parse("create_config(config={timeout=30, name='hello'})", signature)
+        val config = result.jsonObject["config"]!!.jsonObject
+        assertEquals("30", config["timeout"]?.jsonPrimitive?.content)
+        assertEquals("hello", config["name"]?.jsonPrimitive?.content)
+    }
 
-        // 对象类型返回原始字符串，暂不验证内部结构
-        assertTrue(result.jsonObject["config"] != null)
+    @Test
+    fun parseExecutionWithStructuredObject() {
+        // 带 fields 的 object:解析时按 schema 给字段分派类型
+        val signature = FunctionSignature(
+            name = "create_user",
+            params = listOf(
+                Param("user", ParamType.ObjectType(fields = listOf(
+                    Param("name", ParamType.StringType(), required = true),
+                    Param("age", ParamType.NumberType(), required = false),
+                    Param("active", ParamType.BooleanType(), required = false),
+                )), required = true)
+            )
+        )
+
+        val result = parser.parse("create_user(user={name='Alice', age=30, active=true})", signature)
+        val user = result.jsonObject["user"]!!.jsonObject
+        assertEquals("Alice", user["name"]?.jsonPrimitive?.content)
+        assertEquals(30.0, user["age"]?.jsonPrimitive?.content?.toDouble())
+        assertEquals(true, user["active"]?.jsonPrimitive?.content?.toBooleanStrict())
+    }
+
+    @Test
+    fun parseExecutionWithArrayOfObjects() {
+        // 数组元素是结构化对象:每个元素按 schema 解析
+        val signature = FunctionSignature(
+            name = "create_users",
+            params = listOf(
+                Param("users", ParamType.ObjectType(isArray = true, fields = listOf(
+                    Param("name", ParamType.StringType(), required = true),
+                    Param("age", ParamType.NumberType(), required = false),
+                )), required = true)
+            )
+        )
+
+        val result = parser.parse("create_users(users=[{name='Alice', age=30}, {name='Bob'}])", signature)
+        val users = result.jsonObject["users"]!!.jsonArray
+        assertEquals(2, users.size)
+        assertEquals("Alice", users[0].jsonObject["name"]?.jsonPrimitive?.content)
+        assertEquals(30.0, users[0].jsonObject["age"]?.jsonPrimitive?.content?.toDouble())
+        assertEquals("Bob", users[1].jsonObject["name"]?.jsonPrimitive?.content)
+        assertNull(users[1].jsonObject["age"])
+    }
+
+    @Test
+    fun parseExecutionWithDeepNesting() {
+        // 深度嵌套:object → array of object → object
+        val signature = FunctionSignature(
+            name = "create_orders",
+            params = listOf(
+                Param("orders", ParamType.ObjectType(fields = listOf(
+                    Param("order_id", ParamType.StringType(), required = true),
+                    Param("items", ParamType.ObjectType(isArray = true, fields = listOf(
+                        Param("sku", ParamType.StringType(), required = true),
+                        Param("qty", ParamType.NumberType(), required = true),
+                    )), required = true),
+                )), required = true)
+            )
+        )
+
+        val result = parser.parse(
+            "create_orders(orders={order_id='A1', items=[{sku='X', qty=2}, {sku='Y', qty=1}]})",
+            signature
+        )
+        val orders = result.jsonObject["orders"]!!.jsonObject
+        assertEquals("A1", orders["order_id"]?.jsonPrimitive?.content)
+        val items = orders["items"]!!.jsonArray
+        assertEquals(2, items.size)
+        assertEquals("X", items[0].jsonObject["sku"]?.jsonPrimitive?.content)
+        assertEquals(2.0, items[0].jsonObject["qty"]?.jsonPrimitive?.content?.toDouble())
+        assertEquals("Y", items[1].jsonObject["sku"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parseExecutionWithEmptyObject() {
+        val signature = FunctionSignature(
+            name = "noop",
+            params = listOf(
+                Param("meta", ParamType.ObjectType(), required = false)
+            )
+        )
+
+        val result = parser.parse("noop(meta={ })", signature)
+        val meta = result.jsonObject["meta"]!!.jsonObject
+        assertTrue(meta.isEmpty())
     }
 
     @Test

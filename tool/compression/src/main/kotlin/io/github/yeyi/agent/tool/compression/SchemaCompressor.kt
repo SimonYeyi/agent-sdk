@@ -1,8 +1,10 @@
 package io.github.yeyi.agent.tool.compression
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -31,7 +33,8 @@ public interface SchemaCompressor {
  * 默认压缩器实现。
  */
 internal class DefaultSchemaCompressor : SchemaCompressor {
-    private val json = Json { ignoreUnknownKeys = true }
+    @OptIn(ExperimentalSerializationApi::class)
+    private val json = Json { ignoreUnknownKeys = true; allowTrailingComma = true }
 
     override fun compress(name: String, schema: String): CompressionResult {
         val element = json.parseToJsonElement(schema)
@@ -54,7 +57,8 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
             }
         }
 
-        val properties = element["properties"]?.jsonObject ?: return FunctionSignature(name, emptyList())
+        val properties = element["properties"]?.jsonObject
+            ?: return FunctionSignature(name, emptyList())
         val requiredSet = element["required"]?.jsonArray
             ?.map { it.jsonPrimitive.content }
             ?.toSet()
@@ -118,15 +122,15 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
 
         val items = schema["items"]?.jsonObject
         if (items != null) {
-            val itemsType = parseSimpleType(items)
             val isArray = schema["type"]?.jsonPrimitive?.content == "array"
             if (isArray) {
-                return when (itemsType) {
-                    "string" -> ParamType.StringType(isArray = true)
-                    "number" -> ParamType.NumberType(isArray = true)
-                    "boolean" -> ParamType.BooleanType(isArray = true)
-                    "object" -> ParamType.ObjectType(isArray = true)
-                    else -> ParamType.StringType(isArray = true)
+                val itemType = parseType(items) ?: return ParamType.StringType(isArray = true)
+                return when (itemType) {
+                    is ParamType.StringType -> ParamType.StringType(isArray = true)
+                    is ParamType.NumberType -> ParamType.NumberType(isArray = true)
+                    is ParamType.BooleanType -> ParamType.BooleanType(isArray = true)
+                    is ParamType.ObjectType -> itemType.copy(isArray = true)
+                    is ParamType.EnumType -> ParamType.StringType(isArray = true)
                 }
             }
         }
@@ -137,9 +141,20 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
             "number" -> ParamType.NumberType()
             "integer" -> ParamType.NumberType()
             "boolean" -> ParamType.BooleanType()
-            "object" -> ParamType.ObjectType()
+            "object" -> ParamType.ObjectType(fields = parseObjectFields(schema))
             "array" -> ParamType.StringType(isArray = true)
             else -> null
+        }
+    }
+
+    private fun parseObjectFields(schema: JsonObject): List<Param> {
+        val properties = schema["properties"]?.jsonObject ?: return emptyList()
+        val requiredSet = schema["required"]?.jsonArray
+            ?.map { it.jsonPrimitive.content }
+            ?.toSet()
+            ?: emptySet()
+        return properties.mapNotNull { (paramName, propSchema) ->
+            parseParam(paramName, propSchema, requiredSet.contains(paramName))
         }
     }
 
@@ -150,14 +165,14 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
 
     private fun buildCompressedSchema(signature: FunctionSignature): String {
         return buildJsonObject {
-            put("type", kotlinx.serialization.json.JsonPrimitive("object"))
+            put("type", JsonPrimitive("object"))
             put("properties", buildJsonObject {
                 put("execution", buildJsonObject {
-                    put("type", kotlinx.serialization.json.JsonPrimitive("string"))
-                    put("description", kotlinx.serialization.json.JsonPrimitive(formatSignature(signature)))
+                    put("type", JsonPrimitive("string"))
+                    put("description", JsonPrimitive(formatSignature(signature)))
                 })
             })
-            put("required", buildJsonArray { add(kotlinx.serialization.json.JsonPrimitive("execution")) })
+            put("required", buildJsonArray { add(JsonPrimitive("execution")) })
         }.toString()
     }
 
@@ -196,8 +211,20 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
             is ParamType.StringType -> if (type.isArray) "string[]" else "string"
             is ParamType.NumberType -> if (type.isArray) "number[]" else "number"
             is ParamType.BooleanType -> if (type.isArray) "boolean[]" else "boolean"
-            is ParamType.ObjectType -> if (type.isArray) "object[]" else "object"
             is ParamType.EnumType -> "enum(${type.values.joinToString(", ")})"
+            is ParamType.ObjectType -> formatObjectType(type)
         }
+    }
+
+    private fun formatObjectType(type: ParamType.ObjectType): String {
+        if (type.fields.isEmpty()) {
+            return if (type.isArray) "object[]" else "object"
+        }
+        val fieldsStr = type.fields.joinToString(", ") { param ->
+            val typeStr = formatType(param.type)
+            val required = if (param.required) "" else "?"
+            "${param.name}$required: $typeStr"
+        }
+        return if (type.isArray) "[{$fieldsStr}]" else "{$fieldsStr}"
     }
 }
