@@ -9,120 +9,171 @@ import kotlinx.serialization.descriptors.SerialDescriptor
 
 /**
  * JSON Schema 生成器 — 将 SerialDescriptor 转换为标准 JSON Schema。
+ *
+ * 递归处理:任意层级的嵌套 object / list / set / sealed class 都用同一套逻辑,
+ * 不区分"顶层"和"嵌套"。每一级都遵循相同的规则:
+ * - 必填/可空通过 `required` 数组表达(`isNullable` 为 false 才进入 required)
+ * - 字段描述通过 `@Description` 注解生成 description
+ * - sealed class 生成 oneOf,每个分支带 `required` 数组
  */
 public object SchemaGenerator {
 
-    /**
-     * 根据 descriptor 生成 JSON Schema。
-     *
-     * 支持：
-     * - 基本类型（string, number, boolean, enum）
-     * - sealed class → oneOf schema
-     * - @Description 注解生成字段描述
-     */
     @OptIn(ExperimentalSerializationApi::class)
     public fun generateSchema(serializer: KSerializer<*>): String {
-        val descriptor = serializer.descriptor
-        val properties = (0 until descriptor.elementsCount).mapNotNull { index ->
-            val elementName = descriptor.getElementName(index)
-            if (elementName.isEmpty()) return@mapNotNull null
-            val elementDescriptor = descriptor.getElementDescriptor(index)
+        return buildObjectSchema(serializer.descriptor, includeRequired = true)
+    }
 
-            // 检查是否为 sealed class
-            if (elementDescriptor.kind == PolymorphicKind.SEALED && elementDescriptor.elementsCount > 0) {
-                return@mapNotNull """"$elementName":${generateOneOfSchema(elementDescriptor)}"""
+    /**
+     * 生成 object schema(STRUCT / CLASS / 顶层)。
+     *
+     * @param includeRequired 是否在 schema 末尾追加 `required` 数组。
+     *   嵌套生成 items / oneOf 分支等"被引用"的 object 时,可以传 false
+     *   (调用方负责把它纳入父级 required)。
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildObjectSchema(descriptor: SerialDescriptor, includeRequired: Boolean): String {
+        val properties = mutableListOf<String>()
+        val required = mutableListOf<String>()
+        for (i in 0 until descriptor.elementsCount) {
+            val name = descriptor.getElementName(i)
+            if (name.isEmpty()) continue
+            val elemDesc = descriptor.getElementDescriptor(i)
+            val elemAnnos = descriptor.getElementAnnotations(i)
+            val isRequired = !elemDesc.isNullable
+            properties.add("\"$name\":${buildPropertySchema(elemDesc, elemAnnos, isRequired)}")
+            if (isRequired) required.add("\"$name\"")
+        }
+        val propsStr = properties.joinToString(",")
+        val reqStr = if (includeRequired && required.isNotEmpty())
+            ",\"required\":[${required.joinToString(",")}]"
+        else ""
+        return "{\"type\":\"object\",\"properties\":{$propsStr}$reqStr}"
+    }
+
+    /**
+     * 生成单个属性的 schema 块 `{...}`。
+     *
+     * 分发逻辑(覆盖所有 SerialKind,任何层级都走这里):
+     * - PolymorphicKind.SEALED → oneOf
+     * - ENUM → `{"type":"string","enum":[...]}`
+     * - OBJECT(Kotlin `object` 声明)→ `{"type":"object"}`
+     * - LIST / SET → `{"type":"array","items":<递归>}`
+     * - STRUCT / CLASS(嵌套 data class)→ 递归 `buildObjectSchema`
+     * - 其他(STRING/NUMBER/BOOLEAN/CHAR/CONTEXTUAL)→ primitive
+     *
+     * 描述追加在末尾(若有),位置不影响 schema 语义。
+     */
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun buildPropertySchema(
+        descriptor: SerialDescriptor,
+        annotations: List<Annotation>,
+        @Suppress("UNUSED_PARAMETER") isRequired: Boolean
+    ): String {
+        val desc = annotations.filterIsInstance<Description>().firstOrNull()?.value
+        val kindStr = descriptor.kind.toString()
+        val base = when {
+            descriptor.kind == PolymorphicKind.SEALED ->
+                buildOneOfSchema(descriptor)
+
+            kindStr == "ENUM" -> {
+                val values = (0 until descriptor.elementsCount).map { descriptor.getElementName(it) }
+                "{\"type\":\"string\",\"enum\":[${values.joinToString(",") { "\"$it\"" }}]}"
             }
 
-            val kind = elementDescriptor.kind.toString()
-            val descAnnotation = descriptor.getElementAnnotations(index)
-                .filterIsInstance<Description>()
-                .firstOrNull()
-            val typePart = if (kind == "ENUM") {
-                val enumValues = (0 until elementDescriptor.elementsCount).map {
-                    elementDescriptor.getElementName(it)
-                }
-                """"type":"string","enum":[${enumValues.joinToString(",") { "\"$it\"" }}]"""
-            } else {
-                """"type":"${mapKindToType(kind)}""""
-            }
-            val descPart = descAnnotation?.let { ""","description":"${it.value}"""" } ?: ""
-            """"$elementName":{$typePart$descPart}"""
-        }.joinToString(",")
+            kindStr == "OBJECT" ->
+                "{\"type\":\"object\"}"
 
-        return """{"type":"object","properties":{$properties}}"""
+            kindStr == "LIST" || kindStr == "SET" -> {
+                val elemDesc = descriptor.getElementDescriptor(0)
+                val itemSchema = buildPropertySchema(elemDesc, emptyList(), true)
+                "{\"type\":\"array\",\"items\":$itemSchema}"
+            }
+
+            kindStr == "STRUCT" || kindStr == "CLASS" ->
+                buildObjectSchema(descriptor, includeRequired = true)
+
+            else ->
+                "{\"type\":\"${mapKindToType(kindStr)}\"}"
+        }
+        return appendDescription(base, desc)
     }
 
     @OptIn(ExperimentalSerializationApi::class)
-    private fun generateOneOfSchema(elementDescriptor: SerialDescriptor): String {
-        // 获取 discriminator 字段名：优先使用 @JsonClassDiscriminator 注解，否则默认 "type"
+    private fun buildOneOfSchema(elementDescriptor: SerialDescriptor): String {
         val discriminatorField = elementDescriptor.annotations
             .filterIsInstance<JsonClassDiscriminator>()
             .firstOrNull()
             ?.discriminator ?: "type"
 
-        // kotlinx.serialization 1.9.0 sealed class 结构：
-        // elements[0] = "type" (STRING) -  discriminator 字段名
-        // elements[1] = "value" (CONTEXTUAL) - 实际子类在这里，elementsCount = 子类数量
+        // kotlinx.serialization 1.9.0 sealed class 结构:
+        // elements[0] = "type" (STRING) — discriminator 字段名
+        // elements[1] = "value" (CONTEXTUAL) — 实际子类作为它的 elements
         val valueDescriptor = elementDescriptor.getElementDescriptor(1)
         val subclassCount = valueDescriptor.elementsCount
 
-        // 遍历子类，收集每个分支
         val branches = (0 until subclassCount).mapNotNull { subIndex ->
             val subDescriptor = valueDescriptor.getElementDescriptor(subIndex)
             val subName = valueDescriptor.getElementName(subIndex)
             if (subName.isEmpty()) return@mapNotNull null
 
-            // 获取 discriminator 值 - 有 @SerialName 用它，没有用 simpleName
             val discriminatorValue = subDescriptor.annotations
                 .filterIsInstance<SerialName>()
                 .firstOrNull()
                 ?.value ?: subName
 
-            // 收集所有属性：discriminator 字段 + 子类自身属性
-            val allProps = mutableListOf<String>()
+            val properties = mutableListOf<String>()
+            val required = mutableListOf<String>()
 
-            // 首先添加 discriminator 字段作为属性条目
-            allProps.add(""""$discriminatorField":{"const":"$discriminatorValue"}""")
+            properties.add("\"$discriminatorField\":{\"const\":\"$discriminatorValue\"}")
+            required.add("\"$discriminatorField\"")
 
-            // 添加子类自身的属性
             if (subDescriptor.elementsCount > 0) {
-                (0 until subDescriptor.elementsCount).forEach { propIndex ->
-                    val propName = subDescriptor.getElementName(propIndex)
-                    if (propName.isEmpty()) return@forEach
-                    val propDescriptor = subDescriptor.getElementDescriptor(propIndex)
-                    val propKind = propDescriptor.kind.toString()
-                    val propDesc = subDescriptor.getElementAnnotations(propIndex)
-                        .filterIsInstance<Description>()
-                        .firstOrNull()
-                    val propTypePart = if (propKind == "ENUM") {
-                        val enumValues = (0 until propDescriptor.elementsCount).map {
-                            propDescriptor.getElementName(it)
-                        }
-                        """"type":"string","enum":[${enumValues.joinToString(",") { "\"$it\"" }}]"""
-                    } else {
-                        """"type":"${mapKindToType(propKind)}""""
-                    }
-                    val propDescPart = propDesc?.let { ""","description":"${it.value}"""" } ?: ""
-                    allProps.add(""""$propName":{$propTypePart$propDescPart}""")
+                for (i in 0 until subDescriptor.elementsCount) {
+                    val name = subDescriptor.getElementName(i)
+                    if (name.isEmpty()) continue
+                    val propDesc = subDescriptor.getElementDescriptor(i)
+                    val propAnnos = subDescriptor.getElementAnnotations(i)
+                    val isRequired = !propDesc.isNullable
+                    properties.add("\"$name\":${buildPropertySchema(propDesc, propAnnos, isRequired)}")
+                    if (isRequired) required.add("\"$name\"")
                 }
             }
 
-            // 构建分支：type: object, properties 包含所有字段
-            val propsStr = allProps.joinToString(",")
-            """{"type":"object","properties":{$propsStr}}"""
+            val propsStr = properties.joinToString(",")
+            val reqStr = if (required.isNotEmpty())
+                ",\"required\":[${required.joinToString(",")}]"
+            else ""
+            "{\"type\":\"object\",\"properties\":{$propsStr}$reqStr}"
         }
 
-        return """{"oneOf":[${branches.joinToString(",")}]}"""
+        return "{\"oneOf\":[${branches.joinToString(",")}]}"
     }
 
-    @OptIn(ExperimentalSerializationApi::class)
-    private fun mapKindToType(kind: String): String {
-        return when (kind) {
-            "STRING" -> "string"
-            "BYTE", "SHORT", "INT", "LONG", "FLOAT", "DOUBLE" -> "number"
-            "BOOLEAN" -> "boolean"
-            "CHAR" -> "string"
-            else -> "string"
-        }
+    /**
+     * 在 JSON 对象末尾注入 `description` 字段(若有)。
+     * 假定 `json` 是一个完整的 JSON object,以 `}` 结尾。
+     */
+    private fun appendDescription(json: String, desc: String?): String {
+        if (desc == null) return json
+        val last = json.lastIndexOf('}')
+        if (last < 0) return json
+        return json.substring(0, last) + ",\"description\":\"${escapeJsonString(desc)}\"}" + json.substring(last + 1)
+    }
+
+    private fun escapeJsonString(s: String): String = s
+        .replace("\\", "\\\\")
+        .replace("\"", "\\\"")
+        .replace("\n", "\\n")
+        .replace("\r", "\\r")
+        .replace("\t", "\\t")
+
+    private fun mapKindToType(kind: String): String = when (kind) {
+        "STRING" -> "string"
+        "BYTE", "SHORT", "INT", "LONG", "FLOAT", "DOUBLE" -> "number"
+        "BOOLEAN" -> "boolean"
+        "CHAR" -> "string"
+        // CONTEXTUAL(由 ContextualSerializer 解析的实际类型在 schema 生成时不可知)
+        // 降级为 string,让用户用自定义 serializer 覆盖
+        else -> "string"
     }
 }

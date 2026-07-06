@@ -104,6 +104,39 @@ data class DeviceControlRequest(
     val event: DeviceEvent
 )
 
+// ==================== 嵌套结构测试数据类 ====================
+
+@Serializable
+data class Address(
+    @Description("街道") val street: String,
+    val city: String? = null
+)
+
+@Serializable
+data class NestedRequest(
+    @Description("用户名") val name: String,
+    val address: Address,
+    val tags: List<String>,
+    val scores: List<Int>? = null
+)
+
+@Serializable
+sealed class NotificationChannel {
+    @Serializable
+    @SerialName("email")
+    data class Email(@Description("收件人") val to: String) : NotificationChannel()
+
+    @Serializable
+    @SerialName("sms")
+    data class Sms(@Description("手机号") val phone: String) : NotificationChannel()
+}
+
+@Serializable
+data class NotifyRequest(
+    @Description("渠道") val channel: NotificationChannel,
+    val fallbacks: List<NotificationChannel>? = null
+)
+
 // ==================== Tool 实现 ====================
 
 class TypedToolTestImpl : TypedTool<EmailRequest, SendEmailResult>(
@@ -384,5 +417,170 @@ class TypedToolTest {
         val branches = oneOfArray?.map { it.jsonObject } ?: emptyList()
         assertTrue(branches.any { it.toString().contains("turned_on") }, "should have turned_on branch")
         assertTrue(branches.any { it.toString().contains("turned_off") }, "should have turned_off branch")
+    }
+
+    // ==================== 嵌套场景测试(覆盖 5 个缺口) ====================
+
+    @Test
+    fun `nested data class produces object schema`() {
+        val tool = tool<NestedRequest, String>("nested", "嵌套") { _, _ -> "ok" }
+        val schema = tool.parametersSchema as ToolParameters.JsonSchema
+        val json = Json.parseToJsonElement(schema.schema).jsonObject
+        val properties = json["properties"]!!.jsonObject
+
+        // 缺口 1: 嵌套 data class 应该是 object,不是 string
+        val address = properties["address"]!!.jsonObject
+        assertEquals("object", address["type"]!!.jsonPrimitive.content)
+        // 嵌套 object 的 properties 也要展开
+        assertTrue(address["properties"]!!.jsonObject.containsKey("street"))
+        assertTrue(address["properties"]!!.jsonObject.containsKey("city"))
+        // 嵌套 object 自己的 required 也要生成
+        assertEquals(listOf("street"), address["required"]!!.jsonArray.map { it.jsonPrimitive.content })
+    }
+
+    @Test
+    fun `List produces array schema`() {
+        val tool = tool<NestedRequest, String>("nested", "嵌套") { _, _ -> "ok" }
+        val schema = tool.parametersSchema as ToolParameters.JsonSchema
+        val json = Json.parseToJsonElement(schema.schema).jsonObject
+        val properties = json["properties"]!!.jsonObject
+
+        // 缺口 2: List<T> 应该是 array
+        val tags = properties["tags"]!!.jsonObject
+        assertEquals("array", tags["type"]!!.jsonPrimitive.content)
+        assertEquals("string", tags["items"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `List of data class produces array of object`() {
+        @Serializable
+        data class WithList(
+            val addresses: List<Address>
+        )
+        val tool = tool<WithList, String>("with_list", "list of obj") { _, _ -> "ok" }
+        val schema = tool.parametersSchema as ToolParameters.JsonSchema
+        val json = Json.parseToJsonElement(schema.schema).jsonObject
+        val addresses = json["properties"]!!.jsonObject["addresses"]!!.jsonObject
+
+        assertEquals("array", addresses["type"]!!.jsonPrimitive.content)
+        val items = addresses["items"]!!.jsonObject
+        assertEquals("object", items["type"]!!.jsonPrimitive.content)
+        // items 内部 properties 也要展开
+        assertTrue(items["properties"]!!.jsonObject.containsKey("street"))
+    }
+
+    @Test
+    fun `nullable field excluded from required at all levels`() {
+        val tool = tool<NestedRequest, String>("nested", "嵌套") { _, _ -> "ok" }
+        val schema = tool.parametersSchema as ToolParameters.JsonSchema
+        val json = Json.parseToJsonElement(schema.schema).jsonObject
+        val properties = json["properties"]!!.jsonObject
+
+        // 缺口 4: 顶层 required 应该排除 scores(String?/List<Int>? 之类)
+        val topRequired = json["required"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue("name" in topRequired, "non-nullable field should be required: $topRequired")
+        assertTrue("tags" in topRequired, "List<String> non-nullable should be required: $topRequired")
+        assertTrue("scores" !in topRequired, "nullable List should NOT be in required: $topRequired")
+
+        // 嵌套 object 里的 city: String? 也应该被排除
+        val address = properties["address"]!!.jsonObject
+        val addrRequired = address["required"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue("street" in addrRequired, "street should be required: $addrRequired")
+        assertTrue("city" !in addrRequired, "nullable city should NOT be in required: $addrRequired")
+    }
+
+    @Test
+    fun `oneOf branch has required array`() {
+        val tool = tool<MusicControlRequest, String>("music_control", "音乐控制") { _, _ -> "ok" }
+        val schema = tool.parametersSchema as ToolParameters.JsonSchema
+        val json = Json.parseToJsonElement(schema.schema).jsonObject
+        val actionField = json["properties"]!!.jsonObject["action"]!!.jsonObject
+        val branches = actionField["oneOf"]!!.jsonArray.map { it.jsonObject }
+
+        // 每个分支都应该有 required,包含 discriminator + 非空子类字段
+        val playBranch = branches.first { it.toString().contains("\"play\"") }
+        val playRequired = playBranch["required"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue("type" in playRequired, "discriminator should be required: $playRequired")
+        assertTrue("song" in playRequired, "non-nullable song should be required: $playRequired")
+        // Play.artist 是 String? — 不在 required
+        assertTrue("artist" !in playRequired, "nullable artist should NOT be in required: $playRequired")
+    }
+
+    @Test
+    fun `nested sealed class inside data class`() {
+        val tool = tool<NotifyRequest, String>("notify", "通知") { _, _ -> "ok" }
+        val schema = tool.parametersSchema as ToolParameters.JsonSchema
+        val json = Json.parseToJsonElement(schema.schema).jsonObject
+        val properties = json["properties"]!!.jsonObject
+
+        // 缺口 3: 顶层 sealed 仍然是 oneOf
+        val channel = properties["channel"]!!.jsonObject
+        assertTrue(channel.containsKey("oneOf"), "channel should be oneOf: $channel")
+        assertEquals(2, channel["oneOf"]!!.jsonArray.size)
+
+        // 缺口 3+: List<sealed> 应该是 array of oneOf
+        val fallbacks = properties["fallbacks"]!!.jsonObject
+        assertEquals("array", fallbacks["type"]!!.jsonPrimitive.content)
+        val items = fallbacks["items"]!!.jsonObject
+        assertTrue(items.containsKey("oneOf"), "List<sealed> items should be oneOf: $items")
+        assertEquals(2, items["oneOf"]!!.jsonArray.size)
+    }
+
+    @Test
+    fun `description preserved at all levels`() {
+        val tool = tool<NotifyRequest, String>("notify", "通知") { _, _ -> "ok" }
+        val schema = tool.parametersSchema as ToolParameters.JsonSchema
+
+        // 1) 顶层字段的 description
+        assertTrue("渠道" in schema.schema, "channel description should be at outer oneOf: ${schema.schema}")
+        // 2) oneOf 分支内部子字段的 description(嵌套层级)
+        assertTrue("收件人" in schema.schema, "email branch to description: ${schema.schema}")
+        assertTrue("手机号" in schema.schema, "sms branch phone description: ${schema.schema}")
+        // 3) description 不能重复
+        assertEquals(1, schema.schema.split("渠道").size - 1, "channel description should appear exactly once")
+    }
+
+    @Test
+    fun `nested object fields keep their descriptions`() {
+        @Serializable
+        data class WithDescription(
+            val user: Address
+        )
+        val tool = tool<WithDescription, String>("with_desc", "desc") { _, _ -> "ok" }
+        val schema = tool.parametersSchema as ToolParameters.JsonSchema
+        val json = Json.parseToJsonElement(schema.schema).jsonObject
+        val userField = json["properties"]!!.jsonObject["user"]!!.jsonObject
+        val userProps = userField["properties"]!!.jsonObject
+
+        // 嵌套 object 里的字段 description 必须保留(走 JSON 路径读 description 字段,不止验证字符串包含)
+        val streetDesc = userProps["street"]!!.jsonObject["description"]?.jsonPrimitive?.content
+        assertEquals("街道", streetDesc, "street description lost: $userField")
+        // 嵌套字段也必须在父级 required 里(因为 Address.street 非空)
+        val userRequired = userField["required"]!!.jsonArray.map { it.jsonPrimitive.content }
+        assertTrue("street" in userRequired, "nested non-nullable field should be required: $userRequired")
+    }
+
+    @Test
+    fun `Set produces array schema`() {
+        @Serializable
+        data class WithSet(
+            val tags: Set<String>,
+            val codes: Set<Int>
+        )
+        val tool = tool<WithSet, String>("with_set", "set test") { _, _ -> "ok" }
+        val schema = tool.parametersSchema as ToolParameters.JsonSchema
+        val json = Json.parseToJsonElement(schema.schema).jsonObject
+        val properties = json["properties"]!!.jsonObject
+
+        // SET 跟 LIST 走同一分支,生成 array schema
+        val tags = properties["tags"]!!.jsonObject
+        assertEquals("array", tags["type"]!!.jsonPrimitive.content)
+        assertEquals("string", tags["items"]!!.jsonObject["type"]!!.jsonPrimitive.content)
+        // Set<String> 非空 → 进父级 required
+        assertTrue("tags" in json["required"]!!.jsonArray.map { it.jsonPrimitive.content })
+
+        val codes = properties["codes"]!!.jsonObject
+        assertEquals("array", codes["type"]!!.jsonPrimitive.content)
+        assertEquals("number", codes["items"]!!.jsonObject["type"]!!.jsonPrimitive.content)
     }
 }
