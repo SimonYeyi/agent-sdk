@@ -106,18 +106,14 @@ public class ReActAgent internal constructor(
             memory.add(ChatMessage.User(input))
 
             while (iterations < maxIterations) {
-                val completed = try {
-                    loopOnce(++iterations, toolCalls, llmCall, emit)
+                try {
+                    loopOnce(++iterations, toolCalls, llmCall, emit)?.let { return }
                 } catch (e: Throwable) {
-                    if (e.isContextOverflow()) {
-                        log.warn(e)
-                        memory.handleContextOverflow()
-                        false
-                    } else {
-                        throw e
-                    }
+                    e.takeIf { it.isContextOverflow() }
+                        ?.also { log.warn(it) }
+                        ?.let { memory.handleContextOverflow() }
+                        ?: throw e
                 }
-                if (completed) return
             }
             throw AgentException.MaxIterations(maxIterations)
         } catch (t: Throwable) {
@@ -135,7 +131,7 @@ public class ReActAgent internal constructor(
         toolCalls: MutableList<AgentResult.ToolCallRecord>,
         llmCall: suspend (ChatRequest) -> ChatResponse,
         emit: suspend (AgentEvent) -> Unit
-    ): Boolean {
+    ): AgentResult? {
         val context = buildContext(iterations)
 
         val request = buildRequest()
@@ -153,7 +149,7 @@ public class ReActAgent internal constructor(
             )
             hook.safeInvoke { onRunCompleted(context, result) }
             emit(AgentEvent.Final(result))
-            return true
+            return result
         }
 
         response.message.content.takeIf { it != "" }.let {
@@ -177,7 +173,7 @@ public class ReActAgent internal constructor(
                 emit(AgentEvent.ToolCallEnd(call.id, final))
             }
         }
-        return false
+        return null
     }
 
     private suspend fun recordToMemory(
