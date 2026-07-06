@@ -18,7 +18,7 @@ function_name(
     param2?: number,
     param3?: string[] | "描述",
     status: enum(todo, in_progress, done) | "状态",
-    config: object
+    config?: {host: string, port?: number} | "服务器配置"
 )
 ```
 
@@ -26,9 +26,28 @@ function_name(
 
 ```
 function_name(
-    action=play, song: string, artist?: string | "歌手";
-    action=pause;
-    action=volume, volume: number | "0-100"
+    action=play, song: string, artist?: string | "歌手" | "播放一首歌曲";
+    action=pause | "暂停播放";
+    action=volume, volume: number | "0-100" | "调整音量"
+)
+```
+
+分支描述追加在分支参数之后(用 `|` + 引号)。每个分支可以有自己的 `description`,告诉模型该分支的语义。
+
+### 嵌套 object / array of object / 嵌套 oneOf
+
+```
+query(
+    filter: {field: string, op: enum(eq, gt, lt), value?: string} | "过滤条件",
+    items?: [{
+        id?: number,
+        tags?: string[] | "标签数组",
+        meta?: {key: string, value?: string} | "自定义元数据"
+    }] | "查询结果",
+    mode: [
+        {type=scan, interval: number | "秒"} | "定时扫描";
+        {type=watch, callback: string | "回调 URL"} | "事件监听"
+    ] | "执行模式"
 )
 ```
 
@@ -37,22 +56,28 @@ function_name(
 | 元素 | 语法 | 说明 |
 |------|------|------|
 | 必填参数 | `name: type` | — |
-| 可空参数 | `name?: type` | 末尾加 `?` |
+| 可选参数 | `name?: type` | 末尾加 `?` |
 | 字符串 | `string` | — |
 | 数字 | `number` | 整数和浮点统一 |
 | 布尔 | `boolean` | — |
 | 字符串数组 | `string[]` | — |
 | 数字数组 | `number[]` | — |
-| 对象 | `object` | 嵌套结构 `{key: value}` |
+| 布尔数组 | `boolean[]` | — |
+| 对象 | `{k1: type, k2?: type}` | 内联字段结构 |
+| 对象数组 | `[{...}]` | array of object |
 | 枚举 | `enum(v1, v2, v3)` | 逗号分隔 |
 | 参数描述 | `type \| "描述"` | 末尾加 `\|` + 引号 |
-| oneOf 分支 | `cond, params` | 条件参数 + 逗号 + 其他参数 |
+| 容器描述 | `{...} \| "描述"` | 嵌套 object / oneOf / array 整体也带描述 |
+| 顶层 oneOf 分支 | `cond, params` | 条件参数 + 逗号 + 其他参数 |
+| 嵌套 oneOf 分支 | `{cond, params}` | 嵌套场景用 `{}` 包裹分支体 |
 | 分支分隔 | `;` | 分号分隔多个分支 |
-| 空分支 | `cond` | 只有条件，无其他参数 |
+| catch-all 分支 | `*` | 无判别字段时用 `*` 标识(可省略) |
+| 空分支 | `cond` | 只有条件,无其他参数 |
 
-**oneOf 说明**：
-- 每个分支有一个共同的条件字段（如 `action`），通过 `const` 值区分
-- 条件字段在 execution 中作为第一个参数，如 `action=play`
+**oneOf 判别字段**:
+- 优先 `const`(`{"const": "play"}`),回退单值 `enum`(`{"enum": ["play"]}`)
+- 都找不到则该分支为 catch-all(`condition` 为空,渲染为 `*` 或 `{* params}`)
+- 条件字段在 execution 中作为第一个参数,如 `action=play`
 - 解析时根据条件字段的值找到对应分支
 
 ### execution 格式
@@ -94,8 +119,12 @@ music_control(action=pause)
 | `boolean` | `true` |
 | `string[]` | `['a', 'b']` |
 | `number[]` | `[1, 2, 3]` |
-| `object` | `{key: 'value'}` |
+| `boolean[]` | `[true, false]` |
+| `object`(无字段) | `{}` |
+| `{k1: type, k2?: type}` | `{k1: 'v1', k2: 'v2'}` |
+| `[{...}]`(对象数组) | `[{k: 'v'}, {k: 'v'}]` |
 | `enum(a, b)` | `a` |
+| `[{cond, params}; {cond, params}]` | `[{type=scan, interval=5}]` |
 
 ## 核心接口
 
@@ -113,8 +142,9 @@ public data class FunctionSignature(
 
 @Serializable
 public data class Branch(
-    val condition: String,  // 如 "action=play"
-    val params: List<Param>
+    val condition: String,           // 如 "action=play";空字符串表示 catch-all 分支
+    val params: List<Param>,
+    val description: String? = null  // 分支自身的描述(可选,渲染在分支末尾)
 )
 
 @Serializable
@@ -122,7 +152,7 @@ public data class Param(
     val name: String,
     val type: ParamType,
     val required: Boolean,
-    val description: String? = null
+    val description: String? = null  // 与 type.description 同值时让 type 独占,避免重复渲染
 )
 
 @Serializable
@@ -130,7 +160,25 @@ public sealed class ParamType {
     public data class StringType(val isArray: Boolean = false) : ParamType()
     public data class NumberType(val isArray: Boolean = false) : ParamType()
     public data class BooleanType(val isArray: Boolean = false) : ParamType()
-    public data class ObjectType(val isArray: Boolean = false) : ParamType()
+
+    /** 对象类型。`fields` 非空时携带内层字段结构(递归支持嵌套 object / array of object)。 */
+    public data class ObjectType(
+        val isArray: Boolean = false,
+        val fields: List<Param> = emptyList(),
+        val description: String? = null,  // 透传内层 schema 的 description(供 array 容器等场景渲染)
+    ) : ParamType()
+
+    /**
+     * 多分支类型(oneOf / anyOf)。
+     * - `condition` 为空字符串的 Branch 表示 catch-all 分支(无判别字段)
+     * - `isArray = true` 表示元素是 oneOf(来自 `type: array` + `items: {oneOf: ...}`)
+     */
+    public data class OneOfType(
+        val branches: List<Branch>,
+        val isArray: Boolean = false,
+        val description: String? = null,
+    ) : ParamType()
+
     public data class EnumType(val values: List<String>) : ParamType()
 }
 ```
@@ -222,24 +270,64 @@ val result = compressor.compress("music_control", schema)
 
 ### SchemaCompressor
 
-解析 JSON Schema 字符串，提取：
+解析 JSON Schema 字符串,提取:
 - 参数名、类型、是否必填
-- 枚举值（从 enum 中提取）
-- 描述（从 description 字段提取）
-- oneOf 分支（从 oneOf 数组提取）
+- 枚举值(从 `enum` 中提取)
+- 描述(从 `description` 字段提取,**所有层级都保留**)
+- `oneOf` / `anyOf` / `allOf` 分支
 
-支持两种模式：
-1. **普通模式**：properties 下直接列出所有参数
-2. **oneOf 模式**：检测 oneOf 关键字，每个分支通过 const 字段区分
+**支持的三种模式**:
+1. **普通模式**:`properties` 下直接列出所有参数
+2. **oneOf 模式**:检测 `oneOf` / `anyOf` 关键字,每个分支通过判别字段区分
+3. **allOf 模式**:合并多个分支的 `properties`,`required` 取并集;同名字段取第一个分支(后续不覆盖),不解析 `$ref`
+
+**oneOf vs anyOf**:anyOf 视作 oneOf 处理(同优先级,模型通常不区分语义差别)。
+
+**判别字段查找**:
+- 优先 `const`(`{"const": "play"}`)
+- 回退单值 `enum`(`{"enum": ["play"]}` 等价 const)
+- 都找不到则该分支为 catch-all(`condition` 为空,渲染为 `*`)
+
+**嵌套 oneOf/anyOf/allOf**:
+- 嵌套 oneOf 渲染为 `OneOfType`,允许出现在 `ObjectType.fields` 或 array 元素类型里
+- 嵌套 allOf 在解析时**先合并为单个 object schema**,再走 `parseObjectFields`
+
+**description 保留规则**(核心设计原则:**不删除用户写的语义内容,只去语法包装和次要约束**):
+
+| 位置 | 行为 |
+|------|------|
+| Param 描述 | 若与所属的 `ObjectType` / `OneOfType` 描述**同值**,让 type 独占(避免重复渲染);否则两者并存 |
+| `ObjectType` / `OneOfType` 描述 | 透传内层 schema 的 `description`,让 array of object、嵌套 oneOf 等场景都能渲染 |
+| `Branch` 描述 | 保留分支自身的 `description`,渲染在分支末尾(`{cond, params} \| "branch desc"`) |
+| 顶层 oneOf 分支描述 | 同样保留(`action=play, song: string \| "播放歌曲"`) |
+| array 容器 vs items | 当外层 description 和 items 的 description **不同**时,两者并存(`impacts?: [{...}] \| "数组说明"`) |
+
+**空 fields 的 ObjectType**:
+- 无 `properties` 时不展开为 `{}`,渲染为 `object` / `object[]`
+- 若有 `description`,追加在末尾(`object \| "说明"`)
 
 ### ExecutionParser
 
-使用**递归下降 parser** 解析 execution 字符串，状态机处理：
-- 引号嵌套：`'it\'s'` 不当成分隔符
-- 逗号在引号内：`'John, Smith'`
+使用**递归下降 parser** 解析 execution 字符串,状态机处理:
+- 引号嵌套:`'it\'s'` 不当成分隔符
+- 逗号在引号内:`'John, Smith'`
 - 转义字符
-- 对象字面量：`{key: 'value'}`
-- oneOf 分支：`action=play, song='x'; action=volume, volume=75`
+- 对象字面量:`{key: 'value'}`
+- 嵌套 oneOf 判别:`{type=email, to='x@y.com'}` —— 读到判别字段时匹配分支,后续字段用分支的 fields
+- 数组字面量:`['a', 'b']`、`[{k: 'v'}]`
+
+**宽容处理**(针对 LLM 漂移,**不影响标准输入**):
+
+| 输入 | 处理 |
+|------|------|
+| `send_email(to='x', subject='hi')` | 正常解析(带函数名) |
+| `to='x@x.com', subject='hi'` | 缺少函数名时也接受,rewind 起点把后续当裸参数列表 |
+| `send_email(to : 'x', subject : 'hi')` | 接受 `:` 作为 `=` 的替代分隔符 |
+| `to:'x@x.com'` | 键值对之间不加空格也接受 |
+
+**判别字段在嵌套 object 中的处理**:
+- 取所有非空 `condition` 共享的字段名(通常就是第一个分支的判别字段)
+- 解析时按值匹配分支;不匹配则走 catch-all 分支(若存在)
 
 ## 语法教学 System Prompt
 
@@ -268,6 +356,8 @@ val result = compressor.compress("music_control", schema)
 | 布尔 | `true`/`false` | `true` |
 | 字符串数组 | `['a', 'b']` | `['work', 'urgent']` |
 | 数字数组 | `[1, 2]` | `[1, 2, 3]` |
+| 对象 | `{key: 'value', k2: v2}` | `{field: 'status', op: 'eq'}` |
+| 对象数组 | `[{k: 'v'}]` | `[{id: 1, name: 'a'}]` |
 | 枚举 | 枚举值之一 | `active` |
 
 ## 完整示例
@@ -285,6 +375,23 @@ send_email(to: string, subject: string, body?: string, cc?: string[], tags?: str
   "name": "send_email",
   "arguments": {
     "execution": "send_email(to='user@example.com', subject='会议邀请', body='明天下午3点开会', tags=['meeting'])"
+  }
+}
+```
+
+### 嵌套对象工具
+
+工具签名：
+```
+query(filter: {field: string, op: enum(eq, gt, lt), value?: string}, limit?: number)
+```
+
+正确返回：
+```json
+{
+  "name": "query",
+  "arguments": {
+    "execution": "query(filter={field='status', op='eq', value='active'}, limit=10)"
   }
 }
 ```
@@ -329,8 +436,26 @@ music_control(action=play, song: string, artist?: string; action=pause; action=v
 ## 注意事项
 
 - 必填参数必须提供
-- 可空参数用 `?` 标记，可以省略
+- 可选参数用 `?` 标记,可以省略
 - 字符串值必须用单引号包裹
-- 数组用 `[]`，元素用逗号分隔
-- 枚举值直接写，不要加引号
-- oneOf 分支用 `;` 分隔，模型根据条件字段（如 action）值决定传哪些参数
+- 数组用 `[]`,元素用逗号分隔
+- 对象用 `{}`,字段顺序不影响解析
+- 枚举值直接写,不要加引号
+- oneOf 分支用 `;` 分隔,模型根据条件字段(如 `action`)值决定传哪些参数
+- 描述(` \| "..."`)是给模型读的参考,按需提供即可;不会被解析器消费
+
+## 兼容性说明
+
+解析器对以下 LLM 漂移做了兼容,**正常输入不受影响**:
+
+| 漂移 | 兼容方式 |
+|------|----------|
+| 漏写函数名和括号 | `a=1, b=2` 与 `f(a=1, b=2)` 等价 |
+| 漏写 `=` 写 `:` | `a : 1` 与 `a = 1` 等价 |
+| 键值无空格 | `a:1` 接受 |
+
+## 设计原则:不删用户内容
+
+压缩的目标是**节省 token**,但节省的方式是去除**语法包装**(JSON 嵌套、`required` 数组、`type` 字段)和**次要约束**(`min`/`max`/`pattern`/`format`),**绝不删除用户写的语义内容**(尤其是 `description` 类的元信息)。
+
+理由:用户写 `description` 是为了把领域知识传给 LLM,压缩器擅自删除等于剥夺用户的控制权。如果用户觉得 description 多余,正确的做法是让他自己不写,而不是压缩器替他删。
