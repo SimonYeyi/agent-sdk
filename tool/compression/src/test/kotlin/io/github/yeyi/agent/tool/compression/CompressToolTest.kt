@@ -193,6 +193,373 @@ class CompressToolTest {
     }
 
     @Test
+    fun `nested oneOf round-trip -- channel field with type discriminator`() = runTest {
+        // 顶层普通字段 channel 是 oneOf:按 type 判别,后续字段分派到对应分支
+        val tool = createTool("send", """
+            {
+                "type": "object",
+                "properties": {
+                    "channel": {
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "type": {"const": "email"},
+                                    "to": {"type": "string"}
+                                },
+                                "required": ["type", "to"]
+                            },
+                            {
+                                "properties": {
+                                    "type": {"const": "webhook"},
+                                    "url": {"type": "string"}
+                                },
+                                "required": ["type", "url"]
+                            }
+                        ]
+                    }
+                },
+                "required": ["channel"]
+            }
+        """.trimIndent())
+
+        val compressed = CompressTool(tool)
+        compressed.parametersSchema // 触发压缩
+
+        val execution = """send(channel={type=email, to='user@example.com'})"""
+        val result = compressed.execute(
+            JsonObject(mapOf("execution" to JsonPrimitive(execution))),
+            createToolContext()
+        )
+
+        assertFalse(result.isError, "execute failed: ${result.content}")
+        val parsed = Json.parseToJsonElement(result.content).jsonObject
+        val channel = parsed["channel"]!!.jsonObject
+        assertEquals("email", channel["type"]?.jsonPrimitive?.content)
+        assertEquals("user@example.com", channel["to"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `nested oneOf array element round-trip`() = runTest {
+        // events 是 array of oneOf:每个元素按自己的 type 判别分派
+        val tool = createTool("log", """
+            {
+                "type": "object",
+                "properties": {
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "oneOf": [
+                                {
+                                    "properties": {
+                                        "type": {"const": "click"},
+                                        "x": {"type": "number"},
+                                        "y": {"type": "number"}
+                                    },
+                                    "required": ["type", "x"]
+                                },
+                                {
+                                    "properties": {
+                                        "type": {"const": "view"},
+                                        "page": {"type": "string"}
+                                    },
+                                    "required": ["type", "page"]
+                                }
+                            ]
+                        }
+                    }
+                },
+                "required": ["events"]
+            }
+        """.trimIndent())
+
+        val compressed = CompressTool(tool)
+        compressed.parametersSchema
+
+        val execution = """log(events=[{type=click, x=10, y=20}, {type=view, page='/home'}])"""
+        val result = compressed.execute(
+            JsonObject(mapOf("execution" to JsonPrimitive(execution))),
+            createToolContext()
+        )
+
+        assertFalse(result.isError, "execute failed: ${result.content}")
+        val parsed = Json.parseToJsonElement(result.content).jsonObject
+        val events = parsed["events"]!!.jsonArray
+        assertEquals(2, events.size)
+        assertEquals("click", events[0].jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals(10.0, events[0].jsonObject["x"]?.jsonPrimitive?.content?.toDouble())
+        assertEquals("view", events[1].jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("/home", events[1].jsonObject["page"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun `comprehensive end-to-end demo for full schema compression`() = runBlocking {
+        // 覆盖:顶层普通字段 + 嵌套 oneOf 字段 + 数组元素 oneOf +
+        //      嵌套 object + 数组 of object + 各种原始类型 + 枚举 + 必选/可选
+        val tool = createTool("send_notification", """
+            {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string", "description": "通知标题"},
+                    "priority": {
+                        "type": "string",
+                        "enum": ["low", "normal", "high"],
+                        "description": "优先级"
+                    },
+                    "recipients": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "收件人列表"
+                    },
+                    "channel": {
+                        "description": "发送渠道",
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "type": {"const": "email"},
+                                    "to": {"type": "string"},
+                                    "subject": {"type": "string"}
+                                },
+                                "required": ["type", "to"]
+                            },
+                            {
+                                "properties": {
+                                    "type": {"const": "sms"},
+                                    "phone": {"type": "string"}
+                                },
+                                "required": ["type", "phone"]
+                            },
+                            {
+                                "properties": {
+                                    "type": {"const": "webhook"},
+                                    "url": {"type": "string"},
+                                    "retries": {"type": "integer"}
+                                },
+                                "required": ["type", "url"]
+                            }
+                        ]
+                    },
+                    "schedule": {
+                        "type": "object",
+                        "description": "可选的定时配置",
+                        "properties": {
+                            "send_at": {"type": "string", "description": "ISO 时间"},
+                            "timezone": {"type": "string", "description": "IANA 时区"}
+                        },
+                        "required": ["send_at"]
+                    },
+                    "events": {
+                        "type": "array",
+                        "description": "埋点事件(用于分析通知效果)",
+                        "items": {
+                            "oneOf": [
+                                {
+                                    "properties": {
+                                        "type": {"const": "click"},
+                                        "x": {"type": "number"},
+                                        "y": {"type": "number"}
+                                    },
+                                    "required": ["type", "x"]
+                                },
+                                {
+                                    "properties": {
+                                        "type": {"const": "view"},
+                                        "page": {"type": "string"},
+                                        "duration_ms": {"type": "integer"}
+                                    },
+                                    "required": ["type", "page"]
+                                }
+                            ]
+                        }
+                    }
+                },
+                "required": ["title", "priority", "channel", "recipients"]
+            }
+        """.trimIndent())
+
+        val compressed = CompressTool(tool)
+        val schema = compressed.parametersSchema as ToolParameters.JsonSchema
+        val root = Json.parseToJsonElement(schema.schema).jsonObject
+        val desc = root["properties"]!!.jsonObject["execution"]!!.jsonObject["description"]!!.jsonPrimitive.content
+
+        // 一个走通所有特性的 execution:嵌套 oneOf 走 email 分支,
+        // 数组里有 click 和 view 两种 oneOf 元素,schedule 只填必填字段
+        val execution = """send_notification(
+            title='新功能发布',
+            priority=high,
+            recipients=['alice@x.com', 'bob@x.com'],
+            channel={type=email, to='team@x.com', subject='v2.0 来了'},
+            schedule={send_at='2026-08-01T10:00:00Z', timezone='Asia/Shanghai'},
+            events=[{type=click, x=120, y=340}, {type=view, page='/home', duration_ms=2500}]
+        )"""
+
+        val result = compressed.execute(
+            JsonObject(mapOf("execution" to JsonPrimitive(execution.replace("\n", "").replace(Regex("\\s+"), " ").trim()))),
+            createToolContext()
+        )
+
+        java.io.File("D:/yeyi/AI/agent-sdk/build/comprehensive-demo-output.txt").writeText(buildString {
+            appendLine("=== 综合示例:覆盖所有压缩特性 ===")
+            appendLine()
+            appendLine("=== [1] 压缩后的完整 JSON Schema ===")
+            appendLine(Json.parseToJsonElement(schema.schema).toString())
+            appendLine()
+            appendLine("=== [2] execution.description (签名) ===")
+            appendLine(desc)
+            appendLine()
+            appendLine("=== [3] LLM 生成的 execution 串 ===")
+            appendLine(execution.replace("\n", "").replace(Regex("\\s+"), " ").trim())
+            appendLine()
+            appendLine("=== [4] 解析回 JSON (喂给下游 tool.execute) ===")
+            appendLine(Json.parseToJsonElement(result.content).toString())
+            appendLine()
+            appendLine("=== isError ===")
+            appendLine(result.isError)
+            appendLine()
+        })
+
+        // 断言:解析结果里所有字段类型正确
+        val parsed = Json.parseToJsonElement(result.content).jsonObject
+        assertEquals(false, result.isError, "execute failed: ${result.content}")
+        assertEquals("新功能发布", parsed["title"]?.jsonPrimitive?.content)
+        assertEquals("high", parsed["priority"]?.jsonPrimitive?.content)
+        val recipients = parsed["recipients"]!!.jsonArray
+        assertEquals(2, recipients.size)
+        assertEquals("alice@x.com", recipients[0].jsonPrimitive.content)
+        assertEquals("bob@x.com", recipients[1].jsonPrimitive.content)
+        val channel = parsed["channel"]!!.jsonObject
+        assertEquals("email", channel["type"]?.jsonPrimitive?.content)
+        assertEquals("team@x.com", channel["to"]?.jsonPrimitive?.content)
+        assertEquals("v2.0 来了", channel["subject"]?.jsonPrimitive?.content)
+        val schedule = parsed["schedule"]!!.jsonObject
+        assertEquals("2026-08-01T10:00:00Z", schedule["send_at"]?.jsonPrimitive?.content)
+        assertEquals("Asia/Shanghai", schedule["timezone"]?.jsonPrimitive?.content)
+        val events = parsed["events"]!!.jsonArray
+        assertEquals(2, events.size)
+        val click = events[0].jsonObject
+        assertEquals("click", click["type"]?.jsonPrimitive?.content)
+        assertEquals(120.0, click["x"]?.jsonPrimitive?.content?.toDouble())
+        assertEquals(340.0, click["y"]?.jsonPrimitive?.content?.toDouble())
+        val view = events[1].jsonObject
+        assertEquals("view", view["type"]?.jsonPrimitive?.content)
+        assertEquals("/home", view["page"]?.jsonPrimitive?.content)
+        assertEquals(2500.0, view["duration_ms"]?.jsonPrimitive?.content?.toDouble())
+    }
+
+    @Test
+    fun `demo printout for nested oneOf`() = runBlocking {
+        val tool = createTool("send", """
+            {
+                "type": "object",
+                "properties": {
+                    "channel": {
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "type": {"const": "email"},
+                                    "to": {"type": "string"}
+                                },
+                                "required": ["type", "to"]
+                            },
+                            {
+                                "properties": {
+                                    "type": {"const": "webhook"},
+                                    "url": {"type": "string"}
+                                },
+                                "required": ["type", "url"]
+                            }
+                        ]
+                    }
+                },
+                "required": ["channel"]
+            }
+        """.trimIndent())
+
+        val compressed = CompressTool(tool)
+        val schema = compressed.parametersSchema as ToolParameters.JsonSchema
+        val root = Json.parseToJsonElement(schema.schema).jsonObject
+        val desc = root["properties"]!!.jsonObject["execution"]!!.jsonObject["description"]!!.jsonPrimitive.content
+
+        val execution = """send(channel={type=email, to='a@b.com'})"""
+        val result = compressed.execute(
+            JsonObject(mapOf("execution" to JsonPrimitive(execution))),
+            createToolContext()
+        )
+
+        java.io.File("D:/yeyi/AI/agent-sdk/build/nested-oneof-output.txt").writeText(buildString {
+            appendLine("=== 嵌套 oneOf 字段(在 object 里) ===")
+            appendLine()
+            appendLine("=== [1] 签名 ===")
+            appendLine(desc)
+            appendLine()
+            appendLine("=== [2] execution 串 ===")
+            appendLine(execution)
+            appendLine()
+            appendLine("=== [3] 解析回 JSON ===")
+            appendLine(Json.parseToJsonElement(result.content).toString())
+            appendLine()
+        })
+    }
+
+    @Test
+    fun `demo printout for oneOf as array element`() = runBlocking {
+        val tool = createTool("log", """
+            {
+                "type": "object",
+                "properties": {
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "oneOf": [
+                                {
+                                    "properties": {
+                                        "type": {"const": "click"},
+                                        "x": {"type": "number"},
+                                        "y": {"type": "number"}
+                                    },
+                                    "required": ["type", "x"]
+                                },
+                                {
+                                    "properties": {
+                                        "type": {"const": "view"},
+                                        "page": {"type": "string"}
+                                    },
+                                    "required": ["type", "page"]
+                                }
+                            ]
+                        }
+                    }
+                },
+                "required": ["events"]
+            }
+        """.trimIndent())
+
+        val compressed = CompressTool(tool)
+        val schema = compressed.parametersSchema as ToolParameters.JsonSchema
+        val root = Json.parseToJsonElement(schema.schema).jsonObject
+        val desc = root["properties"]!!.jsonObject["execution"]!!.jsonObject["description"]!!.jsonPrimitive.content
+
+        val execution = """log(events=[{type=click, x=10, y=20}, {type=view, page='/home'}])"""
+        val result = compressed.execute(
+            JsonObject(mapOf("execution" to JsonPrimitive(execution))),
+            createToolContext()
+        )
+
+        java.io.File("D:/yeyi/AI/agent-sdk/build/oneof-array-output.txt").writeText(buildString {
+            appendLine("=== 数组元素是 oneOf ===")
+            appendLine()
+            appendLine("=== [1] 签名 ===")
+            appendLine(desc)
+            appendLine()
+            appendLine("=== [2] execution 串 ===")
+            appendLine(execution)
+            appendLine()
+            appendLine("=== [3] 解析回 JSON ===")
+            appendLine(Json.parseToJsonElement(result.content).toString())
+            appendLine()
+        })
+    }
+
+    @Test
     fun `demo round-trip printout for mcp_bug_handle`() = runBlocking {
         val compressed = CompressTool(createTool("mcp_bug_handle", MCP_BUG_HANDLE_SCHEMA))
         val schema = compressed.parametersSchema as ToolParameters.JsonSchema

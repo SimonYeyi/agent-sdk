@@ -2,6 +2,7 @@ package io.github.yeyi.agent.tool.compression
 
 import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -48,12 +49,22 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
             return FunctionSignature(name, emptyList())
         }
 
-        // 检查是否有 oneOf
-        val oneOf = element["oneOf"]?.jsonArray
-        if (oneOf != null) {
-            val branches = oneOf.mapNotNull { branch -> parseBranch(branch.jsonObject) }
+        // 检查是否有 oneOf / anyOf(都按多分支处理)
+        val oneOfBranches = element["oneOf"]?.jsonArray
+            ?: element["anyOf"]?.jsonArray
+        if (oneOfBranches != null) {
+            val branches = oneOfBranches.mapNotNull { branch -> parseBranch(branch.jsonObject) }
             if (branches.isNotEmpty()) {
                 return FunctionSignature(name, emptyList(), branches)
+            }
+        }
+
+        // allOf 合并成单个 object schema
+        val allOf = element["allOf"]?.jsonArray
+        if (allOf != null) {
+            val synthetic = mergeAllOf(allOf)
+            if (synthetic != null) {
+                return compressObject(synthetic, name)
             }
         }
 
@@ -78,21 +89,32 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
             ?.toSet()
             ?: emptySet()
 
-        // 找出 const 字段作为条件
-        var condition: String? = null
+        // 找判别字段:优先 const,回退单值 enum(等价 const)。condition 为空表示 catch-all
+        var condition = ""
+        var discriminatorFound = false
         for ((fieldName, schema) in properties.entries) {
-            val constValue = schema.jsonObject["const"]?.jsonPrimitive?.content
+            val schemaObj = schema.jsonObject
+            val constValue = schemaObj["const"]?.jsonPrimitive?.content
             if (constValue != null) {
                 condition = "$fieldName=$constValue"
+                discriminatorFound = true
+                break
+            }
+            val enumValues = schemaObj["enum"]?.jsonArray?.map { it.jsonPrimitive.content }
+            if (enumValues != null && enumValues.size == 1) {
+                condition = "$fieldName=${enumValues[0]}"
+                discriminatorFound = true
                 break
             }
         }
-        if (condition == null) return null
+        // 无判别字段也保留(catch-all),用空 condition 标识
 
+        // 过滤:排除 const 字段和单值 enum(它们被当 discriminator,不再作为普通参数)
         val params = properties.entries
             .filter { (_, schema) ->
-                // 排除 const 字段本身（它用于条件，不作为参数）
-                schema.jsonObject["const"] == null
+                val schemaObj = schema.jsonObject
+                val isSingleEnum = schemaObj["enum"]?.jsonArray?.let { it.size == 1 } == true
+                schemaObj["const"] == null && !isSingleEnum
             }
             .mapNotNull { (paramName, schema) ->
                 parseParam(paramName, schema, requiredSet.contains(paramName))
@@ -114,6 +136,19 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
     private fun parseType(schema: JsonElement): ParamType? {
         if (schema !is JsonObject) return null
 
+        // oneOf / anyOf / allOf 优先级最高(覆盖 type)—— 让判别式字段能嵌套在任意位置
+        schema["oneOf"]?.jsonArray?.let { oneOf ->
+            val branches = oneOf.mapNotNull { parseBranch(it.jsonObject) }
+            if (branches.isNotEmpty()) return ParamType.OneOfType(branches)
+        }
+        schema["anyOf"]?.jsonArray?.let { anyOf ->
+            val branches = anyOf.mapNotNull { parseBranch(it.jsonObject) }
+            if (branches.isNotEmpty()) return ParamType.OneOfType(branches)
+        }
+        schema["allOf"]?.jsonArray?.let { allOf ->
+            return parseAllOf(allOf)
+        }
+
         val enumValues = schema["enum"]?.jsonArray
             ?.map { it.jsonPrimitive.content }
         if (enumValues != null) {
@@ -130,6 +165,7 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
                     is ParamType.NumberType -> ParamType.NumberType(isArray = true)
                     is ParamType.BooleanType -> ParamType.BooleanType(isArray = true)
                     is ParamType.ObjectType -> itemType.copy(isArray = true)
+                    is ParamType.OneOfType -> itemType.copy(isArray = true)
                     is ParamType.EnumType -> ParamType.StringType(isArray = true)
                 }
             }
@@ -144,6 +180,36 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
             "object" -> ParamType.ObjectType(fields = parseObjectFields(schema))
             "array" -> ParamType.StringType(isArray = true)
             else -> null
+        }
+    }
+
+    private fun parseAllOf(allOf: JsonArray): ParamType? {
+        val synthetic = mergeAllOf(allOf) ?: return ParamType.ObjectType()
+        return ParamType.ObjectType(fields = parseObjectFields(synthetic))
+    }
+
+    /**
+     * 把 allOf 多个分支的 properties 合并、required 取并集,合成一个 object schema。
+     * 同名字段取第一个分支(后续分支不覆盖),不解析 $ref。
+     * 合并结果为空时返回 null(让调用方决定如何降级)。
+     */
+    private fun mergeAllOf(allOf: JsonArray): JsonObject? {
+        val merged = mutableMapOf<String, JsonElement>()
+        val required = mutableSetOf<String>()
+        for (branch in allOf) {
+            val props = branch.jsonObject["properties"]?.jsonObject
+            props?.forEach { (name, schema) ->
+                if (name !in merged) merged[name] = schema
+            }
+            branch.jsonObject["required"]?.jsonArray
+                ?.map { it.jsonPrimitive.content }
+                ?.forEach { required.add(it) }
+        }
+        if (merged.isEmpty()) return null
+        return buildJsonObject {
+            put("type", JsonPrimitive("object"))
+            put("properties", JsonObject(merged))
+            put("required", buildJsonArray { required.forEach { add(JsonPrimitive(it)) } })
         }
     }
 
@@ -178,9 +244,9 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
 
     private fun formatSignature(signature: FunctionSignature): String {
         val paramsStr = if (signature.isOneOf) {
-            // oneOf 模式：action=play, song: string; action=pause; action=volume, volume: number
+            // oneOf 模式:action=play, song: string; action=pause; action=volume, volume: number
+            // catch-all 分支(空 condition)用 * 前缀标识
             signature.branches.joinToString("; ") { branch ->
-                // 条件字段作为第一个"参数"，格式为 field=value
                 val conditionParam = branch.condition
                 val branchParams = branch.params.joinToString(", ") { param ->
                     val typeStr = formatType(param.type)
@@ -188,10 +254,10 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
                     val desc = param.description?.let { " | \"$it\"" } ?: ""
                     "${param.name}$required: $typeStr$desc"
                 }
-                if (branchParams.isEmpty()) {
-                    conditionParam
-                } else {
-                    "$conditionParam, $branchParams"
+                when {
+                    branchParams.isEmpty() -> conditionParam.ifEmpty { "*" }
+                    conditionParam.isEmpty() -> "* $branchParams"
+                    else -> "$conditionParam, $branchParams"
                 }
             }
         } else {
@@ -213,6 +279,7 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
             is ParamType.BooleanType -> if (type.isArray) "boolean[]" else "boolean"
             is ParamType.EnumType -> "enum(${type.values.joinToString(", ")})"
             is ParamType.ObjectType -> formatObjectType(type)
+            is ParamType.OneOfType -> formatOneOfType(type)
         }
     }
 
@@ -226,5 +293,26 @@ internal class DefaultSchemaCompressor : SchemaCompressor {
             "${param.name}$required: $typeStr"
         }
         return if (type.isArray) "[{$fieldsStr}]" else "{$fieldsStr}"
+    }
+
+    private fun formatOneOfType(type: ParamType.OneOfType): String {
+        // 用 ; 分隔分支,跟顶层 oneOf 一致( | 已被描述字段占用)
+        val branchesStr = type.branches.joinToString("; ") { branch -> formatBranchBody(branch) }
+        return if (type.isArray) "[$branchesStr]" else branchesStr
+    }
+
+    private fun formatBranchBody(branch: Branch): String {
+        val condition = branch.condition
+        val paramsStr = branch.params.joinToString(", ") { param ->
+            val typeStr = formatType(param.type)
+            val required = if (param.required) "" else "?"
+            "${param.name}$required: $typeStr"
+        }
+        val body = paramsStr.ifEmpty { "" }
+        return if (condition.isEmpty()) {
+            "{* $body}".trim()  // catch-all 分支用 * 标识
+        } else {
+            "{$condition, $body}"
+        }
     }
 }

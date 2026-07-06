@@ -5,9 +5,9 @@ import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 
 /**
  * 压缩工具 — 装饰原始 Tool，将其 parametersSchema 替换为 execution 格式，
@@ -36,10 +36,12 @@ public class CompressTool(private val delegate: Tool) : Tool {
             val execution = arguments.jsonObject["execution"]
                 ?: throw IllegalArgumentException("Missing 'execution'")
             // 有时模型不准从约定，依然通过 jsonObject 返回
-            if (execution is JsonPrimitive) {
+            if (execution is JsonPrimitive && arguments.jsonObject.size == 1) {
                 parser.parse(execution.content, it.signature)
             } else {
-                execution
+                // {"execution":{"city":"背景","time":"today"}}
+                // {"execution":"get_weather","city":"背景","time":"today"}
+                execution as? JsonObject
             }
         } ?: arguments
         return delegate.execute(originalArgs, context)

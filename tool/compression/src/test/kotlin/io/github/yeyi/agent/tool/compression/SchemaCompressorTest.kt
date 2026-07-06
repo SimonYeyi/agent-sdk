@@ -421,4 +421,309 @@ class SchemaCompressorTest {
         assertTrue(description.contains("action=pause"), "pause branch missing: $description")
         assertTrue(description.contains(";"), "branches should be separated by ;")
     }
+
+    @Test
+    fun oneOfWithEnumDiscriminatorTreatedAsConst() {
+        // 单值 enum 等价 const,应当作 discriminator
+        val result = compressor.compress("notif", """
+            {
+                "oneOf": [
+                    {
+                        "properties": {
+                            "kind": {"type": "string", "enum": ["email"]},
+                            "to": {"type": "string"}
+                        },
+                        "required": ["kind", "to"]
+                    },
+                    {
+                        "properties": {
+                            "kind": {"type": "string", "enum": ["sms"]},
+                            "phone": {"type": "string"}
+                        },
+                        "required": ["kind", "phone"]
+                    }
+                ]
+            }
+        """.trimIndent())
+
+        assertTrue(result.signature.isOneOf)
+        assertEquals(2, result.signature.branches.size)
+        assertEquals("kind=email", result.signature.branches[0].condition)
+        assertEquals("kind=sms", result.signature.branches[1].condition)
+        // 判别字段 kind 不应在 params 里
+        assertTrue(result.signature.branches[0].params.none { it.name == "kind" })
+        assertTrue(result.signature.branches[1].params.none { it.name == "kind" })
+    }
+
+    @Test
+    fun oneOfWithNoDiscriminatorBranchBecomesCatchAll() {
+        // 没有 const/单值 enum 的分支(纯 catch-all)应保留,condition 为空
+        val result = compressor.compress("event", """
+            {
+                "oneOf": [
+                    {
+                        "properties": {
+                            "type": {"const": "click"},
+                            "x": {"type": "number"}
+                        },
+                        "required": ["type"]
+                    },
+                    {
+                        "properties": {
+                            "payload": {"type": "string"}
+                        }
+                    }
+                ]
+            }
+        """.trimIndent())
+
+        assertEquals(2, result.signature.branches.size)
+        assertEquals("type=click", result.signature.branches[0].condition)
+        assertEquals("", result.signature.branches[1].condition) // catch-all
+        assertEquals(1, result.signature.branches[1].params.size)
+    }
+
+    @Test
+    fun oneOfNestedInsideObject() {
+        // oneOf 嵌在 object 的字段里(不是顶层)
+        val result = compressor.compress("send", """
+            {
+                "type": "object",
+                "properties": {
+                    "channel": {
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "type": {"const": "email"},
+                                    "to": {"type": "string"}
+                                },
+                                "required": ["type", "to"]
+                            },
+                            {
+                                "properties": {
+                                    "type": {"const": "webhook"},
+                                    "url": {"type": "string"}
+                                },
+                                "required": ["type", "url"]
+                            }
+                        ]
+                    }
+                },
+                "required": ["channel"]
+            }
+        """.trimIndent())
+
+        val channelParam = result.signature.params.find { it.name == "channel" }!!
+        assertTrue(channelParam.type is ParamType.OneOfType)
+        val oneOf = channelParam.type as ParamType.OneOfType
+        assertEquals(2, oneOf.branches.size)
+        assertEquals("type=email", oneOf.branches[0].condition)
+        assertEquals("type=webhook", oneOf.branches[1].condition)
+    }
+
+    @Test
+    fun oneOfAsArrayElementType() {
+        // 数组元素是 oneOf:items.oneOf + type=array
+        val result = compressor.compress("log", """
+            {
+                "type": "object",
+                "properties": {
+                    "events": {
+                        "type": "array",
+                        "items": {
+                            "oneOf": [
+                                {
+                                    "properties": {
+                                        "type": {"const": "click"},
+                                        "x": {"type": "number"},
+                                        "y": {"type": "number"}
+                                    },
+                                    "required": ["type", "x"]
+                                },
+                                {
+                                    "properties": {
+                                        "type": {"const": "view"},
+                                        "page": {"type": "string"}
+                                    },
+                                    "required": ["type", "page"]
+                                }
+                            ]
+                        }
+                    }
+                },
+                "required": ["events"]
+            }
+        """.trimIndent())
+
+        val eventsParam = result.signature.params.find { it.name == "events" }!!
+        assertTrue(eventsParam.type is ParamType.OneOfType)
+        val oneOf = eventsParam.type as ParamType.OneOfType
+        assertTrue(oneOf.isArray, "array-of-oneOf should be flagged: $oneOf")
+        assertEquals(2, oneOf.branches.size)
+    }
+
+    @Test
+    fun anyOfFallsThroughToOneOf() {
+        // anyOf 在我们这套压缩语义里和 oneOf 等价(都表达多分支可能)
+        val result = compressor.compress("payload", """
+            {
+                "anyOf": [
+                    {
+                        "properties": {
+                            "kind": {"const": "a"},
+                            "a_val": {"type": "string"}
+                        },
+                        "required": ["kind"]
+                    },
+                    {
+                        "properties": {
+                            "kind": {"const": "b"},
+                            "b_val": {"type": "number"}
+                        },
+                        "required": ["kind"]
+                    }
+                ]
+            }
+        """.trimIndent())
+
+        assertTrue(result.signature.isOneOf)
+        assertEquals(2, result.signature.branches.size)
+        assertEquals("kind=a", result.signature.branches[0].condition)
+        assertEquals("kind=b", result.signature.branches[1].condition)
+    }
+
+    @Test
+    fun allOfMergesProperties() {
+        // allOf 把多个子 schema 合并(简化处理:同名字段取第一个,required 取并集)
+        val result = compressor.compress("merged", """
+            {
+                "allOf": [
+                    {
+                        "properties": {
+                            "name": {"type": "string"},
+                            "age": {"type": "integer"}
+                        },
+                        "required": ["name"]
+                    },
+                    {
+                        "properties": {
+                            "email": {"type": "string"}
+                        },
+                        "required": ["email"]
+                    }
+                ]
+            }
+        """.trimIndent())
+
+        // allOf 合成一个 object
+        assertEquals(3, result.signature.params.size)
+        val nameParam = result.signature.params.find { it.name == "name" }!!
+        assertTrue(nameParam.required)
+        val emailParam = result.signature.params.find { it.name == "email" }!!
+        assertTrue(emailParam.required)
+        val ageParam = result.signature.params.find { it.name == "age" }!!
+        assertFalse(ageParam.required)
+    }
+
+    @Test
+    fun allOfInsideFieldMergesProperties() {
+        // 字段层 allOf:profile 字段是 allOf,合成一个带 fields 的 ObjectType
+        val result = compressor.compress("register", """
+            {
+                "type": "object",
+                "properties": {
+                    "profile": {
+                        "allOf": [
+                            {
+                                "properties": {
+                                    "name": {"type": "string"},
+                                    "age": {"type": "integer"}
+                                },
+                                "required": ["name"]
+                            },
+                            {
+                                "properties": {
+                                    "email": {"type": "string"}
+                                },
+                                "required": ["email"]
+                            }
+                        ]
+                    }
+                },
+                "required": ["profile"]
+            }
+        """.trimIndent())
+
+        val profileParam = result.signature.params.find { it.name == "profile" }!!
+        assertTrue(profileParam.type is ParamType.ObjectType)
+        val profileType = profileParam.type as ParamType.ObjectType
+        assertEquals(3, profileType.fields.size)
+        assertTrue(profileType.fields.find { it.name == "name" }!!.required)
+        assertTrue(profileType.fields.find { it.name == "email" }!!.required)
+        assertFalse(profileType.fields.find { it.name == "age" }!!.required)
+    }
+
+    @Test
+    fun oneOfFormatRendersCatchAllWithAsterisk() {
+        // catch-all 分支(空 condition)在签名里用 * 前缀标识,跟普通 condition=... 区分开
+        val result = compressor.compress("event", """
+            {
+                "oneOf": [
+                    {
+                        "properties": {
+                            "type": {"const": "click"},
+                            "x": {"type": "number"}
+                        },
+                        "required": ["type"]
+                    },
+                    {
+                        "properties": {
+                            "extra": {"type": "string"}
+                        }
+                    }
+                ]
+            }
+        """.trimIndent())
+
+        val desc = result.compressedSchema
+        assertTrue("type=click" in desc, "normal branch missing: $desc")
+        assertTrue("x?: number" in desc, "normal branch params missing: $desc")
+        assertTrue("; * extra?: string" in desc, "catch-all branch missing or not marked: $desc")
+    }
+
+    @Test
+    fun oneOfInsideObjectFieldRendersInline() {
+        // oneOf 作为字段类型时,签名里应渲染 {a=val, ...} | {b=val, ...}
+        val result = compressor.compress("send", """
+            {
+                "type": "object",
+                "properties": {
+                    "channel": {
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "type": {"const": "email"},
+                                    "to": {"type": "string"}
+                                },
+                                "required": ["type", "to"]
+                            },
+                            {
+                                "properties": {
+                                    "type": {"const": "webhook"},
+                                    "url": {"type": "string"}
+                                },
+                                "required": ["type", "url"]
+                            }
+                        ]
+                    }
+                },
+                "required": ["channel"]
+            }
+        """.trimIndent())
+
+        val desc = result.compressedSchema
+        assertTrue("channel:" in desc, "channel field missing: $desc")
+        assertTrue("{type=email" in desc, "email branch missing: $desc")
+        assertTrue("{type=webhook" in desc, "webhook branch missing: $desc")
+    }
 }

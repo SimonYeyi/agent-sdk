@@ -158,18 +158,30 @@ private class ExecutionStringParser(
         is ParamType.NumberType -> ParamType.NumberType()
         is ParamType.BooleanType -> ParamType.BooleanType()
         is ParamType.ObjectType -> type.copy(isArray = false)
+        is ParamType.OneOfType -> type.copy(isArray = false)
         is ParamType.EnumType -> type
     }
 
     private fun parseObjectValue(type: ParamType): JsonObject {
-        // 从 schema 里查字段类型,O(1) 查表;没有 schema 时退化为 StringType
-        val fields = (type as? ParamType.ObjectType)?.fields ?: emptyList()
-        val fieldMap = fields.associateBy { it.name }
+        val objectType = type as? ParamType.ObjectType
+        val oneOfType = type as? ParamType.OneOfType
+
+        val baseFields = objectType?.fields ?: emptyList()
+        val fieldMap = baseFields.associateBy { it.name }
+
+        // oneOf 判别字段名(假设所有分支用同一判别字段,取第一个非空 condition 的字段名)
+        val discriminatorName = oneOfType?.branches
+            ?.firstOrNull { it.condition.isNotEmpty() }
+            ?.condition
+            ?.substringBefore("=")
+            ?.takeIf { it.isNotEmpty() }
 
         pos++ // skip '{'
         skipWhitespace()
 
         val result = mutableMapOf<String, JsonElement>()
+        var activeBranch: Branch? = null
+
         while (pos < input.length && input[pos] != '}') {
             val name = parseIdentifier()
             skipWhitespace()
@@ -178,8 +190,20 @@ private class ExecutionStringParser(
             }
             skipWhitespace()
 
-            val fieldType = fieldMap[name]?.type ?: ParamType.StringType()
-            result[name] = parseValue(fieldType)
+            // oneOf 判别:读到判别字段时匹配分支,后续字段用分支的 fields
+            if (oneOfType != null && discriminatorName != null && name == discriminatorName) {
+                val rawValue = parseSimpleValue(ParamType.StringType())
+                val rawString = (rawValue as? JsonPrimitive)?.content ?: rawValue.toString()
+                activeBranch = oneOfType.branches.find { it.condition == "$name=$rawString" }
+                    ?: oneOfType.branches.firstOrNull { it.condition.isEmpty() }
+                result[name] = rawValue
+            } else {
+                val fieldType = activeBranch?.params?.find { it.name == name }?.type
+                    ?: fieldMap[name]?.type
+                    ?: ParamType.StringType()
+                result[name] = parseValue(fieldType)
+            }
+
             skipWhitespace()
             if (pos < input.length && input[pos] == ',') {
                 pos++

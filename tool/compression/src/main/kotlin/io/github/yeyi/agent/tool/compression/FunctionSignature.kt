@@ -73,6 +73,19 @@ public sealed class ParamType {
         public val fields: List<Param> = emptyList(),
     ) : ParamType()
 
+    /**
+     * 多分支类型（oneOf / anyOf / allOf 的 oneOf/anyOf 形态）。
+     *
+     * 每个分支带 [Branch.condition] 字符串（`fieldName=expectedValue`）和自己的字段集。
+     * - `condition` 为空字符串表示 catch-all 分支（无判别字段）。
+     * - `isArray = true` 表示元素是 oneOf（来自 `type: array` + `items: {oneOf: ...}`）。
+     */
+    @Serializable
+    public data class OneOfType(
+        public val branches: List<Branch>,
+        public val isArray: Boolean = false,
+    ) : ParamType()
+
     /** 枚举类型。 */
     @Serializable
     public data class EnumType(public val values: List<String>) : ParamType()

@@ -442,4 +442,91 @@ class ExecutionParserTest {
         assertEquals("volume", result.jsonObject["action"]?.jsonPrimitive?.content)
         assertEquals(75.0, result.jsonObject["volume"]?.jsonPrimitive?.content?.toDouble())
     }
+
+    @Test
+    fun parseOneOfNestedInsideObject() {
+        // 顶层是普通 params,channel 字段是 OneOfType,需要按 channel.type 分派子字段
+        val signature = FunctionSignature(
+            name = "send",
+            params = listOf(
+                Param("channel", ParamType.OneOfType(branches = listOf(
+                    Branch("type=email", listOf(
+                        Param("to", ParamType.StringType(), required = true)
+                    )),
+                    Branch("type=webhook", listOf(
+                        Param("url", ParamType.StringType(), required = true)
+                    ))
+                )), required = true)
+            )
+        )
+
+        val email = parser.parse("send(channel={type=email, to='a@b.com'})", signature)
+        val channel1 = email.jsonObject["channel"]!!.jsonObject
+        assertEquals("email", channel1["type"]?.jsonPrimitive?.content)
+        assertEquals("a@b.com", channel1["to"]?.jsonPrimitive?.content)
+
+        val webhook = parser.parse("send(channel={type=webhook, url='https://x'})", signature)
+        val channel2 = webhook.jsonObject["channel"]!!.jsonObject
+        assertEquals("webhook", channel2["type"]?.jsonPrimitive?.content)
+        assertEquals("https://x", channel2["url"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parseOneOfArrayElement() {
+        // 数组元素是 OneOfType,每个元素按各自的 discriminator 分派
+        val signature = FunctionSignature(
+            name = "log",
+            params = listOf(
+                Param("events", ParamType.OneOfType(isArray = true, branches = listOf(
+                    Branch("type=click", listOf(
+                        Param("x", ParamType.NumberType(), required = true),
+                        Param("y", ParamType.NumberType(), required = false)
+                    )),
+                    Branch("type=view", listOf(
+                        Param("page", ParamType.StringType(), required = true)
+                    ))
+                )), required = true)
+            )
+        )
+
+        val result = parser.parse("log(events=[{type=click, x=10, y=20}, {type=view, page='/home'}])", signature)
+        val events = result.jsonObject["events"]!!.jsonArray
+        assertEquals(2, events.size)
+
+        val click = events[0].jsonObject
+        assertEquals("click", click["type"]?.jsonPrimitive?.content)
+        assertEquals(10.0, click["x"]?.jsonPrimitive?.content?.toDouble())
+        assertEquals(20.0, click["y"]?.jsonPrimitive?.content?.toDouble())
+
+        val view = events[1].jsonObject
+        assertEquals("view", view["type"]?.jsonPrimitive?.content)
+        assertEquals("/home", view["page"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parseOneOfFallsBackToCatchAllBranch() {
+        // 判别字段值没匹配到任何 condition 时,回退到 catch-all(空 condition)
+        val signature = FunctionSignature(
+            name = "event",
+            params = emptyList(),
+            branches = listOf(
+                Branch("type=click", listOf(
+                    Param("x", ParamType.NumberType(), required = false)
+                )),
+                Branch("", listOf( // catch-all
+                    Param("payload", ParamType.StringType(), required = false)
+                ))
+            )
+        )
+
+        // 走 click 分支
+        val click = parser.parse("event(type=click, x=5)", signature)
+        assertEquals("click", click.jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals(5.0, click.jsonObject["x"]?.jsonPrimitive?.content?.toDouble())
+
+        // 走 catch-all 分支(未知 type)
+        val unknown = parser.parse("event(type=unknown, payload='raw data')", signature)
+        assertEquals("unknown", unknown.jsonObject["type"]?.jsonPrimitive?.content)
+        assertEquals("raw data", unknown.jsonObject["payload"]?.jsonPrimitive?.content)
+    }
 }
