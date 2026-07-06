@@ -38,14 +38,20 @@ private class ExecutionStringParser(
     private val paramMap = signature.params.associateBy { it.name }
 
     public fun parse(): JsonObject {
-        // 解析 function_name
+        // 解析 function_name(若后面不是 '(' 而是 '='/' ',说明模型只回了参数,无函数名)
+        skipWhitespace()
+        val savedPos = pos
         val funcName = parseIdentifier()
         skipWhitespace()
 
-        // 跳过 '('
-        if (pos < input.length && input[pos] == '(') {
-            pos++
+        val hasParens = pos < input.length && input[pos] == '('
+        if (hasParens) {
+            pos++ // 跳过 '('
+        } else if (pos < input.length && (input[pos] == '=' || input[pos] == ':')) {
+            // 宽容:模型只回了参数(没回函数名,无 `(` 包裹) — 回到起点,直接当参数列表解析
+            pos = savedPos
         }
+        // 其它情况(既不是 '(' 也不是 '='/':'):保持原行为,让后续循环尽力解析
         skipWhitespace()
 
         // 解析参数
@@ -54,8 +60,8 @@ private class ExecutionStringParser(
                 val name = parseIdentifier()
                 skipWhitespace()
 
-                // 跳过 '='
-                if (pos < input.length && input[pos] == '=') {
+                // 跳过 '=' 或 ':'(: 作为宽容分隔符)
+                if (pos < input.length && (input[pos] == '=' || input[pos] == ':')) {
                     pos++
                 }
                 skipWhitespace()
@@ -86,7 +92,10 @@ private class ExecutionStringParser(
     private fun parseIdentifier(): String {
         skipWhitespace()
         val start = pos
-        while (pos < input.length && !input[pos].isWhitespace() && input[pos] != '(' && input[pos] != ')' && input[pos] != '=' && input[pos] != ',') {
+        while (pos < input.length && !input[pos].isWhitespace() &&
+            input[pos] != '(' && input[pos] != ')' &&
+            input[pos] != '=' && input[pos] != ':' && input[pos] != ','
+        ) {
             pos++
         }
         return input.substring(start, pos)
@@ -185,7 +194,7 @@ private class ExecutionStringParser(
         while (pos < input.length && input[pos] != '}') {
             val name = parseIdentifier()
             skipWhitespace()
-            if (pos < input.length && input[pos] == '=') {
+            if (pos < input.length && (input[pos] == '=' || input[pos] == ':')) {
                 pos++
             }
             skipWhitespace()

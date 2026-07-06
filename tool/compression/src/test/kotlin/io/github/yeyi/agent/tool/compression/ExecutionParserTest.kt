@@ -529,4 +529,142 @@ class ExecutionParserTest {
         assertEquals("unknown", unknown.jsonObject["type"]?.jsonPrimitive?.content)
         assertEquals("raw data", unknown.jsonObject["payload"]?.jsonPrimitive?.content)
     }
+
+    // --- 宽容解析:模型返回的非标准格式 ---
+
+    @Test
+    fun parseExecutionWithoutFunctionName() {
+        // 模型有时只回参数,不带 funcName( 包裹)
+        val signature = FunctionSignature(
+            name = "get_weather",
+            params = listOf(
+                Param("city", ParamType.StringType(), required = true),
+                Param("time", ParamType.StringType(), required = false)
+            )
+        )
+
+        val result = parser.parse("city=\"北京\", time=today", signature)
+
+        assertEquals("北京", result.jsonObject["city"]?.jsonPrimitive?.content)
+        assertEquals("today", result.jsonObject["time"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parseExecutionWithoutFunctionNameNoQuotes() {
+        val signature = FunctionSignature(
+            name = "get_weather",
+            params = listOf(
+                Param("city", ParamType.StringType(), required = true)
+            )
+        )
+
+        val result = parser.parse("city=北京", signature)
+
+        assertEquals("北京", result.jsonObject["city"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parseExecutionWithColonSeparator() {
+        // a(b : "c") — : 当作 = 的替代
+        val signature = FunctionSignature(
+            name = "get_weather",
+            params = listOf(
+                Param("city", ParamType.StringType(), required = true),
+                Param("time", ParamType.StringType(), required = false)
+            )
+        )
+
+        val result = parser.parse("get_weather(city : \"北京\", time : today)", signature)
+
+        assertEquals("北京", result.jsonObject["city"]?.jsonPrimitive?.content)
+        assertEquals("today", result.jsonObject["time"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parseExecutionWithMixedSeparators() {
+        // 混用 = 和 :,宽容处理
+        val signature = FunctionSignature(
+            name = "get_weather",
+            params = listOf(
+                Param("city", ParamType.StringType(), required = true),
+                Param("time", ParamType.StringType(), required = false)
+            )
+        )
+
+        val result = parser.parse("get_weather(city=\"北京\" , time : today)", signature)
+
+        assertEquals("北京", result.jsonObject["city"]?.jsonPrimitive?.content)
+        assertEquals("today", result.jsonObject["time"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parseNestedObjectWithColonSeparator() {
+        // 嵌套 object 里也容忍 : 分隔
+        val signature = FunctionSignature(
+            name = "create_user",
+            params = listOf(
+                Param("user", ParamType.ObjectType(fields = listOf(
+                    Param("name", ParamType.StringType(), required = true),
+                    Param("age", ParamType.NumberType(), required = false),
+                )), required = true)
+            )
+        )
+
+        val result = parser.parse("create_user(user={name : \"Alice\", age : 30})", signature)
+        val user = result.jsonObject["user"]!!.jsonObject
+        assertEquals("Alice", user["name"]?.jsonPrimitive?.content)
+        assertEquals(30.0, user["age"]?.jsonPrimitive?.content?.toDouble())
+    }
+
+    @Test
+    fun parseOneOfWithColonSeparator() {
+        // 嵌套 oneOf 里也容忍 : 分隔(包括判别字段)
+        val signature = FunctionSignature(
+            name = "music_control",
+            params = emptyList(),
+            branches = listOf(
+                Branch("action=play", listOf(
+                    Param("song", ParamType.StringType(), required = true)
+                )),
+                Branch("action=volume", listOf(
+                    Param("volume", ParamType.NumberType(), required = true)
+                ))
+            )
+        )
+
+        val result = parser.parse("music_control(action : play, song : \"海阔天空\")", signature)
+
+        assertEquals("play", result.jsonObject["action"]?.jsonPrimitive?.content)
+        assertEquals("海阔天空", result.jsonObject["song"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parseRealisticLLMDriftGetWeather() {
+        // 模拟 get_weather 工具常见的模型漂移
+        val signature = FunctionSignature(
+            name = "get_weather",
+            params = listOf(
+                Param("city", ParamType.StringType(), required = true),
+                Param("time", ParamType.EnumType(listOf("now", "today", "tomorrow", "day_after_tomorrow")), required = false)
+            )
+        )
+
+        // 形式 1:标准
+        val r1 = parser.parse("get_weather(city=\"北京\", time=tomorrow)", signature)
+        assertEquals("北京", r1.jsonObject["city"]?.jsonPrimitive?.content)
+        assertEquals("tomorrow", r1.jsonObject["time"]?.jsonPrimitive?.content)
+
+        // 形式 2:无函数名
+        val r2 = parser.parse("city=\"上海\", time=today", signature)
+        assertEquals("上海", r2.jsonObject["city"]?.jsonPrimitive?.content)
+
+        // 形式 3:冒号分隔
+        val r3 = parser.parse("get_weather(city: \"广州\", time: now)", signature)
+        assertEquals("广州", r3.jsonObject["city"]?.jsonPrimitive?.content)
+        assertEquals("now", r3.jsonObject["time"]?.jsonPrimitive?.content)
+
+        // 形式 4:无函数名 + 冒号
+        val r4 = parser.parse("city: \"深圳\"", signature)
+        assertEquals("深圳", r4.jsonObject["city"]?.jsonPrimitive?.content)
+    }
 }
