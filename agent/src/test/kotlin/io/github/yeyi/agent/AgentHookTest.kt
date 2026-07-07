@@ -42,6 +42,7 @@ class AgentHookTest {
             context: AgentContext,
             call: ToolCall,
             result: ToolExecutionResult,
+            synthetic: Boolean,
             durationMs: Long,
         ): ToolExecutionResult {
             events += "afterToolCall(${call.name})"
@@ -189,6 +190,7 @@ class AgentHookTest {
                 context: AgentContext,
                 call: ToolCall,
                 result: ToolExecutionResult,
+                synthetic: Boolean,
                 durationMs: Long,
             ): ToolExecutionResult {
                 throw RuntimeException("afterTool fail")
@@ -262,12 +264,10 @@ class AgentHookTest {
     }
 
     @Test
-    fun `beforeToolCall returning non-null short-circuits tool execution and emits no tool events`() = runTest {
-        val events: MutableList<String> = mutableListOf()
+    fun `beforeToolCall returning non-null short-circuits tool execution but emits tool events`() = runTest {
         val shortCircuit = ToolExecutionResult("synthetic-from-hook", isError = false)
         val hook = object : EmptyAgentHook() {
             override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
-                events += "beforeToolCall(${call.name})"
                 return shortCircuit
             }
         }
@@ -287,10 +287,9 @@ class AgentHookTest {
             memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = hook
         )
         val events2 = agent.run("hi").toList()
-        // EchoTool was registered but never invoked: hook short-circuited it.
-        // No ToolCallStarted / ToolCallFinished must be emitted (the tool was never called).
-        assertTrue(events2.none { it is AgentEvent.ToolCallStart }, "short-circuited call must not emit ToolCallStarted")
-        assertTrue(events2.none { it is AgentEvent.ToolCallEnd }, "short-circuited call must not emit ToolCallFinished")
+        // Short-circuited call still emits ToolCallStart/ToolCallEnd for event stream integrity.
+        assertTrue(events2.any { it is AgentEvent.ToolCallStart }, "short-circuited call must emit ToolCallStart")
+        assertTrue(events2.any { it is AgentEvent.ToolCallEnd }, "short-circuited call must emit ToolCallEnd")
     }
 
     @Test
@@ -358,6 +357,7 @@ class AgentHookTest {
                 context: AgentContext,
                 call: ToolCall,
                 result: ToolExecutionResult,
+                synthetic: Boolean,
                 durationMs: Long,
             ): ToolExecutionResult = rewritten
         }

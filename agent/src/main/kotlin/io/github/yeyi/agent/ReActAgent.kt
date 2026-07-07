@@ -151,21 +151,20 @@ public class ReActAgent internal constructor(
         }
 
         for (call in response.message.toolCalls) {
+            emit(AgentEvent.ToolCallStart(call.id, call.name))
             val synthetic = hook.safeInvoke { beforeToolCall(context, call) }
-            if (synthetic != null) {
-                // 工具被 hook 短路:跳过实际执行,synthetic result 写进 memory,
-                // **不** emit ToolCallStarted / ToolCallFinished(工具压根没被调用)。
-                recordToMemory(call, synthetic.copy(isError = true), toolCalls)
-            } else {
-                emit(AgentEvent.ToolCallStart(call.id, call.name))
-                val startMs = System.currentTimeMillis()
-                val raw =
-                    toolRegistry.dispatch(call.name, call.arguments, ToolContext(call.id, context))
-                val durMs = System.currentTimeMillis() - startMs
-                val final = hook.safeInvoke { afterToolCall(context, call, raw, durMs) } ?: raw
-                recordToMemory(call, final, toolCalls)
-                emit(AgentEvent.ToolCallEnd(call.id, final))
-            }
+            val startMs = System.currentTimeMillis()
+            val raw = synthetic ?: toolRegistry.dispatch(
+                call.name,
+                call.arguments,
+                ToolContext(call.id, context)
+            )
+            val durMs = System.currentTimeMillis() - startMs
+            val final = hook.safeInvoke {
+                afterToolCall(context, call, raw, synthetic != null, durMs)
+            } ?: raw
+            recordToMemory(call, final, toolCalls)
+            emit(AgentEvent.ToolCallEnd(call.id, final))
         }
         return null
     }

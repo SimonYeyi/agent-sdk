@@ -40,6 +40,7 @@ public sealed interface AgentHookEvent : HookEvent {
     public data class AfterToolCall(
         val toolCall: ToolCall,
         val result: ToolExecutionResult,
+        val halt: Boolean,
         val durationMs: Long
     ) : AgentHookEvent
 

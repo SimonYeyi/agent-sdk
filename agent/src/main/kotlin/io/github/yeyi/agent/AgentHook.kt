@@ -7,7 +7,7 @@ import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.tool.ToolExecutionResult
 
 /**
- * Agent 生命周期回调。所有方法默认 no-op。
+ * Agent 生命周期回调。不提供默认实现（包括参数），保证下游正确感知修改。
  *
  * 契约:
  * 1. Hook 抛异常不影响主流程,会被 SDK 吞掉并 log
@@ -19,10 +19,11 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  * 工具调用拦截语义(v1.1):
  * - [beforeToolCall] 返回 `null` → 继续走真实工具执行
  * - [beforeToolCall] 返回非 `null` → 跳过真实工具,该返回值作为"合成结果"注入到 memory,
- *   模型下一轮看到的是 hook 决定的内容。屏蔽工具 = 返回 `isError = true` 的合成结果
- *   **短路时不会发出 `ToolCallStarted`/`ToolCallFinished` 事件**(因为工具压根没被调用)
+ *   模型下一轮看到的是 hook 决定的内容。屏蔽工具 = 返回 `isError = true` 的合成结果。
+ *   短路时仍会发出 `ToolCallStart`/`ToolCallEnd` 事件并调用 [afterToolCall](synthetic=true),
+ *   以保证事件流和 hook 生命周期的完整性。
  * - [afterToolCall] 拿到上一个 hook(或真实工具)的输出,返回的值作为最终结果回传给主流程,
- *   支持逐 hook 链式改写
+ *   支持逐 hook 链式改写。短路场景下 `synthetic` 为 true,`durationMs` 反映的是真实耗时，可能接近 0。
  *
  * 错误语义:
  * - onRunFailed 在主流程 emit `Failed` 事件前调用;cause 一定为 [AgentException] 家族成员
@@ -54,19 +55,24 @@ public interface AgentHook {
      * @return 非 null 表示跳过真实工具执行,把该返回值作为"合成结果"注入 memory;
      *         null 表示按正常流程执行工具。
      */
-    public suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? =
-        null
+    public suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult?
 
     /**
-     * 工具执行后的改写点。
+     * 工具执行后的改写点。短路场景下仍会被调用作为生命周期关闭点。
+     *
+     * @param result 工具执行结果(或 hook 短路时的合成结果)
+     * @param synthetic 为 true 表示该结果来自 hook 短路(工具未真实执行),
+     *                 为 false 表示工具已真实执行
+     * @param durationMs 工具执行耗时;短路时通常极小
      * @return 主流程将使用该返回值(可与原 result 不同)。多个 hook 时按注册顺序链式改写。
      */
     public suspend fun afterToolCall(
         context: AgentContext,
         call: ToolCall,
         result: ToolExecutionResult,
+        synthetic: Boolean,
         durationMs: Long,
-    ): ToolExecutionResult = result
+    ): ToolExecutionResult
 
     public suspend fun onRunCompleted(context: AgentContext, result: AgentResult)
 
@@ -99,6 +105,19 @@ internal object NoOpAgentHook : AgentHook {
         response: ChatResponse
     ) {
     }
+
+    override suspend fun beforeToolCall(
+        context: AgentContext,
+        call: ToolCall
+    ): ToolExecutionResult? = null
+
+    override suspend fun afterToolCall(
+        context: AgentContext,
+        call: ToolCall,
+        result: ToolExecutionResult,
+        synthetic: Boolean,
+        durationMs: Long
+    ): ToolExecutionResult = result
 
     override suspend fun onRunCompleted(
         context: AgentContext,

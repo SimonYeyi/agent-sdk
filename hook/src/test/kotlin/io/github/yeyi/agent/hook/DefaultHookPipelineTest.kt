@@ -186,7 +186,7 @@ class DefaultHookPipelineTest {
         val c = RecordingHook("c")
         val composite = DefaultHookPipeline(listOf(a, b, c))
         val initial = ToolExecutionResult("raw")
-        val final = composite.afterToolCall(context(), toolCall(), initial, 5)
+        val final = composite.afterToolCall(context(), toolCall(), initial, false, 5)
         assertEquals("b-out", final.content, "c didn't rewrite - final is b's output")
         assertEquals(listOf("a:afterToolCall(x,raw)"), a.recordedEvents)
         assertEquals(listOf("b:afterToolCall(x,a-out)"), b.recordedEvents)
@@ -197,7 +197,7 @@ class DefaultHookPipelineTest {
     fun `afterToolCall returns input when no hook rewrites`() = runTest {
         val composite = DefaultHookPipeline(listOf(RecordingHook("a"), RecordingHook("b")))
         val input = ToolExecutionResult("untouched")
-        val output = composite.afterToolCall(context(), toolCall(), input, 5)
+        val output = composite.afterToolCall(context(), toolCall(), input, false, 5)
         assertSame(input, output)
     }
 
@@ -291,7 +291,7 @@ class DefaultHookPipelineTest {
         val b = RecordingHook("b").apply { nextRewritten = ToolExecutionResult("b-out") }
         val composite = DefaultHookPipeline(listOf(throwing, b))
         val input = ToolExecutionResult("raw")
-        val out = composite.afterToolCall(context(), toolCall(), input, 5)
+        val out = composite.afterToolCall(context(), toolCall(), input, false, 5)
         assertEquals("b-out", out.content)
     }
 
@@ -352,7 +352,7 @@ class DefaultHookPipelineTest {
         val composite = DefaultHookPipeline(listOf(throwing, b))
         var caught: Throwable? = null
         try {
-            composite.afterToolCall(context(), toolCall(), ToolExecutionResult("x"), 5)
+            composite.afterToolCall(context(), toolCall(), ToolExecutionResult("x"), false, 5)
         } catch (t: Throwable) {
             caught = t
         }

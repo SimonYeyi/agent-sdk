@@ -1,6 +1,7 @@
 package io.github.yeyi.agent
 
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.tool.ToolExecutionResult
 
@@ -31,6 +32,19 @@ internal open class EmptyAgentHook : AgentHook {
         response: ChatResponse,
     ) {
     }
+
+    override suspend fun beforeToolCall(
+        context: AgentContext,
+        call: ToolCall
+    ): ToolExecutionResult? = null
+
+    override suspend fun afterToolCall(
+        context: AgentContext,
+        call: ToolCall,
+        result: ToolExecutionResult,
+        synthetic: Boolean,
+        durationMs: Long
+    ): ToolExecutionResult = result
 
     override suspend fun onRunCompleted(context: AgentContext, result: AgentResult) {
     }

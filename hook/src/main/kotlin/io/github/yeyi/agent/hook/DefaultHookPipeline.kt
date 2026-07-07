@@ -111,15 +111,13 @@ internal class DefaultHookPipeline(
         for (hook in hooks) {
             when (val result = invokeHook(hook, currentEvent, context)) {
                 is HookResult.Modify -> {
-                    currentEvent = AgentHookEvent.AfterToolCall(
-                        toolCall = currentEvent.toolCall,
+                    currentEvent = currentEvent.copy(
                         result = result.newResult as? ToolExecutionResult
                             ?: throw IllegalArgumentException(
                                 "Hook '${hook.name}' returned HookResult.Modify for ${event::class.simpleName}, " +
                                         "but newResult is ${result.newResult::class.qualifiedName}; " +
                                         "${event::class.simpleName} requires newResult to be a ToolExecutionResult."
-                            ),
-                        durationMs = currentEvent.durationMs
+                            )
                     )
                 }
 
@@ -185,9 +183,10 @@ internal class DefaultHookPipeline(
         context: AgentContext,
         call: ToolCall,
         result: ToolExecutionResult,
+        synthetic: Boolean,
         durationMs: Long
     ): ToolExecutionResult {
-        val event = AgentHookEvent.AfterToolCall(call, result, durationMs)
+        val event = AgentHookEvent.AfterToolCall(call, result, synthetic, durationMs)
         return when (val pipelineResult = run(event, HookContext(context))) {
             // AfterToolCall 事件经 runAfterToolCall 处理后,Modify.newResult 必然为 ToolExecutionResult
             is HookResult.Modify -> pipelineResult.newResult as ToolExecutionResult
