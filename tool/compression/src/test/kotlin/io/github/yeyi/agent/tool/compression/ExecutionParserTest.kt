@@ -12,6 +12,47 @@ class ExecutionParserTest {
 
     private val parser = DefaultExecutionParser()
 
+    // region 公共 Fixture —— 3 个 signature 覆盖多组测试场景
+
+    /** music_control 普通模式：5 个 params（action 枚举 + song/artist/volume/mode 可选） */
+    private val musicControlSignature = FunctionSignature(
+        name = "music_control",
+        params = listOf(
+            Param("action", ParamType.EnumType(listOf("play", "pause", "stop", "prev", "next", "volume", "mode")), required = true),
+            Param("song", ParamType.StringType(), required = false),
+            Param("artist", ParamType.StringType(), required = false),
+            Param("volume", ParamType.NumberType(), required = false),
+            Param("mode", ParamType.EnumType(listOf("normal", "repeat", "shuffle")), required = false)
+        )
+    )
+
+    /** music_control oneOf 模式：3 个 branches（play 带 song+artist / pause 空 / volume 带 volume） */
+    private val musicControlOneOfSignature = FunctionSignature(
+        name = "music_control",
+        params = emptyList(),
+        branches = listOf(
+            Branch("action=play", listOf(
+                Param("song", ParamType.StringType(), required = true),
+                Param("artist", ParamType.StringType(), required = false)
+            )),
+            Branch("action=pause", emptyList()),
+            Branch("action=volume", listOf(
+                Param("volume", ParamType.NumberType(), required = true)
+            ))
+        )
+    )
+
+    /** get_weather 基础 signature：city 必填 + time 可选（string） */
+    private val getWeatherSignature = FunctionSignature(
+        name = "get_weather",
+        params = listOf(
+            Param("city", ParamType.StringType(), required = true),
+            Param("time", ParamType.StringType(), required = false)
+        )
+    )
+
+    // endregion
+
     @Test
     fun parseSimpleExecution() {
         val signature = FunctionSignature(
@@ -291,18 +332,7 @@ class ExecutionParserTest {
     @Test
     fun parseMusicControlPlayAction() {
         // 播放歌曲：action=play + song + 可选的 artist
-        val signature = FunctionSignature(
-            name = "music_control",
-            params = listOf(
-                Param("action", ParamType.EnumType(listOf("play", "pause", "stop", "prev", "next", "volume", "mode")), required = true),
-                Param("song", ParamType.StringType(), required = false),
-                Param("artist", ParamType.StringType(), required = false),
-                Param("volume", ParamType.NumberType(), required = false),
-                Param("mode", ParamType.EnumType(listOf("normal", "repeat", "shuffle")), required = false)
-            )
-        )
-
-        val result = parser.parse("music_control(action=play, song='海阔天空', artist='Beyond')", signature)
+        val result = parser.parse("music_control(action=play, song='海阔天空', artist='Beyond')", musicControlSignature)
 
         assertEquals("play", result.jsonObject["action"]?.jsonPrimitive?.content)
         assertEquals("海阔天空", result.jsonObject["song"]?.jsonPrimitive?.content)
@@ -314,18 +344,7 @@ class ExecutionParserTest {
     @Test
     fun parseMusicControlVolumeAction() {
         // 调节音量：action=volume + volume 参数
-        val signature = FunctionSignature(
-            name = "music_control",
-            params = listOf(
-                Param("action", ParamType.EnumType(listOf("play", "pause", "stop", "prev", "next", "volume", "mode")), required = true),
-                Param("song", ParamType.StringType(), required = false),
-                Param("artist", ParamType.StringType(), required = false),
-                Param("volume", ParamType.NumberType(), required = false),
-                Param("mode", ParamType.EnumType(listOf("normal", "repeat", "shuffle")), required = false)
-            )
-        )
-
-        val result = parser.parse("music_control(action=volume, volume=75)", signature)
+        val result = parser.parse("music_control(action=volume, volume=75)", musicControlSignature)
 
         assertEquals("volume", result.jsonObject["action"]?.jsonPrimitive?.content)
         assertEquals(75.0, result.jsonObject["volume"]?.jsonPrimitive?.content?.toDouble())
@@ -335,18 +354,7 @@ class ExecutionParserTest {
     @Test
     fun parseMusicControlModeAction() {
         // 切换模式：action=mode + mode 参数
-        val signature = FunctionSignature(
-            name = "music_control",
-            params = listOf(
-                Param("action", ParamType.EnumType(listOf("play", "pause", "stop", "prev", "next", "volume", "mode")), required = true),
-                Param("song", ParamType.StringType(), required = false),
-                Param("artist", ParamType.StringType(), required = false),
-                Param("volume", ParamType.NumberType(), required = false),
-                Param("mode", ParamType.EnumType(listOf("normal", "repeat", "shuffle")), required = false)
-            )
-        )
-
-        val result = parser.parse("music_control(action=mode, mode=shuffle)", signature)
+        val result = parser.parse("music_control(action=mode, mode=shuffle)", musicControlSignature)
 
         assertEquals("mode", result.jsonObject["action"]?.jsonPrimitive?.content)
         assertEquals("shuffle", result.jsonObject["mode"]?.jsonPrimitive?.content)
@@ -355,18 +363,7 @@ class ExecutionParserTest {
     @Test
     fun parseMusicControlSimpleAction() {
         // 简单操作：action=pause/stop/prev/next 不需要额外参数
-        val signature = FunctionSignature(
-            name = "music_control",
-            params = listOf(
-                Param("action", ParamType.EnumType(listOf("play", "pause", "stop", "prev", "next", "volume", "mode")), required = true),
-                Param("song", ParamType.StringType(), required = false),
-                Param("artist", ParamType.StringType(), required = false),
-                Param("volume", ParamType.NumberType(), required = false),
-                Param("mode", ParamType.EnumType(listOf("normal", "repeat", "shuffle")), required = false)
-            )
-        )
-
-        val result = parser.parse("music_control(action=pause)", signature)
+        val result = parser.parse("music_control(action=pause)", musicControlSignature)
 
         assertEquals("pause", result.jsonObject["action"]?.jsonPrimitive?.content)
         // 只有 action 字段有值，其他字段不存在于 result 中
@@ -378,22 +375,7 @@ class ExecutionParserTest {
 
     @Test
     fun parseOneOfExecutionPlay() {
-        val signature = FunctionSignature(
-            name = "music_control",
-            params = emptyList(),
-            branches = listOf(
-                Branch("action=play", listOf(
-                    Param("song", ParamType.StringType(), required = true),
-                    Param("artist", ParamType.StringType(), required = false)
-                )),
-                Branch("action=pause", emptyList()),
-                Branch("action=volume", listOf(
-                    Param("volume", ParamType.NumberType(), required = true)
-                ))
-            )
-        )
-
-        val result = parser.parse("music_control(action=play, song='海阔天空', artist='Beyond')", signature)
+        val result = parser.parse("music_control(action=play, song='海阔天空', artist='Beyond')", musicControlOneOfSignature)
 
         assertEquals("play", result.jsonObject["action"]?.jsonPrimitive?.content)
         assertEquals("海阔天空", result.jsonObject["song"]?.jsonPrimitive?.content)
@@ -402,42 +384,14 @@ class ExecutionParserTest {
 
     @Test
     fun parseOneOfExecutionPause() {
-        val signature = FunctionSignature(
-            name = "music_control",
-            params = emptyList(),
-            branches = listOf(
-                Branch("action=play", listOf(
-                    Param("song", ParamType.StringType(), required = true)
-                )),
-                Branch("action=pause", emptyList()),
-                Branch("action=volume", listOf(
-                    Param("volume", ParamType.NumberType(), required = true)
-                ))
-            )
-        )
-
-        val result = parser.parse("music_control(action=pause)", signature)
+        val result = parser.parse("music_control(action=pause)", musicControlOneOfSignature)
 
         assertEquals("pause", result.jsonObject["action"]?.jsonPrimitive?.content)
     }
 
     @Test
     fun parseOneOfExecutionVolume() {
-        val signature = FunctionSignature(
-            name = "music_control",
-            params = emptyList(),
-            branches = listOf(
-                Branch("action=play", listOf(
-                    Param("song", ParamType.StringType(), required = true)
-                )),
-                Branch("action=pause", emptyList()),
-                Branch("action=volume", listOf(
-                    Param("volume", ParamType.NumberType(), required = true)
-                ))
-            )
-        )
-
-        val result = parser.parse("music_control(action=volume, volume=75)", signature)
+        val result = parser.parse("music_control(action=volume, volume=75)", musicControlOneOfSignature)
 
         assertEquals("volume", result.jsonObject["action"]?.jsonPrimitive?.content)
         assertEquals(75.0, result.jsonObject["volume"]?.jsonPrimitive?.content?.toDouble())
@@ -535,15 +489,7 @@ class ExecutionParserTest {
     @Test
     fun parseExecutionWithoutFunctionName() {
         // 模型有时只回参数,不带 funcName( 包裹)
-        val signature = FunctionSignature(
-            name = "get_weather",
-            params = listOf(
-                Param("city", ParamType.StringType(), required = true),
-                Param("time", ParamType.StringType(), required = false)
-            )
-        )
-
-        val result = parser.parse("city=\"北京\", time=today", signature)
+        val result = parser.parse("city=\"北京\", time=today", getWeatherSignature)
 
         assertEquals("北京", result.jsonObject["city"]?.jsonPrimitive?.content)
         assertEquals("today", result.jsonObject["time"]?.jsonPrimitive?.content)
@@ -551,14 +497,7 @@ class ExecutionParserTest {
 
     @Test
     fun parseExecutionWithoutFunctionNameNoQuotes() {
-        val signature = FunctionSignature(
-            name = "get_weather",
-            params = listOf(
-                Param("city", ParamType.StringType(), required = true)
-            )
-        )
-
-        val result = parser.parse("city=北京", signature)
+        val result = parser.parse("city=北京", getWeatherSignature)
 
         assertEquals("北京", result.jsonObject["city"]?.jsonPrimitive?.content)
     }
@@ -566,15 +505,7 @@ class ExecutionParserTest {
     @Test
     fun parseExecutionWithColonSeparator() {
         // a(b : "c") — : 当作 = 的替代
-        val signature = FunctionSignature(
-            name = "get_weather",
-            params = listOf(
-                Param("city", ParamType.StringType(), required = true),
-                Param("time", ParamType.StringType(), required = false)
-            )
-        )
-
-        val result = parser.parse("get_weather(city : \"北京\", time : today)", signature)
+        val result = parser.parse("get_weather(city : \"北京\", time : today)", getWeatherSignature)
 
         assertEquals("北京", result.jsonObject["city"]?.jsonPrimitive?.content)
         assertEquals("today", result.jsonObject["time"]?.jsonPrimitive?.content)
@@ -583,15 +514,7 @@ class ExecutionParserTest {
     @Test
     fun parseExecutionWithMixedSeparators() {
         // 混用 = 和 :,宽容处理
-        val signature = FunctionSignature(
-            name = "get_weather",
-            params = listOf(
-                Param("city", ParamType.StringType(), required = true),
-                Param("time", ParamType.StringType(), required = false)
-            )
-        )
-
-        val result = parser.parse("get_weather(city=\"北京\" , time : today)", signature)
+        val result = parser.parse("get_weather(city=\"北京\" , time : today)", getWeatherSignature)
 
         assertEquals("北京", result.jsonObject["city"]?.jsonPrimitive?.content)
         assertEquals("today", result.jsonObject["time"]?.jsonPrimitive?.content)
@@ -619,20 +542,7 @@ class ExecutionParserTest {
     @Test
     fun parseOneOfWithColonSeparator() {
         // 嵌套 oneOf 里也容忍 : 分隔(包括判别字段)
-        val signature = FunctionSignature(
-            name = "music_control",
-            params = emptyList(),
-            branches = listOf(
-                Branch("action=play", listOf(
-                    Param("song", ParamType.StringType(), required = true)
-                )),
-                Branch("action=volume", listOf(
-                    Param("volume", ParamType.NumberType(), required = true)
-                ))
-            )
-        )
-
-        val result = parser.parse("music_control(action : play, song : \"海阔天空\")", signature)
+        val result = parser.parse("music_control(action : play, song : \"海阔天空\")", musicControlOneOfSignature)
 
         assertEquals("play", result.jsonObject["action"]?.jsonPrimitive?.content)
         assertEquals("海阔天空", result.jsonObject["song"]?.jsonPrimitive?.content)

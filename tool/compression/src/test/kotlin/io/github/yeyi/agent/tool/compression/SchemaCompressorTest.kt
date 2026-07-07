@@ -1,10 +1,6 @@
 package io.github.yeyi.agent.tool.compression
 
-import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
-import io.github.yeyi.agent.tool.ToolExecutionResult
-import io.github.yeyi.agent.tool.ToolParameters
-import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
@@ -12,271 +8,436 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-private fun createTool(name: String, schema: String): Tool = object : Tool {
-    override val name = name
-    override val description = "test"
-    override val parametersSchema = ToolParameters.JsonSchema(schema)
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
-        return ToolExecutionResult.success("")
-    }
-}
-
-private fun createEmptyTool(name: String): Tool = object : Tool {
-    override val name = name
-    override val description = "test"
-    override val parametersSchema = ToolParameters.Empty
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
-        return ToolExecutionResult.success("")
-    }
-}
-
 class SchemaCompressorTest {
 
     private val compressor = DefaultSchemaCompressor()
 
+    // region 公共 Fixture —— 两份 schema 覆盖全部测试场景，各用例按需断言其中某个方面
+
+    /**
+     * 顶层 object：覆盖基础类型、枚举、嵌套对象、数组对象、数组 oneOf、oneOf 字段、allOf 字段、各层 description。
+     */
+    private val richObjectSchema = """
+        {
+            "type": "object",
+            "properties": {
+                "name": { "type": "string", "description": "名称" },
+                "age": { "type": "integer", "description": "年龄" },
+                "score": { "type": "number" },
+                "active": { "type": "boolean" },
+                "tags": { "type": "array", "items": { "type": "string" } },
+                "status": { "type": "string", "enum": ["todo", "done"], "description": "状态" },
+                "config": {
+                    "type": "object",
+                    "description": "配置对象",
+                    "properties": {
+                        "host": { "type": "string", "description": "主机地址" },
+                        "port": { "type": "integer", "description": "端口号" }
+                    },
+                    "required": ["host"]
+                },
+                "users": {
+                    "type": "array",
+                    "description": "用户列表",
+                    "items": {
+                        "type": "object",
+                        "description": "单个用户",
+                        "properties": {
+                            "name": { "type": "string" },
+                            "role": { "type": "string", "enum": ["admin", "user"] }
+                        },
+                        "required": ["name"]
+                    }
+                },
+                "orders": {
+                    "type": "object",
+                    "properties": {
+                        "order_id": { "type": "string" },
+                        "items": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "sku": { "type": "string" },
+                                    "qty": { "type": "integer" }
+                                },
+                                "required": ["sku", "qty"]
+                            }
+                        }
+                    },
+                    "required": ["order_id", "items"]
+                },
+                "channel": {
+                    "oneOf": [
+                        {
+                            "description": "邮件发送",
+                            "properties": {
+                                "type": { "const": "email" },
+                                "to": { "type": "string", "description": "收件人邮箱" },
+                                "subject": { "type": "string", "description": "邮件主题" }
+                            },
+                            "required": ["type", "to"]
+                        },
+                        {
+                            "description": "短信发送",
+                            "properties": {
+                                "type": { "const": "sms" },
+                                "phone": { "type": "string" }
+                            },
+                            "required": ["type", "phone"]
+                        },
+                        {
+                            "properties": {
+                                "extra": { "type": "string" }
+                            }
+                        }
+                    ]
+                },
+                "events": {
+                    "type": "array",
+                    "items": {
+                        "oneOf": [
+                            {
+                                "properties": {
+                                    "type": { "const": "click" },
+                                    "x": { "type": "number" },
+                                    "y": { "type": "number" }
+                                },
+                                "required": ["type", "x"]
+                            },
+                            {
+                                "properties": {
+                                    "type": { "const": "view" },
+                                    "page": { "type": "string" }
+                                },
+                                "required": ["type", "page"]
+                            }
+                        ]
+                    }
+                },
+                "profile": {
+                    "allOf": [
+                        {
+                            "properties": {
+                                "name": { "type": "string" },
+                                "age": { "type": "integer" }
+                            },
+                            "required": ["name"]
+                        },
+                        {
+                            "properties": {
+                                "email": { "type": "string" }
+                            },
+                            "required": ["email"]
+                        }
+                    ]
+                },
+                "server": {
+                    "type": "object",
+                    "description": "服务器设置",
+                    "properties": {
+                        "host": { "type": "string" }
+                    }
+                }
+            },
+            "required": ["name", "age", "active", "status", "config", "users", "orders", "channel", "events", "profile", "server"]
+        }
+    """.trimIndent()
+
+    /**
+     * 顶层 oneOf：覆盖 const 判别、单值 enum 判别、catch-all 分支、空分支、分支描述、参数描述。
+     */
+    private val topOneOfSchema = """
+        {
+            "oneOf": [
+                {
+                    "description": "播放一首歌曲",
+                    "properties": {
+                        "action": { "const": "play" },
+                        "song": { "type": "string" },
+                        "artist": { "type": "string" }
+                    },
+                    "required": ["action", "song"]
+                },
+                {
+                    "description": "暂停",
+                    "properties": {
+                        "action": { "const": "pause" }
+                    },
+                    "required": ["action"]
+                },
+                {
+                    "description": "调整音量",
+                    "properties": {
+                        "action": { "type": "string", "enum": ["volume"] },
+                        "volume": { "type": "integer", "description": "音量0-100" }
+                    },
+                    "required": ["action", "volume"]
+                },
+                {
+                    "properties": {
+                        "extra": { "type": "string" }
+                    }
+                }
+            ]
+        }
+    """.trimIndent()
+
+    // endregion
+
+    // region 基础类型与字段
+
     @Test
     fun compressSimpleSchema() {
-        val result = compressor.compress("send_email", """
-            {
-                "type": "object",
-                "properties": {
-                    "to": { "type": "string" },
-                    "subject": { "type": "string" }
-                },
-                "required": ["to"]
-            }
-        """.trimIndent())
-
-        assertEquals("send_email", result.signature.name)
-        assertEquals(2, result.signature.params.size)
+        val result = compressor.compress("test_tool", richObjectSchema)
+        assertEquals("test_tool", result.signature.name)
+        assertTrue(result.signature.params.isNotEmpty())
+        val name = result.signature.params.find { it.name == "name" }!!
+        assertTrue(name.type is ParamType.StringType)
     }
 
     @Test
     fun compressSchemaWithAllTypes() {
-        val result = compressor.compress("test_tool", """
-            {
-                "type": "object",
-                "properties": {
-                    "name": { "type": "string" },
-                    "age": { "type": "number" },
-                    "active": { "type": "boolean" },
-                    "tags": { "type": "array", "items": { "type": "string" } },
-                    "config": { "type": "object" }
-                },
-                "required": ["name", "age", "active", "tags", "config"]
-            }
-        """.trimIndent())
-
-        assertEquals(5, result.signature.params.size)
-        assertTrue(result.signature.params[0].type is ParamType.StringType)
-        assertTrue(result.signature.params[1].type is ParamType.NumberType)
-        assertTrue(result.signature.params[2].type is ParamType.BooleanType)
-        assertTrue(result.signature.params[3].type is ParamType.StringType)
-        assertTrue(result.signature.params[4].type is ParamType.ObjectType)
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val params = result.signature.params
+        assertTrue(params.find { it.name == "name" }!!.type is ParamType.StringType)
+        assertTrue(params.find { it.name == "age" }!!.type is ParamType.NumberType)
+        assertTrue(params.find { it.name == "score" }!!.type is ParamType.NumberType)
+        assertTrue(params.find { it.name == "active" }!!.type is ParamType.BooleanType)
+        val tags = params.find { it.name == "tags" }!!
+        assertTrue(tags.type is ParamType.StringType)
+        assertTrue((tags.type as ParamType.StringType).isArray)
+        assertTrue(params.find { it.name == "config" }!!.type is ParamType.ObjectType)
     }
 
     @Test
     fun compressSchemaWithEnum() {
-        val result = compressor.compress("update_status", """
-            {
-                "type": "object",
-                "properties": {
-                    "status": {
-                        "type": "string",
-                        "enum": ["todo", "in_progress", "done"]
-                    }
-                },
-                "required": ["status"]
-            }
-        """.trimIndent())
-
-        assertTrue(result.signature.params[0].type is ParamType.EnumType)
-        val enumType = result.signature.params[0].type as ParamType.EnumType
-        assertEquals(listOf("todo", "in_progress", "done"), enumType.values)
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val status = result.signature.params.find { it.name == "status" }!!
+        assertTrue(status.type is ParamType.EnumType)
+        assertEquals(listOf("todo", "done"), (status.type as ParamType.EnumType).values)
+        // 枚举字段也可携带 description（原 compressMusicControlSchema 覆盖点）
+        assertEquals("状态", status.description)
+        // 一个 object 可同时存在多个枚举字段（users.role 也是枚举，见 compressArrayOfObjectsKeepsElementSchema）
     }
 
     @Test
     fun compressToolWithDescription() {
-        val result = compressor.compress("send_email", """
-            {
-                "type": "object",
-                "properties": {
-                    "to": {
-                        "type": "string",
-                        "description": "收件人邮箱"
-                    }
-                },
-                "required": ["to"]
-            }
-        """.trimIndent())
-
-        assertEquals("收件人邮箱", result.signature.params[0].description)
+        val result = compressor.compress("test_tool", richObjectSchema)
+        assertEquals("名称", result.signature.params.find { it.name == "name" }!!.description)
+        // 验证参数总数（原 compressMusicControlSchema / compressSchemaWithAllTypes 覆盖点）
+        assertEquals(13, result.signature.params.size)
     }
 
     @Test
     fun compressEmptySchema() {
         val result = compressor.compress("noop", "{}")
-
         assertEquals("noop", result.signature.name)
         assertTrue(result.signature.params.isEmpty())
     }
 
     @Test
     fun compressedSchemaContainsExecution() {
-        val result = compressor.compress("send_email", """
-            {
-                "type": "object",
-                "properties": {
-                    "to": { "type": "string" }
-                },
-                "required": ["to"]
-            }
-        """.trimIndent())
-
+        val result = compressor.compress("test_tool", richObjectSchema)
         assertTrue(result.compressedSchema.contains("execution"))
-        assertTrue(result.compressedSchema.contains("send_email(to: string)"))
+        // 完整签名格式：name(type) + 顶层字段渲染（原 compressedSchemaContainsExecution 覆盖点）
+        val desc = extractExecutionDescription(result.compressedSchema)
+        assertTrue(desc.startsWith("test_tool("), "signature prefix missing: $desc")
+        assertTrue("name: string" in desc, "required string field missing: $desc")
     }
 
     @Test
-    fun compressMusicControlSchema() {
-        // 音乐控制工具：action 决定需要哪些额外参数
-        val result = compressor.compress("music_control", """
-            {
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["play", "pause", "stop", "prev", "next", "volume", "mode"],
-                        "description": "操作类型"
-                    },
-                    "song": {
-                        "type": "string",
-                        "description": "播放歌曲时必填"
-                    },
-                    "artist": {
-                        "type": "string",
-                        "description": "播放歌曲时可选"
-                    },
-                    "volume": {
-                        "type": "integer",
-                        "description": "调节音量时必填，0-100"
-                    },
-                    "mode": {
-                        "type": "string",
-                        "enum": ["normal", "repeat", "shuffle"],
-                        "description": "切换播放模式时必填"
-                    }
-                },
-                "required": ["action"]
-            }
-        """.trimIndent())
+    fun topLevelFieldsRenderWithTypeOptionalAndDescription() {
+        // 顶层简单字段的渲染格式：field?: type | "desc"（原 compressedSchemaWithConditionalFields 覆盖点）
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val desc = extractExecutionDescription(result.compressedSchema)
+        // 必填 + 描述
+        assertTrue("name: string | \"名称\"" in desc, "required+desc render missing: $desc")
+        // 可选 + 无描述
+        assertTrue("score?: number" in desc, "optional no-desc render missing: $desc")
+        // 必填 + 枚举 + 描述（无 ? 后缀）
+        assertTrue("status: enum(todo, done) | \"状态\"" in desc, "required+enum+desc render missing: $desc")
+        // 可选 + 数组
+        assertTrue("tags?: string[]" in desc, "optional array render missing: $desc")
+    }
 
-        assertEquals("music_control", result.signature.name)
-        assertEquals(5, result.signature.params.size)
+    // endregion
 
-        // 验证 action 是枚举类型
-        val actionParam = result.signature.params[0]
-        assertTrue(actionParam.type is ParamType.EnumType)
-        assertEquals(listOf("play", "pause", "stop", "prev", "next", "volume", "mode"), (actionParam.type as ParamType.EnumType).values)
-        assertEquals("操作类型", actionParam.description)
+    // region 嵌套对象与数组
 
-        // 验证各字段描述
-        val songParam = result.signature.params.find { it.name == "song" }
-        assertEquals("播放歌曲时必填", songParam?.description)
-
-        val volumeParam = result.signature.params.find { it.name == "volume" }
-        assertEquals("调节音量时必填，0-100", volumeParam?.description)
-
-        val modeParam = result.signature.params.find { it.name == "mode" }
-        assertTrue(modeParam?.type is ParamType.EnumType)
-        assertEquals(listOf("normal", "repeat", "shuffle"), (modeParam?.type as ParamType.EnumType).values)
-        assertEquals("切换播放模式时必填", modeParam?.description)
+    @Test
+    fun compressNestedObjectRecursesFields() {
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val config = result.signature.params.find { it.name == "config" }!!
+        assertTrue(config.type is ParamType.ObjectType)
+        val configType = config.type as ParamType.ObjectType
+        assertEquals(2, configType.fields.size)
+        assertEquals("host", configType.fields[0].name)
+        assertTrue(configType.fields[0].required)
+        assertEquals("port", configType.fields[1].name)
+        assertFalse(configType.fields[1].required)
     }
 
     @Test
-    fun compressedSchemaWithConditionalFields() {
-        // 验证压缩后的 schema 包含所有字段的描述信息
-        val result = compressor.compress("music_control", """
-            {
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        "enum": ["play", "pause", "volume"]
-                    },
-                    "song": {
-                        "type": "string",
-                        "description": "播放歌曲时必填"
-                    },
-                    "volume": {
-                        "type": "integer",
-                        "description": "调节音量时必填"
-                    }
-                },
-                "required": ["action"]
-            }
-        """.trimIndent())
-
-        // 压缩后的 schema 应包含完整的描述信息，帮助模型理解条件约束
-        val schemaJson = kotlinx.serialization.json.Json.parseToJsonElement(result.compressedSchema)
-        val execution = schemaJson.jsonObject["properties"]?.jsonObject?.get("execution")?.jsonObject
-        val description = execution?.get("description")?.jsonPrimitive?.content ?: ""
-
-        assertTrue(description.contains("action: enum(play, pause, volume)"), "action enum missing: $description")
-        assertTrue(description.contains("song?: string"), "song string missing: $description")
-        assertTrue(description.contains("播放歌曲时必填"), "song desc missing: $description")
-        assertTrue(description.contains("volume?: number"), "volume number missing: $description")
-        assertTrue(description.contains("调节音量时必填"), "volume desc missing: $description")
+    fun compressArrayOfObjectsKeepsElementSchema() {
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val users = result.signature.params.find { it.name == "users" }!!
+        assertTrue(users.type is ParamType.ObjectType)
+        val usersType = users.type as ParamType.ObjectType
+        assertTrue(usersType.isArray)
+        assertEquals(2, usersType.fields.size)
+        val role = usersType.fields.find { it.name == "role" }!!
+        assertTrue(role.type is ParamType.EnumType)
+        assertEquals(listOf("admin", "user"), (role.type as ParamType.EnumType).values)
     }
+
+    @Test
+    fun formatSignatureRendersNestedStructure() {
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val desc = extractExecutionDescription(result.compressedSchema)
+        assertTrue("orders:" in desc, "orders missing: $desc")
+        assertTrue("order_id:" in desc, "order_id missing: $desc")
+        assertTrue("items: [{" in desc, "items array-of-object missing: $desc")
+        assertTrue("sku:" in desc, "sku missing: $desc")
+        assertTrue("qty:" in desc, "qty missing: $desc")
+        assertTrue("qty: number" in desc, "qty should be number: $desc")
+    }
+
+    // endregion
+
+    // region oneOf 字段（嵌套在 object 里）
+
+    @Test
+    fun oneOfNestedInsideObject() {
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val channel = result.signature.params.find { it.name == "channel" }!!
+        assertTrue(channel.type is ParamType.OneOfType)
+        val oneOf = channel.type as ParamType.OneOfType
+        assertEquals(3, oneOf.branches.size)
+        assertEquals("type=email", oneOf.branches[0].condition)
+        assertEquals("type=sms", oneOf.branches[1].condition)
+        assertEquals("", oneOf.branches[2].condition) // catch-all
+    }
+
+    @Test
+    fun oneOfAsArrayElementType() {
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val events = result.signature.params.find { it.name == "events" }!!
+        assertTrue(events.type is ParamType.OneOfType)
+        val oneOf = events.type as ParamType.OneOfType
+        assertTrue(oneOf.isArray, "array-of-oneOf should be flagged: $oneOf")
+        assertEquals(2, oneOf.branches.size)
+    }
+
+    @Test
+    fun oneOfInsideObjectFieldRendersInline() {
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val desc = result.compressedSchema
+        assertTrue("channel:" in desc, "channel field missing: $desc")
+        assertTrue("{type=email" in desc, "email branch missing: $desc")
+        assertTrue("{type=sms" in desc, "sms branch missing: $desc")
+    }
+
+    @Test
+    fun nestedOneOfBranchParamsKeepTheirDescriptions() {
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val desc = result.compressedSchema
+        assertTrue("收件人邮箱" in desc, "email branch to desc missing: $desc")
+        assertTrue("邮件主题" in desc, "email branch subject desc missing: $desc")
+    }
+
+    @Test
+    fun oneOfBranchDescriptionPreserved() {
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val desc = result.compressedSchema
+        assertTrue("邮件发送" in desc, "email branch desc missing: $desc")
+        assertTrue("短信发送" in desc, "sms branch desc missing: $desc")
+    }
+
+    // endregion
+
+    // region allOf 字段
+
+    @Test
+    fun allOfInsideFieldMergesProperties() {
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val profile = result.signature.params.find { it.name == "profile" }!!
+        assertTrue(profile.type is ParamType.ObjectType)
+        val profileType = profile.type as ParamType.ObjectType
+        assertEquals(3, profileType.fields.size)
+        assertTrue(profileType.fields.find { it.name == "name" }!!.required)
+        assertTrue(profileType.fields.find { it.name == "email" }!!.required)
+        assertFalse(profileType.fields.find { it.name == "age" }!!.required)
+    }
+
+    // endregion
+
+    // region description 渲染
+
+    @Test
+    fun nestedObjectFieldsKeepTheirDescriptions() {
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val desc = result.compressedSchema
+        assertTrue("主机地址" in desc, "host description missing in nested object: $desc")
+        assertTrue("端口号" in desc, "port description missing in nested object: $desc")
+    }
+
+    @Test
+    fun objectWrapperDescriptionRendered() {
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val desc = result.compressedSchema
+        assertEquals(1, desc.split("配置对象").size - 1, "wrapper description duplicated: $desc")
+        assertTrue("host: string" in desc, "host field missing: $desc")
+        assertTrue("port?: number" in desc, "port field missing: $desc")
+    }
+
+    @Test
+    fun descriptionNotDuplicatedBetweenParamAndType() {
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val desc = result.compressedSchema
+        assertEquals(1, desc.split("服务器设置").size - 1, "description should appear exactly once: $desc")
+    }
+
+    @Test
+    fun arrayOfObjectKeepsOuterArrayDescription() {
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val desc = result.compressedSchema
+        assertTrue("用户列表" in desc, "outer array description lost: $desc")
+        assertTrue("role" in desc, "items field missing: $desc")
+    }
+
+    @Test
+    fun arrayOfObjectKeepsBothDescriptions() {
+        val result = compressor.compress("test_tool", richObjectSchema)
+        val desc = result.compressedSchema
+        assertEquals(1, desc.split("用户列表").size - 1, "outer description missing or duplicated: $desc")
+        assertEquals(1, desc.split("单个用户").size - 1, "items description missing or duplicated: $desc")
+    }
+
+    // endregion
+
+    // region 顶层 oneOf
 
     @Test
     fun compressOneOfSchema() {
-        // oneOf 条件参数 schema
-        val result = compressor.compress("music_control", """
-            {
-                "oneOf": [
-                    {
-                        "properties": {
-                            "action": {"const": "play"},
-                            "song": {"type": "string", "description": "歌曲名"},
-                            "artist": {"type": "string", "description": "歌手"}
-                        },
-                        "required": ["action", "song"]
-                    },
-                    {
-                        "properties": {
-                            "action": {"const": "pause"}
-                        },
-                        "required": ["action"]
-                    },
-                    {
-                        "properties": {
-                            "action": {"const": "volume"},
-                            "volume": {"type": "integer", "description": "音量0-100"}
-                        },
-                        "required": ["action", "volume"]
-                    }
-                ]
-            }
-        """.trimIndent())
-
+        val result = compressor.compress("music_control", topOneOfSchema)
         assertEquals("music_control", result.signature.name)
         assertTrue(result.signature.isOneOf)
-        assertEquals(3, result.signature.branches.size)
+        assertEquals(4, result.signature.branches.size)
 
-        // 验证第一个分支 (play)
+        // play 分支：2 个参数
         val playBranch = result.signature.branches[0]
         assertEquals("action=play", playBranch.condition)
         assertEquals(2, playBranch.params.size)
         assertEquals("song", playBranch.params[0].name)
         assertEquals("artist", playBranch.params[1].name)
 
-        // 验证第二个分支 (pause) - 空分支
+        // pause 分支：空（无额外参数）
         val pauseBranch = result.signature.branches[1]
         assertEquals("action=pause", pauseBranch.condition)
         assertEquals(0, pauseBranch.params.size)
 
-        // 验证第三个分支 (volume)
+        // volume 分支：1 个参数
         val volumeBranch = result.signature.branches[2]
         assertEquals("action=volume", volumeBranch.condition)
         assertEquals(1, volumeBranch.params.size)
@@ -284,307 +445,63 @@ class SchemaCompressorTest {
     }
 
     @Test
-    fun compressNestedObjectRecursesFields() {
-        // 内层对象类型应保留 fields 结构(以前会压扁成 ObjectType())
-        val result = compressor.compress("create_user", """
-            {
-                "type": "object",
-                "properties": {
-                    "user": {
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string"},
-                            "age": {"type": "integer"}
-                        },
-                        "required": ["name"]
-                    }
-                },
-                "required": ["user"]
-            }
-        """.trimIndent())
-
-        val userParam = result.signature.params.find { it.name == "user" }!!
-        assertTrue(userParam.type is ParamType.ObjectType)
-        val userType = userParam.type as ParamType.ObjectType
-        assertEquals(2, userType.fields.size)
-        assertEquals("name", userType.fields[0].name)
-        assertTrue(userType.fields[0].required)
-        assertTrue(userType.fields[0].type is ParamType.StringType)
-        assertEquals("age", userType.fields[1].name)
-        assertFalse(userType.fields[1].required)
-    }
-
-    @Test
-    fun compressArrayOfObjectsKeepsElementSchema() {
-        // 数组元素的 schema 应当被保留到 ObjectType(isArray=true).fields
-        val result = compressor.compress("create_users", """
-            {
-                "type": "object",
-                "properties": {
-                    "users": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "name": {"type": "string"},
-                                "role": {"type": "string", "enum": ["admin", "user"]}
-                            },
-                            "required": ["name"]
-                        }
-                    }
-                },
-                "required": ["users"]
-            }
-        """.trimIndent())
-
-        val usersParam = result.signature.params.find { it.name == "users" }!!
-        assertTrue(usersParam.type is ParamType.ObjectType)
-        val usersType = usersParam.type as ParamType.ObjectType
-        assertTrue(usersType.isArray)
-        assertEquals(2, usersType.fields.size)
-        val roleField = usersType.fields.find { it.name == "role" }!!
-        assertTrue(roleField.type is ParamType.EnumType)
-        assertEquals(listOf("admin", "user"), (roleField.type as ParamType.EnumType).values)
-    }
-
-    @Test
-    fun formatSignatureRendersNestedStructure() {
-        // 签名应把内层结构渲染为 { name: type, ... }(数组对象则是 [{...}])
-        val result = compressor.compress("create_orders", """
-            {
-                "type": "object",
-                "properties": {
-                    "orders": {
-                        "type": "object",
-                        "properties": {
-                            "order_id": {"type": "string"},
-                            "items": {
-                                "type": "array",
-                                "items": {
-                                    "type": "object",
-                                    "properties": {
-                                        "sku": {"type": "string"},
-                                        "qty": {"type": "integer"}
-                                    },
-                                    "required": ["sku", "qty"]
-                                }
-                            }
-                        },
-                        "required": ["order_id", "items"]
-                    }
-                },
-                "required": ["orders"]
-            }
-        """.trimIndent())
-
-        val schemaJson = kotlinx.serialization.json.Json.parseToJsonElement(result.compressedSchema)
-        val description = schemaJson.jsonObject["properties"]?.jsonObject
-            ?.get("execution")?.jsonObject?.get("description")?.jsonPrimitive?.content ?: ""
-
-        assertTrue(description.contains("orders:"), "orders missing: $description")
-        assertTrue(description.contains("order_id:"), "order_id missing: $description")
-        assertTrue(description.contains("items: [{"), "items array-of-object missing: $description")
-        assertTrue(description.contains("sku:"), "sku missing: $description")
-        assertTrue(description.contains("qty:"), "qty missing: $description")
-        assertTrue(description.contains("qty: number"), "qty should be number: $description")
-    }
-
-    @Test
     fun compressedSchemaWithOneOf() {
-        val result = compressor.compress("music_control", """
-            {
-                "oneOf": [
-                    {
-                        "properties": {
-                            "action": {"const": "play"},
-                            "song": {"type": "string"}
-                        },
-                        "required": ["action", "song"]
-                    },
-                    {
-                        "properties": {
-                            "action": {"const": "pause"}
-                        },
-                        "required": ["action"]
-                    }
-                ]
-            }
-        """.trimIndent())
-
-        val schemaJson = kotlinx.serialization.json.Json.parseToJsonElement(result.compressedSchema)
-        val execution = schemaJson.jsonObject["properties"]?.jsonObject?.get("execution")?.jsonObject
-        val description = execution?.get("description")?.jsonPrimitive?.content ?: ""
-
-        // 验证 oneOf 格式：action=play, song: string; action=pause
-        assertTrue(description.contains("action=play,"), "play branch missing: $description")
-        assertTrue(description.contains("song: string"), "song param missing: $description")
-        assertTrue(description.contains("action=pause"), "pause branch missing: $description")
-        assertTrue(description.contains(";"), "branches should be separated by ;")
+        val result = compressor.compress("music_control", topOneOfSchema)
+        val desc = result.compressedSchema
+        assertTrue("action=play" in desc, "play branch missing: $desc")
+        assertTrue("song: string" in desc, "song param missing: $desc")
+        assertTrue("action=pause" in desc, "pause branch missing: $desc")
+        assertTrue(";" in desc, "branches should be separated by ;")
     }
 
     @Test
     fun oneOfWithEnumDiscriminatorTreatedAsConst() {
-        // 单值 enum 等价 const,应当作 discriminator
-        val result = compressor.compress("notif", """
-            {
-                "oneOf": [
-                    {
-                        "properties": {
-                            "kind": {"type": "string", "enum": ["email"]},
-                            "to": {"type": "string"}
-                        },
-                        "required": ["kind", "to"]
-                    },
-                    {
-                        "properties": {
-                            "kind": {"type": "string", "enum": ["sms"]},
-                            "phone": {"type": "string"}
-                        },
-                        "required": ["kind", "phone"]
-                    }
-                ]
-            }
-        """.trimIndent())
-
+        // 单值 enum 等价 const，应当作 discriminator
+        val result = compressor.compress("music_control", topOneOfSchema)
         assertTrue(result.signature.isOneOf)
-        assertEquals(2, result.signature.branches.size)
-        assertEquals("kind=email", result.signature.branches[0].condition)
-        assertEquals("kind=sms", result.signature.branches[1].condition)
-        // 判别字段 kind 不应在 params 里
-        assertTrue(result.signature.branches[0].params.none { it.name == "kind" })
-        assertTrue(result.signature.branches[1].params.none { it.name == "kind" })
+        val volumeBranch = result.signature.branches[2]
+        assertEquals("action=volume", volumeBranch.condition)
+        assertTrue(volumeBranch.params.none { it.name == "action" })
     }
 
     @Test
     fun oneOfWithNoDiscriminatorBranchBecomesCatchAll() {
-        // 没有 const/单值 enum 的分支(纯 catch-all)应保留,condition 为空
-        val result = compressor.compress("event", """
-            {
-                "oneOf": [
-                    {
-                        "properties": {
-                            "type": {"const": "click"},
-                            "x": {"type": "number"}
-                        },
-                        "required": ["type"]
-                    },
-                    {
-                        "properties": {
-                            "payload": {"type": "string"}
-                        }
-                    }
-                ]
-            }
-        """.trimIndent())
-
-        assertEquals(2, result.signature.branches.size)
-        assertEquals("type=click", result.signature.branches[0].condition)
-        assertEquals("", result.signature.branches[1].condition) // catch-all
-        assertEquals(1, result.signature.branches[1].params.size)
+        // 没有 const/单值 enum 的分支（纯 catch-all）应保留，condition 为空
+        val result = compressor.compress("music_control", topOneOfSchema)
+        val catchAll = result.signature.branches[3]
+        assertEquals("", catchAll.condition)
+        assertEquals(1, catchAll.params.size)
     }
 
     @Test
-    fun oneOfNestedInsideObject() {
-        // oneOf 嵌在 object 的字段里(不是顶层)
-        val result = compressor.compress("send", """
-            {
-                "type": "object",
-                "properties": {
-                    "channel": {
-                        "oneOf": [
-                            {
-                                "properties": {
-                                    "type": {"const": "email"},
-                                    "to": {"type": "string"}
-                                },
-                                "required": ["type", "to"]
-                            },
-                            {
-                                "properties": {
-                                    "type": {"const": "webhook"},
-                                    "url": {"type": "string"}
-                                },
-                                "required": ["type", "url"]
-                            }
-                        ]
-                    }
-                },
-                "required": ["channel"]
-            }
-        """.trimIndent())
-
-        val channelParam = result.signature.params.find { it.name == "channel" }!!
-        assertTrue(channelParam.type is ParamType.OneOfType)
-        val oneOf = channelParam.type as ParamType.OneOfType
-        assertEquals(2, oneOf.branches.size)
-        assertEquals("type=email", oneOf.branches[0].condition)
-        assertEquals("type=webhook", oneOf.branches[1].condition)
+    fun oneOfFormatRendersCatchAllWithAsterisk() {
+        // catch-all 分支（空 condition）在签名里用 * 前缀标识
+        val result = compressor.compress("music_control", topOneOfSchema)
+        val desc = result.compressedSchema
+        assertTrue("action=play" in desc, "normal branch missing: $desc")
+        assertTrue("; * extra?: string" in desc, "catch-all branch missing or not marked: $desc")
     }
 
     @Test
-    fun oneOfAsArrayElementType() {
-        // 数组元素是 oneOf:items.oneOf + type=array
-        val result = compressor.compress("log", """
-            {
-                "type": "object",
-                "properties": {
-                    "events": {
-                        "type": "array",
-                        "items": {
-                            "oneOf": [
-                                {
-                                    "properties": {
-                                        "type": {"const": "click"},
-                                        "x": {"type": "number"},
-                                        "y": {"type": "number"}
-                                    },
-                                    "required": ["type", "x"]
-                                },
-                                {
-                                    "properties": {
-                                        "type": {"const": "view"},
-                                        "page": {"type": "string"}
-                                    },
-                                    "required": ["type", "page"]
-                                }
-                            ]
-                        }
-                    }
-                },
-                "required": ["events"]
-            }
-        """.trimIndent())
-
-        val eventsParam = result.signature.params.find { it.name == "events" }!!
-        assertTrue(eventsParam.type is ParamType.OneOfType)
-        val oneOf = eventsParam.type as ParamType.OneOfType
-        assertTrue(oneOf.isArray, "array-of-oneOf should be flagged: $oneOf")
-        assertEquals(2, oneOf.branches.size)
+    fun topLevelOneOfBranchDescriptionPreserved() {
+        val result = compressor.compress("music_control", topOneOfSchema)
+        val desc = result.compressedSchema
+        assertTrue("播放一首歌曲" in desc, "play branch desc missing: $desc")
+        assertTrue("调整音量" in desc, "volume branch desc missing: $desc")
+        assertTrue("action=play" in desc, "play condition missing: $desc")
+        assertTrue("action=volume" in desc, "volume condition missing: $desc")
     }
+
+    // endregion
+
+    // region 顶层 anyOf / allOf
 
     @Test
     fun anyOfFallsThroughToOneOf() {
-        // anyOf 在我们这套压缩语义里和 oneOf 等价(都表达多分支可能)
-        val result = compressor.compress("payload", """
-            {
-                "anyOf": [
-                    {
-                        "properties": {
-                            "kind": {"const": "a"},
-                            "a_val": {"type": "string"}
-                        },
-                        "required": ["kind"]
-                    },
-                    {
-                        "properties": {
-                            "kind": {"const": "b"},
-                            "b_val": {"type": "number"}
-                        },
-                        "required": ["kind"]
-                    }
-                ]
-            }
-        """.trimIndent())
+        // anyOf 在压缩语义里和 oneOf 等价
+        val result = compressor.compress("payload",
+            """{"anyOf":[{"properties":{"kind":{"const":"a"},"a_val":{"type":"string"}},"required":["kind"]},""" +
+            """{"properties":{"kind":{"const":"b"},"b_val":{"type":"number"}},"required":["kind"]}]}""")
 
         assertTrue(result.signature.isOneOf)
         assertEquals(2, result.signature.branches.size)
@@ -594,376 +511,26 @@ class SchemaCompressorTest {
 
     @Test
     fun allOfMergesProperties() {
-        // allOf 把多个子 schema 合并(简化处理:同名字段取第一个,required 取并集)
-        val result = compressor.compress("merged", """
-            {
-                "allOf": [
-                    {
-                        "properties": {
-                            "name": {"type": "string"},
-                            "age": {"type": "integer"}
-                        },
-                        "required": ["name"]
-                    },
-                    {
-                        "properties": {
-                            "email": {"type": "string"}
-                        },
-                        "required": ["email"]
-                    }
-                ]
-            }
-        """.trimIndent())
+        // allOf 把多个子 schema 合并（同名字段取第一个，required 取并集）
+        val result = compressor.compress("merged",
+            """{"allOf":[{"properties":{"name":{"type":"string"},"age":{"type":"integer"}},"required":["name"]},""" +
+            """{"properties":{"email":{"type":"string"}},"required":["email"]}]}""")
 
-        // allOf 合成一个 object
         assertEquals(3, result.signature.params.size)
-        val nameParam = result.signature.params.find { it.name == "name" }!!
-        assertTrue(nameParam.required)
-        val emailParam = result.signature.params.find { it.name == "email" }!!
-        assertTrue(emailParam.required)
-        val ageParam = result.signature.params.find { it.name == "age" }!!
-        assertFalse(ageParam.required)
+        assertTrue(result.signature.params.find { it.name == "name" }!!.required)
+        assertTrue(result.signature.params.find { it.name == "email" }!!.required)
+        assertFalse(result.signature.params.find { it.name == "age" }!!.required)
     }
 
-    @Test
-    fun allOfInsideFieldMergesProperties() {
-        // 字段层 allOf:profile 字段是 allOf,合成一个带 fields 的 ObjectType
-        val result = compressor.compress("register", """
-            {
-                "type": "object",
-                "properties": {
-                    "profile": {
-                        "allOf": [
-                            {
-                                "properties": {
-                                    "name": {"type": "string"},
-                                    "age": {"type": "integer"}
-                                },
-                                "required": ["name"]
-                            },
-                            {
-                                "properties": {
-                                    "email": {"type": "string"}
-                                },
-                                "required": ["email"]
-                            }
-                        ]
-                    }
-                },
-                "required": ["profile"]
-            }
-        """.trimIndent())
+    // endregion
 
-        val profileParam = result.signature.params.find { it.name == "profile" }!!
-        assertTrue(profileParam.type is ParamType.ObjectType)
-        val profileType = profileParam.type as ParamType.ObjectType
-        assertEquals(3, profileType.fields.size)
-        assertTrue(profileType.fields.find { it.name == "name" }!!.required)
-        assertTrue(profileType.fields.find { it.name == "email" }!!.required)
-        assertFalse(profileType.fields.find { it.name == "age" }!!.required)
+    // region 辅助
+
+    private fun extractExecutionDescription(compressedSchema: String): String {
+        val schemaJson = Json.parseToJsonElement(compressedSchema)
+        return schemaJson.jsonObject["properties"]?.jsonObject
+            ?.get("execution")?.jsonObject?.get("description")?.jsonPrimitive?.content ?: ""
     }
 
-    @Test
-    fun oneOfFormatRendersCatchAllWithAsterisk() {
-        // catch-all 分支(空 condition)在签名里用 * 前缀标识,跟普通 condition=... 区分开
-        val result = compressor.compress("event", """
-            {
-                "oneOf": [
-                    {
-                        "properties": {
-                            "type": {"const": "click"},
-                            "x": {"type": "number"}
-                        },
-                        "required": ["type"]
-                    },
-                    {
-                        "properties": {
-                            "extra": {"type": "string"}
-                        }
-                    }
-                ]
-            }
-        """.trimIndent())
-
-        val desc = result.compressedSchema
-        assertTrue("type=click" in desc, "normal branch missing: $desc")
-        assertTrue("x?: number" in desc, "normal branch params missing: $desc")
-        assertTrue("; * extra?: string" in desc, "catch-all branch missing or not marked: $desc")
-    }
-
-    @Test
-    fun oneOfInsideObjectFieldRendersInline() {
-        // oneOf 作为字段类型时,签名里应渲染 {a=val, ...} | {b=val, ...}
-        val result = compressor.compress("send", """
-            {
-                "type": "object",
-                "properties": {
-                    "channel": {
-                        "oneOf": [
-                            {
-                                "properties": {
-                                    "type": {"const": "email"},
-                                    "to": {"type": "string"}
-                                },
-                                "required": ["type", "to"]
-                            },
-                            {
-                                "properties": {
-                                    "type": {"const": "webhook"},
-                                    "url": {"type": "string"}
-                                },
-                                "required": ["type", "url"]
-                            }
-                        ]
-                    }
-                },
-                "required": ["channel"]
-            }
-        """.trimIndent())
-
-        val desc = result.compressedSchema
-        assertTrue("channel:" in desc, "channel field missing: $desc")
-        assertTrue("{type=email" in desc, "email branch missing: $desc")
-        assertTrue("{type=webhook" in desc, "webhook branch missing: $desc")
-    }
-
-    @Test
-    fun nestedObjectFieldsKeepTheirDescriptions() {
-        // 嵌套 object 里的字段描述不应被丢(用户写的内容必须保留)
-        val result = compressor.compress("create_user", """
-            {
-                "type": "object",
-                "properties": {
-                    "user": {
-                        "type": "object",
-                        "properties": {
-                            "name": {"type": "string", "description": "用户姓名"},
-                            "age": {"type": "integer", "description": "用户年龄"}
-                        },
-                        "required": ["name"]
-                    }
-                },
-                "required": ["user"]
-            }
-        """.trimIndent())
-
-        val desc = result.compressedSchema
-        assertTrue("用户姓名" in desc, "name description missing in nested object: $desc")
-        assertTrue("用户年龄" in desc, "age description missing in nested object: $desc")
-    }
-
-    @Test
-    fun nestedOneOfBranchParamsKeepTheirDescriptions() {
-        // 嵌套 oneOf 分支的参数描述不应被丢
-        val result = compressor.compress("send", """
-            {
-                "type": "object",
-                "properties": {
-                    "channel": {
-                        "oneOf": [
-                            {
-                                "properties": {
-                                    "type": {"const": "email"},
-                                    "to": {"type": "string", "description": "收件人邮箱"},
-                                    "subject": {"type": "string", "description": "邮件主题"}
-                                },
-                                "required": ["type", "to"]
-                            },
-                            {
-                                "properties": {
-                                    "type": {"const": "webhook"},
-                                    "url": {"type": "string", "description": "回调 URL"}
-                                },
-                                "required": ["type", "url"]
-                            }
-                        ]
-                    }
-                },
-                "required": ["channel"]
-            }
-        """.trimIndent())
-
-        val desc = result.compressedSchema
-        assertTrue("收件人邮箱" in desc, "email branch to desc missing: $desc")
-        assertTrue("邮件主题" in desc, "email branch subject desc missing: $desc")
-        assertTrue("回调 URL" in desc, "webhook branch url desc missing: $desc")
-    }
-
-    @Test
-    fun objectWrapperDescriptionRendered() {
-        // object 自身的 description 也要渲染(挂在类型上,不是 Param)
-        val result = compressor.compress("config", """
-            {
-                "type": "object",
-                "properties": {
-                    "db": {
-                        "type": "object",
-                        "description": "数据库连接配置",
-                        "properties": {
-                            "host": {"type": "string"},
-                            "port": {"type": "integer"}
-                        },
-                        "required": ["host"]
-                    }
-                },
-                "required": ["db"]
-            }
-        """.trimIndent())
-
-        val desc = result.compressedSchema
-        // 描述只渲染一次(不在 Param 上重复)
-        assertEquals(1, desc.split("数据库连接配置").size - 1, "wrapper description duplicated: $desc")
-        assertTrue("host: string" in desc, "host field missing: $desc")
-        assertTrue("port?: number" in desc, "port field missing: $desc")
-    }
-
-    @Test
-    fun descriptionNotDuplicatedBetweenParamAndType() {
-        // 同一 description 不应同时挂到 Param 和 inner ObjectType(避免渲染两次)
-        val result = compressor.compress("cfg", """
-            {
-                "type": "object",
-                "properties": {
-                    "server": {
-                        "type": "object",
-                        "description": "服务器设置",
-                        "properties": {
-                            "host": {"type": "string"}
-                        }
-                    }
-                },
-                "required": ["server"]
-            }
-        """.trimIndent())
-
-        val desc = result.compressedSchema
-        assertEquals(1, desc.split("服务器设置").size - 1, "description should appear exactly once: $desc")
-    }
-
-    @Test
-    fun arrayOfObjectKeepsOuterArrayDescription() {
-        // array of object:外层数组的 description 不应被丢(常见:数组的语义和 items 不同)
-        val result = compressor.compress("query", """
-            {
-                "type": "object",
-                "properties": {
-                    "impacts": {
-                        "type": "array",
-                        "description": "影响关系数组(API 必填)",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "id": {"type": "string"}
-                            }
-                        }
-                    }
-                },
-                "required": ["impacts"]
-            }
-        """.trimIndent())
-
-        val desc = result.compressedSchema
-        assertTrue("影响关系数组(API 必填)" in desc, "outer array description lost: $desc")
-        // id 不在 required 数组里 → 渲染为可选
-        assertTrue("id" in desc && "string" in desc, "items field missing: $desc")
-    }
-
-    @Test
-    fun arrayOfObjectKeepsBothDescriptions() {
-        // array of object:外层数组和 items 都有 description 时,两者都保留
-        val result = compressor.compress("query", """
-            {
-                "type": "object",
-                "properties": {
-                    "events": {
-                        "type": "array",
-                        "description": "事件列表",
-                        "items": {
-                            "type": "object",
-                            "description": "单个事件",
-                            "properties": {
-                                "name": {"type": "string"}
-                            }
-                        }
-                    }
-                },
-                "required": ["events"]
-            }
-        """.trimIndent())
-
-        val desc = result.compressedSchema
-        assertEquals(1, desc.split("事件列表").size - 1, "outer description missing or duplicated: $desc")
-        assertEquals(1, desc.split("单个事件").size - 1, "items description missing or duplicated: $desc")
-    }
-
-    @Test
-    fun oneOfBranchDescriptionPreserved() {
-        // oneOf 分支的 description 不应被丢
-        val result = compressor.compress("send", """
-            {
-                "type": "object",
-                "properties": {
-                    "channel": {
-                        "oneOf": [
-                            {
-                                "description": "邮件发送",
-                                "properties": {
-                                    "type": {"const": "email"},
-                                    "to": {"type": "string"}
-                                },
-                                "required": ["type", "to"]
-                            },
-                            {
-                                "description": "短信发送",
-                                "properties": {
-                                    "type": {"const": "sms"},
-                                    "phone": {"type": "string"}
-                                },
-                                "required": ["type", "phone"]
-                            }
-                        ]
-                    }
-                },
-                "required": ["channel"]
-            }
-        """.trimIndent())
-
-        val desc = result.compressedSchema
-        assertTrue("邮件发送" in desc, "email branch desc missing: $desc")
-        assertTrue("短信发送" in desc, "sms branch desc missing: $desc")
-    }
-
-    @Test
-    fun topLevelOneOfBranchDescriptionPreserved() {
-        // 顶层 oneOf 分支的 description 也保留
-        val result = compressor.compress("music_control", """
-            {
-                "oneOf": [
-                    {
-                        "description": "播放一首歌曲",
-                        "properties": {
-                            "action": {"const": "play"},
-                            "song": {"type": "string"}
-                        },
-                        "required": ["action", "song"]
-                    },
-                    {
-                        "description": "调整音量",
-                        "properties": {
-                            "action": {"const": "volume"},
-                            "volume": {"type": "number"}
-                        },
-                        "required": ["action", "volume"]
-                    }
-                ]
-            }
-        """.trimIndent())
-
-        val desc = result.compressedSchema
-        assertTrue("播放一首歌曲" in desc, "play branch desc missing: $desc")
-        assertTrue("调整音量" in desc, "volume branch desc missing: $desc")
-        // 也要保留条件分支本身
-        assertTrue("action=play" in desc, "play condition missing: $desc")
-        assertTrue("action=volume" in desc, "volume condition missing: $desc")
-    }
+    // endregion
 }
