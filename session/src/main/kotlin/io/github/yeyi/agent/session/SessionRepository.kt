@@ -60,7 +60,7 @@ public class SessionRepository(baseDir: File) {
         val session = Session(
             id = id,
             accountId = accountId,
-            name = sessionName,
+            name = sessionName.take(50),
             createdAt = now,
             lastActiveAt = now
         ).let { hydrateSession(it) }
