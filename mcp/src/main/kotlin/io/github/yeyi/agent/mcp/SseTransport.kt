@@ -12,6 +12,7 @@ import io.ktor.client.statement.bodyAsChannel
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.HttpMessageBuilder
 import io.ktor.http.contentType
 import io.ktor.utils.io.readUTF8Line
 import kotlinx.coroutines.CancellationException
@@ -51,9 +52,9 @@ import kotlinx.serialization.json.decodeFromJsonElement
  */
 public class SseTransport(
     private val endpoint: String,
-    private val protocolVersion: String = McpServer.SUPPORTED_PROTOCOL_VERSION,
+    private val httpHeaders: Map<String, String>? = null,
     private val enableNotifications: Boolean = false,
-    httpClient: HttpClient? = null,
+    httpClient: HttpClient? = null
 ) : McpTransport {
     private object Defaults {
         const val SSE_RECONNECT_DELAY_MS = 5000L
@@ -61,6 +62,7 @@ public class SseTransport(
         const val MCP_SESSION_ID_HEADER = "Mcp-Session-Id"
     }
 
+    private val protocolVersion: String = McpServer.SUPPORTED_PROTOCOL_VERSION
     private val httpClient = httpClient ?: HttpClient { expectSuccess = true }
     private val isDefaultHttpClient = httpClient == null
 
@@ -93,6 +95,7 @@ public class SseTransport(
         try {
             val response: HttpResponse = httpClient.post(endpoint) {
                 contentType(ContentType.Application.Json)
+                withCommHeaders()
                 header(
                     HttpHeaders.Accept,
                     "${ContentType.Application.Json}, ${ContentType.Text.EventStream}"
@@ -127,6 +130,7 @@ public class SseTransport(
 
         httpClient.post(endpoint) {
             contentType(ContentType.Application.Json)
+            withCommHeaders()
             header(
                 HttpHeaders.Accept,
                 "${ContentType.Application.Json}, ${ContentType.Text.EventStream}"
@@ -155,6 +159,7 @@ public class SseTransport(
                 try {
                     val response: HttpResponse = httpClient.get(endpoint) {
                         accept(ContentType.Text.EventStream)
+                        withCommHeaders()
                         header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
                         sessionId?.let { header(Defaults.MCP_SESSION_ID_HEADER, it) }
                     }
@@ -208,7 +213,8 @@ public class SseTransport(
     private fun processSseEvent(raw: String, expectedId: Int?): JsonRpcResponse<JsonElement>? {
         val parsed = SseEventParser.parse(raw) ?: return null
         if (parsed.data.isEmpty()) return null
-        val element = runCatching { json.parseToJsonElement(parsed.data) }.getOrNull() ?: return null
+        val element =
+            runCatching { json.parseToJsonElement(parsed.data) }.getOrNull() ?: return null
         val obj = element as? JsonObject ?: return null
 
         when {
@@ -217,9 +223,11 @@ public class SseTransport(
                 notificationsSharedFlow.tryEmit(notification)
                 return null
             }
+
             else -> {
-                val response = runCatching { json.decodeFromJsonElement<JsonRpcResponse<JsonElement>>(obj) }.getOrNull()
-                    ?: return null
+                val response =
+                    runCatching { json.decodeFromJsonElement<JsonRpcResponse<JsonElement>>(obj) }.getOrNull()
+                        ?: return null
                 if (expectedId != null && response.id != expectedId) {
                     throw RuntimeException("MCP response ID mismatch: expected $expectedId, got ${response.id}")
                 }
@@ -261,6 +269,10 @@ public class SseTransport(
             )
         }
         return response
+    }
+
+    private fun HttpMessageBuilder.withCommHeaders() {
+        httpHeaders?.forEach { header(it.key, it.value) }
     }
 }
 

@@ -6,7 +6,7 @@ import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.app.BuildConfig
 import io.github.yeyi.agent.app.demo.mcp.CalculatorMcp
-import io.github.yeyi.agent.app.demo.mcp.LiveScoreMcp
+import io.github.yeyi.agent.app.demo.mcp.IotHaMcp
 import io.github.yeyi.agent.app.demo.skills.NewsSkill
 import io.github.yeyi.agent.app.demo.skills.WeatherSkill
 import io.github.yeyi.agent.app.demo.subagents.ExternalHelpSubagent
@@ -95,8 +95,7 @@ object DemoAgentFactory {
             ).apply {
                 // Local MCP server
                 register(CalculatorMcp())
-                // Online MCP servers
-                register(LiveScoreMcp(httpClient))
+                register(IotHaMcp(httpClient))
             }
 
         return agent {
