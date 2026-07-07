@@ -106,15 +106,9 @@ public class ReActAgent internal constructor(
             memory.add(ChatMessage.User(input))
 
             while (iterations < maxIterations) {
-                try {
-                    loopOnce(++iterations, toolCalls, llmCall, emit)?.let { return }
-                } catch (e: Throwable) {
-                    e.takeIf { it.isContextOverflow() }
-                        ?.also { log.warn(it) }
-                        ?.let { memory.handleContextOverflow() }
-                        ?: throw e
-                }
+                loopOnce(++iterations, toolCalls, llmCall, emit)?.let { return }
             }
+
             throw AgentException.MaxIterations(maxIterations)
         } catch (t: Throwable) {
             if (t is kotlinx.coroutines.CancellationException) throw t
@@ -136,7 +130,7 @@ public class ReActAgent internal constructor(
 
         val request = buildRequest()
         hook.safeInvoke { beforeLlmCall(context) }
-        val response = llmCall(request)
+        val response = llmCallWithContextOverflowHandle(request, llmCall)
         hook.safeInvoke { afterLlmResponse(context, response) }
         memory.add(response.message)
 
@@ -174,6 +168,21 @@ public class ReActAgent internal constructor(
             }
         }
         return null
+    }
+
+    private suspend fun llmCallWithContextOverflowHandle(
+        request: ChatRequest,
+        llmCall: suspend (ChatRequest) -> ChatResponse
+    ): ChatResponse {
+        return try {
+            llmCall(request)
+        } catch (e: Throwable) {
+            e.takeIf { it.isContextOverflow() }
+                ?.let { log.warn(it) }
+                ?.let { memory.handleContextOverflow() }
+                ?.let { llmCallWithContextOverflowHandle(buildRequest(), llmCall) }
+                ?: throw e
+        }
     }
 
     private suspend fun recordToMemory(

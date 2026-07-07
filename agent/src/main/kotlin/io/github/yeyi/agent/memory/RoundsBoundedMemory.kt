@@ -239,6 +239,9 @@ internal class RoundsBoundedMemory(
      */
     private suspend fun truncateByCoefficient() {
         val history = underlying.history()
+        if (history.count { it !is ChatMessage.System } <= 1) {
+            throw IllegalStateException("Cannot truncate by coefficient: only one user message.")
+        }
         val currentRounds = history.count { it is ChatMessage.User }
         val toRemove = (currentRounds * 0.3).toInt().coerceAtLeast(1)
         val toRetain = currentRounds - toRemove
