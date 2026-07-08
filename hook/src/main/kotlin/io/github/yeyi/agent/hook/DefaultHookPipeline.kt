@@ -19,10 +19,11 @@ import kotlin.reflect.KClass
  * [DefaultHookPipeline] 实现 [HookPipeline]（即 [AgentHook]），可直接传给 ReActAgent。
  * 内部按 priority 排序调用 sub-hooks。
  *
- * 调度语义：
- * - [AgentHookEvent.BeforeToolCall]：首个返回 [HookResult.Halt] 的 hook 短路
- * - [AgentHookEvent.AfterToolCall]：链式改写，后续 hook 收到前一个的输出
- * - 其他事件：fan-out，所有匹配的 hook 按 priority 顺序被调用
+ * 调度语义（所有事件通用）：
+ * - [HookResult.Halt]：立即返回，中断后续 hook
+ * - [HookResult.Modify]：记录修改，通过 [HookEvent.copyWith] 更新事件状态供下一个 hook 消费
+ * - [HookResult.Continue]：继续下一个 hook
+ * - 未匹配到任何 hook 的事件返回 [HookResult.Continue]
  *
  * 异常隔离：任意内部 hook 抛 [kotlinx.coroutines.CancellationException] 会被原样抛出；
  * 其他 [Throwable] 会被吞掉并记录，继续执行。
@@ -63,89 +64,33 @@ internal class DefaultHookPipeline(
         hooks.filter { matches(it, eventClass) }
 
     override suspend fun run(event: HookEvent, context: HookContext): HookResult {
-        val eventClass = event::class
-        val matchingHooks = hooks.filter { matches(it, eventClass) }
-        if (matchingHooks.isEmpty()) {
-            return HookResult.Continue
-        }
-
-        return when (event) {
-            is AgentHookEvent.BeforeToolCall -> runBeforeToolCall(matchingHooks, event, context)
-            is AgentHookEvent.AfterToolCall -> runAfterToolCall(matchingHooks, event, context)
-            else -> runFanOut(matchingHooks, event, context)
-        }
+        val matchingHooks = hooks.filter { matches(it, event::class) }
+        if (matchingHooks.isEmpty()) return HookResult.Continue
+        return runEvents(matchingHooks, event, context)
     }
 
-    private suspend fun runFanOut(
+    private suspend fun runEvents(
         hooks: List<Hook>,
         event: HookEvent,
-        context: HookContext
-    ): HookResult {
-        var lastResult: HookResult = HookResult.Continue
-        for (hook in hooks) {
-            lastResult = invokeHook(hook, event, context)
-        }
-        return lastResult
-    }
-
-    private suspend fun runBeforeToolCall(
-        hooks: List<Hook>,
-        event: AgentHookEvent.BeforeToolCall,
-        context: HookContext
-    ): HookResult {
-        for (hook in hooks) {
-            val result = invokeHook(hook, event, context)
-            if (result is HookResult.Halt) {
-                return result
-            }
-        }
-        return HookResult.Continue
-    }
-
-    private suspend fun runAfterToolCall(
-        hooks: List<Hook>,
-        event: AgentHookEvent.AfterToolCall,
         context: HookContext
     ): HookResult {
         var currentEvent = event
+        var lastModify: HookResult.Modify? = null
         for (hook in hooks) {
-            when (val result = invokeHook(hook, currentEvent, context)) {
-                is HookResult.Modify -> {
-                    currentEvent = currentEvent.copy(
-                        result = result.newResult as? ToolExecutionResult
-                            ?: throw IllegalArgumentException(
-                                "Hook '${hook.name}' returned HookResult.Modify for ${event::class.simpleName}, " +
-                                        "but newResult is ${result.newResult::class.qualifiedName}; " +
-                                        "${event::class.simpleName} requires newResult to be a ToolExecutionResult."
-                            )
-                    )
-                }
-
-                is HookResult.Halt -> {
-                    return result
-                }
-
-                is HookResult.Continue -> {
-                    // 继续
-                }
+            val result: HookResult = try {
+                val raw = hook.execute(currentEvent, context)
+                raw.let { it as? HookResult.Modify }
+                    ?.also { currentEvent = currentEvent.copyWith(it.newResult) }
+                    ?.also { lastModify = it } ?: raw
+            } catch (t: kotlinx.coroutines.CancellationException) {
+                throw t
+            } catch (t: Throwable) {
+                log.warn("${hook.name} hook exception", t)
+                HookResult.Continue
             }
+            if (result is HookResult.Halt) return result
         }
-        return HookResult.Modify(currentEvent.result)
-    }
-
-    private suspend fun invokeHook(
-        hook: Hook,
-        event: HookEvent,
-        context: HookContext
-    ): HookResult {
-        return try {
-            hook.execute(event, context)
-        } catch (t: kotlinx.coroutines.CancellationException) {
-            throw t
-        } catch (t: Throwable) {
-            log.warn("${hook.name} hook exception", t)
-            HookResult.Continue
-        }
+        return lastModify ?: HookResult.Continue
     }
 
     private fun matches(hook: Hook, eventClass: KClass<out HookEvent>): Boolean =
@@ -188,7 +133,7 @@ internal class DefaultHookPipeline(
     ): ToolExecutionResult {
         val event = AgentHookEvent.AfterToolCall(call, result, synthetic, durationMs)
         return when (val pipelineResult = run(event, HookContext(context))) {
-            // AfterToolCall 事件经 runAfterToolCall 处理后,Modify.newResult 必然为 ToolExecutionResult
+            // 链式改写：将 AfterToolCall 事件经 runEvents 处理后
             is HookResult.Modify -> pipelineResult.newResult as ToolExecutionResult
             else -> result
         }

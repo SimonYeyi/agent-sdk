@@ -42,7 +42,17 @@ public sealed interface AgentHookEvent : HookEvent {
         val result: ToolExecutionResult,
         val halt: Boolean,
         val durationMs: Long
-    ) : AgentHookEvent
+    ) : AgentHookEvent {
+        override fun copyWith(newResult: Any): HookEvent {
+            return copy(result = newResult as? ToolExecutionResult
+                ?: throw IllegalArgumentException(
+                    "Hook returned HookResult.Modify for ${this::class.simpleName}, " +
+                            "but newResult is ${newResult::class.qualifiedName}; " +
+                            "${this::class.simpleName} requires newResult to be a ToolExecutionResult."
+                )
+            )
+        }
+    }
 
     /** Agent 成功完成时触发，对应 [AgentResult] 正常返回。 */
     public data class RunCompleted(

@@ -48,7 +48,14 @@ public interface Hook {
 }
 
 /** 事件标记接口，所有具体事件均实现此接口。 */
-public interface HookEvent
+public interface HookEvent {
+    /**
+     * 用新结果创建事件副本。复写此方法可实现链式结果修改。
+     *
+     * 默认返回自身（不可变 or 不支持链式修改的事件不需要复写）。
+     */
+    public fun copyWith(newResult: Any): HookEvent = this
+}
 
 /**
  * Hook 执行上下文。
