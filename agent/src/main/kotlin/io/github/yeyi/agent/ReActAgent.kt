@@ -127,11 +127,12 @@ public class ReActAgent internal constructor(
         emit: suspend (AgentEvent) -> Unit
     ): AgentResult? {
         val context = buildContext(iterations)
-
         val request = buildRequest()
+
         hook.safeInvoke { beforeLlmCall(context) }
         val response = llmCallWithContextOverflowHandle(request, llmCall)
         hook.safeInvoke { afterLlmResponse(context, response) }
+
         memory.add(response.message)
 
         if (response.message.toolCalls.isEmpty()) {

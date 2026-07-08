@@ -120,6 +120,50 @@ class AgentHookTest {
     }
 
     @Test
+    fun `internal context overflow retry does not duplicate LLM hooks`() = runTest {
+        val hook = RecordingHook()
+        // 第一次 chat() 抛 context overflow,触发 handleContextOverflow + 内部重试,第二次成功。
+        // 关键不变量:重试收敛在 llmCallWithContextOverflowHandle 内部,对 hook 透明;
+        // 1 次 ask 仍对应 1 对 beforeLlmCall/afterLlmResponse。
+        val provider = object : LlmProvider {
+            override val name: String = "overflow-then-ok"
+            private var calls = 0
+            override suspend fun chat(request: ChatRequest): ChatResponse {
+                calls += 1
+                if (calls == 1) throw AgentException.ContextOverflow("context length exceeded")
+                return ChatResponse(
+                    ChatMessage.Assistant(content = "recovered"),
+                    finishReason = FinishReason.Stop,
+                )
+            }
+            override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow { /* not used */ }
+        }
+        // 预填历史,让 handleContextOverflow 的 truncateByCoefficient 有足够素材可裁剪
+        // (单条非系统消息会触发 IllegalStateException,见 RoundsBoundedMemory.kt:242-244)。
+        val memory = InMemoryMemory().apply {
+            add(ChatMessage.User("prev-1"))
+            add(ChatMessage.Assistant("prev-a-1"))
+            add(ChatMessage.ToolResult("c0", "echo", "prev-r-1"))
+            add(ChatMessage.User("prev-2"))
+            add(ChatMessage.Assistant("prev-a-2"))
+            add(ChatMessage.ToolResult("c1", "echo", "prev-r-2"))
+        }
+        val agent = ReActAgent(
+            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(),
+            memory = memory, maxRounds = 20, maxIterations = 5, hook = hook,
+        )
+        agent.run("hi").awaitResult()
+        assertEquals(
+            listOf(
+                "beforeLlmCall(1)",
+                "afterLlmResponse(1)",
+                "onRunCompleted(iter=1)",
+            ),
+            hook.events,
+        )
+    }
+
+    @Test
     fun `exception in hook does not crash agent`() = runTest {
         val throwingHook = object : EmptyAgentHook() {
             override suspend fun beforeLlmCall(context: AgentContext) {
