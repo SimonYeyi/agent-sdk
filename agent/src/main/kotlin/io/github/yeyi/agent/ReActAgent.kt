@@ -14,7 +14,6 @@ import io.github.yeyi.agent.memory.ReadOnlyMemory
 import io.github.yeyi.agent.memory.RoundsBoundedMemory
 import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.tool.ToolContext
-import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolRegistry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -155,7 +154,7 @@ public class ReActAgent internal constructor(
             emit(AgentEvent.ToolCallStart(call.id, call.name))
             val synthetic = hook.safeInvoke { beforeToolCall(context, call) }
             val startMs = System.currentTimeMillis()
-            val raw = synthetic ?: toolRegistry.dispatch(
+            val raw = synthetic?.copy(isError = true) ?: toolRegistry.dispatch(
                 call.name,
                 call.arguments,
                 ToolContext(call.id, context)
@@ -164,7 +163,22 @@ public class ReActAgent internal constructor(
             val final = hook.safeInvoke {
                 afterToolCall(context, call, raw, synthetic != null, durMs)
             } ?: raw
-            recordToMemory(call, final, toolCalls)
+
+            toolCalls += AgentResult.ToolCallRecord(
+                callId = call.id,
+                toolName = call.name,
+                arguments = call.arguments,
+                result = final,
+                timestamp = java.time.Instant.now(),
+            )
+
+            memory.add(
+                ChatMessage.ToolResult(
+                    toolCallId = call.id, toolName = call.name,
+                    content = final.content, isError = final.isError,
+                )
+            )
+
             emit(AgentEvent.ToolCallEnd(call.id, final))
         }
         return null
@@ -183,26 +197,6 @@ public class ReActAgent internal constructor(
                 ?.let { llmCallWithContextOverflowHandle(buildRequest(), llmCall) }
                 ?: throw e
         }
-    }
-
-    private suspend fun recordToMemory(
-        call: ToolCall,
-        callResult: ToolExecutionResult,
-        toolCalls: MutableList<AgentResult.ToolCallRecord>,
-    ) {
-        toolCalls += AgentResult.ToolCallRecord(
-            callId = call.id,
-            toolName = call.name,
-            arguments = call.arguments,
-            result = callResult,
-            timestamp = java.time.Instant.now(),
-        )
-        memory.add(
-            ChatMessage.ToolResult(
-                toolCallId = call.id, toolName = call.name,
-                content = callResult.content, isError = callResult.isError,
-            )
-        )
     }
 
     private suspend fun buildRequest(): ChatRequest = ChatRequest(

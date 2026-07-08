@@ -36,7 +36,7 @@ public sealed interface AgentHookEvent : HookEvent {
         val toolCall: ToolCall
     ) : AgentHookEvent
 
-    /** 每次工具调用后触发，durationMs 为实际执行耗时。 */
+    /** 每次工具调用后触发，durationMs 为工具实际执行耗时。 */
     public data class AfterToolCall(
         val toolCall: ToolCall,
         val result: ToolExecutionResult,

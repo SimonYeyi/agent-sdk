@@ -133,7 +133,6 @@ internal class DefaultHookPipeline(
     ): ToolExecutionResult {
         val event = AgentHookEvent.AfterToolCall(call, result, synthetic, durationMs)
         return when (val pipelineResult = run(event, HookContext(context))) {
-            // 链式改写：将 AfterToolCall 事件经 runEvents 处理后
             is HookResult.Modify -> pipelineResult.newResult as ToolExecutionResult
             else -> result
         }
