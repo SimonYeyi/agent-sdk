@@ -11,6 +11,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertSame
 
 class AgentResultExtensionsTest {
 
@@ -29,7 +30,7 @@ class AgentResultExtensionsTest {
     }
 
     @Test
-    fun `awaitResult filters non-Final events and finds Final`() = runTest {
+    fun `awaitResult filters non-terminal events and finds Final`() = runTest {
         // 直接构造一个混有其他事件的 flow
         val result = AgentResult(
             message = ChatMessage.Assistant(content = "hello"),
@@ -45,10 +46,13 @@ class AgentResultExtensionsTest {
     }
 
     @Test
-    fun `awaitResult throws when no Final event present`() = runTest {
-        val flow = flowOf<AgentEvent>(AgentEvent.Failed(AgentException.LlmError(RuntimeException("boom"))))
-        assertFailsWith<NoSuchElementException> {
-            flow.awaitResult()
-        }
+    fun `awaitResult throws Failed_cause when Failed event is the terminal event`() = runTest {
+        val cause = AgentException.LlmError(RuntimeException("boom"))
+        val flow = flowOf<AgentEvent>(
+            AgentEvent.TextDelta("he"),
+            AgentEvent.Failed(cause),
+        )
+        val thrown = assertFailsWith<AgentException> { flow.awaitResult() }
+        assertSame(cause, thrown, "awaitResult must propagate the exact Failed.cause, not wrap it")
     }
 }
