@@ -94,6 +94,42 @@ class ReActAgentTest {
     }
 
     @Test
+    fun `ToolCallExplanation is emitted unconditionally before tool calls even when content is empty or null`() = runTest {
+        val echo = EchoTool()
+        val toolCall = ToolCall(
+            id = "c1", name = "echo",
+            arguments = JsonObject(mapOf("text" to JsonPrimitive("x")))
+        )
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                // content = null 场景
+                ChatResponse(
+                    ChatMessage.Assistant(content = null, toolCalls = listOf(toolCall)),
+                    finishReason = FinishReason.ToolCalls
+                ),
+                // content = "" 场景
+                ChatResponse(
+                    ChatMessage.Assistant(content = "", toolCalls = listOf(toolCall)),
+                    finishReason = FinishReason.ToolCalls
+                ),
+                ChatResponse(ChatMessage.Assistant(content = "done"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
+        val events = agent.run("hi").toList()
+
+        val explanations = events.filterIsInstance<AgentEvent.ToolCallExplanation>()
+        assertEquals(2, explanations.size, "ToolCallExplanation must emit on every tool-call round, even with null/empty content")
+        assertEquals(null, explanations[0].text, "null content must be carried as null, not dropped")
+        assertEquals(null, explanations[1].text, "empty content must be normalized to null, not dropped")
+
+        // 顺序保证: ToolCallExplanation 始终在 ToolCallStart 之前
+        val explanationsIdx = events.indices.filter { events[it] is AgentEvent.ToolCallExplanation }
+        val startsIdx = events.indices.filter { events[it] is AgentEvent.ToolCallStart }
+        assertTrue(explanationsIdx.size == startsIdx.size && startsIdx.all { it > 0 } && explanationsIdx.withIndex().all { (i, ei) -> ei < startsIdx[i] })
+    }
+
+    @Test
     fun `multiple tool calls in single response are all invoked`() = runTest {
         val echo = EchoTool()
         val provider = FakeLlmProvider(
