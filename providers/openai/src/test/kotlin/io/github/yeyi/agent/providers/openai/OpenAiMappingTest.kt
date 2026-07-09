@@ -6,7 +6,6 @@ import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.ToolDefinition
-import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -47,7 +46,7 @@ class OpenAiMappingTest {
                 ToolDefinition(
                     name = "echo",
                     description = "Echoes",
-                    parametersSchema = ToolParameters.JsonSchema("""{"type":"object"}""")
+                    parametersSchema = Json.parseToJsonElement("""{"type":"object"}""") as JsonObject
                 )
             )
         )
@@ -135,14 +134,14 @@ class OpenAiMappingTest {
     }
 
     @Test
-    fun `mapToOpenAi serializes ToolParameters Empty as object schema`() {
+    fun `mapToOpenAi serializes empty schema as object schema`() {
         val req = ChatRequest(
             messages = listOf(ChatMessage.User("hi")),
             tools = listOf(
                 ToolDefinition(
                     name = "noop",
                     description = "no params",
-                    parametersSchema = ToolParameters.Empty
+                    parametersSchema = Json.parseToJsonElement("""{"type":"object","properties":{}}""") as JsonObject
                 )
             )
         )

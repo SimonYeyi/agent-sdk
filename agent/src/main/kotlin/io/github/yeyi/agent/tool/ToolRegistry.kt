@@ -1,20 +1,14 @@
 package io.github.yeyi.agent.tool
 
 import io.github.yeyi.agent.AgentException
-import io.github.yeyi.agent.llm.ToolCall
-import io.github.yeyi.agent.llm.ToolDefinition
 import io.github.yeyi.agent.log.log
 import kotlinx.coroutines.CancellationException
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.jsonObject
 
 /**
  * Centralized store for the tools an [io.github.yeyi.agent.Agent] can invoke.
- *
- * Owns the (name → [Tool]) map and the only allowed surface for callers to:
- * - **Register** tools during agent construction.
- * - **Execute** a [ToolCall] from the LLM, including the "not found" lookup and the
- *   exception-to-[ToolExecutionResult] translation.
- * - **Project** the registered tools to the [ToolDefinition] list sent to the LLM.
  *
  * Consumers outside this class MUST NOT hold a parallel list/map of tools: the registry
  * is the single source of truth for "which tools exist" and "what to do when the LLM
@@ -70,8 +64,4 @@ public class ToolRegistry : ToolDispatcher {
             ToolExecutionResult.error("$message ${t.message}")
         }
     }
-
-    /** Project registered tools to the LLM-facing [ToolDefinition] list, in declaration order. */
-    internal fun definitions(): List<ToolDefinition> =
-        byName.values.map { ToolDefinition(it.name, it.description, it.parametersSchema) }
 }

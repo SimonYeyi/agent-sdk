@@ -1,6 +1,6 @@
 package io.github.yeyi.agent.llm
 
-import io.github.yeyi.agent.tool.ToolParameters
+import kotlinx.serialization.json.JsonObject
 
 /**
  * 工具定义（用于告诉 LLM 有哪些工具可用）。
@@ -15,5 +15,5 @@ import io.github.yeyi.agent.tool.ToolParameters
 public data class ToolDefinition(
     public val name: String,
     public val description: String,
-    public val parametersSchema: ToolParameters
+    public val parametersSchema: JsonObject
 )

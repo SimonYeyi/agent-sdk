@@ -6,14 +6,6 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
-import io.github.yeyi.agent.tool.ToolParameters
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
-
-private val Mapper: Json = Json { ignoreUnknownKeys = true }
-
-private val EmptyParams: JsonElement =
-    Mapper.parseToJsonElement("""{"type":"object","properties":{}}""")
 
 internal fun mapToAnthropic(model: String, request: ChatRequest): AnthropicChatRequest {
     // Anthropic 协议把 system 提升为顶层字段, 且 messages 数组只接受 user/assistant 角色。
@@ -57,14 +49,10 @@ internal fun mapToAnthropic(model: String, request: ChatRequest): AnthropicChatR
         }
     }
     val tools = request.tools.takeIf { it.isNotEmpty() }?.map { tool ->
-        val schema: JsonElement = when (val s = tool.parametersSchema) {
-            is ToolParameters.Empty -> EmptyParams
-            is ToolParameters.JsonSchema -> Mapper.parseToJsonElement(s.schema)
-        }
         AnthropicTool(
             name = tool.name,
             description = tool.description,
-            inputSchema = schema,
+            inputSchema = tool.parametersSchema,
         )
     }
     return AnthropicChatRequest(

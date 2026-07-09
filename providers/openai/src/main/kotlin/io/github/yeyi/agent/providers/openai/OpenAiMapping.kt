@@ -7,19 +7,15 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
-import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 
 // Forward-compat: silently ignore unknown JSON fields returned by OpenAI
 // (e.g., new provider-side fields) so the parser does not break.
 private val Mapper: Json = Json { ignoreUnknownKeys = true }
 
-private val EmptyParams: JsonElement = Mapper.parseToJsonElement("""{"type":"object","properties":{}}""")
-
 internal fun mapToOpenAi(model: String, request: ChatRequest, stream: Boolean): OpenAiChatRequest {
-    val msgs = request.messages.map { msg ->
+    val messages = request.messages.map { msg ->
         when (msg) {
             is ChatMessage.System -> OpenAiMessage(role = "system", content = msg.content)
             is ChatMessage.User -> OpenAiMessage(role = "user", content = msg.content)
@@ -45,19 +41,15 @@ internal fun mapToOpenAi(model: String, request: ChatRequest, stream: Boolean): 
         }
     }
     val tools = if (request.tools.isEmpty()) null else request.tools.map { td ->
-        val params = when (val s = td.parametersSchema) {
-            is ToolParameters.Empty -> EmptyParams
-            is ToolParameters.JsonSchema -> Mapper.parseToJsonElement(s.schema)
-        }
         OpenAiTool(function = OpenAiFunction(
             name = td.name,
             description = td.description,
-            parameters = params
+            parameters = td.parametersSchema
         ))
     }
     return OpenAiChatRequest(
         model = model,
-        messages = msgs,
+        messages = messages,
         tools = tools,
         temperature = request.temperature,
         maxTokens = request.maxTokens,

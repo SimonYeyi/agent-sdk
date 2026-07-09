@@ -5,7 +5,7 @@ import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.ToolDefinition
-import io.github.yeyi.agent.tool.ToolParameters
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -114,14 +114,14 @@ class AnthropicMappingTest {
 
     @Test
     fun `tools list maps ToolDefinition with input_schema field name`() {
-        val schemaJson = """{"type":"object","properties":{"city":{"type":"string"}}}"""
+        val schemaJson = Json.parseToJsonElement("""{"type":"object","properties":{"city":{"type":"string"}}}""") as JsonObject
         val req = ChatRequest(
             messages = listOf(ChatMessage.User("hi")),
             tools = listOf(
                 ToolDefinition(
                     name = "get_weather",
                     description = "Get current weather",
-                    parametersSchema = ToolParameters.JsonSchema(schemaJson),
+                    parametersSchema = schemaJson,
                 ),
             ),
         )
