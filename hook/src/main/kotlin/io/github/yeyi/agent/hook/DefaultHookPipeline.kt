@@ -20,7 +20,7 @@ import kotlin.reflect.KClass
  * 内部按 priority 排序调用 sub-hooks。
  *
  * 调度语义（所有事件通用）：
- * - [HookResult.Halt]：立即返回，中断后续 hook
+ * - [HookResult.Refuse]：投票拒绝，不中断 chain；末尾聚合为单个 [HookResult.Refuse]，
  * - [HookResult.Modify]：记录修改，通过 [HookEvent.copyWith] 更新事件状态供下一个 hook 消费
  * - [HookResult.Continue]：继续下一个 hook
  * - 未匹配到任何 hook 的事件返回 [HookResult.Continue]
@@ -76,19 +76,28 @@ internal class DefaultHookPipeline(
     ): HookResult {
         var currentEvent = event
         var lastModify: HookResult.Modify? = null
+        val refuses = mutableListOf<HookResult.Refuse>()
         for (hook in hooks) {
             val result: HookResult = try {
-                val raw = hook.execute(currentEvent, context)
-                raw.let { it as? HookResult.Modify }
-                    ?.also { currentEvent = currentEvent.copyWith(it.newResult) }
-                    ?.also { lastModify = it } ?: raw
+                hook.execute(currentEvent, context).also {
+                    if (it is HookResult.Modify) {
+                        currentEvent = currentEvent.copyWith(it.newResult)
+                    }
+                }
             } catch (t: kotlinx.coroutines.CancellationException) {
                 throw t
             } catch (t: Throwable) {
                 log.warn("${hook.name} hook exception", t)
                 HookResult.Continue
             }
-            if (result is HookResult.Halt) return result
+            when (result) {
+                is HookResult.Modify -> lastModify = result
+                is HookResult.Refuse -> refuses += result
+                is HookResult.Continue -> {}
+            }
+        }
+        if (refuses.isNotEmpty()) {
+            return HookResult.Refuse(refuses.joinToString(separator = "; ") { "[${it.reason}]" })
         }
         return lastModify ?: HookResult.Continue
     }
@@ -119,7 +128,7 @@ internal class DefaultHookPipeline(
         call: ToolCall
     ): ToolExecutionResult? {
         return when (val result = run(AgentHookEvent.BeforeToolCall(call), HookContext(context))) {
-            is HookResult.Halt -> ToolExecutionResult.error(result.reason)
+            is HookResult.Refuse -> ToolExecutionResult.error(result.reason)
             else -> null
         }
     }

@@ -71,24 +71,35 @@ public data class HookContext(
 /**
  * Hook [execute][Hook.execute] 的返回值，决定后续调度行为。
  *
- * - [Continue]：继续执行下一个 Hook（若无则走主流程）
- * - [Halt]：中断后续 Hook 链，通常用于打日志等副作用
- * - [Modify]：修改事件结果，只在特定事件（如 AfterToolCall）时有效
+ * 通用调度语义（所有事件通用）：
+ * - [Continue]：继续下一个 Hook，不干预主流程
+ * - [Refuse]：投票拒绝；不中断 chain，调度末尾按注册顺序累积聚合
+ * - [Modify]：链式改写结果；由具体事件的 [HookEvent.copyWith] 决定如何应用
  */
 public sealed class HookResult {
-    /** 继续执行，不干预主流程。 */
+    /** 继续执行，不干预主流程。所有事件唯一通用结果。 */
     public object Continue : HookResult()
 
-    /** 中断 Hook 链执行，常用于日志类 Hook 的副作用埋点。 */
-    public data class Halt(val reason: String) : HookResult()
+    /**
+     * 投票拒绝。
+     *
+     * 通用调度层：[DefaultHookPipeline.runEvents] 不会因 [Refuse] 中断 chain，
+     * 所有匹配的 Hook 都会被调用一次。多 [Refuse] 在调度末尾聚合为单个 [Refuse]，
+     * `reason` 用 `"; "` 拼接各段（如 `"权限拒绝; 额度满"`）。
+     *
+     * 聚合结果的后续处理由事件订阅方决定（参见各事件的 `AgentHook` 入口方法）。
+     */
+    public data class Refuse(val reason: String) : HookResult()
 
     /**
-     * 修改事件结果。
+     * 链式改写结果。
      *
-     * 当前仅 [AgentHookEvent.AfterToolCall] 支持此语义；
-     * 其他事件收到此结果等价于 [Continue]。
+     * 调度层调用 [HookEvent.copyWith] 用 `newResult` 创建事件副本，
+     * 下一个 Hook 看到改写后的事件。事件本身负责 [HookEvent.copyWith] 的实现：
+     * 不支持改写的事件可保留默认 `return this`（视为 Continue）；
+     * 字段类型不匹配时 [HookEvent.copyWith] 应抛 `IllegalArgumentException`。
      *
-     * @param newResult 新的结果值，类型必须与具体事件匹配
+     * @param newResult 新的结果值，类型必须与具体事件的 [HookEvent.copyWith] 契约匹配
      */
     public data class Modify(val newResult: Any) : HookResult()
 }

@@ -36,11 +36,16 @@ public sealed interface AgentHookEvent : HookEvent {
         val toolCall: ToolCall
     ) : AgentHookEvent
 
-    /** 每次工具调用后触发，durationMs 为工具实际执行耗时。 */
+    /**
+     * 每次工具调用后触发。
+     *
+     * @param synthetic true 表示该结果为合成占位（BeforeToolCall Refuse 短路产生），false 为真实工具执行结果
+     * @param durationMs 工具实际执行耗时
+     */
     public data class AfterToolCall(
         val toolCall: ToolCall,
         val result: ToolExecutionResult,
-        val halt: Boolean,
+        val synthetic: Boolean,
         val durationMs: Long
     ) : AgentHookEvent {
         override fun copyWith(newResult: Any): HookEvent {

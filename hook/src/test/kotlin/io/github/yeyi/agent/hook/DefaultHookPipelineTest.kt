@@ -71,7 +71,7 @@ class DefaultHookPipelineTest {
                 is AgentHookEvent.BeforeToolCall -> {
                     recordedEvents += "${name}:beforeToolCall(${event.toolCall.name})"
                     return if (nextSynthetic != null) {
-                        HookResult.Halt(nextSynthetic!!)
+                        HookResult.Refuse(nextSynthetic!!)
                     } else {
                         HookResult.Continue
                     }
@@ -142,33 +142,45 @@ class DefaultHookPipelineTest {
         )
     }
 
-    // --- Short-circuit: beforeToolCall first Halt wins ---
+    // --- Vote-mode: beforeToolCall Refuse is aggregated, not short-circuit ---
 
     @Test
-    fun `beforeToolCall returns first synthetic and short-circuits rest`() = runTest {
+    fun `beforeToolCall calls all hooks and aggregates Refuses without short-circuiting`() = runTest {
         val a = RecordingHook("a").apply { nextSynthetic = "from-a" }
         val b = RecordingHook("b").apply { nextSynthetic = "from-b" }
         val c = RecordingHook("c")
         val composite = DefaultHookPipeline(listOf(a, b, c))
         val r = composite.beforeToolCall(context(), toolCall())
-        assertEquals("from-a", r!!.content)
-        assertEquals(listOf("a:beforeToolCall(x)"), a.recordedEvents)
-        assertEquals(emptyList<String>(), b.recordedEvents, "b should NOT be called after a returned Halt")
-        assertEquals(emptyList<String>(), c.recordedEvents)
+        assertEquals("[from-a]; [from-b]", r!!.content)
+        assertTrue(r.isError, "refused tool result must be isError=true")
+        assertEquals(
+            listOf("a:beforeToolCall(x)", "b:beforeToolCall(x)", "c:beforeToolCall(x)"),
+            a.recordedEvents + b.recordedEvents + c.recordedEvents
+        )
     }
 
     @Test
-    fun `beforeToolCall skips hooks returning Continue and takes the first Halt`() = runTest {
+    fun `beforeToolCall aggregates only the refusing hooks`() = runTest {
         val a = RecordingHook("a")
         val b = RecordingHook("b")
         val c = RecordingHook("c").apply { nextSynthetic = "from-c" }
         val composite = DefaultHookPipeline(listOf(a, b, c))
         val r = composite.beforeToolCall(context(), toolCall())
-        assertEquals("from-c", r!!.content)
+        assertEquals("[from-c]", r!!.content)
         assertEquals(
             listOf("a:beforeToolCall(x)", "b:beforeToolCall(x)", "c:beforeToolCall(x)"),
             a.recordedEvents + b.recordedEvents + c.recordedEvents
         )
+    }
+
+    @Test
+    fun `beforeToolCall aggregates refuses in registration order`() = runTest {
+        val a = RecordingHook("a").apply { nextSynthetic = "perm-denied" }
+        val b = RecordingHook("b").apply { nextSynthetic = "quota-exhausted" }
+        val c = RecordingHook("c").apply { nextSynthetic = "tool-disabled" }
+        val composite = DefaultHookPipeline(listOf(a, b, c))
+        val r = composite.beforeToolCall(context(), toolCall())
+        assertEquals("[perm-denied]; [quota-exhausted]; [tool-disabled]", r!!.content)
     }
 
     @Test
@@ -276,7 +288,7 @@ class DefaultHookPipelineTest {
         val b = RecordingHook("b").apply { nextSynthetic = "from-b" }
         val composite = DefaultHookPipeline(listOf(throwing, b))
         val r = composite.beforeToolCall(context(), toolCall())
-        assertEquals("from-b", r!!.content, "throwing hook's exception should be swallowed, b wins")
+        assertEquals("[from-b]", r!!.content, "throwing hook's exception should be swallowed, b's Refuse wins")
     }
 
     @Test
