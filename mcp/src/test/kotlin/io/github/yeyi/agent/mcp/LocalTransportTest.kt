@@ -144,6 +144,8 @@ class LocalTransportTest {
     @Test
     fun `callTool add returns correct result`() = runTest {
         val (_, mcp, _) = createRegistry()
+        // 模拟 LLM 流程：先访问 definitions() 触发 CompressTool.parametersSchema 懒加载
+        mcp.definitions()
 
         val out = mcp.dispatch(
             "add",
@@ -161,6 +163,7 @@ class LocalTransportTest {
     @Test
     fun `callTool unknown tool returns isError in content`() = runTest {
         val (_, mcp, _) = createRegistry()
+        mcp.definitions()
 
         val out = mcp.dispatch("unknown_tool", buildJsonObject { }, stubToolContext())
 

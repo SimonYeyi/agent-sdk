@@ -34,7 +34,7 @@ public abstract class Mcp : Toolset {
 
     private companion object {
         private val compressToolAvailable =
-            runCatching { CompressTool::class; true }.getOrDefault(false)
+            runCatching { CompressTool::class.toString(); true }.getOrDefault(false)
     }
 
     /**
@@ -62,8 +62,7 @@ public abstract class Mcp : Toolset {
      * 后续调用直接返回缓存结果。
      */
     final override fun definitions(): JsonElement {
-        ensureInitialized()
-        return delegate!!.definitions()
+        return ensureInitialized().definitions()
     }
 
     /**
@@ -74,16 +73,14 @@ public abstract class Mcp : Toolset {
         name: String,
         arguments: JsonElement,
         context: ToolContext,
-    ): ToolExecutionResult {
-        ensureInitialized()
-        return delegate!!.dispatch(name, arguments, context)
-    }
+    ): ToolExecutionResult = delegate?.dispatch(name, arguments, context)
+        ?: error("Mcp '$name' not initialized: call definitions() first to fetch tool schemas")
 
     /**
      * 懒初始化 [delegate] —— 双重检查锁保证并发场景下只拉取一次工具列表。
      * 委托赋值在 `add` 之后，半初始化失败时 [delegate] 保持 null 以便下次重试。
      */
-    private fun ensureInitialized() {
+    private fun ensureInitialized(): Toolset {
         if (delegate == null) {
             synchronized(this) {
                 if (delegate == null) {
@@ -99,5 +96,6 @@ public abstract class Mcp : Toolset {
                 }
             }
         }
+        return delegate!!
     }
 }

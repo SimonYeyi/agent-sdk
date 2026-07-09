@@ -398,26 +398,6 @@ class CompressToolTest {
             createToolContext()
         )
 
-        java.io.File("D:/yeyi/AI/agent-sdk/build/comprehensive-demo-output.txt").writeText(buildString {
-            appendLine("=== 综合示例:覆盖所有压缩特性 ===")
-            appendLine()
-            appendLine("=== [1] 压缩后的完整 JSON Schema ===")
-            appendLine(Json.parseToJsonElement(schema.schema).toString())
-            appendLine()
-            appendLine("=== [2] execution.description (签名) ===")
-            appendLine(desc)
-            appendLine()
-            appendLine("=== [3] LLM 生成的 execution 串 ===")
-            appendLine(execution.replace("\n", "").replace(Regex("\\s+"), " ").trim())
-            appendLine()
-            appendLine("=== [4] 解析回 JSON (喂给下游 tool.execute) ===")
-            appendLine(Json.parseToJsonElement(result.content).toString())
-            appendLine()
-            appendLine("=== isError ===")
-            appendLine(result.isError)
-            appendLine()
-        })
-
         // 断言:解析结果里所有字段类型正确
         val parsed = Json.parseToJsonElement(result.content).jsonObject
         assertEquals(false, result.isError, "execute failed: ${result.content}")
@@ -487,19 +467,6 @@ class CompressToolTest {
             createToolContext()
         )
 
-        java.io.File("D:/yeyi/AI/agent-sdk/build/nested-oneof-output.txt").writeText(buildString {
-            appendLine("=== 嵌套 oneOf 字段(在 object 里) ===")
-            appendLine()
-            appendLine("=== [1] 签名 ===")
-            appendLine(desc)
-            appendLine()
-            appendLine("=== [2] execution 串 ===")
-            appendLine(execution)
-            appendLine()
-            appendLine("=== [3] 解析回 JSON ===")
-            appendLine(Json.parseToJsonElement(result.content).toString())
-            appendLine()
-        })
     }
 
     @Test
@@ -517,19 +484,6 @@ class CompressToolTest {
             createToolContext()
         )
 
-        java.io.File("D:/yeyi/AI/agent-sdk/build/oneof-array-output.txt").writeText(buildString {
-            appendLine("=== 数组元素是 oneOf ===")
-            appendLine()
-            appendLine("=== [1] 签名 ===")
-            appendLine(desc)
-            appendLine()
-            appendLine("=== [2] execution 串 ===")
-            appendLine(execution)
-            appendLine()
-            appendLine("=== [3] 解析回 JSON ===")
-            appendLine(Json.parseToJsonElement(result.content).toString())
-            appendLine()
-        })
     }
 }
 

@@ -227,6 +227,8 @@ class McpTest {
             callToolResult = CallToolResult(content = JsonPrimitive("42")),
         )
         val mcp = fakeMcp(name = "calc", transport = transport)
+        // 模拟 LLM 流程：先访问 definitions() 触发 CompressTool.parametersSchema 懒加载
+        mcp.definitions()
         val args = buildJsonObject { put("execution", JsonPrimitive("add(a=1, b=2)")) }
 
         val out = mcp.dispatch("add", args, stubToolContext())
@@ -248,6 +250,8 @@ class McpTest {
             callToolResult = CallToolResult(content = JsonPrimitive("ok")),
         )
         val mcp = fakeMcp(name = "calc", transport = transport)
+        // 模拟 LLM 流程：先访问 definitions() 触发 CompressTool.parametersSchema 懒加载
+        mcp.definitions()
 
         mcp.dispatch("ping", buildJsonObject { put("execution", JsonPrimitive("ping()")) }, stubToolContext())
 
@@ -264,6 +268,7 @@ class McpTest {
             callToolResult = CallToolResult(content = JsonArray(listOf(JsonPrimitive("err msg"))), isError = true),
         )
         val mcp = fakeMcp(name = "calc", transport = transport)
+        mcp.definitions()
         assertFailsWith<McpException> {
             // CompressTool 会先尝试解压, 触发 client.callTool 返回 isError=true
             mcp.dispatch("add", buildJsonObject { put("execution", JsonPrimitive("add()")) }, stubToolContext())
