@@ -52,8 +52,13 @@ public interface McpServer {
     /**
      * MCP 协议 `tools/call` —— 调用指定工具。
      *
+     * **契约**：
+     * - 成功时直接返回工具的 content 数据(典型为 MCP content 数组 `[{type:"text", text:"..."}]`),
+     *   由传输层(LocalTransport / StdioTransport 等)统一包装为 [CallToolResult]。
+     * - 失败时抛出业务异常(如参数校验失败、运行时错误),传输层会捕获并包装为
+     *   [CallToolResult] `isError=true`。实现者**不应**自行构造 `isError` 协议格式。
+     *
      * @param params 结构化参数，包含 `name`（工具名）和 `arguments`（工具入参）。
-     * 返回结果的 `content` 字段。
      */
     public suspend fun callTool(params: CallToolParams): JsonElement
 

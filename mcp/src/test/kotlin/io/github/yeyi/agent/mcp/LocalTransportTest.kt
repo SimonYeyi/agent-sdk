@@ -79,26 +79,14 @@ private class LocalMcpServerForTest : McpServer {
             "add" -> {
                 val a = args?.get("a")?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
                 val b = args?.get("b")?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
-                buildJsonObject {
-                    put(
-                        "content", JsonArray(
-                            listOf(
-                                buildJsonObject {
-                                    put("type", "text"); put("text", (a + b).toString())
-                                }
-                            )))
-                }
+                JsonArray(
+                    listOf(buildJsonObject {
+                        put("type", "text")
+                        put("text", (a + b).toString())
+                    })
+                )
             }
-            else -> buildJsonObject {
-                put("isError", true)
-                put(
-                    "content", JsonArray(
-                        listOf(
-                            buildJsonObject {
-                                put("type", "text"); put("text", "Unknown tool: $name")
-                            }
-                        )))
-            }
+            else -> throw IllegalArgumentException("Unknown tool: $name")
         }
     }
 
@@ -165,10 +153,8 @@ class LocalTransportTest {
             stubToolContext(),
         )
 
-        val json = kotlinx.serialization.json.Json.parseToJsonElement(out.content).jsonObject
-        val text = json["content"]
-            ?.jsonArray?.get(0)?.jsonObject?.get("text")
-            ?.jsonPrimitive?.content
+        val text = kotlinx.serialization.json.Json.parseToJsonElement(out.content)
+            .jsonArray[0].jsonObject["text"]?.jsonPrimitive?.content
         assertEquals("10.0", text)
     }
 

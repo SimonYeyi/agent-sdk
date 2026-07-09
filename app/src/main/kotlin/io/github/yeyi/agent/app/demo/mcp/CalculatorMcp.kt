@@ -119,40 +119,32 @@ private class CalculatorMcpServer : McpServer {
                     ?: emptyList()
                 numbers.sum()
             }
+
             "subtract" -> {
                 val a = args?.get("a")?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
                 val b = args?.get("b")?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
                 a - b
             }
+
             "multiply" -> {
                 val a = args?.get("a")?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
                 val b = args?.get("b")?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
                 a * b
             }
+
             "divide" -> {
                 val a = args?.get("a")?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
                 val b = args?.get("b")?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
-                if (b == 0.0) return buildJsonObject {
-                    put("isError", true)
-                    put("content", JsonArray(listOf(
-                        buildJsonObject { put("type", "text"); put("text", "Division by zero") }
-                    )))
-                }
+                if (b == 0.0) throw IllegalArgumentException("Division by zero")
                 a / b
             }
-            else -> return buildJsonObject {
-                put("isError", true)
-                put("content", JsonArray(listOf(
-                    buildJsonObject { put("type", "text"); put("text", "Unknown tool: $name") }
-                )))
-            }
+
+            else -> throw IllegalArgumentException("Unknown tool: $name")
         }
 
-        return buildJsonObject {
-            put("content", JsonArray(listOf(
-                buildJsonObject { put("type", "text"); put("text", result.toString()) }
-            )))
-        }
+        return JsonArray(
+            listOf(buildJsonObject { put("type", "text"); put("text", result.toString()) })
+        )
     }
 
     override suspend fun ping(): Boolean = initialized

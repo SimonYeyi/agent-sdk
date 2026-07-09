@@ -7,6 +7,9 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.serializer
 
 /**
@@ -75,11 +78,21 @@ public class LocalTransport(private val localServer: McpServer) : McpTransport {
                 val callToolParams = request.params
                     ?.let { json.decodeFromJsonElement(CallToolParams.serializer(), it) }
                     ?: return errorResponse(id, "Missing params for tools/call")
-                val callResult = localServer.callTool(callToolParams)
-                json.encodeToString(
-                    serializer<CallToolResult>(),
-                    CallToolResult(content = callResult),
-                ).let { json.parseToJsonElement(it) }
+
+                val callResult = try {
+                    val result = localServer.callTool(callToolParams)
+                    CallToolResult(content = result)
+                } catch (e: Exception) {
+                    CallToolResult(isError = true, content = buildJsonArray {
+                        add(buildJsonObject {
+                            put("type", "text")
+                            put("text", e.message)
+                        })
+                    })
+                }
+
+                json.encodeToString(serializer<CallToolResult>(), callResult)
+                    .let { json.parseToJsonElement(it) }
             }
 
             McpMethods.PING -> {
