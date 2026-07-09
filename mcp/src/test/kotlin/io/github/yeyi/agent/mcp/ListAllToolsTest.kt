@@ -3,10 +3,10 @@ package io.github.yeyi.agent.mcp
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
@@ -54,11 +54,14 @@ class ListAllToolsTest {
     @Test
     fun `aggregates multiple pages`() = runTest {
         val page1 = ListToolsResult(
-            tools = JsonArray(listOf(JsonPrimitive("tool1"), JsonPrimitive("tool2"))),
+            tools = listOf(
+                ToolDef("tool1", "d1", buildJsonObject { put("type", JsonPrimitive("object")) }),
+                ToolDef("tool2", "d2", buildJsonObject { put("type", JsonPrimitive("object")) }),
+            ),
             nextCursor = "1",
         )
         val page2 = ListToolsResult(
-            tools = JsonArray(listOf(JsonPrimitive("tool3"))),
+            tools = listOf(ToolDef("tool3", "d3", buildJsonObject { put("type", JsonPrimitive("object")) })),
             nextCursor = null,
         )
         val client = McpClient(FakePaginatedTransport(listOf(page1, page2)))
@@ -66,20 +69,23 @@ class ListAllToolsTest {
         val result = client.toolsList()
 
         assertEquals(3, result.tools.size)
-        assertEquals("tool1", (result.tools[0] as JsonPrimitive).content)
-        assertEquals("tool2", (result.tools[1] as JsonPrimitive).content)
-        assertEquals("tool3", (result.tools[2] as JsonPrimitive).content)
+        assertEquals("tool1", result.tools[0].name)
+        assertEquals("tool2", result.tools[1].name)
+        assertEquals("tool3", result.tools[2].name)
     }
 
     @Test
     fun `returns single page when no cursor`() = runTest {
-        val tools = JsonArray(listOf(JsonPrimitive("tool1"), JsonPrimitive("tool2")))
+        val tools = listOf(
+            ToolDef("tool1", "d1", buildJsonObject { put("type", JsonPrimitive("object")) }),
+            ToolDef("tool2", "d2", buildJsonObject { put("type", JsonPrimitive("object")) }),
+        )
         val client = McpClient(FakePaginatedTransport(listOf(ListToolsResult(tools = tools, nextCursor = null))))
 
         val result = client.toolsList()
 
         assertEquals(2, result.tools.size)
-        assertEquals("tool1", (result.tools[0] as JsonPrimitive).content)
-        assertEquals("tool2", (result.tools[1] as JsonPrimitive).content)
+        assertEquals("tool1", result.tools[0].name)
+        assertEquals("tool2", result.tools[1].name)
     }
 }

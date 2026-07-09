@@ -6,7 +6,7 @@ import io.github.yeyi.agent.mcp.McpClient
 import io.github.yeyi.agent.mcp.SseTransport
 import io.ktor.client.HttpClient
 
-class IotHaMcp(httpClient: HttpClient) : Mcp {
+class IotHaMcp(httpClient: HttpClient) : Mcp() {
     override val name: String = "Iot Ha"
     override val description: String = "智能家居控制 MCP 服务"
     override val client: McpClient = McpClient(

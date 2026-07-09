@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.app.demo.mcp
 
+import io.github.yeyi.agent.mcp.CallToolParams
 import io.github.yeyi.agent.mcp.InitializeResult
 import io.github.yeyi.agent.mcp.ListToolsResult
 import io.github.yeyi.agent.mcp.LocalTransport
@@ -9,19 +10,21 @@ import io.github.yeyi.agent.mcp.McpServer
 import io.github.yeyi.agent.mcp.McpTransport
 import io.github.yeyi.agent.mcp.ServerCapabilities
 import io.github.yeyi.agent.mcp.ServerInfo
+import io.github.yeyi.agent.mcp.ToolDef
 import io.github.yeyi.agent.mcp.ToolsObject
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
-class CalculatorMcp: Mcp {
+class CalculatorMcp : Mcp() {
     override val name: String = "calculator"
-    override val description: String= "Calculator服务，支持加、减、乘、除运算"
+    override val description: String = "Calculator服务，支持加、减、乘、除运算"
     override val client: McpClient = McpClient(LocalTransport(CalculatorMcpServer()))
 }
 
@@ -37,56 +40,56 @@ private class CalculatorMcpServer : McpServer {
     override val transport: McpTransport = LocalTransport.forServer()
 
     private val tools = listOf(
-        buildJsonObject {
-            put("name", "add")
-            put("description", "Add multiple numbers")
-            put("inputSchema", buildJsonObject {
-                put("type", "object")
+        ToolDef(
+            name = "add",
+            description = "Add multiple numbers",
+            inputSchema = buildJsonObject {
+                put("type", JsonPrimitive("object"))
                 put("properties", buildJsonObject {
                     put("numbers", buildJsonObject {
-                        put("type", "array")
-                        put("items", buildJsonObject { put("type", "number") })
+                        put("type", JsonPrimitive("array"))
+                        put("items", buildJsonObject { put("type", JsonPrimitive("number")) })
                     })
                 })
-                put("required", JsonArray(listOf(JsonPrimitive("numbers"))))
-            })
-        },
-        buildJsonObject {
-            put("name", "subtract")
-            put("description", "Subtract two numbers")
-            put("inputSchema", buildJsonObject {
-                put("type", "object")
+                put("required", buildJsonArray { add(JsonPrimitive("numbers")) })
+            },
+        ),
+        ToolDef(
+            name = "subtract",
+            description = "Subtract two numbers",
+            inputSchema = buildJsonObject {
+                put("type", JsonPrimitive("object"))
                 put("properties", buildJsonObject {
-                    put("a", buildJsonObject { put("type", "number") })
-                    put("b", buildJsonObject { put("type", "number") })
+                    put("a", buildJsonObject { put("type", JsonPrimitive("number")) })
+                    put("b", buildJsonObject { put("type", JsonPrimitive("number")) })
                 })
-                put("required", JsonArray(listOf(JsonPrimitive("a"), JsonPrimitive("b"))))
-            })
-        },
-        buildJsonObject {
-            put("name", "multiply")
-            put("description", "Multiply two numbers")
-            put("inputSchema", buildJsonObject {
-                put("type", "object")
+                put("required", buildJsonArray { add(JsonPrimitive("a")); add(JsonPrimitive("b")) })
+            },
+        ),
+        ToolDef(
+            name = "multiply",
+            description = "Multiply two numbers",
+            inputSchema = buildJsonObject {
+                put("type", JsonPrimitive("object"))
                 put("properties", buildJsonObject {
-                    put("a", buildJsonObject { put("type", "number") })
-                    put("b", buildJsonObject { put("type", "number") })
+                    put("a", buildJsonObject { put("type", JsonPrimitive("number")) })
+                    put("b", buildJsonObject { put("type", JsonPrimitive("number")) })
                 })
-                put("required", JsonArray(listOf(JsonPrimitive("a"), JsonPrimitive("b"))))
-            })
-        },
-        buildJsonObject {
-            put("name", "divide")
-            put("description", "Divide two numbers")
-            put("inputSchema", buildJsonObject {
-                put("type", "object")
+                put("required", buildJsonArray { add(JsonPrimitive("a")); add(JsonPrimitive("b")) })
+            },
+        ),
+        ToolDef(
+            name = "divide",
+            description = "Divide two numbers",
+            inputSchema = buildJsonObject {
+                put("type", JsonPrimitive("object"))
                 put("properties", buildJsonObject {
-                    put("a", buildJsonObject { put("type", "number") })
-                    put("b", buildJsonObject { put("type", "number") })
+                    put("a", buildJsonObject { put("type", JsonPrimitive("number")) })
+                    put("b", buildJsonObject { put("type", JsonPrimitive("number")) })
                 })
-                put("required", JsonArray(listOf(JsonPrimitive("a"), JsonPrimitive("b"))))
-            })
-        }
+                put("required", buildJsonArray { add(JsonPrimitive("a")); add(JsonPrimitive("b")) })
+            },
+        ),
     )
 
     override suspend fun initialize(): InitializeResult {
@@ -100,15 +103,14 @@ private class CalculatorMcpServer : McpServer {
 
     override suspend fun listTools(cursor: String?): ListToolsResult {
         return ListToolsResult(
-            tools = kotlinx.serialization.json.JsonArray(tools),
+            tools = tools,
             nextCursor = null,
         )
     }
 
-    override suspend fun callTool(params: JsonElement): JsonElement {
-        val obj = params.jsonObject
-        val name = obj["name"]?.jsonPrimitive?.content
-        val args = obj["arguments"]?.jsonObject
+    override suspend fun callTool(params: CallToolParams): JsonElement {
+        val name = params.name
+        val args = params.arguments
 
         val result = when (name) {
             "add" -> {

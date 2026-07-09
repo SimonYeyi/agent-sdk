@@ -60,12 +60,13 @@ public class McpClient(override val transport: McpTransport) : McpServer {
         return json.decodeFromJsonElement<ListToolsResult>(resultElement)
     }
 
-    override suspend fun callTool(params: JsonElement): JsonElement {
+    override suspend fun callTool(params: CallToolParams): JsonElement {
         initialize()
+        val paramsElement = json.encodeToJsonElement(serializer<CallToolParams>(), params)
         val rpcRequest = JsonRpcRequest<JsonElement>(
             id = nextId.getAndIncrement(),
             method = McpMethods.TOOLS_CALL,
-            params = params
+            params = paramsElement,
         )
 
         val response = transport.send(rpcRequest)

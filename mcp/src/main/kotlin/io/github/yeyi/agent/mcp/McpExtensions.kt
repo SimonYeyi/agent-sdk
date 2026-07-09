@@ -1,11 +1,8 @@
 package io.github.yeyi.agent.mcp
 
 import io.github.yeyi.agent.AgentBuilder
-import io.github.yeyi.agent.toolset.ToolsetRegistry
 import io.github.yeyi.agent.toolset.ToolsetsInstallException
 import io.github.yeyi.agent.toolset.toolsets
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 
 /**
  * 将 MCP 服务注册表挂载到 Agent Builder。
@@ -60,12 +57,12 @@ public fun AgentBuilder.mcps(registry: McpRegistry) {
  * 本扩展不做缓存，每次调用都会发起完整的分页请求。返回结果的 `nextCursor` 始终为 null。
  */
 internal suspend fun McpClient.toolsList(): ListToolsResult {
-    val allTools = mutableListOf<JsonElement>()
+    val allTools = mutableListOf<ToolDef>()
     var cursor: String? = null
     do {
         val result = listTools(cursor)
         allTools.addAll(result.tools)
         cursor = result.nextCursor
     } while (cursor != null)
-    return ListToolsResult(tools = JsonArray(allTools))
+    return ListToolsResult(tools = allTools)
 }

@@ -72,10 +72,10 @@ public class LocalTransport(private val localServer: McpServer) : McpTransport {
             }
 
             McpMethods.TOOLS_CALL -> {
-                // Extract raw JsonElement params and forward directly.
-                val paramsElement = request.params
+                val callToolParams = request.params
+                    ?.let { json.decodeFromJsonElement(CallToolParams.serializer(), it) }
                     ?: return errorResponse(id, "Missing params for tools/call")
-                val callResult = localServer.callTool(paramsElement)
+                val callResult = localServer.callTool(callToolParams)
                 json.encodeToString(
                     serializer<CallToolResult>(),
                     CallToolResult(content = callResult),

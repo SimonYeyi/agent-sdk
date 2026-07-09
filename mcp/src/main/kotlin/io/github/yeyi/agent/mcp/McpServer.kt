@@ -2,7 +2,6 @@ package io.github.yeyi.agent.mcp
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
@@ -53,10 +52,10 @@ public interface McpServer {
     /**
      * MCP 协议 `tools/call` —— 调用指定工具。
      *
-     * [params] 为 JSON-RPC 原始参数对象，按 MCP 协议规范必须包含
-     * `name`（工具名）和 `arguments`（工具入参）。返回结果的 `content` 字段。
+     * @param params 结构化参数，包含 `name`（工具名）和 `arguments`（工具入参）。
+     * 返回结果的 `content` 字段。
      */
-    public suspend fun callTool(params: JsonElement): JsonElement
+    public suspend fun callTool(params: CallToolParams): JsonElement
 
     /**
      * MCP protocol `ping` — liveness check.
@@ -218,8 +217,18 @@ public data class ListToolsParams(
  */
 @Serializable
 public data class ListToolsResult(
-    val tools: JsonArray,
+    val tools: List<ToolDef>,
     val nextCursor: String? = null,
+)
+
+/**
+ * MCP 协议 Tool 定义 —— `tools/list` 响应中每个工具的元数据结构。
+ */
+@Serializable
+public data class ToolDef(
+    val name: String,
+    val description: String? = null,
+    val inputSchema: JsonObject,
 )
 
 /**
@@ -229,14 +238,12 @@ public data class ListToolsResult(
 public object EmptyParams
 
 /**
- * `tools/call` request params structure reference (not used for serialization;
- * arguments are passed through as raw [JsonElement] to avoid unnecessary
- * deserialization-reserialization).
+ * `tools/call` 请求参数。
  */
 @Serializable
 public data class CallToolParams(
     val name: String,
-    val arguments: JsonObject = JsonObject(emptyMap()),
+    val arguments: JsonObject? = null,
 )
 
 /**

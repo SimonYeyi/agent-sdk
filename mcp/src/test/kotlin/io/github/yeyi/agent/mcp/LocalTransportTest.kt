@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -40,18 +41,18 @@ private class LocalMcpServerForTest : McpServer {
     }
 
     private val tools = listOf(
-        buildJsonObject {
-            put("name", "add")
-            put("description", "Add two numbers")
-            put("inputSchema", buildJsonObject {
+        ToolDef(
+            name = "add",
+            description = "Add two numbers",
+            inputSchema = buildJsonObject {
                 put("type", "object")
                 put("properties", buildJsonObject {
                     put("a", buildJsonObject { put("type", "number") })
                     put("b", buildJsonObject { put("type", "number") })
                 })
-                put("required", JsonArray(listOf(JsonPrimitive("a"), JsonPrimitive("b"))))
-            })
-        }
+                put("required", buildJsonArray { add(JsonPrimitive("a")); add(JsonPrimitive("b")) })
+            },
+        )
     )
 
     override suspend fun initialize(): InitializeResult {
@@ -65,15 +66,14 @@ private class LocalMcpServerForTest : McpServer {
 
     override suspend fun listTools(cursor: String?): ListToolsResult {
         return ListToolsResult(
-            tools = kotlinx.serialization.json.JsonArray(tools),
+            tools = tools,
             nextCursor = null,
         )
     }
 
-    override suspend fun callTool(params: JsonElement): JsonElement {
-        val obj = params.jsonObject
-        val name = obj["name"]?.jsonPrimitive?.content
-        val args = obj["arguments"]?.jsonObject
+    override suspend fun callTool(params: CallToolParams): JsonElement {
+        val name = params.name
+        val args = params.arguments
 
         return when (name) {
             "add" -> {
@@ -134,7 +134,7 @@ class LocalTransportTest {
 
     private fun createRegistry(): Triple<LocalMcpServerForTest, Mcp, McpRegistry> {
         val server = LocalMcpServerForTest()
-        val mcp = object : Mcp {
+        val mcp = object : Mcp() {
             override val name: String = "local-demo"
             override val description: String = "Local demo server"
             override val client: McpClient = McpClient(LocalTransport(server))
@@ -147,11 +147,10 @@ class LocalTransportTest {
     fun `listAllTools returns tools`() = runTest {
         val (_, mcp, _) = createRegistry()
 
-        val result = mcp.client.toolsList().tools.toString()
+        val tools = mcp.client.toolsList().tools
 
-        val json = kotlinx.serialization.json.Json.parseToJsonElement(result).jsonArray
-        assertEquals(1, json.size)
-        assertEquals("add", json[0].jsonObject["name"]?.jsonPrimitive?.content)
+        assertEquals(1, tools.size)
+        assertEquals("add", tools[0].name)
     }
 
     @Test
@@ -161,8 +160,7 @@ class LocalTransportTest {
         val out = mcp.dispatch(
             "add",
             buildJsonObject {
-                put("a", 3)
-                put("b", 7)
+                put("execution", JsonPrimitive("add(a=3, b=7)"))
             },
             stubToolContext(),
         )
@@ -180,10 +178,8 @@ class LocalTransportTest {
 
         val out = mcp.dispatch("unknown_tool", buildJsonObject { }, stubToolContext())
 
-        // LocalTransport 总是把 isError=false 包成 CallToolResult，所以 McpClient 不会抛异常；
-        // 错误信号留在 server 返回的 content 里的 isError 字段。
-        val json = kotlinx.serialization.json.Json.parseToJsonElement(out.content).jsonObject
-        assertTrue(json["isError"]?.jsonPrimitive?.content?.toBoolean() == true)
+        assertTrue(out.isError)
+        assertTrue("unknown_tool" in out.content)
     }
 
     @Test

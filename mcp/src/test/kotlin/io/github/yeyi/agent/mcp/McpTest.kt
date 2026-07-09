@@ -68,7 +68,7 @@ class McpTest {
 
     /** 通用假传输：可由测试覆盖 [ListToolsResult] / [CallToolResult] 行为。 */
     private class FakeServerTransport(
-        private val listToolsResult: ListToolsResult = ListToolsResult(tools = JsonArray(emptyList())),
+        private val listToolsResult: ListToolsResult = ListToolsResult(tools = emptyList()),
         private val callToolResult: CallToolResult = CallToolResult(content = JsonNull),
     ) : McpTransport {
         private val json = Json {
@@ -107,6 +107,7 @@ class McpTest {
 
     /** 记录 callTool 收到的 params 的传输。 */
     private class CapturingTransport(
+        private val listToolsResult: ListToolsResult = ListToolsResult(tools = emptyList()),
         private val callToolResult: CallToolResult = CallToolResult(content = JsonPrimitive("ok")),
     ) : McpTransport {
         private val json = Json {
@@ -114,7 +115,7 @@ class McpTest {
             encodeDefaults = true
             explicitNulls = false
         }
-        val capturedParams: MutableList<JsonElement> = mutableListOf()
+        val capturedParams: MutableList<CallToolParams> = mutableListOf()
 
         override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
             return when (request.method) {
@@ -128,10 +129,13 @@ class McpTest {
                 McpMethods.TOOLS_LIST -> JsonRpcResponse(
                     jsonrpc = "2.0",
                     id = request.id,
-                    result = json.encodeToJsonElement(ListToolsResult.serializer(), ListToolsResult(tools = JsonArray(emptyList()))),
+                    result = json.encodeToJsonElement(ListToolsResult.serializer(), listToolsResult),
                 )
                 McpMethods.TOOLS_CALL -> {
-                    capturedParams += (request.params ?: JsonNull)
+                    val callToolParams = request.params
+                        ?.let { json.decodeFromJsonElement(CallToolParams.serializer(), it) }
+                        ?: error("Missing params for tools/call")
+                    capturedParams += callToolParams
                     JsonRpcResponse(
                         jsonrpc = "2.0",
                         id = request.id,
@@ -152,7 +156,7 @@ class McpTest {
         description: String = "d",
         transport: McpTransport = FakeServerTransport(),
         client: McpClient = McpClient(transport),
-    ): Mcp = object : Mcp {
+    ): Mcp = object : Mcp() {
         override val name: String = name
         override val description: String = description
         override val client: McpClient = client
@@ -162,7 +166,10 @@ class McpTest {
 
     @Test
     fun `activate returns the tools list with Toolset-format prefix`() = runTest {
-        val tools = JsonArray(listOf(JsonPrimitive("tool1"), JsonPrimitive("tool2")))
+        val tools = listOf(
+            ToolDef("tool1", "tool1 desc", buildJsonObject { put("type", JsonPrimitive("object")) }),
+            ToolDef("tool2", "tool2 desc", buildJsonObject { put("type", JsonPrimitive("object")) }),
+        )
         val mcp = fakeMcp(
             name = "calc",
             transport = FakeServerTransport(listToolsResult = ListToolsResult(tools = tools)),
@@ -183,7 +190,7 @@ class McpTest {
         assertTrue(result.endsWith("[]"))
     }
 
-    // ---------- Mcp.add (不支持) ----------
+    // ---------- Mcp.add 抛异常 ----------
 
     @Test
     fun `add throws UnsupportedOperationException`() {
@@ -215,40 +222,51 @@ class McpTest {
 
     @Test
     fun `dispatch wraps sub_tool_name and sub_tool_arguments into MCP tools-call envelope`() = runTest {
-        val transport = CapturingTransport(callToolResult = CallToolResult(content = JsonPrimitive("42")))
+        val transport = CapturingTransport(
+            listToolsResult = ListToolsResult(listOf(ToolDef("add", "add", buildJsonObject { put("type", JsonPrimitive("object")) }))),
+            callToolResult = CallToolResult(content = JsonPrimitive("42")),
+        )
         val mcp = fakeMcp(name = "calc", transport = transport)
-        val args = buildJsonObject { put("a", JsonPrimitive(1)); put("b", JsonPrimitive(2)) }
+        val args = buildJsonObject { put("execution", JsonPrimitive("add(a=1, b=2)")) }
 
         val out = mcp.dispatch("add", args, stubToolContext())
 
         assertFalse(out.isError)
         // JsonPrimitive("42").toString() returns the JSON-encoded form "\"42\""
         assertEquals("\"42\"", out.content)
-        val params = transport.capturedParams.single().jsonObject
-        assertEquals("add", params["name"]!!.jsonPrimitive.content)
-        assertEquals(args, params["arguments"])
+        val params = transport.capturedParams.single()
+        assertEquals("add", params.name)
+        // 参数经过 CompressTool 解压还原为原始格式（schema 无类型信息，值解析为字符串）
+        val expectedArgs = buildJsonObject { put("a", JsonPrimitive("1")); put("b", JsonPrimitive("2")) }
+        assertEquals(expectedArgs, params.arguments)
     }
 
     @Test
     fun `dispatch passes JsonNull arguments when arguments are null`() = runTest {
-        val transport = CapturingTransport(callToolResult = CallToolResult(content = JsonPrimitive("ok")))
+        val transport = CapturingTransport(
+            listToolsResult = ListToolsResult(listOf(ToolDef("ping", "ping", buildJsonObject { put("type", JsonPrimitive("object")) }))),
+            callToolResult = CallToolResult(content = JsonPrimitive("ok")),
+        )
         val mcp = fakeMcp(name = "calc", transport = transport)
 
-        mcp.dispatch("ping", JsonNull, stubToolContext())
+        mcp.dispatch("ping", buildJsonObject { put("execution", JsonPrimitive("ping()")) }, stubToolContext())
 
-        val params = transport.capturedParams.single().jsonObject
-        assertEquals("ping", params["name"]!!.jsonPrimitive.content)
-        assertEquals(JsonNull, params["arguments"])
+        val params = transport.capturedParams.single()
+        assertEquals("ping", params.name)
+        // 空参数会解压为空对象
+        assertEquals(buildJsonObject { }, params.arguments)
     }
 
     @Test
     fun `dispatch propagates McpException when client returns isError=true`() = runTest {
         val transport = FakeServerTransport(
+            listToolsResult = ListToolsResult(listOf(ToolDef("add", "add", buildJsonObject { put("type", JsonPrimitive("object")) }))),
             callToolResult = CallToolResult(content = JsonArray(listOf(JsonPrimitive("err msg"))), isError = true),
         )
         val mcp = fakeMcp(name = "calc", transport = transport)
         assertFailsWith<McpException> {
-            mcp.dispatch("add", JsonObject(emptyMap()), stubToolContext())
+            // CompressTool 会先尝试解压, 触发 client.callTool 返回 isError=true
+            mcp.dispatch("add", buildJsonObject { put("execution", JsonPrimitive("add()")) }, stubToolContext())
         }
     }
 
@@ -283,7 +301,7 @@ class McpTest {
     @Test
     fun `unregisterAll closes every McpClient and empties the internal registry`() {
         val closed = mutableListOf<String>()
-        fun makeMcp(name: String): Mcp = object : Mcp {
+        fun makeMcp(name: String): Mcp = object : Mcp() {
             override val name: String = name
             override val description: String = "d"
             override val client: McpClient = McpClient(object : McpTransport {
