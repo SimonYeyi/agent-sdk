@@ -27,6 +27,7 @@ android {
         buildConfigField("String", "MODEL_BASE_URL", "\"${raw("MODEL_BASE_URL")}\"")
         buildConfigField("String", "MODEL_API_KEY", "\"${raw("MODEL_API_KEY")}\"")
         buildConfigField("String", "MODEL_NAME", "\"${raw("MODEL_NAME")}\"")
+        buildConfigField("String", "IOT_HA_ENDPOINT", "\"${raw("IOT_HA_ENDPOINT")}\"")
         buildConfigField("String", "IOT_HA_TOKEN", "\"${raw("IOT_HA_TOKEN")}\"")
     }
 

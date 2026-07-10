@@ -14,7 +14,7 @@ class IotHaMcp(httpClient: HttpClient) : Mcp() {
     override val description: String = "智能家居控制 MCP 服务"
     override val client: McpClient = McpClient(
         SseTransport(
-            "https://iot-ha-test.meizu.com/api/mcp",
+            BuildConfig.IOT_HA_ENDPOINT,
             mapOf("Authorization" to "Bearer ${BuildConfig.IOT_HA_TOKEN}"),
             httpClient = httpClient
         )
