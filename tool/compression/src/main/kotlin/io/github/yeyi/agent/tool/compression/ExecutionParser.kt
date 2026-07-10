@@ -54,8 +54,63 @@ private class ExecutionStringParser(
         // 其它情况(既不是 '(' 也不是 '='/':'):保持原行为,让后续循环尽力解析
         skipWhitespace()
 
-        // 解析参数
-        val args = buildJsonObject {
+        // 模式分发:模型偶尔按 Kotlin-style 输出位置参数(无参数名,按顺序赋值)
+        val positional = detectPositionalMode()
+            && !signature.isOneOf
+            && signature.params.isNotEmpty()
+        val args = if (positional) parsePositionalArgs() else parseNamedArgs()
+
+        // 跳过 ')'
+        if (pos < input.length && input[pos] == ')') {
+            pos++
+        }
+
+        return args
+    }
+
+    private fun detectPositionalMode(): Boolean {
+        skipWhitespace()
+        if (pos >= input.length || input[pos] == ')') return false
+
+        val c = input[pos]
+        // 明确是字面量 → positional
+        if (c == '\'' || c == '"' || c == '[' || c == '{') return true
+        if (c.isDigit() || c == '-') return true
+
+        // identifier 起始:扫描首个 token,看后面是否紧跟 '=' 或 ':'
+        val saved = pos
+        while (pos < input.length && !input[pos].isWhitespace() &&
+            input[pos] != '(' && input[pos] != ')' &&
+            input[pos] != '=' && input[pos] != ':' && input[pos] != ','
+        ) {
+            pos++
+        }
+        skipWhitespace()
+        val hasSep = pos < input.length && (input[pos] == '=' || input[pos] == ':')
+        pos = saved
+        return !hasSep
+    }
+
+    private fun parsePositionalArgs(): JsonObject {
+        return buildJsonObject {
+            var i = 0
+            while (pos < input.length && input[pos] != ')') {
+                val param = signature.params.getOrNull(i) ?: break
+                skipWhitespace()
+                val value = parseValue(param.type)
+                put(param.name, value)
+                i++
+                skipWhitespace()
+                if (pos < input.length && input[pos] == ',') {
+                    pos++
+                    skipWhitespace()
+                }
+            }
+        }
+    }
+
+    private fun parseNamedArgs(): JsonObject {
+        return buildJsonObject {
             while (pos < input.length && input[pos] != ')') {
                 val name = parseIdentifier()
                 skipWhitespace()
@@ -80,13 +135,6 @@ private class ExecutionStringParser(
                 }
             }
         }
-
-        // 跳过 ')'
-        if (pos < input.length && input[pos] == ')') {
-            pos++
-        }
-
-        return args
     }
 
     private fun parseIdentifier(): String {
@@ -188,6 +236,45 @@ private class ExecutionStringParser(
         pos++ // skip '{'
         skipWhitespace()
 
+        // positional gate:仅在结构化 object 且非 oneOf 时生效(oneOf positional 暂未支持)
+        val positional = oneOfType == null
+            && baseFields.isNotEmpty()
+            && detectPositionalMode()
+
+        val result = if (positional) {
+            parseObjectPositional(baseFields)
+        } else {
+            parseObjectNamed(oneOfType, fieldMap, discriminatorName)
+        }
+
+        if (pos < input.length && input[pos] == '}') {
+            pos++
+        }
+        return JsonObject(result)
+    }
+
+    private fun parseObjectPositional(fields: List<Param>): MutableMap<String, JsonElement> {
+        val result = mutableMapOf<String, JsonElement>()
+        var i = 0
+        while (pos < input.length && input[pos] != '}') {
+            val field = fields.getOrNull(i) ?: break
+            skipWhitespace()
+            result[field.name] = parseValue(field.type)
+            i++
+            skipWhitespace()
+            if (pos < input.length && input[pos] == ',') {
+                pos++
+                skipWhitespace()
+            }
+        }
+        return result
+    }
+
+    private fun parseObjectNamed(
+        oneOfType: ParamType.OneOfType?,
+        fieldMap: Map<String, Param>,
+        discriminatorName: String?
+    ): MutableMap<String, JsonElement> {
         val result = mutableMapOf<String, JsonElement>()
         var activeBranch: Branch? = null
 
@@ -219,11 +306,7 @@ private class ExecutionStringParser(
                 skipWhitespace()
             }
         }
-
-        if (pos < input.length && input[pos] == '}') {
-            pos++
-        }
-        return JsonObject(result)
+        return result
     }
 
     private fun parseSimpleValue(type: ParamType): JsonElement {

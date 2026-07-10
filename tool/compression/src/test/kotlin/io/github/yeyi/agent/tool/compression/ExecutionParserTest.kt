@@ -577,4 +577,169 @@ class ExecutionParserTest {
         val r4 = parser.parse("city: \"深圳\"", signature)
         assertEquals("深圳", r4.jsonObject["city"]?.jsonPrimitive?.content)
     }
+
+    // --- 宽容解析:Kotlin-style 位置参数(无参数名,按顺序赋值) ---
+
+    @Test
+    fun parseExecutionPositionalStrings() {
+        val signature = FunctionSignature(
+            name = "send_email",
+            params = listOf(
+                Param("to", ParamType.StringType(), required = true),
+                Param("subject", ParamType.StringType(), required = true)
+            )
+        )
+
+        // 顶层位置参数:按 params 顺序映射
+        val result = parser.parse("send_email(\"x@x.com\", \"hello\")", signature)
+
+        assertEquals("x@x.com", result.jsonObject["to"]?.jsonPrimitive?.content)
+        assertEquals("hello", result.jsonObject["subject"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parseExecutionPositionalMixedTypes() {
+        val signature = FunctionSignature(
+            name = "set_config",
+            params = listOf(
+                Param("name", ParamType.StringType(), required = true),
+                Param("count", ParamType.NumberType(), required = true),
+                Param("enabled", ParamType.BooleanType(), required = true)
+            )
+        )
+
+        val result = parser.parse("set_config(\"name\", 30, true)", signature)
+
+        assertEquals("name", result.jsonObject["name"]?.jsonPrimitive?.content)
+        assertEquals(30.0, result.jsonObject["count"]?.jsonPrimitive?.content?.toDouble())
+        assertTrue(result.jsonObject["enabled"]?.jsonPrimitive?.content?.toBooleanStrictOrNull() == true)
+    }
+
+    @Test
+    fun parseExecutionPositionalExtraArgs() {
+        val signature = FunctionSignature(
+            name = "send_email",
+            params = listOf(
+                Param("to", ParamType.StringType(), required = true),
+                Param("subject", ParamType.StringType(), required = true)
+            )
+        )
+
+        // 3 个实参但只 2 个 param:多余的静默丢弃
+        val result = parser.parse("send_email(\"x@x.com\", \"hello\", \"extra\")", signature)
+
+        assertEquals("x@x.com", result.jsonObject["to"]?.jsonPrimitive?.content)
+        assertEquals("hello", result.jsonObject["subject"]?.jsonPrimitive?.content)
+        assertEquals(2, result.jsonObject.size)
+    }
+
+    @Test
+    fun parseExecutionPositionalWithArrayValue() {
+        val signature = FunctionSignature(
+            name = "send_email",
+            params = listOf(
+                Param("to", ParamType.StringType(), required = true),
+                Param("tags", ParamType.StringType(isArray = true), required = true)
+            )
+        )
+
+        val result = parser.parse("send_email(\"x@x.com\", [\"work\", \"urgent\"])", signature)
+
+        assertEquals("x@x.com", result.jsonObject["to"]?.jsonPrimitive?.content)
+        val tags = result.jsonObject["tags"]?.jsonArray
+        assertEquals(2, tags?.size)
+        assertEquals("work", tags?.get(0)?.jsonPrimitive?.content)
+        assertEquals("urgent", tags?.get(1)?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun parseNestedObjectPositional() {
+        val signature = FunctionSignature(
+            name = "create_user",
+            params = listOf(
+                Param("user", ParamType.ObjectType(fields = listOf(
+                    Param("name", ParamType.StringType(), required = true),
+                    Param("age", ParamType.NumberType(), required = false),
+                )), required = true)
+            )
+        )
+
+        // 内层结构化 object 走位置模式
+        val result = parser.parse("create_user(user={\"Alice\", 30})", signature)
+        val user = result.jsonObject["user"]!!.jsonObject
+        assertEquals("Alice", user["name"]?.jsonPrimitive?.content)
+        assertEquals(30.0, user["age"]?.jsonPrimitive?.content?.toDouble())
+    }
+
+    @Test
+    fun parseArrayOfObjectsPositional() {
+        val signature = FunctionSignature(
+            name = "create_users",
+            params = listOf(
+                Param("users", ParamType.ObjectType(isArray = true, fields = listOf(
+                    Param("name", ParamType.StringType(), required = true),
+                    Param("age", ParamType.NumberType(), required = false),
+                )), required = true)
+            )
+        )
+
+        // 数组元素也是 object,内部走位置模式
+        val result = parser.parse("create_users(users=[{\"Alice\", 30}, {\"Bob\"}])", signature)
+        val users = result.jsonObject["users"]!!.jsonArray
+        assertEquals(2, users.size)
+        assertEquals("Alice", users[0].jsonObject["name"]?.jsonPrimitive?.content)
+        assertEquals(30.0, users[0].jsonObject["age"]?.jsonPrimitive?.content?.toDouble())
+        assertEquals("Bob", users[1].jsonObject["name"]?.jsonPrimitive?.content)
+        assertNull(users[1].jsonObject["age"])
+    }
+
+    @Test
+    fun parseNestedObjectPositionalExtraArgs() {
+        val signature = FunctionSignature(
+            name = "create_user",
+            params = listOf(
+                Param("user", ParamType.ObjectType(fields = listOf(
+                    Param("name", ParamType.StringType(), required = true),
+                    Param("age", ParamType.NumberType(), required = false),
+                )), required = true)
+            )
+        )
+
+        // 内层 object 也支持多余实参静默丢弃
+        val result = parser.parse("create_user(user={\"Alice\", 30, \"extra\"})", signature)
+        val user = result.jsonObject["user"]!!.jsonObject
+        assertEquals("Alice", user["name"]?.jsonPrimitive?.content)
+        assertEquals(30.0, user["age"]?.jsonPrimitive?.content?.toDouble())
+        assertEquals(2, user.size)
+    }
+
+    @Test
+    fun parseMixedNamedOuterPositionalInner() {
+        // 外层 named + 内层 positional 混合:每层独立检测,互不干扰
+        val signature = FunctionSignature(
+            name = "create_user",
+            params = listOf(
+                Param("user", ParamType.ObjectType(fields = listOf(
+                    Param("name", ParamType.StringType(), required = true),
+                    Param("age", ParamType.NumberType(), required = false),
+                )), required = true)
+            )
+        )
+
+        val result = parser.parse("create_user(user={\"Alice\", 30})", signature)
+        val user = result.jsonObject["user"]!!.jsonObject
+        assertEquals("Alice", user["name"]?.jsonPrimitive?.content)
+        assertEquals(30.0, user["age"]?.jsonPrimitive?.content?.toDouble())
+    }
+
+    @Test
+    fun parseExecutionPositionalInOneOfIgnored() {
+        // oneOf 签名不走 positional 路径(guard 拦截)。
+        // 验证:即使输入形如位置参数,oneOf 也不会尝试按 branch.params 顺序映射(那会产生空 {}),
+        // 而是走 named 路径,产生带 key 的 JsonObject(因签名无 params,内容不规整但不爆炸)。
+        val result = parser.parse("music_control(\"play\", \"海阔天空\")", musicControlOneOfSignature)
+
+        // named 路径会保留首个 token 作为 key,所以结果非空;若 positional 误触发,结果会是空 {}
+        assertTrue(result.jsonObject.isNotEmpty())
+    }
 }

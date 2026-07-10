@@ -324,6 +324,8 @@ val result = compressor.compress("music_control", schema)
 | `to='x@x.com', subject='hi'` | 缺少函数名时也接受,rewind 起点把后续当裸参数列表 |
 | `send_email(to : 'x', subject : 'hi')` | 接受 `:` 作为 `=` 的替代分隔符 |
 | `to:'x@x.com'` | 键值对之间不加空格也接受 |
+| `send_email("x@x.com", "hello")` | Kotlin-style 位置参数(顶层非 oneOf 时生效),按 `signature.params` 顺序映射,多余实参静默丢弃 |
+| `f({"Alice", 30})` | 嵌套结构化 object 也接受位置参数,按 `fields` 顺序映射;每层独立检测,外层 named/内层 positional 可混用 |
 
 **判别字段在嵌套 object 中的处理**:
 - 取所有非空 `condition` 共享的字段名(通常就是第一个分支的判别字段)
@@ -453,6 +455,7 @@ music_control(action=play, song: string, artist?: string; action=pause; action=v
 | 漏写函数名和括号 | `a=1, b=2` 与 `f(a=1, b=2)` 等价 |
 | 漏写 `=` 写 `:` | `a : 1` 与 `a = 1` 等价 |
 | 键值无空格 | `a:1` 接受 |
+| Kotlin-style 位置参数 | `f("x", 30)` 与 `f(arg1="x", arg2=30)` 等价;按 `params` 顺序赋值,多余实参静默丢弃;也适用于嵌套结构化 object 的 `fields`;oneOf 暂不支持 |
 
 ## 设计原则:不删用户内容
 
