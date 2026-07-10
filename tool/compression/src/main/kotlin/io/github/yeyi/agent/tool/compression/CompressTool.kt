@@ -22,7 +22,10 @@ public class CompressTool(private val delegate: Tool) : Tool {
 
     override val parametersSchema: ToolParameters by lazy {
         (delegate.parametersSchema as? ToolParameters.JsonSchema)
-            ?.let { compressor.compress(name, it.schema) }
+            ?.let { original ->
+                compressor.compress(name, original.schema)
+                    .takeIf { it.compressedSchema.length < original.schema.length }
+            }
             ?.also { compressionResult = it }
             ?.let { ToolParameters.JsonSchema(it.compressedSchema) }
             ?: delegate.parametersSchema
@@ -47,3 +50,4 @@ public class CompressTool(private val delegate: Tool) : Tool {
         return delegate.execute(originalArgs, context)
     }
 }
+

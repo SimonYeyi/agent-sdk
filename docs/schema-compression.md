@@ -201,7 +201,10 @@ public data class CompressionResult(
 ```kotlin
 public class CompressTool(private val delegate: Tool) : Tool {
     // 装饰原 Tool，将 parametersSchema 替换为压缩后的 execution 格式
-    // execute 时将 execution 字符串还原为原始 JSON 参数
+    // 实际压缩后与原 schema 比长度,只有压缩版更短才采用 —— 包装层固定开销 ~100 字符,
+    // 且用户编写的 description 不可压缩,对极简 schema / description 占比高的 schema
+    // 压缩后反而更长,这种情况下跳过压缩直接返回原 JSON Schema
+    // execute 时若跳过压缩则透传 arguments;否则将 execution 字符串还原为原始 JSON 参数
 }
 ```
 

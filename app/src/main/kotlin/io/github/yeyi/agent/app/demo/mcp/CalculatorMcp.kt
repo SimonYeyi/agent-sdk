@@ -20,7 +20,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
@@ -28,6 +27,10 @@ class CalculatorMcp : Mcp() {
     override val name: String = "calculator"
     override val description: String = "Calculator服务，支持加、减、乘、除运算"
     override val client: McpClient = McpClient(LocalTransport(CalculatorMcpServer()))
+
+    override fun createMcpTool(client: McpClient, toolDef: ToolDef): Tool {
+        return CompressTool(super.createMcpTool(client, toolDef))
+    }
 }
 
 /**

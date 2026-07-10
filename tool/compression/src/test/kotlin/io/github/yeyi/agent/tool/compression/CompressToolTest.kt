@@ -197,6 +197,54 @@ class CompressToolTest {
     }
 
     @Test
+    fun `parametersSchema returns original for tiny JsonSchema tool`() = runTest {
+        // 极简 schema 压缩后包装层(~100 字符)反而更长,应跳过压缩直接返回原 schema
+        val tinySchema = """{"type":"object","properties":{"numbers":{"type":"array","items":{"type":"number"}}},"required":["numbers"]}"""
+        val tool = createTool("add", tinySchema)
+
+        val compressed = CompressTool(tool)
+        val schema = compressed.parametersSchema as ToolParameters.JsonSchema
+
+        // 验证:返回的是原 schema,不含 execution 包装
+        assertEquals(tinySchema, schema.schema)
+        assertFalse(schema.schema.contains("execution"))
+    }
+
+    @Test
+    fun `parametersSchema returns original when description dominates schema`() = runTest {
+        // 用户编写的 description 无法压缩,若 schema 主要由 description 构成,
+        // 压缩后反而比原版更长(包装层 + 不可压缩的 description)。跳过压缩。
+        val descriptionHeavySchema = """{"type":"object","properties":{"numbers":{"type":"array","items":{"type":"number"},"description":"The numbers to add.The numbers to add.The numbers to add.The numbers to add.The numbers to add."}},"required":["numbers"]}"""
+        val tool = createTool("add", descriptionHeavySchema)
+
+        val compressed = CompressTool(tool)
+        val schema = compressed.parametersSchema as ToolParameters.JsonSchema
+
+        // 验证:压缩后更长 → 返回原 schema,不含 execution
+        assertEquals(descriptionHeavySchema, schema.schema)
+        assertFalse(schema.schema.contains("execution"))
+    }
+
+    @Test
+    fun `execute passes through arguments when compression is skipped`() = runTest {
+        // 极简 schema 跳过压缩时,execute 不应期望 {execution: ...} 包裹,直接透传 arguments
+        val tinySchema = """{"type":"object","properties":{"numbers":{"type":"array","items":{"type":"number"}}},"required":["numbers"]}"""
+        val tool = createTool("add", tinySchema)
+
+        val compressed = CompressTool(tool)
+        compressed.parametersSchema // 触发懒加载
+
+        // 透传模式:arguments 直接是 {numbers: [1,2,3]},不应包 execution
+        val result = compressed.execute(
+            Json.parseToJsonElement("""{"numbers":[1,2,3]}"""),
+            createToolContext()
+        )
+
+        assertFalse(result.isError, "execute failed: ${result.content}")
+        assertTrue(result.content.contains("numbers"))
+    }
+
+    @Test
     fun `nested oneOf round-trip -- channel field with type discriminator`() = runTest {
         // 顶层普通字段 channel 是 oneOf:按 type 判别,后续字段分派到对应分支
         val tool = createTool("send", NESTED_ONEOF_CHANNEL_SCHEMA)
