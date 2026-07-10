@@ -144,13 +144,14 @@ class LocalTransportTest {
     @Test
     fun `callTool add returns correct result`() = runTest {
         val (_, mcp, _) = createRegistry()
-        // 模拟 LLM 流程：先访问 definitions() 触发 CompressTool.parametersSchema 懒加载
+        // 模拟 LLM 流程：先访问 definitions() 触发 delegate 懒初始化
         mcp.definitions()
 
         val out = mcp.dispatch(
             "add",
             buildJsonObject {
-                put("execution", JsonPrimitive("add(a=3, b=7)"))
+                put("a", JsonPrimitive(3))
+                put("b", JsonPrimitive(7))
             },
             stubToolContext(),
         )

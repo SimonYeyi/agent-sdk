@@ -16,7 +16,7 @@ import kotlinx.serialization.json.JsonObject
  * @param client 与目标 MCP server 通信的客户端
  * @param toolDef MCP 协议返回的工具元数据
  */
-public class McpTool(
+internal class McpTool(
     private val client: McpClient,
     private val toolDef: ToolDef,
 ) : Tool {

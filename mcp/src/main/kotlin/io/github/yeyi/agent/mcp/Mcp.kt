@@ -3,7 +3,6 @@ package io.github.yeyi.agent.mcp
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
-import io.github.yeyi.agent.tool.compression.CompressTool
 import io.github.yeyi.agent.toolset.Toolset
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
@@ -13,10 +12,10 @@ import kotlinx.serialization.json.JsonElement
  *
  * 抽象类继承 [Toolset],内部持有可空委托实例([delegate])。
  * - [add] 始终抛 [UnsupportedOperationException]（MCP 工具由远端动态管理）。
- * - [definitions] 首次调用时通过 [McpClient] 拉取远端工具列表，创建 [Toolset] 委托并缓存。
- *   每个 [McpTool] 会尝试用 [CompressTool] 装饰（可选依赖，通过 `compileOnly` 引入；
- *   若运行时不存在则降级为裸 [McpTool]）。
- * - [dispatch] 委托给缓存的 [Toolset] 实例，路由到对应的 [McpTool] 执行。
+ * - [definitions] 首次调用时通过 [McpClient] 拉取远端工具列表，对每个 [ToolDef] 调用
+ *   [createMcpTool] 钩子包装为 [Tool]，最后缓存在内部 [Toolset] 委托中。
+ *   装饰行为（如压缩）由子类覆写 [createMcpTool] 注入。
+ * - [dispatch] 委托给缓存的 [Toolset] 实例，路由到对应 [Tool] 执行。
  * 使用方式:
  * ```kotlin
  * class MyMcp(httpClient: HttpClient) : Mcp {
@@ -31,11 +30,6 @@ public abstract class Mcp : Toolset {
     public abstract val client: McpClient
 
     private var delegate: Toolset? = null
-
-    private companion object {
-        private val compressToolAvailable =
-            runCatching { CompressTool::class.toString(); true }.getOrDefault(false)
-    }
 
     /**
      * MCP 子工具是动态管理的，调用本方法抛 [UnsupportedOperationException]。
@@ -57,17 +51,14 @@ public abstract class Mcp : Toolset {
     /**
      * 返回当前 MCP 服务的工具定义列表。
      *
-     * 首次调用时通过 [McpClient] 拉取远端工具列表，创建 [McpTool] 并用 [CompressTool]
-     * 装饰（若可选依赖存在），最后缓存在内部 [Toolset] 委托中。
-     * 后续调用直接返回缓存结果。
+     * 首次调用时通过 [McpClient] 拉取远端工具列表，对每个 [ToolDef] 调用 [createMcpTool]
+     * 包装为 [Tool]，最后缓存在内部 [Toolset] 委托中。后续调用直接返回缓存结果。
      */
-    final override fun definitions(): JsonElement {
-        return ensureInitialized().definitions()
-    }
+    final override fun definitions(): JsonElement = ensureInitialized().definitions()
 
     /**
-     * 委托给内部缓存的 [Toolset]，由 [CompressTool]（若存在）/ [McpTool] 处理执行。
-     * 若委托尚未初始化，先完成初始化。
+     * 委托给内部缓存的 [Toolset]，由 [createMcpTool] 返回的 [Tool] 处理执行。
+     * 委托未初始化时抛错，调用方需先调用 [definitions] 完成初始化。
      */
     final override suspend fun dispatch(
         name: String,
@@ -75,6 +66,23 @@ public abstract class Mcp : Toolset {
         context: ToolContext,
     ): ToolExecutionResult = delegate?.dispatch(name, arguments, context)
         ?: error("Mcp '$name' not initialized: call definitions() first to fetch tool schemas")
+
+    /**
+     * 钩子方法 —— 把 MCP 协议 [ToolDef] 包装为 agent [Tool]。
+     *
+     * 默认实现是裸的内部 [McpTool]，不做任何装饰。子类可覆写以注入额外的装饰器
+     * (例如压缩 schema、缓存、限流等增强行为),默认实现可通过 `super.createMcpTool(...)` 复用。
+     * 典型用法:
+     * ```kotlin
+     * class DecoratedCalculatorMcp : Mcp() {
+     *     override val client = ...
+     *     override fun createMcpTool(client: McpClient, toolDef: ToolDef): Tool =
+     *         MyDecorator(super.createMcpTool(client, toolDef))
+     * }
+     * ```
+     */
+    protected open fun createMcpTool(client: McpClient, toolDef: ToolDef): Tool =
+        McpTool(client, toolDef)
 
     /**
      * 懒初始化 [delegate] —— 双重检查锁保证并发场景下只拉取一次工具列表。
@@ -87,8 +95,7 @@ public abstract class Mcp : Toolset {
                     runBlocking {
                         val delegate = Toolset(name, description)
                         val tools = client.toolsList().tools.map { toolDef ->
-                            val mcpTool = McpTool(client, toolDef)
-                            if (compressToolAvailable) CompressTool(mcpTool) else mcpTool
+                            createMcpTool(client, toolDef)
                         }
                         delegate.add(tools)
                         this@Mcp.delegate = delegate

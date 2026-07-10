@@ -12,6 +12,8 @@ import io.github.yeyi.agent.mcp.ServerCapabilities
 import io.github.yeyi.agent.mcp.ServerInfo
 import io.github.yeyi.agent.mcp.ToolDef
 import io.github.yeyi.agent.mcp.ToolsObject
+import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.tool.compression.CompressTool
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive

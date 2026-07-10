@@ -4,6 +4,9 @@ import io.github.yeyi.agent.app.BuildConfig
 import io.github.yeyi.agent.mcp.Mcp
 import io.github.yeyi.agent.mcp.McpClient
 import io.github.yeyi.agent.mcp.SseTransport
+import io.github.yeyi.agent.mcp.ToolDef
+import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.tool.compression.CompressTool
 import io.ktor.client.HttpClient
 
 class IotHaMcp(httpClient: HttpClient) : Mcp() {
@@ -16,4 +19,8 @@ class IotHaMcp(httpClient: HttpClient) : Mcp() {
             httpClient = httpClient
         )
     )
+
+    override fun createMcpTool(client: McpClient, toolDef: ToolDef): Tool {
+        return CompressTool(super.createMcpTool(client, toolDef))
+    }
 }

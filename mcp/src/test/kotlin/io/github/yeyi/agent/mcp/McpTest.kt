@@ -227,9 +227,9 @@ class McpTest {
             callToolResult = CallToolResult(content = JsonPrimitive("42")),
         )
         val mcp = fakeMcp(name = "calc", transport = transport)
-        // 模拟 LLM 流程：先访问 definitions() 触发 CompressTool.parametersSchema 懒加载
+        // 模拟 LLM 流程：先访问 definitions() 触发 delegate 懒初始化
         mcp.definitions()
-        val args = buildJsonObject { put("execution", JsonPrimitive("add(a=1, b=2)")) }
+        val args = buildJsonObject { put("a", JsonPrimitive(1)); put("b", JsonPrimitive(2)) }
 
         val out = mcp.dispatch("add", args, stubToolContext())
 
@@ -238,27 +238,25 @@ class McpTest {
         assertEquals("\"42\"", out.content)
         val params = transport.capturedParams.single()
         assertEquals("add", params.name)
-        // 参数经过 CompressTool 解压还原为原始格式（schema 无类型信息，值解析为字符串）
-        val expectedArgs = buildJsonObject { put("a", JsonPrimitive("1")); put("b", JsonPrimitive("2")) }
-        assertEquals(expectedArgs, params.arguments)
+        // Mcp 自身不做参数解码，arguments 原样透传给 MCP server
+        assertEquals(args, params.arguments)
     }
 
     @Test
-    fun `dispatch passes JsonNull arguments when arguments are null`() = runTest {
+    fun `dispatch passes arguments through unchanged`() = runTest {
         val transport = CapturingTransport(
             listToolsResult = ListToolsResult(listOf(ToolDef("ping", "ping", buildJsonObject { put("type", JsonPrimitive("object")) }))),
             callToolResult = CallToolResult(content = JsonPrimitive("ok")),
         )
         val mcp = fakeMcp(name = "calc", transport = transport)
-        // 模拟 LLM 流程：先访问 definitions() 触发 CompressTool.parametersSchema 懒加载
         mcp.definitions()
+        val args = buildJsonObject { put("any", JsonPrimitive("value")) }
 
-        mcp.dispatch("ping", buildJsonObject { put("execution", JsonPrimitive("ping()")) }, stubToolContext())
+        mcp.dispatch("ping", args, stubToolContext())
 
         val params = transport.capturedParams.single()
         assertEquals("ping", params.name)
-        // 空参数会解压为空对象
-        assertEquals(buildJsonObject { }, params.arguments)
+        assertEquals(args, params.arguments)
     }
 
     @Test
@@ -270,8 +268,7 @@ class McpTest {
         val mcp = fakeMcp(name = "calc", transport = transport)
         mcp.definitions()
         assertFailsWith<McpException> {
-            // CompressTool 会先尝试解压, 触发 client.callTool 返回 isError=true
-            mcp.dispatch("add", buildJsonObject { put("execution", JsonPrimitive("add()")) }, stubToolContext())
+            mcp.dispatch("add", buildJsonObject { put("a", JsonPrimitive(1)) }, stubToolContext())
         }
     }
 
