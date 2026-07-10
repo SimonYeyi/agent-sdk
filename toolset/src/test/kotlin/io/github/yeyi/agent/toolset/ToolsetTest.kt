@@ -16,16 +16,14 @@ import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
-import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -69,9 +67,6 @@ class ToolsetTest {
         ),
     )
 
-    private fun listingJson(result: String): JsonArray =
-        Json.parseToJsonElement(result.substringAfter('\n')) as JsonArray
-
     // ---------- Factory & constants ----------
 
     @Test
@@ -99,7 +94,7 @@ class ToolsetTest {
     fun `add iterable stores multiple sub tools`() = runTest {
         val ts = Toolset("weather", "d")
         ts.add(listOf(StubTool("a"), StubTool("b"), StubTool("c")))
-        assertEquals(3, listingJson(ts.activate(null, ToolsetContext())).size)
+        assertEquals(3, ts.definitions().size)
         assertEquals("ok", ts.dispatch("b", JsonNull, emptyContext()).content)
     }
 
@@ -107,7 +102,7 @@ class ToolsetTest {
     fun `add iterable with empty list is a no-op`() = runTest {
         val ts = Toolset("empty", "d")
         ts.add(emptyList<Tool>())
-        assertEquals(0, listingJson(ts.activate(null, ToolsetContext())).size)
+        assertEquals(0, ts.definitions().size)
     }
 
     @Test
@@ -139,33 +134,20 @@ class ToolsetTest {
         assertEquals("from-b", ts2.dispatch("x", JsonNull, emptyContext()).content)
     }
 
-    // ---------- activate (listing) ----------
+    // ---------- definitions + activate ----------
 
     @Test
-    fun `activate returns the toolset's name and a JSON array of sub tools`() = runTest {
-        val ts = Toolset("weather", "d")
-        ts.add(StubTool("a", description = "tool-a"))
-        ts.add(StubTool("b", description = "tool-b"))
-        val result = ts.activate(null, ToolsetContext())
-        val header = result.substringBefore('\n')
-        assertTrue("Toolset 'weather'" in header, "expected toolset name in header, got: $header")
-        assertEquals(2, listingJson(result).size)
-    }
-
-    @Test
-    fun `activate listing preserves registration order`() = runTest {
+    fun `definitions returns one ToolDefinition per sub tool in registration order`() = runTest {
         val ts = Toolset("ordered", "d")
         ts.add(StubTool("z"))
         ts.add(StubTool("a"))
         ts.add(StubTool("m"))
-        val names = listingJson(ts.activate(null, ToolsetContext())).map {
-            (it as JsonObject)["name"]!!.jsonPrimitive.content
-        }
+        val names = ts.definitions().map { it.name }
         assertEquals(listOf("z", "a", "m"), names)
     }
 
     @Test
-    fun `activate listing embeds each sub tool's name description and parametersSchema`() = runTest {
+    fun `definitions exposes each sub tool's name description and parametersSchema`() = runTest {
         val ts = Toolset("weather", "d")
         val schemaJson = """{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}"""
         ts.add(StubTool(
@@ -173,29 +155,40 @@ class ToolsetTest {
             description = "获取天气",
             parametersSchema = ToolParameters.JsonSchema(schemaJson),
         ))
-        val entry = listingJson(ts.activate(null, ToolsetContext())).single() as JsonObject
-        assertEquals("get_weather", entry["name"]!!.jsonPrimitive.content)
-        assertEquals("获取天气", entry["description"]!!.jsonPrimitive.content)
-        val schema = entry["parametersSchema"]!!.jsonObject
+        val def = ts.definitions().single()
+        assertEquals("get_weather", def.name)
+        assertEquals("获取天气", def.description)
+        val schema = def.parametersSchema
         assertEquals("object", schema["type"]!!.jsonPrimitive.content)
-        assertEquals(setOf("city"), (schema["properties"] as JsonObject).keys)
-        assertEquals(listOf("city"), (schema["required"] as JsonArray).map { it.jsonPrimitive.content })
+        assertEquals(setOf("city"), schema["properties"]!!.jsonObject.keys)
+        assertEquals(listOf("city"), schema["required"]!!.jsonArray.map { it.jsonPrimitive.content })
     }
 
     @Test
-    fun `activate listing uses empty object for Empty parametersSchema`() = runTest {
+    fun `definitions uses empty JsonObject for Empty parametersSchema`() = runTest {
         val ts = Toolset("t", "d")
         ts.add(StubTool("noop", parametersSchema = ToolParameters.Empty))
-        val entry = listingJson(ts.activate(null, ToolsetContext())).single() as JsonObject
-        assertEquals(JsonObject(emptyMap()), entry["parametersSchema"])
+        val params = ts.definitions().single().parametersSchema
+        assertEquals("object", params["type"]!!.jsonPrimitive.content)
+        assertEquals(JsonObject(emptyMap()), params["properties"]!!.jsonObject)
     }
 
     @Test
-    fun `activate with no sub tools returns empty JSON array`() = runTest {
+    fun `activate with no sub tools still shows toolset name`() = runTest {
         val ts = Toolset("empty", "d")
         val result = ts.activate(null, ToolsetContext())
         assertTrue("Toolset 'empty'" in result)
-        assertEquals(0, listingJson(result).size)
+    }
+
+    @Test
+    fun `activate header contains the toolset name and the definitions body`() = runTest {
+        val ts = Toolset("weather", "d")
+        ts.add(StubTool("a", description = "tool-a"))
+        ts.add(StubTool("b", description = "tool-b"))
+        val result = ts.activate(null, ToolsetContext())
+        val header = result.substringBefore('\n')
+        assertTrue("Toolset 'weather'" in header, "expected toolset name in header, got: $header")
+        assertTrue("a" in result && "b" in result, "definitions body should list both tools")
     }
 
     // ---------- dispatch (routing) ----------

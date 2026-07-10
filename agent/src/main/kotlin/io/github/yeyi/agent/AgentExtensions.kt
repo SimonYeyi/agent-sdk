@@ -1,8 +1,8 @@
 package io.github.yeyi.agent
 
 import io.github.yeyi.agent.llm.ToolDefinition
+import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolParameters
-import io.github.yeyi.agent.tool.ToolRegistry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -11,14 +11,20 @@ import kotlinx.serialization.json.jsonObject
 
 private val EMPTY_SCHEMA = Json.parseToJsonElement("""{"type":"object","properties":{}}""")
 
-internal fun ToolRegistry.definitions(): List<ToolDefinition> {
-    return all().map { tool ->
-        val schema = when (val ps = tool.parametersSchema) {
-            is ToolParameters.Empty -> EMPTY_SCHEMA
-            is ToolParameters.JsonSchema -> Json.parseToJsonElement(ps.schema)
-        }
-        ToolDefinition(tool.name, tool.description, schema.jsonObject)
+/**
+ * 将当前 [Tool] 转换为 [ToolDefinition]。
+ *
+ * [Tool.parametersSchema] 为 [ToolParameters.Empty] 时返回空对象 schema，
+ * 为 [ToolParameters.JsonSchema] 时解析为 [kotlinx.serialization.json.JsonObject]。
+ *
+ * @return 可用于 LLM schema 渲染的结构化工具定义。
+ */
+public fun Tool.toDefinition(): ToolDefinition {
+    val schema = when (val ps = parametersSchema) {
+        is ToolParameters.Empty -> EMPTY_SCHEMA
+        is ToolParameters.JsonSchema -> Json.parseToJsonElement(ps.schema)
     }
+    return ToolDefinition(name, description, schema.jsonObject)
 }
 
 /**

@@ -2,17 +2,13 @@ package io.github.yeyi.agent.toolset
 
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.capability.Capability
+import io.github.yeyi.agent.llm.ToolDefinition
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolDispatcher
 import io.github.yeyi.agent.tool.ToolExecutionResult
-import io.github.yeyi.agent.tool.ToolParameters
-import kotlinx.serialization.json.Json
+import io.github.yeyi.agent.toDefinition
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.buildJsonArray
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 /**
  * 工具集 — 子 Tool 的容器，自身同时是 [Capability] / [ToolDispatcher]：
@@ -32,11 +28,12 @@ public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
     /** 批量添加子 Tool。 */
     public fun add(tools: Iterable<Tool>)
 
-    public fun definitions(): JsonElement
+    /** 当前 Toolset 持有的子工具结构化定义列表,供 LLM schema 渲染或下游消费。 */
+    public fun definitions(): List<ToolDefinition>
 
     /**
-     * 默认实现:把 [definitions] 拼上 "Toolset '$name' 包含以下子工具..." 前缀返回给 LLM。
-     * 子类通常只需重写 [definitions] 即可;若需自定义文案再覆写本方法。
+     * 默认实现:把 [definitions] 渲染为简明文本返回给 LLM —— 不预设 wire 格式,
+     * MCP / LLM provider 等消费者可按需覆写本方法(例如嵌 JSON schema)。
      */
     public override suspend fun activate(
         arguments: Unit?,
@@ -69,17 +66,8 @@ private class DefaultToolset(
         tools.forEach(::add)
     }
 
-    override fun definitions(): JsonElement {
-        return buildJsonArray {
-            subTools.values.forEach { tool ->
-                add(buildJsonObject {
-                    put("name", tool.name)
-                    put("description", tool.description)
-                    put("parametersSchema", parametersSchemaOf(tool.parametersSchema))
-                })
-            }
-        }
-    }
+    override fun definitions(): List<ToolDefinition> =
+        subTools.values.map { tool -> tool.toDefinition() }
 
     override suspend fun dispatch(
         name: String,
@@ -94,11 +82,6 @@ private class DefaultToolset(
                 ).message
             )
         return tool.execute(arguments, context)
-    }
-
-    private fun parametersSchemaOf(params: ToolParameters): JsonElement = when (params) {
-        is ToolParameters.Empty -> JsonObject(emptyMap())
-        is ToolParameters.JsonSchema -> Json.parseToJsonElement(params.schema)
     }
 }
 

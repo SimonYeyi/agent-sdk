@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.mcp
 
+import io.github.yeyi.agent.llm.ToolDefinition
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -60,7 +61,7 @@ public abstract class Mcp : Toolset {
      * 无锁 —— 并发调用各自拉取,后写覆盖 [delegate];[dispatch] 看到"工具不存在"
      * 即当前快照里没有,属于正常状态而非缓存错位。
      */
-    final override fun definitions(): JsonElement =
+    final override fun definitions(): List<ToolDefinition> =
         createToolset().also { delegate = it }.definitions()
 
     /**
