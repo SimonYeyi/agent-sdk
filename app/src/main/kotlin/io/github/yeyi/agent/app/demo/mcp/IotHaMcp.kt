@@ -20,7 +20,7 @@ class IotHaMcp(httpClient: HttpClient) : Mcp() {
         )
     )
 
-    override fun createMcpTool(client: McpClient, toolDef: ToolDef): Tool {
-        return CompressTool(super.createMcpTool(client, toolDef))
+    override fun adaptTool(client: McpClient, toolDef: ToolDef): Tool {
+        return CompressTool(super.adaptTool(client, toolDef))
     }
 }

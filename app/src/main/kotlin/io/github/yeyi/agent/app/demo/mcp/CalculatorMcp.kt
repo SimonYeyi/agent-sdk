@@ -28,8 +28,8 @@ class CalculatorMcp : Mcp() {
     override val description: String = "Calculator服务，支持加、减、乘、除运算"
     override val client: McpClient = McpClient(LocalTransport(CalculatorMcpServer()))
 
-    override fun createMcpTool(client: McpClient, toolDef: ToolDef): Tool {
-        return CompressTool(super.createMcpTool(client, toolDef))
+    override fun adaptTool(client: McpClient, toolDef: ToolDef): Tool {
+        return CompressTool(super.adaptTool(client, toolDef))
     }
 }
 

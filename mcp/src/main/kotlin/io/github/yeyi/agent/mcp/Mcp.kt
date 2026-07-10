@@ -13,8 +13,8 @@ import kotlinx.serialization.json.JsonElement
  * 抽象类继承 [Toolset],内部持有可空委托实例([delegate])。
  * - [add] 始终抛 [UnsupportedOperationException]（MCP 工具由远端动态管理）。
  * - [definitions] 首次调用时通过 [McpClient] 拉取远端工具列表，对每个 [ToolDef] 调用
- *   [createMcpTool] 钩子包装为 [Tool]，最后缓存在内部 [Toolset] 委托中。
- *   装饰行为（如压缩）由子类覆写 [createMcpTool] 注入。
+ *   [adaptTool] 钩子包装为 [Tool]，最后缓存在内部 [Toolset] 委托中。
+ *   装饰行为（如压缩）由子类覆写 [adaptTool] 注入。
  * - [dispatch] 委托给缓存的 [Toolset] 实例，路由到对应 [Tool] 执行。
  * 使用方式:
  * ```kotlin
@@ -51,13 +51,13 @@ public abstract class Mcp : Toolset {
     /**
      * 返回当前 MCP 服务的工具定义列表。
      *
-     * 首次调用时通过 [McpClient] 拉取远端工具列表，对每个 [ToolDef] 调用 [createMcpTool]
+     * 首次调用时通过 [McpClient] 拉取远端工具列表，对每个 [ToolDef] 调用 [adaptTool]
      * 包装为 [Tool]，最后缓存在内部 [Toolset] 委托中。后续调用直接返回缓存结果。
      */
     final override fun definitions(): JsonElement = ensureInitialized().definitions()
 
     /**
-     * 委托给内部缓存的 [Toolset]，由 [createMcpTool] 返回的 [Tool] 处理执行。
+     * 委托给内部缓存的 [Toolset]，由 [adaptTool] 返回的 [Tool] 处理执行。
      * 委托未初始化时抛错，调用方需先调用 [definitions] 完成初始化。
      */
     final override suspend fun dispatch(
@@ -71,17 +71,17 @@ public abstract class Mcp : Toolset {
      * 钩子方法 —— 把 MCP 协议 [ToolDef] 包装为 agent [Tool]。
      *
      * 默认实现是裸的内部 [McpTool]，不做任何装饰。子类可覆写以注入额外的装饰器
-     * (例如压缩 schema、缓存、限流等增强行为),默认实现可通过 `super.createMcpTool(...)` 复用。
+     * (例如压缩 schema、缓存、限流等增强行为),默认实现可通过 `super.adaptTool(...)` 复用。
      * 典型用法:
      * ```kotlin
      * class DecoratedCalculatorMcp : Mcp() {
      *     override val client = ...
-     *     override fun createMcpTool(client: McpClient, toolDef: ToolDef): Tool =
-     *         MyDecorator(super.createMcpTool(client, toolDef))
+     *     override fun adaptTool(client: McpClient, toolDef: ToolDef): Tool =
+     *         MyDecorator(super.adaptTool(client, toolDef))
      * }
      * ```
      */
-    protected open fun createMcpTool(client: McpClient, toolDef: ToolDef): Tool =
+    protected open fun adaptTool(client: McpClient, toolDef: ToolDef): Tool =
         McpTool(client, toolDef)
 
     /**
@@ -94,9 +94,8 @@ public abstract class Mcp : Toolset {
                 if (delegate == null) {
                     runBlocking {
                         val delegate = Toolset(name, description)
-                        val tools = client.toolsList().tools.map { toolDef ->
-                            createMcpTool(client, toolDef)
-                        }
+                        val tools = client.toolsList().tools
+                            .map { toolDef -> adaptTool(client, toolDef) }
                         delegate.add(tools)
                         this@Mcp.delegate = delegate
                     }
