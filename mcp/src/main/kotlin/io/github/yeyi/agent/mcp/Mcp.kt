@@ -4,6 +4,7 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.toolset.Toolset
+import kotlin.jvm.Volatile
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonElement
 
@@ -12,10 +13,10 @@ import kotlinx.serialization.json.JsonElement
  *
  * 抽象类继承 [Toolset],内部持有可空委托实例([delegate])。
  * - [add] 始终抛 [UnsupportedOperationException]（MCP 工具由远端动态管理）。
- * - [definitions] 首次调用时通过 [McpClient] 拉取远端工具列表，对每个 [ToolDef] 调用
- *   [adaptTool] 钩子包装为 [Tool]，最后缓存在内部 [Toolset] 委托中。
- *   装饰行为（如压缩）由子类覆写 [adaptTool] 注入。
- * - [dispatch] 委托给缓存的 [Toolset] 实例，路由到对应 [Tool] 执行。
+ * - [definitions] 每次调用都通过 [McpClient] 拉取远端工具列表，对每个 [ToolDef] 调用
+ *   [adaptTool] 钩子包装为 [Tool],构建新的 [Toolset] 赋值给 [delegate]。
+ *   保证工具定义反映远端 MCP 的最新状态。装饰行为由子类覆写 [adaptTool] 注入。
+ * - [dispatch] 委托给 [delegate] 中的 [Tool] 执行。
  * 使用方式:
  * ```kotlin
  * class MyMcp(httpClient: HttpClient) : Mcp {
@@ -29,6 +30,7 @@ public abstract class Mcp : Toolset {
     /** MCP 客户端实现，负责与远端或本地 MCP 服务进行协议通信。 */
     public abstract val client: McpClient
 
+    @Volatile
     private var delegate: Toolset? = null
 
     /**
@@ -51,14 +53,19 @@ public abstract class Mcp : Toolset {
     /**
      * 返回当前 MCP 服务的工具定义列表。
      *
-     * 首次调用时通过 [McpClient] 拉取远端工具列表，对每个 [ToolDef] 调用 [adaptTool]
-     * 包装为 [Tool]，最后缓存在内部 [Toolset] 委托中。后续调用直接返回缓存结果。
+     * 每次调用都通过 [McpClient] 重新拉取远端工具列表，对每个 [ToolDef] 调用 [adaptTool]
+     * 包装为 [Tool]，构建新的 [Toolset] 并赋值给 [delegate]。
+     * 保证工具定义反映远端 MCP 服务的最新状态。
+     *
+     * 无锁 —— 并发调用各自拉取,后写覆盖 [delegate];[dispatch] 看到"工具不存在"
+     * 即当前快照里没有,属于正常状态而非缓存错位。
      */
-    final override fun definitions(): JsonElement = ensureInitialized().definitions()
+    final override fun definitions(): JsonElement =
+        createToolset().also { delegate = it }.definitions()
 
     /**
-     * 委托给内部缓存的 [Toolset]，由 [adaptTool] 返回的 [Tool] 处理执行。
-     * 委托未初始化时抛错，调用方需先调用 [definitions] 完成初始化。
+     * 委托给 [delegate] 中的 [Tool] 执行。
+     * 调用方需先调用 [definitions] 拉取工具列表,否则抛错。
      */
     final override suspend fun dispatch(
         name: String,
@@ -85,23 +92,14 @@ public abstract class Mcp : Toolset {
         McpTool(client, toolDef)
 
     /**
-     * 懒初始化 [delegate] —— 双重检查锁保证并发场景下只拉取一次工具列表。
-     * 委托赋值在 `add` 之后，半初始化失败时 [delegate] 保持 null 以便下次重试。
+     * 拉取远端工具列表并包装为 [Toolset] —— [definitions] 每次都新建,保证工具定义新鲜度。
+     * 失败时抛异常,本方法不更新任何外部状态;调用方负责决定是否重试。
      */
-    private fun ensureInitialized(): Toolset {
-        if (delegate == null) {
-            synchronized(this) {
-                if (delegate == null) {
-                    runBlocking {
-                        val delegate = Toolset(name, description)
-                        val tools = client.toolsList().tools
-                            .map { toolDef -> adaptTool(client, toolDef) }
-                        delegate.add(tools)
-                        this@Mcp.delegate = delegate
-                    }
-                }
-            }
-        }
-        return delegate!!
+    private fun createToolset(): Toolset {
+        val toolset = Toolset(name, description)
+        val tools = runBlocking { client.toolsList() }.tools
+            .map { toolDef -> adaptTool(client, toolDef) }
+        toolset.add(tools)
+        return toolset
     }
 }
