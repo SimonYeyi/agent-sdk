@@ -798,23 +798,29 @@ import java.util.UUID
 /**
  * Boss state machine.
  *
- * - [WAITING]: idle, 等待外部输入 (用户或 TaskUpdate)
+ * - [WAITING]: idle, 等待外部输入 (用户或终态 TaskUpdate)
  * - [RUNNING]: innerAgent.run() 正在执行
- * - [USER_INPUT_PENDING]: 用户有未提交的输入在 pending (UI 状态)
+ * - [INPUTTING]: 用户有未提交的输入在 pending (UI 状态)
+ * - [COLLECTING]: 等待其他任务完成（等 1s 合并期间），用户输入会缓存
  *
- * ProgressEvent (TaskUpdate) 处理:
- * - WAITING → 立即触发新 run() (把 TaskUpdate 注入 memory)
- * - RUNNING → 缓存, 当前 run() 结束后再触发
- * - USER_INPUT_PENDING → 拼到 pending user input, 一起触发
+ * 终态事件 (Final/Failed) 处理:
+ * - WAITING → 有其他活跃任务则进入 COLLECTING 等 1s 合并，否则立即触发
+ * - RUNNING → 缓存，run() 结束后检查是否需要进入 COLLECTING
+ * - INPUTTING → 缓存，等用户调用 run() 时一起处理
+ * - COLLECTING → 等待 1s 期间收集更多终态事件
+ *
+ * 非终态事件: 只更新内部 TaskState，不触发模型
  */
-internal enum class BossState { WAITING, RUNNING, USER_INPUT_PENDING }
+internal enum class BossState { WAITING, RUNNING, INPUTTING, COLLECTING }
 
 internal class TaskState(
     internal val selections: List<Selection>,
     internal val task: String,
     internal val events: MutableList<AgentEvent> = mutableListOf(),
-    internal var terminal: Boolean = false,  // true = 收到 Final / Failed
-)
+) {
+    internal val terminal: Boolean
+        get() = events.lastOrNull() is AgentEvent.Final || events.lastOrNull() is AgentEvent.Failed
+}
 
 /**
  * Boss = 包装 [ReActAgent] + 状态机 + 异步 ProgressEvent 合并.
@@ -839,8 +845,10 @@ internal class BossAgent internal constructor(
     private val tasks: MutableMap<String, TaskState> = mutableMapOf()
     private val tasksLock: Mutex = Mutex()
 
-    // 等待触发新一轮 run() 的 input 队列 (TaskUpdate / user input)
-    private val pendingInputs: Channel<String> = Channel(capacity = Channel.UNLIMITED)
+    // 待合并的终态 TaskUpdate (Final / Failed)
+    private val pendingTerminalUpdates: Channel<TaskUpdate> = Channel(capacity = Channel.UNLIMITED)
+    // 待合并的用户输入（RUNNING 或 COLLECTING 状态时设置）
+    private var pendingUserInput: String? = null
 
     init {
         // 订阅 BulletinBoard: 1 team 1 boss, 自己的 publishEvents / progressEvents 全是本 boss 的,
@@ -863,96 +871,126 @@ internal class BossAgent internal constructor(
         }
     }
 
-    override fun run(input: String): kotlinx.coroutines.flow.Flow<AgentEvent> =
+    private fun run(input: String, emitEvents: Boolean = true): kotlinx.coroutines.flow.Flow<AgentEvent> =
         kotlinx.coroutines.flow.flow {
             _state.value = BossState.RUNNING
             try {
-                innerAgent.run(input).collect { emit(it) }
+                val merged = drainPendingWith(input)
+                merged?.let { innerAgent.run(it).collect { e -> if (emitEvents) emit(e) } }
             } finally {
                 _state.value = BossState.WAITING
-                // (可能 trigger 下一个 pending input, 见下方)
+                handlePendingTerminals()
             }
         }
 
-    override fun runStream(input: String): kotlinx.coroutines.flow.Flow<AgentEvent> = run(input)
+    override fun run(input: String): Flow<AgentEvent> {
+        // RUNNING 或 COLLECTING 状态时，用户输入缓存
+        if (_state.value == BossState.RUNNING || _state.value == BossState.COLLECTING) {
+            pendingUserInput = input
+            return emptyFlow()
+        }
+        return run(input, emitEvents = true)
+    }
+    override fun runStream(input: String): Flow<AgentEvent> = run(input)
 
-    // userInput 提交入口 (UI 层调)
-    internal fun sendInput(text: String) {
-        // (省略 — 实际由 [TeamAgent] 暴露给 UI)
+    /** 处理 pending 的终态事件和用户输入 */
+    private fun handlePendingTerminals() {
+        val update = pendingTerminalUpdates.tryReceive().getOrNull()
+        if (update != null) {
+            pendingTerminalUpdates.trySend(update) // 放回去
+        }
+
+        // 有终态事件或有 pendingUserInput，都需要处理
+        val hasPendingInput = pendingUserInput != null
+        if (update == null && !hasPendingInput) return
+
+        scope.launch {
+            if (update != null && hasActiveTasks()) {
+                // 有终态事件且有活跃任务，进入 COLLECTING 状态，等 1s 后合并
+                waitForOtherTasks()
+            }
+            val userInput = pendingUserInput
+            pendingUserInput = null
+            drainPendingWith(userInput)?.let { run(it, emitEvents = false) }
+        }
     }
 
     private suspend fun handleTaskUpdate(update: TaskUpdate) {
         tasksLock.withLock {
-            val task = tasks[update.taskId] ?: return  // 未知 taskId, 忽略
+            val task = tasks[update.taskId] ?: return
             task.events += update.event
-            if (update.event is AgentEvent.Final || update.event is AgentEvent.Failed) {
-                task.terminal = true
-            }
+            if (!task.terminal) return  // 非终态，只更新状态
         }
-        // 状态机决策
+
+        // 终态事件：根据状态决定处理时机
         when (_state.value) {
-            BossState.WAITING -> triggerNextRun(formatTaskUpdateAsInput(update))
-            BossState.RUNNING -> {
-                // 缓存到 pending, 当前 run() 结束后再触发
-                pendingInputs.trySend(formatTaskUpdateAsInput(update))
+            BossState.WAITING -> {
+                pendingTerminalUpdates.trySend(update)
+                handlePendingTerminals()
             }
-            BossState.USER_INPUT_PENDING -> {
-                // 拼到 user input, 一起触发 (合并后等用户提交)
-                pendingInputs.trySend(formatTaskUpdateAsInput(update))
-            }
-        }
-    }
-
-    /**
-     * 把 TaskUpdate 包装成 user input 文本 — [innerAgent.run] 内部会作为 user message 加入 memory.
-     * 格式见 § 7.3.
-     */
-    private fun formatTaskUpdateAsInput(update: TaskUpdate): String {
-        val taskState = tasks[update.taskId]
-        val cap = if (taskState != null) {
-            taskState.selections.joinToString("+") { sel ->
-                when (sel) {
-                    is Selection.Skill -> "skill(${sel.name})"
-                    is Selection.Toolset -> "toolset(${sel.name})"
-                    is Selection.Subagent -> "subagent(${sel.name})"
-                    is Selection.Tool -> "tool(${sel.name})"
-                }
-            }
-        } else "?"
-        return "[Task ${update.taskId} ($cap) update] ${update.event::class.simpleName}: ${update.event}"
-    }
-
-    /**
-     * 启动一次 [innerAgent.run] — 异步, 不阻塞当前.
-     * 跑完后如果 [pendingInputs] 队列里有积压, 继续触发下一个.
-     */
-    private fun triggerNextRun(input: String) {
-        scope.launch {
-            _state.value = BossState.RUNNING
-            try {
-                innerAgent.run(input).collect { /* 转给 UI 订阅的 Flow */ }
-            } finally {
-                _state.value = BossState.WAITING
-                val next = pendingInputs.tryReceive().getOrNull()
-                if (next != null) triggerNextRun(next)
+            BossState.RUNNING, BossState.INPUTTING, BossState.COLLECTING -> {
+                // RUNNING: 缓存，run() 结束后检查
+                // INPUTTING: 缓存，等用户输入时一起处理
+                // COLLECTING: 缓存，继续收集更多终态事件
+                pendingTerminalUpdates.trySend(update)
             }
         }
     }
 
-    // ===== UI 层调用 — 进入/退出 USER_INPUT_PENDING 状态 =====
+    /** 检查是否还有非终态的活跃任务 */
+    private suspend fun hasActiveTasks(): Boolean = tasksLock.withLock {
+        tasks.values.any { !it.terminal }
+    }
 
-    /** UI 通知 boss: 用户开始打字, 进入 USER_INPUT_PENDING. */
-    internal fun enterUserInputPending() { _state.value = BossState.USER_INPUT_PENDING }
+    /** 等待其他任务变为终态，超时 1s */
+    private suspend fun waitForOtherTasks() {
+        _state.value = BossState.COLLECTING
+        val deadline = System.currentTimeMillis() + 1000
+        while (System.currentTimeMillis() < deadline) {
+            if (!hasActiveTasks()) break
+            delay(50)
+        }
+    }
 
-    /** UI 通知 boss: 用户取消/提交输入, 退出 USER_INPUT_PENDING. */
-    internal fun exitUserInputPending() { _state.value = BossState.WAITING }
+    /** 取出所有终态 TaskUpdate，与可选 input 合并，返回 null 表示无内容 */
+    private fun drainPendingWith(input: String?): String? {
+        val updates = mutableListOf<TaskUpdate>()
+        while (true) {
+            val next = pendingTerminalUpdates.tryReceive().getOrNull() ?: break
+            updates.add(next)
+        }
+        if (updates.isEmpty() && input == null) return null
+
+        return buildString {
+            input?.let {
+                append(it)
+                if (updates.isNotEmpty()) append("\n")
+            }
+            if (updates.isNotEmpty()) {
+                append(formatTaskResults(updates))
+            }
+        }
+    }
+
+    /** 格式化任务结果列表 */
+    private fun formatTaskResults(updates: List<TaskUpdate>): String = buildString {
+        append("[Task Result]")
+        updates.forEach { update ->
+            append("\n${update.taskId}: ${update.event}")
+        }
+    }
+
+    // ===== UI 层调用 — 进入/退出 INPUTTING 状态 =====
+
+    /** UI 通知 boss: 用户开始/结束打字 */
+    internal fun inputting(inputting: Boolean) { _state.value = if (inputting) BossState.INPUTTING else BossState.WAITING }
 }
 ```
 
 **说明**：
-- `formatTaskUpdateAsInput` 把 `TaskUpdate` 包装成"任务 X 进度/结果"文本，注入到 `innerAgent.memory` 让下一轮 LLM 看到。
-- `triggerNextRun` 触发新 `innerAgent.run()`，但因为 `run()` 是 `Flow<AgentEvent>`，需要把 Flow 启动起来 — 具体在 `TeamAgent` 装配时配置（boss 的 `Flow` 出口暴露给 UI）。
-- `USER_INPUT_PENDING` 状态的进入由 UI 决定（用户开始打字时切到 `USER_INPUT_PENDING`），boss 框架不感知 UI 细节 — **预留状态**，具体由上层决定何时进入。
+- `formatTaskResults` 把终态 TaskUpdate 列表格式化为统一文本，label + 任务列表。
+- `run(input, emitEvents)` 是统一的运行方法：`emitEvents=true` 用于外部调用（返回 Flow 给 UI），`emitEvents=false` 用于内部触发（不返回 Flow）。
+- `INPUTTING` 状态由 UI 层通过 `inputting(true/false)` 控制，boss 框架不感知 UI 细节 — **预留状态**
 
 ### 4.6 `PublishTaskTool` 和 `CancelTaskTool`
 
@@ -1257,11 +1295,8 @@ public class TeamAgent internal constructor(
     /** 当前 boss 状态 — 内部 boss.state 的转发, 避免 UI 层穿透到实现细节. */
     public val state: StateFlow<BossState> get() = boss.state
 
-    /** UI 通知: 用户开始打字, 进入 USER_INPUT_PENDING. */
-    public fun enterUserInputPending(): Unit = boss.enterUserInputPending()
-
-    /** UI 通知: 用户取消/提交输入, 退出 USER_INPUT_PENDING. */
-    public fun exitUserInputPending(): Unit = boss.exitUserInputPending()
+    /** UI 通知: 用户开始/结束打字 */
+    public fun inputting(inputting: Boolean): Unit = boss.inputting(inputting)
 
     /**
      * 关闭 team — 取消 [teamScope], 停止所有 boss/pasture 的后台任务.
@@ -1756,54 +1791,61 @@ teamAgent {
 
 ## 7. 状态机
 
-### 7.1 三态定义
+### 7.1 四态定义
 
 | 状态 | 含义 | 进入条件 | 退出条件 |
 |---|---|---|---|
-| `WAITING` | idle，等待外部输入 | 构造时 / run() 完成后 | 用户 sendInput / 收到 TaskUpdate |
-| `RUNNING` | innerAgent.run() 正在执行 | sendInput 触发 / TaskUpdate 触发 | run() 完成 / 异常 |
-| `USER_INPUT_PENDING` | 用户有未提交输入 | UI 层通知（用户在打字） | 用户提交 / UI 取消 |
+| `WAITING` | idle，等待外部输入 | 构造时 / run() 完成后 / COLLECTING 等待结束 | 用户 sendInput / 收到终态 TaskUpdate |
+| `RUNNING` | innerAgent.run() 正在执行 | sendInput 触发 / 立即触发 run() | run() 完成 / 异常 |
+| `INPUTTING` | 用户有未提交输入 | UI 层通知（用户在打字） | 用户提交 / UI 取消 |
+| `COLLECTING` | 等待其他任务完成（等 1s 合并） | WAITING 收到终态事件且有活跃任务 | 1s 等待结束或所有任务完成 |
 
 ### 7.2 转换规则
 
 ```
 WAITING ──sendInput──► RUNNING ──run 完成──► WAITING
    │                       │
-   │ TaskUpdate            │ 缓存到 pending
+   │ TaskUpdate            │ 缓存到 pendingTerminalUpdates
    ▼                       │
 trigger run()              │
    │                       │
    └───────────────────────┘
-   
-WAITING ──UI 通知开始打字──► USER_INPUT_PENDING
-USER_INPUT_PENDING ──UI 通知提交──► RUNNING (并把 TaskUpdate 合并到 input)
+
+WAITING ──终态事件+活跃任务──► COLLECTING ──1s后/任务全部完成──► WAITING
+   │                                      │
+   │ 终态事件                              │ 合并终态事件+pendingUserInput
+   ▼                                      │
+缓存到 pendingTerminalUpdates              ▼
+   │                                  trigger run()
+   │                                      │
+   └──────────────────────────────────────┘
+
+WAITING ──UI 通知开始打字──► INPUTTING
+INPUTTING ──UI 通知提交──► RUNNING (并把 TaskUpdate 合并到 input)
 ```
 
 ### 7.3 ProgressEvent 合并策略
 
-`TaskUpdate` 到达时的处理（按当前 state 分支）：
+终态事件（Final/Failed）到达时的处理（按当前 state 分支）：
 
 | 当前 state | 处理 |
 |---|---|
-| `WAITING` | 立即触发新 `run(input = formatTaskUpdateAsInput(update))` |
-| `RUNNING` | 缓存到 `pendingInputs` Channel，当前 run() 结束后再触发 |
-| `USER_INPUT_PENDING` | 拼到 pending user input（UI 层负责最终合并），用户提交时一起触发 |
+| `WAITING` | 有其他活跃任务则进入 COLLECTING 等 1s 合并，否则立即触发 |
+| `RUNNING` | 缓存到 `pendingTerminalUpdates`，run() 结束后检查是否需要进入 COLLECTING |
+| `INPUTTING` | 缓存到 `pendingTerminalUpdates`，等用户调用 run() 时合并 |
+| `COLLECTING` | 缓存到 `pendingTerminalUpdates`，等待 1s 期间收集更多 |
 
-**`formatTaskUpdateAsInput` 格式**：
+**`formatTaskResults` 格式**：
 ```
-[Task X progress/result] capability=weather event=ToolCallStart toolName=get_weather
-[Task X progress/result] capability=weather event=ToolCallEnd result=...
-[Task X terminal] capability=weather event=Final content=晴 25 度
-[Task X terminal] capability=weather event=Failed cause=Cancelled
+[Task Result]
+taskId: Final: AgentResult(...)
+taskId: Failed: AgentException(...)
 ```
 
-具体格式由实现细节决定（可以是 system message 注入 memory，或单独的 user message 追加），关键是 LLM 能看到"任务 X 发生了什么"。
-
-### 7.4 USER_INPUT_PENDING 状态的责任划分
+### 7.4 INPUTTING 状态的责任划分
 
 - boss 框架**预留**此状态
-- 何时进入 / 退出由 UI 层决定（用户在输入框开始打字时切到 `USER_INPUT_PENDING`，提交时切回）
-- boss 框架提供 `setState(BossState.USER_INPUT_PENDING)` / `clearUserInputPending()` 给 UI 调用
+- 由 UI 层通过 `inputting(true/false)` 控制进入/退出
 - boss 框架不感知 UI 细节
 
 ---
@@ -2068,8 +2110,8 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 | L | 派活到 Subagent v1 **支持** — Pasture.assemble 把 Subagent.load() 整体覆盖 persona, Subagent.tools (非 null) 注入 Horse.tools; Horse 按 subagent 的 persona 跑 ReAct | 无 SubagentInvoker 包装层, 直接持 persona + tools |
 | M | 取消通过 `publishEvent(Cancellation)` + pasture 取消 beast job 实现 | 事件总线 + coroutine cancel |
 | N | 取消失败（job 已完成）静默忽略（幂等） | 取消是事件不是事务 |
-| O | `BossAgent` 三态：WAITING / RUNNING / USER_INPUT_PENDING | USER_INPUT_PENDING 预留，UI 控制 |
-| P | `USER_INPUT_PENDING` 状态由 UI 层负责进入/退出 | boss 框架不感知 UI |
+| O | `BossAgent` 四态：WAITING / RUNNING / INPUTTING / COLLECTING | INPUTTING 预留，UI 控制；COLLECTING 等 1s 合并 |
+| P | `INPUTTING` 状态由 UI 层通过 `inputting(true/false)` 控制 | boss 框架不感知 UI |
 | Q | `publish_task` 每条 task 必须显式指定 `selections` 数组, 每条 selection 形如 `{"type": "skill\|toolset\|subagent\|tool", "name": "..."}` — type 是路由键, name 是 registry 内查找键 | 4 类 sealed 分发, 取代旧的 `(type, name)` tuple |
 | R | Skill 文本中的 tool 名 → 自动绑定到 Horse.tools (经 `SkillRegistry.allTools()` 全词匹配), LLM 在 Horse 中直接调, 绕过 `skill_tool_loader` + `skill_tool_caller` 二段式 | pre-load 模式下的特殊处理, 约定 Skill 作者在 load() 文本里把 tool 名作为独立词写出 |
 | S | 容器为 `TeamAgent` (实现 [Agent]), `teamAgent { }` DSL 单次装配 — boss / pasture / bulletinBoard 全部私有, 外部仅通过 `team.run` / `team.runStream` / `team.state` / `team.shutdown` 与之交互 | 单一对外表面, 屏蔽内部协作细节 |
