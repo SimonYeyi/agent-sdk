@@ -19,12 +19,19 @@
 
 ## 1. BossAgent 内部实现
 
-Boss = 包装 `ReActAgent` + 状态机 + 异步 ProgressEvent 合并。
-不重写 ReAct 循环 — innerAgent 跑 ReAct, BossAgent 在外层协调:
-- 注册 `PublishTaskTool` / `CancelTaskTool` 到 innerAgent 的 toolRegistry
-- 订阅 `BulletinBoard` 的 `TaskUpdate` 合并到 input
-- 维护 `tasks` 追踪所有派出的任务
-- 状态机决定什么时候触发新的 `innerAgent.run()`
+Boss = 包装 `ReActAgent` + 状态机 + 异步 ProgressEvent 合并 + 双事件流分流。
+
+**核心设计 — 两条事件流**:
+| 路径 | 触发源 | 流向 | 调用方拿到 |
+|---|---|---|---|
+| User round | `run(input)` (state 闲时启动, 忙时挂起) | `UserRound.channel` (per-round, UNLIMITED) | `run()` 返回的 Flow |
+| Continuation | TaskUpdate 终态 (state WAITING/INPUTTING 时由 `tryTriggerNext` 启动) | `continuationsEmitter` (hot SharedFlow) | `continuations` property |
+
+`run()` 返回的 Flow 内容就是 `innerAgent.run(merged)` — boss 不 wrap 事件,直接转发。`emitEvents` 开关**彻底删除**,每条路径只 emit 一次到自己的 sink。
+
+**挂起语义**: state 忙 (RUNNING/COLLECTING) 时调 `run(input)`, input 暂存到 `pendingUserRound` 字段, Flow 仍然立即返回 (绑在 UserRound.channel 上,等合并 round 启动时才有事件喂进来)。Channel 关闭时 Flow 自然结束 — 调用方 collect 完即知道 round 结束。
+
+**并发安全**: `decisionLock: Mutex` 保护"决定+启动"序列;`tasksLock: Mutex` 保护 `tasks` map;`pendingTerminalUpdates` 用 `Channel.isEmpty` 而非 tryReceive+trySend 的 peek,避免 race。
 
 **状态机的输入/输出与转换规则见主 spec § 7**。本节只列实现。
 
@@ -37,10 +44,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -50,39 +59,36 @@ import kotlinx.coroutines.sync.withLock
  * Boss state machine. 详见主 spec § 7.
  *
  * - [WAITING]: idle, 等待外部输入 (用户或终态 TaskUpdate)
- * - [RUNNING]: innerAgent.run() 正在执行
- * - [INPUTTING]: 用户有未提交的输入在 pending (UI 状态)
- * - [COLLECTING]: 等待其他任务完成（等 1s 合并期间），用户输入会缓存
- *
- * 终态事件 (Final/Failed) 处理:
- * - WAITING → 有其他活跃任务则进入 COLLECTING 等 1s 合并，否则立即触发
- * - RUNNING → 缓存，run() 结束后检查是否需要进入 COLLECTING
- * - INPUTTING → 缓存，等用户调用 run() 时一起处理
- * - COLLECTING → 等待 1s 期间收集更多终态事件
- *
- * 非终态事件: 只更新内部 TaskState，不触发模型
+ * - [RUNNING]: round 正在跑 (user-driven 或 task-driven 续轮)
+ * - [INPUTTING]: user 在 WAITING 状态下开始打字 (UI 信号)
+ * - [COLLECTING]: 任务触发的续轮等 1s 合并窗口
  *
  * 公开原因: TeamAgent.state: StateFlow<BossState> 需对外暴露,UI 才能订阅 boss 当前状态.
  */
 public enum class BossState { WAITING, RUNNING, INPUTTING, COLLECTING }
 
+internal class UserRound(
+    val input: String,
+    val channel: Channel<AgentEvent>,  // UNLIMITED capacity
+)
+
 internal class TaskState(
-    internal val selections: List<Selection>,
-    internal val task: String,
-    internal val events: MutableList<AgentEvent> = mutableListOf(),
+    val selections: List<Selection>,
+    val task: String,
+    val events: MutableList<AgentEvent> = mutableListOf(),
 ) {
-    internal val terminal: Boolean
+    val terminal: Boolean
         get() = events.lastOrNull() is AgentEvent.Final || events.lastOrNull() is AgentEvent.Failed
 }
 
 /**
- * Boss = 包装 [ReActAgent] + 状态机 + 异步 ProgressEvent 合并.
+ * Boss = 包装 [Agent] (innerAgent) + 状态机 + 异步 ProgressEvent 合并 + 双事件流分流.
  *
  * 不重写 ReAct 循环. innerAgent 跑 ReAct, BossAgent 在外层协调:
  * - 注册 [PublishTaskTool] / [CancelTaskTool] 到 innerAgent 的 toolRegistry
  * - 订阅 [BulletinBoard] 的 [TaskUpdate] 合并到 input
  * - 维护 [tasks] 追踪所有派出的任务
- * - 状态机决定什么时候触发新的 innerAgent.run()
+ * - 状态机决定什么时候触发新的 innerAgent.run(), 走 user 流 (合并 round) 或 continuations 流 (续轮)
  *
  * 详见主 spec § 4.5.
  */
@@ -93,17 +99,30 @@ internal class BossAgent internal constructor(
 ) : Agent {
 
     private val _state = MutableStateFlow(BossState.WAITING)
-    internal val state: StateFlow<BossState> = _state.asStateFlow()
+    val state: StateFlow<BossState> = _state.asStateFlow()
 
-    // 任务追踪 — BossAgent 派活后通过订阅 [BulletinBoard.publishEvents] 写入,
-    // 收 [TaskUpdate] 时反查 selections / 拼进度文本.
+    // ===== 用户轮次 =====
+    // pendingUserRound: state 忙时由 run() 写入,tryTriggerNext() 取出并清空
+    // 字段生命周期: 唯一写入点 run(), 唯一消费点 tryTriggerNext()
+    private var pendingUserRound: UserRound? = null
+
+    // ===== 续轮事件流 (hot SharedFlow) =====
+    private val continuationsEmitter = MutableSharedFlow<AgentEvent>(
+        replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+    val continuations: Flow<AgentEvent> = continuationsEmitter.asSharedFlow()
+
+    // ===== 任务追踪 =====
     private val tasks: MutableMap<String, TaskState> = mutableMapOf()
     private val tasksLock: Mutex = Mutex()
 
-    // 待合并的终态 TaskUpdate (Final / Failed)
+    // ===== 待合并的终态 TaskUpdate (Final / Failed) =====
     private val pendingTerminalUpdates: Channel<TaskUpdate> = Channel(capacity = Channel.UNLIMITED)
-    // 待合并的用户输入（RUNNING 或 COLLECTING 状态时设置）
-    private var pendingUserInput: String? = null
+
+    // ===== 并发控制 =====
+    // 序列化"决定 + 启动"序列: run() / handleTaskUpdate() / round finally 都会调 tryTriggerNext,
+    // 必须互斥,否则 state 检查和 scope.launch 之间会有 TOCTOU race, 触发两个 round.
+    private val decisionLock: Mutex = Mutex()
 
     init {
         // 订阅 BulletinBoard: 1 team 1 boss, 自己的 publishEvents / progressEvents 全是本 boss 的,
@@ -113,10 +132,7 @@ internal class BossAgent internal constructor(
                 .filterIsInstance<TaskAssignment>()
                 .collect { assignment ->
                     tasksLock.withLock {
-                        tasks[assignment.taskId] = TaskState(
-                            selections = assignment.selections,
-                            task = assignment.task,
-                        )
+                        tasks[assignment.taskId] = TaskState(assignment.selections, assignment.task)
                     }
                 }
         }
@@ -126,88 +142,134 @@ internal class BossAgent internal constructor(
         }
     }
 
-    private fun run(input: String, emitEvents: Boolean = true): kotlinx.coroutines.flow.Flow<AgentEvent> =
-        kotlinx.coroutines.flow.flow {
-            _state.value = BossState.RUNNING
-            try {
-                val merged = drainPendingWith(input)
-                merged?.let { innerAgent.run(it).collect { e -> if (emitEvents) emit(e) } }
-            } finally {
-                _state.value = BossState.WAITING
-                handlePendingTerminals()
-            }
-        }
+    // ========== Public API ==========
 
     override fun run(input: String): Flow<AgentEvent> {
-        // RUNNING 或 COLLECTING 状态时，用户输入缓存
-        if (_state.value == BossState.RUNNING || _state.value == BossState.COLLECTING) {
-            pendingUserInput = input
-            return emptyFlow()
+        val round = UserRound(input, Channel(Channel.UNLIMITED))
+
+        if (_state.value in setOf(BossState.RUNNING, BossState.COLLECTING)) {
+            // 状态忙: 挂起到 pendingUserRound, 等 tryTriggerNext() 取出清空 + 启动
+            pendingUserRound = round
+        } else {
+            // 状态闲 (WAITING/INPUTTING): 直接启动, 字段不沾
+            scope.launch { runUserRound(round) }
         }
-        return run(input, emitEvents = true)
+
+        // 返回的 Flow 内容就是该轮的事件; channel 关闭时 Flow 自然结束
+        return kotlinx.coroutines.flow.flow { for (e in round.channel) emit(e) }
     }
+
     override fun runStream(input: String): Flow<AgentEvent> = run(input)
 
-    /** 处理 pending 的终态事件和用户输入 */
-    private fun handlePendingTerminals() {
-        val update = pendingTerminalUpdates.tryReceive().getOrNull()
-        if (update != null) {
-            pendingTerminalUpdates.trySend(update) // 放回去
+    /**
+     * UI 通知: 用户开始/结束打字.
+     * 状态机感知: 只在合理的状态下转换, 不打断正在跑的 round.
+     */
+    fun inputting(active: Boolean) {
+        when {
+            active && _state.value == BossState.WAITING -> _state.value = BossState.INPUTTING
+            !active && _state.value == BossState.INPUTTING -> _state.value = BossState.WAITING
+            // 其他 state: no-op (不打断 RUNNING/COLLECTING)
         }
+    }
 
-        // 有终态事件或有 pendingUserInput，都需要处理
-        val hasPendingInput = pendingUserInput != null
-        if (update == null && !hasPendingInput) return
+    // ========== 内部: 跑轮次 ==========
 
+    private suspend fun runUserRound(round: UserRound) {
+        _state.value = BossState.RUNNING
+        try {
+            val merged = drainPendingWith(round.input)
+            if (merged != null) {
+                innerAgent.run(merged).collect { e -> round.channel.send(e) }
+            }
+        } finally {
+            round.channel.close()  // Flow 自然结束
+            _state.value = BossState.WAITING
+            tryTriggerNext()  // 检查是否还有 pending (终态 / user pending)
+        }
+    }
+
+    private suspend fun runContinuationRound() {
+        _state.value = BossState.RUNNING
+        try {
+            val merged = drainPendingWith(null)  // 续轮无 user input, 只拼终态
+            if (merged != null) {
+                innerAgent.run(merged).collect { e -> continuationsEmitter.emit(e) }
+            }
+        } finally {
+            _state.value = BossState.WAITING
+            tryTriggerNext()
+        }
+    }
+
+    // ========== 内部: 决定 + 启动 (并发安全) ==========
+
+    private fun tryTriggerNext() {
         scope.launch {
-            if (update != null && hasActiveTasks()) {
-                // 有终态事件且有活跃任务，进入 COLLECTING 状态，等 1s 后合并
-                waitForOtherTasks()
-            }
-            val userInput = pendingUserInput
-            pendingUserInput = null
-            drainPendingWith(userInput)?.let { run(it, emitEvents = false) }
-        }
-    }
+            decisionLock.withLock {
+                if (_state.value in setOf(BossState.RUNNING, BossState.COLLECTING)) return@withLock
+                val pendingRound = pendingUserRound
+                val hasActive = hasActiveTasks()
+                val hasTerminals = !pendingTerminalUpdates.isEmpty
 
-    private suspend fun handleTaskUpdate(update: TaskUpdate) {
-        tasksLock.withLock {
-            val task = tasks[update.taskId] ?: return
-            task.events += update.event
-            if (!task.terminal) return  // 非终态，只更新状态
-        }
-
-        // 终态事件：根据状态决定处理时机
-        when (_state.value) {
-            BossState.WAITING -> {
-                pendingTerminalUpdates.trySend(update)
-                handlePendingTerminals()
-            }
-            BossState.RUNNING, BossState.INPUTTING, BossState.COLLECTING -> {
-                // RUNNING: 缓存，run() 结束后检查
-                // INPUTTING: 缓存，等用户输入时一起处理
-                // COLLECTING: 缓存，继续收集更多终态事件
-                pendingTerminalUpdates.trySend(update)
+                when {
+                    pendingRound != null -> {
+                        // 合并 round: 走 user 流
+                        pendingUserRound = null
+                        scope.launch { runUserRound(pendingRound) }
+                    }
+                    hasTerminals && hasActive -> {
+                        // COLLECTING 续轮: 等 1s 后跑续轮
+                        scope.launch { runContinuationWithCollecting() }
+                    }
+                    hasTerminals -> {
+                        scope.launch { runContinuationRound() }
+                    }
+                    // else: idle, state 保持 WAITING
+                }
             }
         }
     }
 
-    /** 检查是否还有非终态的活跃任务 */
-    private suspend fun hasActiveTasks(): Boolean = tasksLock.withLock {
-        tasks.values.any { !it.terminal }
-    }
-
-    /** 等待其他任务变为终态，超时 1s */
-    private suspend fun waitForOtherTasks() {
+    private suspend fun runContinuationWithCollecting() {
         _state.value = BossState.COLLECTING
         val deadline = System.currentTimeMillis() + 1000
         while (System.currentTimeMillis() < deadline) {
             if (!hasActiveTasks()) break
             delay(50)
         }
+        if (pendingTerminalUpdates.isEmpty) {
+            // 1s 期间没新终态, 状态回 WAITING, 重新检查
+            _state.value = BossState.WAITING
+            tryTriggerNext()
+            return
+        }
+        runContinuationRound()
     }
 
-    /** 取出所有终态 TaskUpdate，与可选 input 合并，返回 null 表示无内容 */
+    // ========== 内部: 任务事件处理 ==========
+
+    private suspend fun handleTaskUpdate(update: TaskUpdate) {
+        tasksLock.withLock {
+            val task = tasks[update.taskId] ?: return
+            task.events += update.event
+            if (!task.terminal) return  // 非终态, 只更新状态
+        }
+        // 终态事件: 缓存到 channel + 触发决策
+        pendingTerminalUpdates.trySend(update)
+        if (_state.value in setOf(BossState.WAITING, BossState.INPUTTING)) {
+            tryTriggerNext()
+        }
+        // RUNNING/COLLECTING: 缓存即可, 当前 round finally 会调 tryTriggerNext
+    }
+
+    // ========== 内部: 状态查询与合并 ==========
+
+    private suspend fun hasActiveTasks(): Boolean = tasksLock.withLock {
+        tasks.values.any { !it.terminal }
+    }
+
+    /** 取出所有终态 TaskUpdate, 与可选 input 合并, 返回 null 表示无内容 */
     private fun drainPendingWith(input: String?): String? {
         val updates = mutableListOf<TaskUpdate>()
         while (true) {
@@ -215,43 +277,35 @@ internal class BossAgent internal constructor(
             updates.add(next)
         }
         if (updates.isEmpty() && input == null) return null
-
         return buildString {
-            input?.let {
-                append(it)
-                if (updates.isNotEmpty()) append("\n")
-            }
-            if (updates.isNotEmpty()) {
-                append(formatTaskResults(updates))
-            }
+            input?.let { append(it); if (updates.isNotEmpty()) append("\n") }
+            if (updates.isNotEmpty()) append(formatTaskResults(updates))
         }
     }
 
-    /** 格式化任务结果列表 */
     private fun formatTaskResults(updates: List<TaskUpdate>): String = buildString {
         append("[Task Result]")
-        updates.forEach { update ->
-            append("\n${update.taskId}: ${update.event}")
-        }
+        updates.forEach { append("\n${it.taskId}: ${it.event}") }
     }
-
-    // ===== UI 层调用 — 进入/退出 INPUTTING 状态 =====
-
-    /** UI 通知 boss: 用户开始/结束打字 */
-    internal fun inputting(active: Boolean) { _state.value = if (active) BossState.INPUTTING else BossState.WAITING }
 }
 ```
 
-**说明**:
-- `formatTaskResults` 把终态 TaskUpdate 列表格式化为统一文本，label + 任务列表。
-- `run(input, emitEvents)` 是统一的运行方法：`emitEvents=true` 用于外部调用（返回 Flow 给 UI），`emitEvents=false` 用于内部触发（不返回 Flow）。
-- `INPUTTING` 状态由 UI 层通过 `inputting(true/false)` 控制，boss 框架不感知 UI 细节 — **预留状态**
+**关键设计点**:
+
+1. **`run()` Flow 是 per-round Channel** (UNLIMITED) — 用户晚 collect 也能拿到整轮事件,单消费者语义
+2. **`continuations` 是 hot SharedFlow** — 多次续轮事件串到同一流,多消费者 (UI + logger),buffer overflow 丢最早事件
+3. **boss 不 wrap 事件** — `innerAgent.run(merged).collect { round.channel.send(e) }` 或 `continuationsEmitter.emit(e)`,无中转流,无 `emitEvents` 开关
+4. **`pendingUserRound` 单字段** — 唯一写入点 `run()` (state 忙时),唯一消费点 `tryTriggerNext()` (决定+启动序列内)
+5. **`decisionLock` 序列化** — 防止 `run()` / `handleTaskUpdate()` / round finally 三处并发触发决策;lock 内重检 state,避免 TOCTOU
+6. **`tasks` map 全程 `tasksLock.withLock`** — `hasActiveTasks` 也是 suspending
+7. **`pendingTerminalUpdates` 用 `isEmpty` peek** — 不用 tryReceive+trySend 的非原子 peek
+8. **`inputting(active)` 状态机感知** — 不打断 RUNNING/COLLECTING;只在 WAITING ↔ INPUTTING 之间切换
 
 ---
 
 ## 2. TeamAgent 公开容器
 
-TeamAgent = 唯一对外 API 表面。内部 boss / pasture / bulletinBoard 全部私有, 外部仅通过 `team.run` / `team.runStream` / `team.state` / `team.shutdown` 与之交互。
+TeamAgent = 唯一对外 API 表面。内部 boss / pasture / bulletinBoard 全部私有, 外部仅通过 `team.run` / `team.runStream` / `team.continuations` / `team.state` / `team.inputting` / `team.shutdown` 与之交互。
 
 构造由 `TeamAgentBuilder` 完成 — DSL 与配置项见主 spec § 4.7, 此处只列 [TeamAgent] 自身实现。
 
@@ -296,10 +350,19 @@ public class TeamAgent internal constructor(
      * Primary 使用入口 — 把整个 team 当作 [Agent] 用, 直接转交给内部 boss.
      * 调用方拿到 [TeamAgent] 后只需 `team.run(input)` / `team.runStream(input)`,
      * 不必关心内部 boss / pasture 这些实现细节.
+     *
+     * 返回的 Flow 是该 round 的事件流 (含合并 round), round 结束 Flow 自然终止.
      */
     override fun run(input: String): Flow<AgentEvent> = boss.run(input)
 
     override fun runStream(input: String): Flow<AgentEvent> = boss.runStream(input)
+
+    /**
+     * 续轮事件流 (hot SharedFlow) — 任务结果触发的 round 事件都流到这里.
+     * 与 [run] 互补: `run` 是用户驱动的单次 round 流, `continuations` 是任务驱动的多 round 流.
+     * 调用方订阅一次即可收所有续轮 (UI + logger 多消费者支持).
+     */
+    public val continuations: Flow<AgentEvent> get() = boss.continuations
 
     /** 当前 boss 状态 — 内部 boss.state 的转发, 避免 UI 层穿透到实现细节. */
     public val state: StateFlow<BossState> get() = boss.state
@@ -320,5 +383,6 @@ public class TeamAgent internal constructor(
 
 **说明**:
 - TeamAgent 只是 BossAgent 的 thin wrapper + team 资源 (CoroutineScope) 的容器 — 不做业务逻辑, 仅负责构造时把 bulletinBoard / scope 装配好, 使用时把事件流和状态转发出去.
+- **双事件流暴露**: `run()` 返回 per-round Flow, `continuations` 暴露 hot SharedFlow. 两条流覆盖用户/任务两种触发场景.
 - `state` 是内部 boss.state 的转发, `inputting` 同理 — 避免 UI 层穿透到内部实现.
 - 调用方持有 [TeamAgent] 引用, 永远不需要 (也拿不到) [BossAgent] — boss 是 `internal`, 只在 `team` 包内可见.
