@@ -31,7 +31,7 @@ Boss = 包装 `ReActAgent` + 状态机 + 异步 ProgressEvent 合并 + 双事件
 
 **挂起语义**: state 忙 (RUNNING/COLLECTING) 时调 `run(input)`, input 暂存到 `pendingUserRound` 字段, Flow 仍然立即返回 (绑在 UserRound.channel 上,等合并 round 启动时才有事件喂进来)。Channel 关闭时 Flow 自然结束 — 调用方 collect 完即知道 round 结束。
 
-**并发安全**: `decisionLock: Mutex` 保护"决定+启动"序列;`tasksLock: Mutex` 保护 `tasks` map;`pendingTerminalUpdates` 用 `Channel.isEmpty` 而非 tryReceive+trySend 的 peek,避免 race。
+**并发安全**: `decisionLock: Mutex` 保护"决定+启动"序列;`tasksLock: Mutex` 保护 `tasks` map;`pendingResultEvents` 用 `Channel.isEmpty` 而非 tryReceive+trySend 的 peek,避免 race。
 
 **状态机的输入/输出与转换规则见主 spec § 7**。本节只列实现。
 
@@ -117,7 +117,7 @@ internal class BossAgent internal constructor(
     private val tasksLock: Mutex = Mutex()
 
     // ===== 待合并的终态 TaskUpdate (Final / Failed) =====
-    private val pendingTerminalUpdates: Channel<TaskUpdate> = Channel(capacity = Channel.UNLIMITED)
+    private val pendingResultEvents: Channel<TaskUpdate> = Channel(capacity = Channel.UNLIMITED)
 
     // ===== 并发控制 =====
     // 序列化"决定 + 启动"序列: run() / handleTaskUpdate() / round finally 都会调 tryTriggerNext,
@@ -210,7 +210,7 @@ internal class BossAgent internal constructor(
                 if (_state.value in setOf(BossState.RUNNING, BossState.COLLECTING)) return@withLock
                 val pendingRound = pendingUserRound
                 val hasActive = hasActiveTasks()
-                val hasTerminals = !pendingTerminalUpdates.isEmpty
+                val hasTerminals = !pendingResultEvents.isEmpty
 
                 when {
                     pendingRound != null -> {
@@ -238,7 +238,7 @@ internal class BossAgent internal constructor(
             if (!hasActiveTasks()) break
             delay(50)
         }
-        if (pendingTerminalUpdates.isEmpty) {
+        if (pendingResultEvents.isEmpty) {
             // 1s 期间没新终态, 状态回 WAITING, 重新检查
             _state.value = BossState.WAITING
             tryTriggerNext()
@@ -256,7 +256,7 @@ internal class BossAgent internal constructor(
             if (!task.terminal) return  // 非终态, 只更新状态
         }
         // 终态事件: 缓存到 channel + 触发决策
-        pendingTerminalUpdates.trySend(update)
+        pendingResultEvents.trySend(update)
         if (_state.value in setOf(BossState.WAITING, BossState.INPUTTING)) {
             tryTriggerNext()
         }
@@ -273,7 +273,7 @@ internal class BossAgent internal constructor(
     private fun drainPendingWith(input: String?): String? {
         val updates = mutableListOf<TaskUpdate>()
         while (true) {
-            val next = pendingTerminalUpdates.tryReceive().getOrNull() ?: break
+            val next = pendingResultEvents.tryReceive().getOrNull() ?: break
             updates.add(next)
         }
         if (updates.isEmpty() && input == null) return null
@@ -298,7 +298,7 @@ internal class BossAgent internal constructor(
 4. **`pendingUserRound` 单字段** — 唯一写入点 `run()` (state 忙时),唯一消费点 `tryTriggerNext()` (决定+启动序列内)
 5. **`decisionLock` 序列化** — 防止 `run()` / `handleTaskUpdate()` / round finally 三处并发触发决策;lock 内重检 state,避免 TOCTOU
 6. **`tasks` map 全程 `tasksLock.withLock`** — `hasActiveTasks` 也是 suspending
-7. **`pendingTerminalUpdates` 用 `isEmpty` peek** — 不用 tryReceive+trySend 的非原子 peek
+7. **`pendingResultEvents` 用 `isEmpty` peek** — 不用 tryReceive+trySend 的非原子 peek
 8. **`inputting(active)` 状态机感知** — 不打断 RUNNING/COLLECTING;只在 WAITING ↔ INPUTTING 之间切换
 
 ---
