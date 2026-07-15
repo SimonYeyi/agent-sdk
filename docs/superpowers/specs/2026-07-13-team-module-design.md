@@ -703,9 +703,6 @@ internal class Pasture internal constructor(
             }
         )
 
-        // 工具按 name 去重 — 同一 task 内不同 selection 可能引入同名 tool
-        val distinctTools = tools.distinctBy { it.name }
-
         // 工具不去重 — 不同 selection 引入的同名 tool 允许共存, 由 LLM 按 tool 描述区分
         return Horse(
             llmProvider = llmProvider,
