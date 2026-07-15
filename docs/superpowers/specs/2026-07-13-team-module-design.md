@@ -168,7 +168,7 @@ boss LLM 调 subagent 工具
 [Beast]  ReActAgent 协程抛 CancellationException
    │
    ▼
-[Pasture.handleAssignment catch]  bulletinBoard.progressEvent(TaskUpdate(taskId, AgentEvent.Failed(AgentException.Cancelled())))
+[Pasture.handleAssignment catch]  bulletinBoard.progressEvent(TaskUpdate(taskId, AgentEvent.Failed(CancellationException())))
    │
    ▼
 [BossAgent]  看到 Failed(Cancelled) → 报告用户
@@ -494,7 +494,6 @@ internal class Horse internal constructor(
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
-import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.skill.Skill
@@ -590,30 +589,14 @@ internal class Pasture internal constructor(
                         TaskUpdate(e.taskId, event)
                     )
                 }
-            } catch (e: CancellationException) {
-                bulletinBoard.progressEvent(
-                    TaskUpdate(
-                        taskId = e.taskId,
-                        event = AgentEvent.Failed(AgentException.Cancelled()),
-                    )
-                )
-                throw e
-            } catch (e: AgentException) {
-                bulletinBoard.progressEvent(
-                    TaskUpdate(e.taskId, AgentEvent.Failed(e))
-                )
             } catch (e: Throwable) {
                 bulletinBoard.progressEvent(
                     TaskUpdate(
                         taskId = e.taskId,
-                        event = AgentEvent.Failed(
-                            AgentException.ToolExecution(
-                                "beast execution failed: ${e.message}",
-                                e,
-                            )
-                        ),
+                        event = AgentEvent.Failed(e),
                     )
                 )
+                if (e is CancellationException) throw e
             }
         }
         jobsLock.withLock { runningJobs[e.taskId] = job }
@@ -1560,7 +1543,7 @@ WAITING ──inputting(true)──► INPUTTING ──inputting(false)──►
 ```
 [Task Result]
 taskId: Final: AgentResult(...)
-taskId: Failed: AgentException(...)
+taskId: Failed: <throwable 类别名 + message>
 ```
 
 ### 7.4 `inputting()` 状态机感知
@@ -1615,7 +1598,7 @@ INPUTTING 状态的语义: "user 在 WAITING 状态下开始打字, 意图提交
 5. Pasture.handleCancellation 接到
 6. runningJobs[taskId]?.cancel()
 7. job 取消 → beast 内部 ReActAgent 协程抛 CancellationException
-8. Pasture.handleAssignment catch: publish TaskUpdate(taskId, Failed(Cancelled()))
+8. Pasture.handleAssignment catch: publish TaskUpdate(taskId, Failed(CancellationException))
 9. job.invokeOnCompletion 清理 runningJobs
 10. BossAgent.handleTaskUpdate 接到 Failed → 触发新 run() 报告用户
 ```
@@ -1638,29 +1621,30 @@ INPUTTING 状态的语义: "user 在 WAITING 状态下开始打字, 意图提交
 
 ## 9. 异常
 
-### 9.1 新增 AgentException 子类
+### 9.1 `AgentEvent.Failed` 直接接 Throwable
 
 ```kotlin
-public sealed class AgentException(message: String, cause: Throwable? = null) : Exception(message, cause) {
-    // ... 现有 MaxIterations / LlmError / InvalidResponse / ToolExecution
-
-    /** team 模块: 任务被取消 */
-    public class Cancelled : AgentException("Task cancelled")
+// agent 模块
+public sealed interface AgentEvent {
+    /** 运行失败, 携带原始 Throwable. 不绑死领域异常类型, 让各模块自由抛出. */
+    public data class Failed(val throwable: Throwable) : AgentEvent
+    ...
 }
 ```
 
-**注意**：[Cancelled] 只在 `TaskUpdate.event = AgentEvent.Failed(...)` 中出现 (作为 cause 字段).
-team 模块不在 `AgentException` 下新增 selection 找不到之类的子类 — 装配失败在 [Pasture.assembleHorse]
-内部用 [error] 抛 [IllegalStateException], 由 [Pasture.handleAssignment] 兜底为 [buildOx] 静默降级,
-不需要新的异常类型. BossAgent.run() 自身的 AgentEvent.Failed 仍然是 ReActAgent 的异常 (不引入新类型).
+**不引入 AgentException 类**: Failed 作为事件载体, 不该绑死具体异常层次. agent 模块自己的 LlmError / InvalidResponse 等内部异常, 抛出来直接 `Failed(e)` 传出, 不需要包装. team 模块同理 — 装配失败用 [error] 抛 `IllegalStateException` (内部控制流, 不外传), 取消直接用 stdlib `CancellationException`.
+
+**约束**:
+- 只为"需要外部消费者识别"的异常命名 — 当前 v1 没有这种需求, 所以不定义任何 team 异常类
+- boss / beast 收到 `Failed(throwable)` 只往外报 message, 不做 `when (e)` 分支, 所以不需要分类
 
 ### 9.2 异常传播路径
 
 | 异常源 | 传播路径 |
 |---|---|
-| beast LLM 错误 | `Beast.run` → `Pasture.handleAssignment` catch `AgentException` → `TaskUpdate(Failed)` |
+| beast LLM 错误 | `Beast.run` 抛任意 `Throwable` → `Pasture.handleAssignment` catch → `TaskUpdate(Failed(throwable))` |
 | beast Tool 错误 | 同上（被 `toolRegistry.dispatch` 包装为 `isError=true`，LLM 看到后继续；如果 LLM 决定放弃 → `Final` 不会出现错误，由 `Failed` 表达） |
-| beast 被取消 | `Pasture.handleAssignment` catch `CancellationException` → `TaskUpdate(Failed(Cancelled))` |
+| beast 被取消 | `Pasture.handleAssignment` `catch (e: Throwable)`, `if (e is CancellationException) throw e` 透传取消; 其余 → `TaskUpdate(Failed(throwable))` |
 | 派活 selection 找不到 | `Pasture.assembleHorse` 经 [error] 抛 [IllegalStateException] → `handleAssignment` catch fallback Ox (静默降级, 不报错) |
 | 派活含任何 subagent | `Pasture.assembleHorse` 经 [error] 抛 [IllegalStateException] → `handleAssignment` catch fallback Ox (静默降级); Ox 持全 registry 让 LLM 自主调 subagent |
 | 派活到 Subagent (v1) | 不支持直接派活到 subagent — 见 § 7 不支持的功能; boss 选 subagent 退 Ox, Ox 在通用循环里 capability invoke |
@@ -1754,7 +1738,7 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 
 | 模块 | 变化 | 类型 | 说明 |
 |---|---|---|---|
-| `agent` | `AgentException.Cancelled` 新增 | 新增 | team 模块用 |
+| `agent` | `AgentEvent.Failed` 入参由 `AgentException` 改为 `Throwable`; `AgentException` 类删除 | **破坏性** | 让各模块自由携带原始异常, 不再要求包成领域异常. agent 模块内部异常 (LlmError / InvalidResponse 等如有) 抛出来直接 `Failed(e)` 传出 |
 | `agent` | `AgentBuilder.subagents(SubagentRegistry)` / `AgentBuilder.toolsets(ToolsetRegistry)` | 新增 DSL | **前提**: 现有 AgentBuilder 未提供; 仅 Ox 通过 `agent { }` DSL 注册用, **不**影响其它用户 |
 | `toolset` | `Toolset.all(): List<Tool>` 新增 | 新增方法 | 让 Pasture 从 toolset 抽 subTools 注入 Horse |
 | `skill` | `SkillRegistry.allTools(): List<Tool>` 新增 | 新增方法 | 让 Pasture 在 skill 文本匹配时拿到所有 tool |
@@ -1851,7 +1835,7 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 | Q | `publish_task` 每条 task 必须显式指定 `selections` 数组, 每条 selection 形如 `{"type": "skill\|toolset\|subagent\|tool", "name": "..."}` — type 是路由键, name 是 registry 内查找键 | 4 类 sealed 分发, 取代旧的 `(type, name)` tuple |
 | R | Skill 文本中的 tool 名 → 自动绑定到 Horse.tools (经 `SkillRegistry.allTools()` 全词匹配), LLM 在 Horse 中直接调, 绕过 `skill_tool_loader` + `skill_tool_caller` 二段式 | pre-load 模式下的特殊处理, 约定 Skill 作者在 load() 文本里把 tool 名作为独立词写出 |
 | S | 容器为 `TeamAgent` (实现 [Agent]), `teamAgent { }` DSL 单次装配 — boss / pasture / bulletinBoard 全部私有, 外部仅通过 `team.run` / `team.runStream` / `team.state` / `team.shutdown` 与之交互 | 单一对外表面, 屏蔽内部协作细节 |
-| T | 不引入 team / boss 名称字段 — 1 team 1 boss 隐式成立, `TaskAssignment` / `TaskUpdate` / `Cancellation` 不携带 bossName; `AgentException.Cancelled` 也不带 `by` 字段 | 避免唯一约束冗余; 派发 → 路由按 taskId 关联 |
+| T | 不引入 team / boss 名称字段 — 1 team 1 boss 隐式成立, `TaskAssignment` / `TaskUpdate` / `Cancellation` 不携带 bossName; 取消用 stdlib `CancellationException`, 不引入 `Cancelled` 异常类 | 避免唯一约束冗余; 派发 → 路由按 taskId 关联 |
 | U | `maxIterations` / `maxRounds` 是 team 层级统一配置 — 同时作用于 boss innerAgent 和 beast (Ox/Horse) 内部 ReActAgent; Pasture 透传, builder 仍只暴露一份参数 | ReAct 护栏语义对等, 避免"boss 受限 / beast 不受限"的不一致; 统一对外表面 |
 
 ---
