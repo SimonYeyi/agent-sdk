@@ -50,7 +50,7 @@ boss LLM 调 subagent 工具
 - **复用优先**：不引入新的执行循环、不重写 `ReActAgent`；不引入新的能力抽象，复用 `Skill` / `Subagent` / `Toolset` / `Capability` 现有体系；不引入新的 memory 抽象，boss 用 `Session.memory`、ox 用 `InMemoryMemory`。
 - **包装不重写**：`BossAgent` 包装 `ReActAgent` + 状态机；`Beast` 接口（牛/马）也是 `ReActAgent` 的薄包装，按工作模式区分（牛=通用、马=专项），承担"任务执行"职责。
 - **配置外部一次**：team 是一个整体容器 — 每个 capability 类别至多 1 个 registry (`ToolRegistry`/`SkillRegistry`/`SubagentRegistry`/`ToolsetRegistry`)，在 `teamAgent { }` DSL 里一次性配置，由 `TeamAgent` 内部分配给 boss（菜单）和 pasture（路由），不要求外部配置两次。MCP 经 `McpRegistry` 内部注册到 `ToolsetRegistry`，不单独占位。boss 看到的能力 = pasture 路由的能力（同一 registry 实例），保证派活的"承诺"和执行的"能力"对得上。
-- **Beast 抽象**：牛 (Ox) 通用 beast，registry 自由配置；马 (Horse) 专项 beast，pre-resolved capability 描述塞 persona + 按类型 wire Tool。Pasture 按 `TaskAssignment` 派发，v1 实际只走 `Horse` 分支。
+- **Beast 抽象**：牛 (Ox) 通用 beast，registry 自由配置；马 (Horse) 专项 beast，pre-resolved capability 描述塞 persona + 按类型 wire Tool。Pasture 按 `TaskAssignment` 派发，v1 多数走 `Horse` 分支；Ox 是 [Pasture.assembleHorse] 失败 (selections 空 / 含任何 subagent / 找不到 selection) 经 `error` 抛 `IllegalStateException` 后由 `handleAssignment` 兜底退 [Ox] — 三类失败共用 [Pasture.buildOx] helper.
 - **闲聊 / 派活靠 LLM 自主**：框架不区分，由 `PublishTaskTool.description` 引导 LLM 选择"直接 final 回复"还是"调 publish_task 派活"。
 - **纯事件总线**：`BulletinBoard` 是无状态的事件发布 / 订阅器，不持有任务状态、不提供业务方法（不提供 `submitAssignment` / `publishInput` 这种带业务语义的 API）。
 - **最小防御性**：按 "good enough" 原则，不为构造 / 发布 / 取消增加额外 fail-fast 校验（空字符串警告、UUID 格式检查等不做）。
@@ -117,8 +117,8 @@ boss LLM 调 subagent 工具
    │  pasture.events.collect 接到
    ▼
 [Pasture]  handleAssignment(taskAssignment)
-   │  1. assemble(e) → 解析 selections, 拼出 Horse(llmProvider, persona, tools)
-   │  2. Horse.run 内部: activate capability 取描述塞 persona, 按类型 wire Tools
+   │  1. assembleHorse(selections) → 解析 selections, 拼出 Horse(llmProvider, persona, tools); 失败 (empty / 含 subagent / 找不到) 经 [error] 抛 IllegalStateException
+   │  2. catch IllegalStateException → buildOx() 兜底
    │  3. 启动 coroutine job:
    │       beast.run(task) { event -> bulletinBoard.progressEvent(TaskUpdate(...)) }
    │  4. runningJobs[taskId] = job
@@ -255,9 +255,10 @@ internal sealed interface ProgressEvent : BulletinEvent
  * 任务派发. 1 team 1 boss, 事件由 [BulletinBoard] 直传, 不带 boss 标识.
  *
  * @param selections boss LLM 选定的能力列表 (一个 task 可组合多个 selection).
- *   - 空 → 派发到 [Ox] (通用 beast, 自选工具) — v1 实际不触发
- *   - 非空 → 派发到 [Horse] (pre-load 模式, Pasture 按 selections 预组装 persona + tools)
- *   - 任一 selection 找不到 → [AgentException.SelectionNotFound], 任务整体失败
+ *   - 空 → [assembleHorse] 抛 [IllegalStateException] → handleAssignment 兜底退 [Ox]
+ *   - 含任何 [Selection.Subagent] → 同上, 兜底退 [Ox] (Horse 装配破坏 subagent 闭环)
+ *   - 其余 → 派发到 [Horse] (pre-load 模式, Pasture 按 selections 预组装 persona + tools);
+ *     任一 selection 找不到抛 [IllegalStateException], 同样兜底退 [Ox]
  * @param task 本任务的**核心指令** — beast 直接执行的目标. Pasture 装配时作为
  *   `Task:` 段渲染到 beast 的 user input.
  * @param context 可选 — 完成本 task **必要的上下文背景信息** (用户偏好 / 历史任务
@@ -272,7 +273,7 @@ internal data class TaskAssignment(
 ) : PublishEvent
 
 /**
- * 任务派发的"选了什么能力" — 一个 task 可携带多个 Selection, 由 [Pasture.assemble] 一次性解析.
+ * 任务派发的"选了什么能力" — 一个 task 可携带多个 Selection, 由 [Pasture.assembleHorse] 一次性解析.
  *
  * 4 种类型分别对应 TeamAgent 配置的 4 个 registry:
  * - [Skill] → [io.github.yeyi.agent.skill.SkillRegistry]
@@ -281,6 +282,8 @@ internal data class TaskAssignment(
  * - [Tool] → [io.github.yeyi.agent.tool.ToolRegistry] (普通 Tool, 不属于 Capability)
  *
  * v1 限制: 一个 task 最多 1 个 [Subagent] (subagent 整体接管 persona; 多个 subagent 需要协调, v1 不支持).
+ *   schema 上 `publish_task` 阻止 LLM 传多个; Pasture.assembleHorse 兜底 — 若 LLM 绕过 schema 传了多个,
+ *   全部 selection 丢弃, 退到 Ox 通用模式 (不报错).
  */
 internal sealed interface Selection {
     /**
@@ -328,7 +331,7 @@ internal sealed interface Selection {
      * - [PublishTaskTool] `parametersSchema` enum 数组 (SCHEMA_JSON 模板 `$ENUM` 占位符派生)
      * - [PublishTaskTool.execute] 错误消息里的合法 type 列表 (`Selection.FACTORIES.keys`)
      *
-     * 与 [Pasture.assemble] 的 `when (s) is Selection.X` 互补 — 那边走 sealed 模式分派,
+     * 与 [Pasture.assembleHorse] 的 `when (s) is Selection.X` 互补 — 那边走 sealed 模式分派,
      * 编译器强约束; 这边是协议层反序列化入口, 没法走 sealed 路径.
      */
     internal companion object {
@@ -417,8 +420,11 @@ internal interface Beast {
  *
  * 每个 registry 参数为可空 — 团队可能没有某一类 capability, 牛按需跳过.
  *
- * v1 实际不会实例化 (Pasture 收到非空 selections 时走 [Horse] 分支);
- * 仅 [Pasture] 在 selections 为空时退回本分支, 留给 v2"无具体选择"的任务类型.
+ * v1 实例化由 [Pasture.handleAssignment] 兜底触发 — [Pasture.assembleHorse] 失败
+ *   (selections 空 / 含任何 [Subagent] / 找不到 selection) 时经 [error] 抛 [IllegalStateException],
+ *   [handleAssignment] catch 后调 [Pasture.buildOx] 返回本通用模式, 让 LLM 在通用循环里
+ *   自选工具 / 自主调 subagent (capability invoke).
+ * 单一构造点 [Pasture.buildOx] helper, 构造等价 (baseRole + 全部 registry).
  */
 internal class Ox internal constructor(
     private val llmProvider: LlmProvider,
@@ -480,7 +486,7 @@ internal class Horse internal constructor(
 - Horse 持有: 预组装 `Persona` + 派生 `tools: List<Tool>`(Pasture 组装的成品)
 - 每次 run 都 new 一个独立 ReActAgent, 独立 memory, 独立 ReAct 循环
 
-派发逻辑见 [Pasture] (§ 4.4) — v1 实际只走 `Horse` 分支 (Boss 派发的 TaskAssignment 都带非空 selections); `Ox` 是 selections 为空时的兜底分支.
+派发逻辑见 [Pasture] (§ 4.4) — v1 多数走 `Horse` 分支 (Boss 派发的 TaskAssignment 都带非空 selections 且不含 subagent); `Ox` 是 [assembleHorse] 失败 (selections 空 / 含任何 subagent / 找不到 selection) 时 `handleAssignment` 兜底退 [Ox].
 
 ### 4.4 `Pasture`（牧场 — 任务路由 + 调度）
 
@@ -512,16 +518,19 @@ import kotlinx.coroutines.sync.withLock
  *
  * 同时处理 [Cancellation] — 取消对应 taskId 的 running job.
  *
- * 派发策略 (assemble):
- * - selections 为空 → [Ox] (通用 beast, 自选工具) — v1 实际不触发, 留给 v2
- * - selections 非空 → 按每个 selection 在对应单 registry 解析:
+ * 派发策略 (assembleHorse):
+ * - [Pasture.assembleHorse] 装配 [Horse]; 失败 (empty / 含 subagent / selection 找不到) 经 [error]
+ *   抛 [IllegalStateException], [handleAssignment] 兜底为 [buildOx] (静默降级, 不向 boss 报错).
+ * - 含任何 [Selection.Subagent] 时退 Ox 的理由: subagent 是原子能力, 内部 tool 调用链封闭; boss
+ *   通过 description 选 subagent 看不到 `subagent.tools` 等私有细节, Horse 装配 (persona 覆盖 +
+ *   tools 注入) 会破坏 subagent 闭环. Ox 持全 registry, LLM 在通用循环里通过 capability invoke
+ *   调 subagent. 详见 [assembleHorse] KDoc.
+ * - 其余 → 按每个 selection 在对应单 registry 解析, 装配到 [Horse]:
  *   - [Selection.Skill]     → `skill.load()` 文本拼入 persona; load 文本中提到 (全词匹配) 的
  *     `SkillRegistry.allTools()` tool 名主动注入 Horse.tools, 让 LLM 能直接调 (绕过
  *     `skill_tool_loader` + `skill_tool_caller` 二段式)
  *   - [Selection.Toolset]   → `toolset.all()` tools 拼入 tools 列表
- *   - [Selection.Subagent]  → `subagent.load()` 文本**覆盖** persona; `subagent.tools` (非 null) 拼入 tools
  *   - [Selection.Tool]      → 单个 tool 直接拼入 tools 列表
- * - 任一 selection 找不到 → 任务整体失败, 发 [AgentException.SelectionNotFound]
  *
  * 持 4 个单 registry (tool/skill/subagent/toolset), 与 [Ox] 一一对应 — 每个 capability 类别最多 1 个 registry.
  * MCP 经 [McpRegistry] 内部注册到 toolsetRegistry, 不单独算.
@@ -558,20 +567,14 @@ internal class Pasture internal constructor(
     }
 
     private suspend fun handleAssignment(e: TaskAssignment) {
-        when (val result = assemble(e.taskId, e.selections)) {
-            is AssembleResult.Missing -> {
-                bulletinBoard.progressEvent(
-                    TaskUpdate(
-                        taskId = e.taskId,
-                        event = AgentEvent.Failed(
-                            AgentException.SelectionNotFound(result.missing)
-                        ),
-                    )
-                )
-                return
-            }
-            is AssembleResult.Ready -> launchBeast(e, result.beast)
+        // assembleHorse 装配失败时抛 [IllegalStateException] (经 [error] 抛出) —
+        // 兜底为 buildOx (静默降级, 不向 boss 报错).
+        val beast: Beast = try {
+            assembleHorse(e.selections)
+        } catch (e: IllegalStateException) {
+            buildOx()
         }
+        launchBeast(e, beast)
     }
 
     private fun launchBeast(e: TaskAssignment, beast: Beast) {
@@ -626,126 +629,106 @@ internal class Pasture internal constructor(
     }
 
     /**
-     * 按 [TaskAssignment.selections] 组装 [Beast].
+     * 按 [TaskAssignment.selections] 装配 [Horse]. **失败抛 [IllegalStateException]** (经 [error] 抛出),
+     * 由 [handleAssignment] 统一兜底为 [buildOx] (静默降级, 不向 boss 报错).
      *
-     * @return [AssembleResult.Ready] 含包好的 [Beast] (Ox 或 Horse);
-     *         [AssembleResult.Missing] 含解析失败的 [Selection] 列表, 由 [handleAssignment] 发 Failed.
+     * **失败场景** (均抛 [IllegalStateException] 走 Ox 兜底):
+     * - `selections.isEmpty()` — 退 Ox 通用模式
+     * - `selections.any { it is Selection.Subagent }` — Horse 装配破坏 subagent 闭环
+     *   (boss 看不到 `subagent.tools` 等私有细节, persona 覆盖 + tools 注入不完整);
+     *   Ox 持全 registry, 让 LLM 在通用循环里通过 capability invoke 调 subagent
+     * - 任一 selection 在对应 registry 找不到 — 让 LLM 用全 registry 自选工具补齐
      *
-     * **v1 限制**:
-     * - 最多 1 个 [Selection.Subagent] per task — 多个 subagent 需要协调 (并发/串行/合并结果), v1 不支持.
-     *   schema 上 `publish_task` 应阻止 LLM 传多个, 这里作为兜底.
+     * v1 subagent 不走 [Horse]: boss 选 subagent 时看不到 `subagent.tools` 等私有细节, 装配 persona + tools
+     * 会破坏 subagent 内部 tool 调用链.
      */
-    private fun assemble(taskId: String, selections: List<Selection>): AssembleResult {
+    private fun assembleHorse(selections: List<Selection>): Horse {
         if (selections.isEmpty()) {
-            return AssembleResult.Ready(
-                Ox(
-                    llmProvider = llmProvider,
-                    persona = Persona(baseRole),
-                    toolRegistry = toolRegistry,
-                    skillRegistry = skillRegistry,
-                    subagentRegistry = subagentRegistry,
-                    toolsetRegistry = toolsetRegistry,
-                    maxIterations = maxIterations,
-                    maxRounds = maxRounds,
-                )
-            )
+            error("assembleHorse: selections is empty")
+        }
+        if (selections.any { it is Selection.Subagent }) {
+            error("assembleHorse: selections contains Subagent, fallback to Ox")
         }
 
-        if (selections.filterIsInstance<Selection.Subagent>().size > 1) {
-            // 把多余的 subagent selection 也归为 missing, 让 LLM 看到具体哪几个冲突
-            val extras = selections.filterIsInstance<Selection.Subagent>().drop(1)
-            return AssembleResult.Missing(extras)
-        }
-
-        val missing = mutableListOf<Selection>()
         val skillTexts = mutableListOf<String>()
         val tools = mutableListOf<Tool>()
-        var subagentPersona: String? = null
 
         for (s in selections) {
             when (s) {
                 is Selection.Skill -> {
                     val skill: Skill? = skillRegistry?.all()?.firstOrNull { it.name == s.name }
                     if (skill == null) {
-                        missing += s
-                    } else {
-                        val text = skill.load()
-                        skillTexts += text
-                        // Skill 涉及的 tool 不直接暴露给 LLM (走 skill_tool_loader + skill_tool_caller 二段式),
-                        // 但 Horse 已经持有 skill 文本, 不需要二段式: 用 skill.load() 文本与
-                        // SkillRegistry.allTools() 做全词匹配, 命中的 tool 主动注入 Horse.tools,
-                        // 让 Horse LLM 能直接调.
-                        //
-                        // 约定: Skill 作者在 load() 文本里把所需 tool 名作为独立词写出, 注册同名 tool
-                        // 即可被自动绑定. 匹配规则: `\b<toolName>\b`, 大小写敏感 (与 tool 名严格对齐).
-                        skillRegistry?.allTools()?.forEach { tool ->
-                            val pattern = Regex("\\b" + Regex.escape(tool.name) + "\\b")
-                            if (pattern.containsMatchIn(text)) {
-                                tools += tool
-                            }
+                        error("assembleHorse: skill not found: ${s.name}")
+                    }
+                    val text = skill.load()
+                    skillTexts += text
+                    // Skill 涉及的 tool 不直接暴露给 LLM (走 skill_tool_loader + skill_tool_caller 二段式),
+                    // 但 Horse 已经持有 skill 文本, 不需要二段式: 用 skill.load() 文本与
+                    // SkillRegistry.allTools() 做全词匹配, 命中的 tool 主动注入 Horse.tools,
+                    // 让 Horse LLM 能直接调.
+                    //
+                    // 约定: Skill 作者在 load() 文本里把所需 tool 名作为独立词写出, 注册同名 tool
+                    // 即可被自动绑定. 匹配规则: `\b<toolName>\b`, 大小写敏感 (与 tool 名严格对齐).
+                    skillRegistry?.allTools()?.forEach { tool ->
+                        val pattern = Regex("\\b" + Regex.escape(tool.name) + "\\b")
+                        if (pattern.containsMatchIn(text)) {
+                            tools += tool
                         }
                     }
                 }
                 is Selection.Toolset -> {
                     val toolset: Toolset? = toolsetRegistry?.all()?.firstOrNull { it.name == s.name }
                     if (toolset == null) {
-                        missing += s
-                    } else {
-                        tools += toolset.all()
+                        error("assembleHorse: toolset not found: ${s.name}")
                     }
-                }
-                is Selection.Subagent -> {
-                    val sub: Subagent? = subagentRegistry?.all()?.firstOrNull { it.name == s.name }
-                    if (sub == null) {
-                        missing += s
-                    } else {
-                        // subagent 整体接管 persona, 覆盖 baseRole + skills
-                        subagentPersona = sub.load()
-                        // sub.tools == null 表示继承父 ToolRegistry, 本 task 内父 registry 不会进来, 跳过
-                        sub.tools?.let { tools += it }
-                    }
+                    tools += toolset.all()
                 }
                 is Selection.Tool -> {
                     val tool: Tool? = toolRegistry?.all()?.firstOrNull { it.name == s.name }
                     if (tool == null) {
-                        missing += s
-                    } else {
-                        tools += tool
+                        error("assembleHorse: tool not found: ${s.name}")
                     }
+                    tools += tool
+                }
+                is Selection.Subagent -> {
+                    // unreachable: 上面 `selections.any { it is Selection.Subagent }` 已 throw.
                 }
             }
         }
-        if (missing.isNotEmpty()) return AssembleResult.Missing(missing)
 
-        val persona = if (subagentPersona != null) {
-            Persona(subagentPersona!!)
-        } else {
-            Persona(
-                buildString {
-                    append(baseRole)
-                    skillTexts.forEach { append("\n\n").append(it) }
-                }
-            )
-        }
+        val persona = Persona(
+            buildString {
+                append(baseRole)
+                skillTexts.forEach { append("\n\n").append(it) }
+            }
+        )
 
         // 工具按 name 去重 — 同一 task 内不同 selection 可能引入同名 tool
         val distinctTools = tools.distinctBy { it.name }
 
-        return AssembleResult.Ready(
-            Horse(
-                llmProvider = llmProvider,
-                persona = persona,
-                tools = distinctTools,
-                maxIterations = maxIterations,
-                maxRounds = maxRounds,
-            )
+        return Horse(
+            llmProvider = llmProvider,
+            persona = persona,
+            tools = distinctTools,
+            maxIterations = maxIterations,
+            maxRounds = maxRounds,
         )
     }
 
-    private sealed class AssembleResult {
-        data class Ready(val beast: Beast) : AssembleResult()
-        data class Missing(val missing: List<Selection>) : AssembleResult()
-    }
+    /**
+     * 构造通用 [Ox]. [handleAssignment] 装配失败兜底 + selections 空 / 含 subagent 三处共用 —
+     * 抽出避免重复构造, 未来加 Ox 字段一处改即可.
+     */
+    private fun buildOx(): Ox = Ox(
+        llmProvider = llmProvider,
+        persona = Persona(baseRole),
+        toolRegistry = toolRegistry,
+        skillRegistry = skillRegistry,
+        subagentRegistry = subagentRegistry,
+        toolsetRegistry = toolsetRegistry,
+        maxIterations = maxIterations,
+        maxRounds = maxRounds,
+    )
 }
 ```
 
@@ -760,17 +743,26 @@ internal class Pasture internal constructor(
   - 最后 `distinctBy { it.name }` 去重, 保留先出现的实例.
 - **Skill tool 自动绑定的理由**: Skill 涉及的 tool 在 agent 里原本只能通过 `skill_tool_loader` + `skill_tool_caller` 二段式访问, LLM 看不见、不能直接调. 但 Horse 已经持有 skill 文本, 不需要二段式 — 把文本里提到的 tool 名解析后注入 Horse, LLM 就能直接调. 约定 Skill 作者在 `load()` 文本里把所需 tool 名作为独立词写出.
 - **`sub.tools == null` 的语义**: 文档上 Subagent.tools 注释说"null = 继承父 agent 工具"; 在 Pasture 流程里父 agent 的 ToolRegistry **不会**自动流入 Horse.tools, 因此 null 等价于"本 task 不追加 Subagent 自己的 tools" — 实际使用上, Subagent 既然接管 persona 就应自带 tools, 选 null + 委派到 Subagent 通常是配置错误, 但不在 v1 校验.
-- **找不到 selection 时的处理**: 任务**整体**失败 (不是"少一个还能跑"). 报 [SelectionNotFound] 给 boss LLM, 由 LLM 决定下一步 (重派 / 改 selection / 换话术告诉用户). 不做"部分成功"语义 — 多 selection 任务拆 partial 没价值, 还会让 LLM 误判.
-- **subagent 数量限制**: v1 限制 1 个, 由 `publish_task` schema 阻止 LLM 传多个; Pasture 内部 `assemble` 兜底检查, 把多余的归为 missing. 未来 v2 可扩展.
+- **找不到 selection 时的处理**: 不向 boss 报错, [assembleHorse] 用 [error] 抛 [IllegalStateException],
+  [handleAssignment] 兜底为 [buildOx] 静默降级 (持全 registry 自选工具).
+- **subagent 派发**: v1 selections 含任何 subagent → [assembleHorse] 用 [error] 抛 [IllegalStateException],
+  [handleAssignment] 兜底为 [buildOx] (Horse 装配破坏 subagent 闭环). LLM 在通用循环里自主调
+  subagent (capability invoke). 多 subagent 协调留 v2.
 
-### 4.5 `BossAgent`（boss — 包装 ReActAgent + 状态机）
+### 4.5 `BossAgent`（boss — 包装 innerAgent + 状态机 + 双事件流分流）
 
-BossAgent 是 team 的核心调度者 — 包装一个内部 `ReActAgent` 作为 innerAgent, 在外层承担三件事:
+BossAgent 是 team 的核心调度者 — 包装一个内部 `Agent` 作为 innerAgent, 在外层承担三件事:
 - 把 `PublishTaskTool` / `CancelTaskTool` 注册到 innerAgent 的 ToolRegistry, 让 boss LLM 可以派活 / 取消
 - 订阅 `BulletinBoard` 的 `TaskAssignment` 跟踪自己派出的任务, 订阅 `TaskUpdate` 把异步进度事件合并到下一轮 input
 - 维护 `BossState` 状态机 (WAITING / RUNNING / INPUTTING / COLLECTING — 详见 § 7) 决定什么时候触发新的 innerAgent.run(), 什么时候进入 1s 合并窗口
 
-**实现细节 (含 `BossState` / `TaskState` / 完整 BossAgent 类、所有方法的语义注释)** 详见独立 spec:
+**双事件流分流**:
+- User round 流: `run(input)` 触发, 事件喂到 per-round `UserRound.channel`, 调用方从 `run()` 返回的 Flow 拿到 — 这是用户驱动的 round, 含合并 round (有 user pending 时)
+- Continuation 流: 终态 TaskUpdate 触发, 事件喂到 `continuationsEmitter` (hot SharedFlow), 调用方从 `continuations` property 订阅 — 这是任务驱动的续轮
+
+两条流互不干扰, boss 不 wrap 事件 (无 `emitEvents` 开关)。状态机通过 `tryTriggerNext()` + `decisionLock` 串行化决策, 避免并发触发多个 round。
+
+**实现细节 (含 `BossState` / `UserRound` / `TaskState` / 完整 BossAgent 类、`tryTriggerNext` 决策逻辑、并发锁)** 详见独立 spec:
 
 > **[§ 1 BossAgent 内部实现](./2026-07-15-team-boss-and-agent-impl.md#1-bossagent-内部实现)**
 
@@ -797,7 +789,7 @@ import java.util.UUID
  * - 闲聊/简单问题 → 不调本工具, 直接 final 文本回复
  *
  * **每个 task 必须指定 selections 数组** — 数组中每条 selection 形如 `{"type": "skill|toolset|subagent|tool", "name": "..."}`.
- * 一个 task 可组合多个 selection (e.g., 一个 toolset + 一个直接 tool), 由 [Pasture.assemble] 统一解析.
+ * 一个 task 可组合多个 selection (e.g., 一个 toolset + 一个直接 tool), 由 [Pasture.assembleHorse] 统一解析.
  */
 internal class PublishTaskTool(
     private val bulletinBoard: BulletinBoard,
@@ -970,11 +962,16 @@ internal class CancelTaskTool(
 
 ### 4.7 `TeamAgent`（容器 — 单一装配点）
 
-TeamAgent 是 team 唯一对外 API 表面 — 自身实现 `Agent` 接口, 把 `run` / `runStream` 转交给内部 `BossAgent`. 内部 boss / pasture / bulletinBoard 全部私有, 外部仅通过 `team.run` / `team.runStream` / `team.state` / `team.inputting` / `team.shutdown` 与之交互.
+TeamAgent 是 team 唯一对外 API 表面 — 自身实现 `Agent` 接口, 把 `run` / `runStream` 转交给内部 `BossAgent`. 内部 boss / pasture / bulletinBoard 全部私有, 外部通过 `team.run` / `team.runStream` / `team.continuations` / `team.state` / `team.inputting` / `team.shutdown` 与之交互.
+
+**事件流转发**:
+- `team.run(input).collect { }` — 拿到 user round 流 (单次 round 的事件, 含合并 round)
+- `team.continuations.collect { }` — 拿到续轮流 (任务驱动, 订阅一次即可收所有续轮)
+- `team.state.collect { }` — boss 状态
 
 构造由 `TeamAgentBuilder` 完成 — 用户通过 `teamAgent { }` DSL 配置; builder 内部装配 bulletinBoard / pasture / boss, 把 teamScope 注入 boss, 然后返回 [TeamAgent].
 
-**TeamAgent 类本身的实现** (薄壳 — 仅持有 boss 引用 + team 协程作用域, 转发 run/state/inputting/shutdown) 详见独立 spec:
+**TeamAgent 类本身的实现** (薄壳 — 仅持有 boss 引用 + team 协程作用域, 转发 run/continuations/state/inputting/shutdown) 详见独立 spec:
 
 > **[§ 2 TeamAgent 公开容器](./2026-07-15-team-boss-and-agent-impl.md#2-teamagent-公开容器)**
 
@@ -1054,7 +1051,7 @@ public class TeamAgentBuilder internal constructor() {
         skillRegistry0 = registry
     }
 
-    /** subagent registry — boss 看到菜单, pasture 解析注入 Horse persona (覆盖). */
+    /** subagent registry — boss 看到菜单; 含任何 subagent 的派活退 Ox, Ox 在通用循环里 capability invoke 调 subagent. */
     public fun subagents(registry: SubagentRegistry) {
         subagentRegistry0 = registry
     }
@@ -1247,19 +1244,19 @@ val team = teamAgent {
 
 **配置外部一次的好处**:
 - boss 看到的"能力菜单" = pasture 路由的能力 = 同一 registry 实例
-- 派活的"承诺"和执行的"能力"对得上 — boss LLM 不会派到一个不存在的 selection (任一找不到都会报 SelectionNotFound)
+- 派活的"承诺"和执行的"能力"对得上 — boss LLM 派到不存在的 selection 时 [assembleHorse] 抛 [IllegalStateException], [handleAssignment] 兜底为 [buildOx] 静默降级, 让 LLM 用全 registry 自选工具补齐
 - 调用方只配置一次, TeamAgent 内部分配 — 不要求调用方管理"boss 视角"和"pasture 视角"两份配置
 
 **关于 McpServer**：`McpRegistry` 不是 `CapabilityRegistry`，它内部把每个 `Mcp` 实例注册到目标 `ToolsetRegistry`（复用 toolset 框架的 `load_toolset` / `sub_tool_delegate`）。所以 MCP 的工具集天然属于该 `ToolsetRegistry`，对 LLM 而言 `Selection.Toolset(name)` 路由，description 文案上区分（如 "Web search (via MCP)"），路由和解析全部走 toolset 分支。
 
 ### 5.2 装配规则（取代旧 Horse wire-up）
 
-Pre-load 模式下, 全部装配逻辑由 [Pasture.assemble] 一次性完成 (§ 4.4), [Horse] / [Ox] 内部不再做 wire-up. 本节列出规则总览, 便于查阅.
+Pre-load 模式下, 全部装配逻辑由 [Pasture.assembleHorse] 一次性完成 (§ 4.4), [Horse] / [Ox] 内部不再做 wire-up. 本节列出规则总览, 便于查阅.
 
 **Persona 拼装**:
 | 选中情况 | persona 来源 |
 |---|---|
-| 仅 Subagent (限 1) | `subagent.load()` — 整体覆盖 baseRole + skills |
+| 含任何 Subagent | (不适用 — 全部 selection 丢弃, 退 [Ox] 用 baseRole, 见 § 4.4) |
 | 无 Subagent, 有 Skill | `baseRole` + 所有选中 `skill.load()` 文本拼接 (Skill 间用 `\n\n` 分隔) |
 | 仅 Tool / Toolset | `baseRole` (无 skill 文本追加) |
 | 0 selections (Ox) | `baseRole` |
@@ -1275,27 +1272,25 @@ Pre-load 模式下, 全部装配逻辑由 [Pasture.assemble] 一次性完成 (§
 
 **重要说明**:
 - Skill 文本里提到的 tool 名 → 自动绑定到 Horse.tools, LLM 能直接调 (绕过 `skill_tool_loader` + `skill_tool_caller` 二段式). 这是 Skill 在 Horse 上下文里的特殊处理 — Skill 自身架构保持不变.
-- Subagent 选中时**整体覆盖** persona — subagent 是"专项角色", 它的 `load()` 是完整指令; 不再追加 baseRole / skills.
-- v1 subagent 限 1 个 per task — 多余的归为 [SelectionNotFound.missing], 由 boss LLM 看到具体哪些冲突.
+- v1 **subagent 不走 [Horse]**: boss 选 subagent 时看不到 `subagent.tools` 等私有细节, Horse 装配会破坏 subagent 闭环. 任何含 subagent 的 selection → 全部丢弃, 退到 [Ox] 让 LLM 在通用循环里通过 capability invoke 调 subagent. 多 subagent 协调留 v2.
 
 ### 5.3 装配匹配规则
 
-`Pasture.assemble(taskId, selections)` 的匹配逻辑 (对应 § 4.4 内的 `assemble` 函数):
+`Pasture.assembleHorse(selections)` 的匹配逻辑 (对应 § 4.4 内的 `assembleHorse` 函数; 任一检查失败经 [error] 抛 [IllegalStateException], [handleAssignment] 兜底为 [buildOx]):
 
-1. `selections.isEmpty()` → [Ox] (通用 beast, 自选工具; v1 实际不触发, 留给 v2)
-2. 遍历每个 selection, 按 sealed 子类路由:
-   - `is Selection.Skill`    → `skillRegistry?.all()?.firstOrNull { it.name == s.name }`
-   - `is Selection.Toolset`  → `toolsetRegistry?.all()?.firstOrNull { it.name == s.name }`
-   - `is Selection.Subagent` → `subagentRegistry?.all()?.firstOrNull { it.name == s.name }`
-   - `is Selection.Tool`     → `toolRegistry?.all()?.firstOrNull { it.name == s.name }`
-3. 任一找不到 → 任务整体失败, 发 `Failed(SelectionNotFound(missing))` (含所有找不到的 selection)
+1. `selections.isEmpty()` → `error("assembleHorse: selections is empty")`
+2. `selections.any { it is Selection.Subagent }` → `error("assembleHorse: selections contains Subagent, fallback to Ox")`
+3. 遍历每个 selection, 按 sealed 子类路由 (此处**不会**有 Subagent):
+   - `is Selection.Skill`    → `skillRegistry?.all()?.firstOrNull { it.name == s.name }`, 找不到 → `error("assembleHorse: skill not found: ${s.name}")`
+   - `is Selection.Toolset`  → `toolsetRegistry?.all()?.firstOrNull { it.name == s.name }`, 找不到 → `error("assembleHorse: toolset not found: ${s.name}")`
+   - `is Selection.Tool`     → `toolRegistry?.all()?.firstOrNull { it.name == s.name }`, 找不到 → `error("assembleHorse: tool not found: ${s.name}")`
 4. 全找到 → 拼 persona + 拼 tools (去重) → [Horse]
 
 **示例**:
-- `assemble(t1, [Selection.Skill("web_search")])` → 在 `skillRegistry` 里找 `name == "web_search"` 的 Skill, `skill.load()` 进 persona, 文本里提到的 tool 自动注入 tools
-- `assemble(t2, [Selection.Toolset("weather"), Selection.Tool("get_time")])` → toolset 全部 tool + `get_time` 一起注入 tools, persona 只有 baseRole
-- `assemble(t3, [Selection.Subagent("reviewer")])` → `subagent.load()` 覆盖 persona, `sub.tools` (非 null) 拼入 tools
-- `assemble(t4, [Selection.Skill("nonexistent")])` → 找不到, 发 `Failed(SelectionNotFound([Skill("nonexistent")]))`
+- `assembleHorse(t1, [Selection.Skill("web_search")])` → 在 `skillRegistry` 里找 `name == "web_search"` 的 Skill, `skill.load()` 进 persona, 文本里提到的 tool 自动注入 tools, 返回 [Horse]
+- `assembleHorse(t2, [Selection.Toolset("weather"), Selection.Tool("get_time")])` → toolset 全部 tool + `get_time` 一起注入 tools, persona 只有 baseRole, 返回 [Horse]
+- `assembleHorse(t3, [Selection.Subagent("reviewer")])` → 含 subagent, 抛 [IllegalStateException], [handleAssignment] 兜底为 [buildOx]
+- `assembleHorse(t4, [Selection.Skill("nonexistent")])` → 找不到 skill, 抛 [IllegalStateException], [handleAssignment] 兜底为 [buildOx]
 
 ### 5.4 tool 分类 DSL
 
@@ -1325,11 +1320,20 @@ teamAgent {
 
 ## 6. 消息流（端到端）
 
+**双事件流说明**: 整个 team 暴露两条事件流, 调用方按需订阅:
+
+| 流 | 何时收到事件 | API |
+|---|---|---|
+| User round 流 | 每次 `run(input)` 触发的 round (含合并 round) | `team.run("...").collect { }` |
+| Continuation 流 | 任务结果触发的续轮 (无 user input 参与) | `team.continuations.collect { }` |
+
+User 调 `run()` 拿到一个 Flow, 内部是 per-round Channel, 该 round 跑完 Flow 完成。**派活后该轮也正常结束** (boss LLM final 文本后 `run()` 返回的 Flow 终止) — 任务在后台继续, 续轮事件从 `continuations` 走。
+
 ### 6.1 正常派活（单 selection 单 task）
 
 ```
 1. 用户 sendInput("帮我搜下 Kotlin 协程")
-2. BossAgent.run() 启动, innerAgent.run(input)
+2. BossAgent.run() 启动, state → RUNNING, innerAgent.run(input)
 3. boss LLM 决定调 publish_task(tasks=[
      {selections: [{type: "skill", name: "web_search"}], task: "Kotlin 协程"}
    ])
@@ -1339,10 +1343,12 @@ teamAgent {
 6. innerAgent.memory 记录 ToolResult
 7. innerAgent 继续 LLM 循环: 决定 final 文本回复用户
 8. emit Final("已让 web_search 助手去查,稍等")
-9. BossAgent.run() 完成, state → WAITING
+9. BossAgent.run() 完成: round.channel.close()
+   → user 拿到的 Flow 自然结束, 任务仍在后台跑
+   → state → WAITING, tryTriggerNext() 决策 (没 terminals, idle)
 
 10. Pasture.handleAssignment 接到 TaskAssignment
-11. assemble(taskId, [Skill("web_search")]) →
+11. assembleHorse([Skill("web_search")]) →
     - skillRegistry.all() 找 name="web_search" → 找到 WeatherSkill
     - skill.load() 文本 "use get_weather tool..."
     - skill 文本里全词匹配 SkillRegistry.allTools() → 命中 get_weather tool, 加入 tools
@@ -1356,13 +1362,17 @@ teamAgent {
 16. 逐个 AgentEvent (TextDelta / ToolCallStart / ToolCallEnd / Final) 触发 onEvent 回调
 17. Pasture 转 TaskUpdate, publish 到 bulletinBoard
 
-18. BossAgent.handleTaskUpdate 接到 TaskUpdate
-19. 累加到 tasks[taskId].events
-20. state=WAITING → 触发新 run()
-21. innerAgent.run() 看到 "任务 X (skill(web_search)) 已 Final: 结果是 Y"
-22. boss LLM 决定 final 文本回复用户
-23. emit Final("搜索完成,结果如下: ...")
-24. BossAgent.run() 完成, state → WAITING
+18. BossAgent.handleTaskUpdate 接到 TaskUpdate (Final)
+19. tasksLock.withLock: tasks[taskId].events += event, terminal=true
+20. pendingTerminalUpdates.trySend(update)
+21. state=WAITING → tryTriggerNext()
+22. decisionLock.withLock: 看到 hasTerminals, hasActive=false → 启动 runContinuationRound()
+23. state → RUNNING, innerAgent.run("任务 X 已 Final: 结果是 Y")
+24. boss LLM 决定 final 文本回复用户
+25. emit Final("搜索完成,结果如下: ...")
+26. BossAgent.runContinuationRound() finally: state → WAITING
+    → continuationsEmitter.emit(event) 喂到续轮流
+    → 订阅 team.continuations 的 UI 收到该轮事件
 ```
 
 ### 6.2 多 selection 单 task (toolset + 直接 tool 组合)
@@ -1379,7 +1389,7 @@ teamAgent {
 4. boss LLM 决定 final 文本 "已派一个任务,稍等"
 5. BossAgent.run() 完成, state → WAITING
 
-6. Pasture.assemble(taskId, [Toolset("weather"), Tool("get_time")]) →
+6. Pasture.assembleHorse([Toolset("weather"), Tool("get_time")]) →
    - toolsetRegistry.all() 找 "weather" → 找到, 取出 weather.all() (含 get_weather / get_forecast)
    - toolRegistry.all() 找 "get_time" → 找到, 加入 tools
    - tools = [get_weather, get_forecast, get_time] (去重)
@@ -1427,7 +1437,7 @@ teamAgent {
 9. ... 后续同正常派活
 ```
 
-### 6.5 派活到 subagent (覆盖 persona)
+### 6.5 派活含 subagent (退 Ox, LLM 自主调 subagent)
 
 ```
 1. 用户 sendInput("帮我审一下这段代码")
@@ -1438,16 +1448,19 @@ teamAgent {
 4. boss LLM 决定 final 文本 "已派 reviewer 审代码"
 5. BossAgent.run() 完成
 
-6. Pasture.assemble(taskId, [Subagent("reviewer")]) →
-   - subagentRegistry.all() 找 "reviewer" → 找到
-   - subagentPersona = subagent.load() (整体覆盖 baseRole + skills)
-   - subagent.tools 非 null → 拼入 tools (如 analyze_code)
-   - 返回 Horse(persona=subagent.load(), tools=[analyze_code, ...])
-7. Horse 启动 ReAct 循环, LLM 按 reviewer 的 persona 指令工作
-8. ... 后续回流同 6.1
+6. Pasture.handleAssignment 调 assembleHorse([Subagent("reviewer")]) →
+   - selections.any { it is Selection.Subagent } = true
+   - `error("assembleHorse: selections contains Subagent, fallback to Ox")` 抛 [IllegalStateException]
+7. handleAssignment catch IllegalStateException → fallback buildOx(), launchBeast
+8. Ox 持全 registry (含 subagentRegistry), 启动 ReAct 循环
+9. Ox LLM 看到 subagent description (reviewer = 代码审查), 决定调 subagent capability
+10. Ox LLM 通过 capability invoke 调 reviewer.run(task="审下面这段代码: ...", context=Ox AgentContext)
+11. reviewer 启动自己的 ReAct 循环, 完成审查 → 返回结果
+12. Ox 拿到结果, emit Final
+13. ... 后续回流同 6.1
 ```
 
-### 6.6 派活 selection 找不到 (Failed 整体回 boss)
+### 6.6 派活 selection 找不到 (assembleHorse 抛异常 → handleAssignment fallback Ox)
 
 ```
 1. 用户 sendInput("查北京天气") (假设 weather toolset 没注册)
@@ -1456,23 +1469,20 @@ teamAgent {
    ])
 3. PublishTaskTool.execute → publish TaskAssignment(selections=[Toolset("weather")], ...)
 
-4. Pasture.assemble(taskId, [Toolset("weather")]) →
+4. Pasture.handleAssignment 调 assembleHorse([Toolset("weather")]) →
    - toolsetRegistry?.all() 为 null (未注册) 或不包含 "weather"
-   - missing += Toolset("weather")
-   - 返回 AssembleResult.Missing([Toolset("weather")])
-5. handleAssignment: publish TaskUpdate(taskId, AgentEvent.Failed(SelectionNotFound([Toolset("weather")])))
-
-6. BossAgent.handleTaskUpdate 接到 Failed
-7. innerAgent.run() 看到 "任务 X (toolset(weather)) Failed: Selections not found: toolset(weather)"
-8. boss LLM 决定 final 文本 "抱歉,天气查询服务没配置" / 或重新选别的
-9. emit Final
+   - `error("assembleHorse: toolset not found: weather")` 抛 [IllegalStateException]
+5. handleAssignment catch IllegalStateException → fallback buildOx(), launchBeast
+6. Ox 持全 registry, 在通用循环里尝试 (toolsetRegistry 也没 weather → 失败/放弃)
+   或者 weather 实际有别的 toolset 能用 → LLM 自主找到并完成
+7. emit Final
 ```
 
 **关键区别**:
 - 6.3 一次 publish_task 多个 task = LLM 显式表达"同时无依赖", 框架不特殊处理 (多 job 并发自然支持)
 - 6.4 多次 publish_task = LLM 显式表达"串行依赖", 靠 boss 状态机 (TaskUpdate 触发新一轮 run) 自然支持
-- 6.2 一个 task 多 selection = LLM 显式表达"组合资源", 由 Pasture.assemble 一次性解析
-- 6.6 派活 selection 找不到 = 任务整体失败, 不做"部分成功"语义
+- 6.2 一个 task 多 selection = LLM 显式表达"组合资源", 由 Pasture.assembleHorse 一次性解析
+- 6.6 派活 selection 找不到 = assembleHorse 经 [error] 抛 [IllegalStateException] → handleAssignment fallback Ox, 静默降级, 不向 boss 报错
 - 框架不引入"任务编排图"等额外抽象 — LLM 自主决策何时用哪种调用方式
 
 ---
@@ -1483,58 +1493,115 @@ teamAgent {
 
 | 状态 | 含义 | 进入条件 | 退出条件 |
 |---|---|---|---|
-| `WAITING` | idle，等待外部输入 | 构造时 / run() 完成后 / COLLECTING 等待结束 | 用户 sendInput / 收到终态 TaskUpdate |
-| `RUNNING` | innerAgent.run() 正在执行 | sendInput 触发 / 立即触发 run() | run() 完成 / 异常 |
-| `INPUTTING` | 用户有未提交输入 | UI 层通知（用户在打字） | 用户提交 / UI 取消 |
-| `COLLECTING` | 等待其他任务完成（等 1s 合并） | WAITING 收到终态事件且有活跃任务 | 1s 等待结束或所有任务完成 |
+| `WAITING` | idle, 等待外部输入 (用户或终态 TaskUpdate) | 构造时 / round finally / COLLECTING 1s 等待结束 | user `run()` / 终态 TaskUpdate 触发 `tryTriggerNext` |
+| `RUNNING` | round 正在跑 (user-driven 或 task-driven 续轮) | `runUserRound` / `runContinuationRound` 起始 | round finally → WAITING |
+| `INPUTTING` | user 在 WAITING 状态下开始打字 (UI 信号) | `inputting(true)` 当 state = WAITING | `inputting(false)` / user 提交 (`run()` → RUNNING) |
+| `COLLECTING` | 任务触发的续轮等 1s 合并窗口 | `tryTriggerNext` 见 hasTerminals + hasActive | 1s 等待结束 → 续轮 (→ RUNNING) 或回 WAITING |
 
-### 7.2 转换规则
+### 7.2 转换规则 (双事件流分流)
+
+**两条事件流的触发路径**:
 
 ```
-WAITING ──sendInput──► RUNNING ──run 完成──► WAITING
-   │                       │
-   │ TaskUpdate            │ 缓存到 pendingTerminalUpdates
-   ▼                       │
-trigger run()              │
-   │                       │
-   └───────────────────────┘
-
-WAITING ──终态事件+活跃任务──► COLLECTING ──1s后/任务全部完成──► WAITING
-   │                                      │
-   │ 终态事件                              │ 合并终态事件+pendingUserInput
-   ▼                                      │
-缓存到 pendingTerminalUpdates              ▼
-   │                                  trigger run()
-   │                                      │
-   └──────────────────────────────────────┘
-
-WAITING ──UI 通知开始打字──► INPUTTING
-INPUTTING ──UI 通知提交──► RUNNING (并把 TaskUpdate 合并到 input)
+                    ┌──────────────────────────────────────────┐
+                    │                                          │
+                    ▼                                          │
+WAITING ──user run()──► RUNNING ──round finally──► WAITING ────┤
+   ▲                       │                                   │
+   │                       │ (round 实际事件)                  │
+   │                       ▼                                   │
+   │                  UserRound.channel                        │
+   │                       │                                   │
+   │                       ▼                                   │
+   │              Flow (run() 返回值) ◄─── 调用方 collect        │
+   │                                                           │
+   │                                                           │
+   │   ┌─────── TaskUpdate 终态 (channel.trySend) ───────────┐ │
+   │   │                                                    │ │
+   │   ▼                                                    ▼ │
+tryTriggerNext()  ──(decisionLock.withLock)──► hasTerminals? │
+   │                                                │          │
+   │                          ┌─────────────────────┘          │
+   │                          ▼                                │
+   │                  hasActive?                              │
+   │                  ┌─────┴─────┐                            │
+   │                  ▼           ▼                            │
+   │              yes: COLLECTING  no: runContinuationRound() │
+   │                  │           │                            │
+   │                  │ 1s wait   │                            │
+   │                  │           ▼                            │
+   │                  │    RUNNING ──finally──► WAITING        │
+   │                  │           │                            │
+   │                  │           ▼                            │
+   │                  │   continuationsEmitter ──► continuations (Flow)
+   │                  ▼                                        │
+   │              RUNNING ──finally──► WAITING                 │
+   │                  │                                        │
+   └──────────────────┘                                        │
+                                                               │
+WAITING ──inputting(true)──► INPUTTING ──inputting(false)──► WAITING
+                                       │
+                                       └── user run() ──► RUNNING (user 流)
 ```
 
-### 7.3 ProgressEvent 合并策略
+**关键点**:
+- `run()` 触发 → `UserRound.channel` 流 (返回的 Flow)
+- 续轮触发 → `continuationsEmitter` 流 (`continuations` property)
+- 合并 round (有 user pending) → 走 user 流 (UserRound.channel)
+- 纯续轮 (无 user pending) → 走 continuations 流
 
-终态事件（Final/Failed）到达时的处理（按当前 state 分支）：
+### 7.3 终态事件合并策略
 
-| 当前 state | 处理 |
+| 当前 state | 终态 TaskUpdate 到达时 |
 |---|---|
-| `WAITING` | 有其他活跃任务则进入 COLLECTING 等 1s 合并，否则立即触发 |
-| `RUNNING` | 缓存到 `pendingTerminalUpdates`，run() 结束后检查是否需要进入 COLLECTING |
-| `INPUTTING` | 缓存到 `pendingTerminalUpdates`，等用户调用 run() 时合并 |
-| `COLLECTING` | 缓存到 `pendingTerminalUpdates`，等待 1s 期间收集更多 |
+| `WAITING` / `INPUTTING` | 缓存到 `pendingTerminalUpdates`, 调 `tryTriggerNext` 决策 |
+| `RUNNING` | 缓存到 `pendingTerminalUpdates`, round finally 会调 `tryTriggerNext` |
+| `COLLECTING` | 缓存到 `pendingTerminalUpdates`, 1s 等待结束自然处理 |
 
-**`formatTaskResults` 格式**：
+**`formatTaskResults` 格式**:
 ```
 [Task Result]
 taskId: Final: AgentResult(...)
 taskId: Failed: AgentException(...)
 ```
 
-### 7.4 INPUTTING 状态的责任划分
+### 7.4 `inputting()` 状态机感知
 
-- boss 框架**预留**此状态
-- 由 UI 层通过 `inputting(true/false)` 控制进入/退出
-- boss 框架不感知 UI 细节
+UI 通过 `inputting(true/false)` 通知 boss, 但状态转换受当前 state 约束:
+
+| 当前 state | `inputting(true)` | `inputting(false)` |
+|---|---|---|
+| `WAITING` | → `INPUTTING` | no-op |
+| `INPUTTING` | no-op | → `WAITING` |
+| `RUNNING` | no-op (不打断正在跑的 round) | no-op |
+| `COLLECTING` | no-op (不打断 1s 合并) | no-op |
+
+INPUTTING 状态的语义: "user 在 WAITING 状态下开始打字, 意图提交"。不打断 RUNNING/COLLECTING — 这些状态下 user 调 `inputting(true)` 不影响 round 进度, user input 走 `pendingUserRound` 通道, 等当前 round 结束后合并触发。
+
+### 7.5 并发安全
+
+`tryTriggerNext()` 是唯一决策点, 串行化所有触发源:
+- `run()` (state 闲时) 调
+- `handleTaskUpdate` 收到终态时 调
+- `runUserRound` / `runContinuationRound` finally 调
+
+通过 `decisionLock: Mutex.withLock { }` 保护:
+1. 重检 state (lock 内, 避免 TOCTOU)
+2. 读 `pendingUserRound` / `pendingTerminalUpdates` / `tasks`
+3. 决定下一步 (user round / COLLECTING / continuation)
+4. `scope.launch { ... }` 启动
+
+**其他并发安全**:
+- `tasks` map 所有访问走 `tasksLock.withLock`
+- `pendingTerminalUpdates` Channel 自带线程安全; peek 用 `isEmpty` 而非 `tryReceive + trySend` 的非原子操作
+- `_state` (StateFlow) 线程安全
+- `continuationsEmitter` (SharedFlow) 线程安全
+
+### 7.6 责任划分
+
+- **boss 框架**: 状态机 + 任务跟踪 + 终态事件合并 + 双事件流分流
+- **UI 层**: 通过 `inputting(true/false)` 通知 typing 状态; 通过 `state.collect` 订阅状态; 通过 `run()` / `continuations` 订阅事件
+- **innerAgent**: 跑 ReAct 循环, 不感知 boss 状态机
 
 ---
 
@@ -1581,29 +1648,13 @@ public sealed class AgentException(message: String, cause: Throwable? = null) : 
 
     /** team 模块: 任务被取消 */
     public class Cancelled : AgentException("Task cancelled")
-
-    /**
-     * team 模块: 派活的 [TaskAssignment.selections] 中至少一个 selection 在 TeamAgent 对应 registry 里找不到.
-     *
-     * - 任一 selection 找不到 → 任务整体失败 (不做"部分成功"语义)
-     * - v1 subagent 数量 > 1 → 多余的归入 [missing], 由 boss LLM 看到具体哪些冲突
-     */
-    public class SelectionNotFound(
-        public val missing: List<Selection>,
-    ) : AgentException(
-        "Selections not found in shared registries: " + missing.joinToString { sel ->
-            when (sel) {
-                is Selection.Skill -> "skill(${sel.name})"
-                is Selection.Toolset -> "toolset(${sel.name})"
-                is Selection.Subagent -> "subagent(${sel.name})"
-                is Selection.Tool -> "tool(${sel.name})"
-            }
-        }
-    )
 }
 ```
 
-**注意**：这些异常**只**在 `TaskUpdate.event = AgentEvent.Failed(...)` 中出现（作为 `cause` 字段）。`BossAgent.run()` 自身的 `AgentEvent.Failed` 仍然是 ReActAgent 的异常（不引入新类型）。
+**注意**：[Cancelled] 只在 `TaskUpdate.event = AgentEvent.Failed(...)` 中出现 (作为 cause 字段).
+team 模块不在 `AgentException` 下新增 selection 找不到之类的子类 — 装配失败在 [Pasture.assembleHorse]
+内部用 [error] 抛 [IllegalStateException], 由 [Pasture.handleAssignment] 兜底为 [buildOx] 静默降级,
+不需要新的异常类型. BossAgent.run() 自身的 AgentEvent.Failed 仍然是 ReActAgent 的异常 (不引入新类型).
 
 ### 9.2 异常传播路径
 
@@ -1612,9 +1663,9 @@ public sealed class AgentException(message: String, cause: Throwable? = null) : 
 | beast LLM 错误 | `Beast.run` → `Pasture.handleAssignment` catch `AgentException` → `TaskUpdate(Failed)` |
 | beast Tool 错误 | 同上（被 `toolRegistry.dispatch` 包装为 `isError=true`，LLM 看到后继续；如果 LLM 决定放弃 → `Final` 不会出现错误，由 `Failed` 表达） |
 | beast 被取消 | `Pasture.handleAssignment` catch `CancellationException` → `TaskUpdate(Failed(Cancelled))` |
-| 派活 selection 找不到 | `Pasture.assemble` 找不到 selection → `TaskUpdate(Failed(SelectionNotFound(missing)))` |
-| 派活 subagent 数量 > 1 | `Pasture.assemble` 把多余 subagent 归入 `missing` → `TaskUpdate(Failed(SelectionNotFound(missing)))` |
-| 派活到 Subagent | Horse 直接持有 subagent.load() persona + sub.tools, beast 在 ReAct 里按 persona 工作 (无 SubagentInvoker 包装层) |
+| 派活 selection 找不到 | `Pasture.assembleHorse` 经 [error] 抛 [IllegalStateException] → `handleAssignment` catch fallback Ox (静默降级, 不报错) |
+| 派活含任何 subagent | `Pasture.assembleHorse` 经 [error] 抛 [IllegalStateException] → `handleAssignment` catch fallback Ox (静默降级); Ox 持全 registry 让 LLM 自主调 subagent |
+| 派活到 Subagent (v1) | 不支持直接派活到 subagent — 见 § 7 不支持的功能; boss 选 subagent 退 Ox, Ox 在通用循环里 capability invoke |
 | boss LLM 错误 | `innerAgent.run()` 内部 catch → `AgentEvent.Failed` (走 ReActAgent 既有路径) |
 
 ---
@@ -1660,10 +1711,10 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 | `BulletinBoard` | publishEvent / progressEvent / events subscribe / 缓冲行为 |
 | `PublishTaskTool` | 正常派活 (1 selection / 多 selections) / 缺参数 / selection type 校验 / selections 为空报错 |
 | `CancelTaskTool` | 正常取消 / 缺参数 / 幂等性 |
-| `Beast` (`Ox` / `Horse`) | Ox run 正常 / Horse run 正常 (skill 路径 / toolset 路径 / subagent 路径 / 多 selection 路径) / run 异常 / run 被取消 |
-| `Pasture` | handleAssignment 正常 / 单 selection 找不到 / 多 selection 部分找不到 → 整体 Failed / subagent > 1 → Failed / beast 异常 / 取消 |
+| `Beast` (`Ox` / `Horse`) | Ox run 正常 / Horse run 正常 (skill 路径 / toolset 路径 / 多 selection (skill+toolset+tool) 路径, 不含 subagent) / run 异常 / run 被取消 |
+| `Pasture` | handleAssignment 正常 / assembleHorse 抛 IllegalStateException (空 selection / 含 subagent / 单 selection 找不到) → fallback Ox / beast 异常 / 取消 |
 | `BossAgent` 状态机 | WAITING→RUNNING / RUNNING→WAITING / TaskUpdate 触发 / 缓存合并 |
-| `Pasture.assemble` 单元测试 | skill tool 文本匹配绑定 (text 提到 get_weather → 自动注入) / 多 selection 拼装 (skill+toolset+tool) / subagent 覆盖 persona / distinctBy 去重 / sub.tools=null 跳过 |
+| `Pasture.assembleHorse` 单元测试 | skill tool 文本匹配绑定 (text 提到 get_weather → 自动注入) / 多 selection 拼装 (skill+toolset+tool, 不含 subagent) / 空 selections → error() 抛出 / 含 subagent → error() 抛出 / 单 selection 找不到 → error() 抛出 / distinctBy 去重 / buildOx() 构造等价 |
 
 ### 11.2 端到端测试
 
@@ -1672,12 +1723,12 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 - 场景：一次 `publish_task(tasks=[A, B])` 并发派两个独立任务
 - 场景：派活后取消
 - 场景：派活的 selection 找不到 (单 selection 缺失 / 多 selection 部分缺失 → 整体 Failed)
-- 场景：派活多 selections (toolset + 直接 tool 组合) — Pasture.assemble 一次性解析
-- 场景：派活到 subagent — Pasture 用 subagent.load() 覆盖 persona, sub.tools 注入
+- 场景：派活多 selections (toolset + 直接 tool 组合) — Pasture.assembleHorse 一次性解析
+- 场景：派活到 subagent — selections 含任何 subagent → 全部 selection 丢弃, 退到 Ox 让 LLM 自主决定何时调 subagent
 - 场景：派活 skill 含 tool — skill 文本提到 tool 名 → 自动绑定到 Horse.tools
-- 场景：派活 subagent 数量 > 1 → 整体 Failed (SelectionNotFound)
+- 场景：派活 selection 找不到 → assembleHorse 抛 IllegalStateException → handleAssignment fallback Ox 通用模式 (静默降级, 不报错)
 - 场景：跨轮次派活（第一个结果回来后再派第二个，串行依赖）
-- 场景：**同名 selection 在不同 type** — `Selection.Skill("analyzer")` 和 `Selection.Toolset("analyzer")` 派发到不同 registry, 验证 [Pasture.assemble] 按 selection sealed 子类精确路由
+- 场景：**同名 selection 在不同 type** — `Selection.Skill("analyzer")` 和 `Selection.Toolset("analyzer")` 派发到不同 registry, 验证 [Pasture.assembleHorse] 按 selection sealed 子类精确路由
 
 ### 11.3 状态机测试
 
@@ -1705,7 +1756,6 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 
 | 模块 | 变化 | 类型 | 说明 |
 |---|---|---|---|
-| `agent` | `AgentException.SelectionNotFound` 新增 | 新增 | 取代旧 `CapabilityNotFound` |
 | `agent` | `AgentException.Cancelled` 新增 | 新增 | team 模块用 |
 | `agent` | `AgentBuilder.subagents(SubagentRegistry)` / `AgentBuilder.toolsets(ToolsetRegistry)` | 新增 DSL | **前提**: 现有 AgentBuilder 未提供; 仅 Ox 通过 `agent { }` DSL 注册用, **不**影响其它用户 |
 | `toolset` | `Toolset.all(): List<Tool>` 新增 | 新增方法 | 让 Pasture 从 toolset 抽 subTools 注入 Horse |
@@ -1713,9 +1763,9 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 | `skill` | `Skill.load()` 重构为无 ctx (旧 `load(context: SkillContext): String`) | **破坏性** | Subagent 走同样改造, 见下; 详见 § 12.2 |
 | `subagent` | `Subagent.load()` 重构为无 ctx (旧 `load(context: SubagentContext): String`) | **破坏性** | 同上 |
 | `subagent` | `Subagent.activate()` 保留 ctx (`activate(arguments, context)`) | 不变 | 运行时调用仍需要 ctx |
-| `subagent` | `Subagent.tools: List<Tool>?` 语义扩展: null = 父 ToolRegistry 由 `Selection.Tool` 路径处理, 非 null = 注入 Horse | 语义细化 | 已有字段, 文档化新语义 |
+| `subagent` | `Subagent.tools: List<Tool>?` 语义扩展: null = 父 ToolRegistry 由 `Selection.Tool` 路径处理, 非 null = v1 不注入 Horse (含 subagent 直接退 Ox, Ox 持全 registry) | 语义细化 | 已有字段, 文档化新语义 |
 | `mcp` | 不动 | 不变 | 内部仍走 Toolset 路径 |
-| `capability` | 不动 | 不变 | Pasture.assemble 用 `Selection` sealed 子类分发, 不依赖 `CapabilityRegistry.findByName` |
+| `capability` | 不动 | 不变 | Pasture.assembleHorse 用 `Selection` sealed 子类分发, 不依赖 `CapabilityRegistry.findByName` |
 | `session` | 不动 | 不变 | `team` 用 `Session.memory` 作为 boss memory |
 
 ### 12.2 破坏性变更 (load() 去 ctx)
@@ -1727,7 +1777,7 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 **影响范围**:
 - `Skill` 已有实现 (如 `WeatherSkill`, `NewsSkill`): 把 `override fun load(context: SkillContext): String` 改成 `override fun load(): String`
 - `Subagent` 已有实现: 同样改造
-- 调用方 (`SkillToolLoader` / `Pasture.assemble` / `Subagent.activate` 等) 同步改
+- 调用方 (`SkillToolLoader` / `Pasture.assembleHorse` / `Subagent.activate` 等) 同步改
 
 **回退方案**: 若 `load()` 必须保留 ctx, 改用 pre-load mode 之外的另一条路径 (e.g., 让 boss LLM 通过 `load_skill` 工具动态加载). 暂不需要.
 
@@ -1741,7 +1791,7 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 - `BulletinBoard` / `BulletinEvent` / `PublishEvent` / `ProgressEvent` / `TaskAssignment` / `TaskUpdate` / `Cancellation`
 - `Selection` (sealed: `Skill` / `Toolset` / `Subagent` / `Tool`)
 - `Beast` (interface) / `Ox` / `Horse`
-- `Pasture` (含 `assemble(taskId, selections)`)
+- `Pasture` (含 `assembleHorse(selections)`)
 - `BossAgent` / `TaskState` (`BossState` 升级为 public, 因 `TeamAgent.state: StateFlow<BossState>` 需对外暴露)
 - `PublishTaskTool` / `CancelTaskTool` / `NamedCapability`
 
@@ -1769,10 +1819,10 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 | 任务优先级 | LLM 自主决定派活顺序 |
 | 资源隔离 | 单一进程，单一 LLM provider，足够 |
 | boss 远程加载 | v1 全部本地配置 |
-| 派活到 Subagent | pre-load 模式下 Subagent 整体覆盖 persona + 注入自身 tools, **v1 已支持**, 无需 SubagentInvoker 包装层 |
+| 派活到 Subagent | v1 不直接派活到 subagent — selections 含任何 subagent → 全部 selection 丢弃, 退 Ox 让 LLM 自主调 subagent (capability invoke); boss 看不到 subagent.tools 等私有细节, Horse 装配破坏 subagent 闭环 |
 | 派活到 MCP server-level | v1 只支持把 MCP 暴露的 toolset 拆给 ox，server-level 派活等同 subagent 模式 |
-| 派活 selection 部分失败 (partial success) | 任一 selection 找不到 → 任务整体 Failed (SelectionNotFound); 不做"少一个还能跑"语义 |
-| 多 Subagent 协同 per task | v1 限制 1 个 subagent per task; 多个 subagent 需要协调, 留 v2 |
+| 派活 selection 部分失败 (partial success) | 任一 selection 找不到 → `assembleHorse` 抛 IllegalStateException → `handleAssignment` fallback Ox (静默降级, 不向 boss 报错); 不做"少一个还能跑"语义 — 让 LLM 用全 registry 自主补齐 |
+| 多 Subagent 协同 per task | v1 不支持 — 任何含 subagent 的 selection 一律退 Ox (单一 subagent 也退); 真正的多 subagent 协同留 v2 |
 | 任务进度可视化 | UI 关注，team 框架不感知 |
 | 任务重试 / 死信队列 | LLM 自主重试（再调一次 `publish_task`） |
 | 任务的资源占用统计 | v1 不需要 |
@@ -1792,10 +1842,10 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 | F | 多意图/依赖：`publish_task(tasks=[...])` 一次批量并发派多个无依赖任务; 多次 `publish_task` 跨轮串行依赖任务; **同一 task 多 selections** 组合资源 — LLM 显式表达, 框架不特殊处理 | 状态机 + LLM 自主 + 工具 description 引导 |
 | G | 消息分层：3 个并列顶层 sealed interface (`BulletinEvent` / `PublishEvent` / `ProgressEvent`); `BulletinBoard` 发布入口拆成 `publishEvent` / `progressEvent`, 类型系统强制方向防污染 | 性质分层 + API 边界 |
 | H | 闲聊 vs 派活：靠 `PublishTaskTool.description` 引导 LLM，框架不干预 | description 引导 |
-| I | 未知 selection: 任一 selection 找不到 → 任务整体 Failed (`SelectionNotFound(missing)`) 回 boss; LLM 自行决定下一步 | 牧场不反向干预, 不做 partial success |
+| I | 未知 selection: 任一 selection 找不到 → `assembleHorse` 抛 IllegalStateException → handleAssignment fallback Ox (静默降级); 含任何 subagent → assembleHorse 抛 IllegalStateException → 退 Ox; 空 selections 同样抛异常退 Ox. 不向 boss 报错, 不做 partial success | 牧场不反向干预, 全部静默降级到 Ox 通用模式 |
 | J | YAGNI: 多牧场、跨进程、持久化、限流、beast pool 全部不在范围 | 保留扩展点 |
-| K | `Beast` 双实现 + pre-load 模式: Ox 持全 registry (通用), Horse 只持 Persona + 派生 tools 列表 (专项, 不持 registry). Pasture.assemble 一次性解析所有 selections, 拼出 Beast | 通用 vs 专项, 装配下沉到 Pasture |
-| L | 派活到 Subagent v1 **支持** — Pasture.assemble 把 Subagent.load() 整体覆盖 persona, Subagent.tools (非 null) 注入 Horse.tools; Horse 按 subagent 的 persona 跑 ReAct | 无 SubagentInvoker 包装层, 直接持 persona + tools |
+| K | `Beast` 双实现 + pre-load 模式: Ox 持全 registry (通用), Horse 只持 Persona + 派生 tools 列表 (专项, 不持 registry). Pasture.assembleHorse 一次性解析所有 selections, 拼出 Beast | 通用 vs 专项, 装配下沉到 Pasture |
+| L | 派活含 Subagent v1 不走 Horse — boss 看不到 `subagent.tools` 等私有细节, 装配会破坏 subagent 闭环; selections 含任何 subagent → 全部 selection 丢弃, 退 Ox. Ox 持全 registry 让 LLM 在通用循环里 capability invoke 调 subagent (无 SubagentInvoker 包装层, Subagent 通过 Capability 机制被 invoke) | subagent 是原子能力, 不与外部 selection 混合装配 |
 | M | 取消通过 `publishEvent(Cancellation)` + pasture 取消 beast job 实现 | 事件总线 + coroutine cancel |
 | N | 取消失败（job 已完成）静默忽略（幂等） | 取消是事件不是事务 |
 | O | `BossAgent` 四态：WAITING / RUNNING / INPUTTING / COLLECTING | INPUTTING 预留，UI 控制；COLLECTING 等 1s 合并 |
