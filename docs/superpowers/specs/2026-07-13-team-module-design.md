@@ -1010,21 +1010,27 @@ public class BossAgentBuilder internal constructor() {
     public fun maxRounds(value: Int) { maxRounds0 = value }
 
     /**
-     * 注册 tool 集合. [quick] 决定用途:
-     * - `quick = true`  → boss 自己可快速调的工具, 合并进 innerAgent 的 ToolRegistry (LLM 可见可调; 同步阻塞当前 run)
-     * - `quick = false` (默认) → tool 池, boss 通过 [Selection.Tool] 选用, pasture 解析注入 Horse
+     * 注册 tool 池 — boss 通过 [Selection.Tool] 选用, pasture 解析注入 Horse.
      *
-     * "快速"强调: 调用走 boss 同步路径, 无 beast 派发开销, 执行耗时短.
-     *
-     * 一次性赋值: 用户为 quick 和非 quick **各**调一次, 分别注册一个 ToolRegistry. 不累加.
-     * 同一 [quick] 值多次调用后赢.
+     * 一次性赋值, 多次调用后赢 (last-write-wins).
      */
-    public fun tools(registry: ToolRegistry, quick: Boolean = false) {
-        if (quick) {
-            quickToolRegistry0 = registry
-        } else {
-            delegatedToolRegistry0 = registry
-        }
+    public fun tools(registry: ToolRegistry) {
+        delegatedToolRegistry0 = registry
+    }
+
+    /**
+     * 注册 boss 可快速调的工具 — 合并进 innerAgent 的 ToolRegistry.
+     * LLM 可见可调, 走 boss 同步路径, 无 beast 派发开销.
+     *
+     * **注意**: 注册的工具由 boss LLM 直接控制 (同步阻塞当前 run), 必须确保
+     * 工具执行耗时足够短, 否则会阻塞 boss 的 ReAct 循环, 影响用户体验.
+     * 适合 getCurrentTime / calculator 等瞬时操作; 长耗时操作应通过
+     * [tools] 委派池走 [publish_task] 异步执行.
+     *
+     * 一次性赋值, 多次调用后赢 (last-write-wins).
+     */
+    public fun quickTools(registry: ToolRegistry) {
+        quickToolRegistry0 = registry
     }
 
     /** skill registry — boss 看到菜单, pasture 解析注入 Horse persona. */
@@ -1184,8 +1190,8 @@ public fun bossAgent(block: BossAgentBuilder.() -> Unit): BossAgent =
 **说明**：
 - **builder 全部用方法配置** — 不提供 `var` 字段, 用户必须显式调用 `memory(...)` / `llmProvider(...)` / `maxIterations(...)` / `maxRounds(...)`. `llmProvider` / `memory` 是必填项, `build()` 时检查; `maxIterations` / `maxRounds` 默认 20, **作用于 boss + beast 双方** (`maxIterations` 防止 LLM 死循环, `maxRounds` 防止 memory 无限增长).
 - **方法名统一复数**: `skills` / `subagents` / `toolsets` / `tools` / `mcps` — 与 [AgentBuilder] DSL 的命名风格保持一致 (skills/subagents/toolsets).
-- **`tools(registry, quick)` 单一形态** — `quick = false` (默认) 是 tool 池, boss 通过 `Selection.Tool` 选用, pasture 解析注入 Horse; `quick = true` 是 boss 自己快速可调的工具 (同步阻塞, 执行耗时短), 注册到 innerAgent 的 ToolRegistry. **一次性赋值** — 用户为 quick 和非 quick **各**注册一个 ToolRegistry. 同一 `quick` 值多次调用后赢 (last-write-wins).
-- **每个 capability 类别最多 1 个 registry**: `tools(registry)` / `skills(registry)` / `subagents(registry)` / `toolsets(registry)`. 多次设置后赢 (last-write-wins) — 不抛异常, 遵循 "good enough" 原则.
+- **`tools(registry)` 和 `quickTools(registry)` 两条路径**: `tools()` 是 tool 池, boss 通过 `Selection.Tool` 选用, pasture 解析注入 Horse; `quickTools()` 是 boss 自己快速可调的工具 (同步阻塞, 执行耗时短), 注册到 innerAgent 的 ToolRegistry. 各自一次性赋值, 多次调用后赢 (last-write-wins).
+- **每个 capability 类别最多 1 个 registry**: `tools(registry)` / `quickTools(registry)` / `skills(registry)` / `subagents(registry)` / `toolsets(registry)`. 多次设置后赢 (last-write-wins) — 不抛异常, 遵循 "good enough" 原则.
 - **`mcps(McpRegistry)` 是 no-op** — MCP 内部的 Toolset 已在构造 `McpRegistry(toolsetRegistry, ...)` 时注册到用户的 `ToolsetRegistry` (经 `toolsets()` 接入); `mcps()` 仅做 DSL 接口完整性, 不额外存引用. 调用方在 `build` 之后持有 `McpRegistry` 引用调用 `unregisterAll()` 关闭连接.
 - 立即响应工具走 `bossToolRegistry`, boss LLM 可直接调
 - 派活工具 (`publish_task` / `cancel_task`) 是内部注入的, 外部不感知
@@ -1270,27 +1276,26 @@ Pre-load 模式下, 全部装配逻辑由 [Pasture.assembleHorse] 一次性完�
 
 ### 5.4 tool 分类 DSL
 
-`tools(registry, quick)` 单一方法, `quick` 参数区分两条路径:
+两条方法, 分别标注路径:
 
 ```kotlin
 bossAgent {
     // 快速响应工具 — boss LLM 可直接调 (同步阻塞, 执行耗时短; 合并到 innerAgent 的 ToolRegistry)
-    tools(quickToolRegistry, quick = true)
+    quickTools(quickToolRegistry)
 
     // tool 池 — boss 通过 publish_task(selections: [{type: "tool", name: "..."}]) 选用
     tools(toolRegistry)
 }
 ```
 
-**为什么 `quick` 用 ToolRegistry 而非单 Tool**:
-- 快速响应工具通常成组出现 (如: `getCurrentTime` + `calculator`), 一次性注册更直观
-- 与"委派"路径统一为 `tools(registry)`, 单一 API; `quick` 只决定合并目的地
-- 用户为 quick 和非 quick **各**注册一个 ToolRegistry, 一次性赋值, 后赢原则
+**为什么两条方法而非一个布尔参数**:
+- 两条路径语义本质不同 (boss 直调 vs 委派), 布尔参数隐藏了意图
+- `tools()` 与 `quickTools()` 各自一次性赋值, 后赢原则
+- 快速工具通常成组出现 (如: `getCurrentTime` + `calculator`), `ToolRegistry` 一次性注册更直观
 
 **为什么不再区分 "快速 / 委派" 单 Tool**:
 - boss 看到一个普通 Tool 没有任何意义 — boss 不直接调这些 tool, 调了也绕过了 beast 的封装
 - boss 应当通过 `publish_task` 把所有非平凡的工作委派出去; 想用某个 tool 就 `Selection.Tool(name)` 选
-- 快速响应工具走 `quickToolRegistry`, 经 `tools(..., quick = true)` 注入; 非快速响应的工具走 `tools(toolRegistry)` 池, 再经 `publish_task` 选用
 
 ---
 
@@ -1782,7 +1787,7 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 |---|---|---|
 | `beastPersona: Persona` | 存在, 用户可配 | **移除** — Pasture 内部 baseRole 替代 |
 | `memory` / `llmProvider` / `maxIterations` / `maxRounds` | `public var` 属性 | 方法式 `memory(...)` / `llmProvider(...)` / `maxIterations(...)` / `maxRounds(...)` |
-| `tool(tool: Tool, quick: Boolean)` + `tool(registry: ToolRegistry)` | 两个重载 | 合并为单一 `tools(registry, quick: Boolean = false)`; `quick = true` 是 boss 快速可调 (合并到 innerAgent ToolRegistry); `quick = false` 是 tool 池 (供 Selection.Tool 选用) |
+| `tool(tool: Tool, quick: Boolean)` + `tool(registry: ToolRegistry)` | 两个重载 | 拆为 `tools(registry)` (委派池) 和 `quickTools(registry)` (boss 直调), 语义显式化 |
 | `skill(registry)` / `subagent(registry)` / `toolset(registry)` | 存在 | 重命名为复数 `skills(registry)` / `subagents(registry)` / `toolsets(registry)`, 语义不变 |
 | `mcps(registry)` | 接口预留, 静默忽略 | **保持 no-op** — MCP 能力委托给 toolsetRegistry, `mcps()` 仅 DSL 完整性 |
 | `capabilitiesByType` 类型 | `Map<String, List<Capability<*, *>>>` | `Map<String, List<NamedCapability>>` (4 类含 tool) |
@@ -1819,7 +1824,7 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 | B | `BossAgent` 包装 `ReActAgent`，不重写 ReAct 循环 | 包装模式 |
 | C | `Beast` 接口 — `Ox` (通用, 持 4 个单 capability registry + Persona) + `Horse` (专项, 持 Persona + 派生 tools 列表) — 包装 `ReActAgent`；每次任务 new, 不维护 pool | 双实现, 按工作模式分 |
 | D | BossAgent 整体配置：每个 capability 类别至多 1 个 registry (`ToolRegistry` / `SkillRegistry` / `SubagentRegistry` / `ToolsetRegistry`), 4 个单 setter 一次配置, BossAgent 内部分配给 boss (菜单) 和 pasture (路由). MCP 通过 `McpRegistry` 内部注册到 `ToolsetRegistry`. baseRole 由 Pasture 内部决定 (不暴露给用户) | BossAgent 是一整体, 内部封装 base role |
-| E | `tools(registry, quick: Boolean = false)` 单一形态 — `quick = true` 把 registry 内容合并到 innerAgent 的 ToolRegistry (boss 快速可调, 同步阻塞当前 run, 执行耗时短), `quick = false` (默认) 是 tool 池, 经 `Selection.Tool` 选用 | 合并两个重载, 统一通过 ToolRegistry 注册; 方法名复数化 (skills/subagents/toolsets/tools/mcps) 与 AgentBuilder DSL 对齐 |
+| E | `tools(registry)` 和 `quickTools(registry)` 两条独立方法 — `quickTools()` 把 registry 内容合并到 innerAgent 的 ToolRegistry (boss 快速可调, 同步阻塞当前 run, 执行耗时短), `tools()` 是 tool 池, 经 `Selection.Tool` 选用 | 拆布尔参数为两条方法, 语义显式化; 方法名复数化 (skills/subagents/toolsets/tools/quickTools/mcps) 与 AgentBuilder DSL 对齐 |
 | F | 多意图/依赖：`publish_task(tasks=[...])` 一次批量并发派多个无依赖任务; 多次 `publish_task` 跨轮串行依赖任务; **同一 task 多 selections** 组合资源 — LLM 显式表达, 框架不特殊处理 | 状态机 + LLM 自主 + 工具 description 引导 |
 | G | 消息分层：3 个并列顶层 sealed interface (`BulletinEvent` / `PublishEvent` / `ProgressEvent`); `BulletinBoard` 发布入口拆成 `publishEvent` / `progressEvent`, 类型系统强制方向防污染 | 性质分层 + API 边界 |
 | H | 闲聊 vs 派活：靠 `PublishTaskTool.description` 引导 LLM，框架不干预 | description 引导 |
