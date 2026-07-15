@@ -741,9 +741,9 @@ BossAgent 是 team 的核心调度者 — 包装一个内部 `Agent` 作为 inne
 - User round 流: `run(input)` 触发, 事件喂到 per-round `UserRound.channel`, 调用方从 `run()` 返回的 Flow 拿到 — 这是用户驱动的 round, 含合并 round (有 user pending 时)
 - Continuation 流: 终态 TaskUpdate 触发, 事件喂到 `continuationsEmitter` (hot SharedFlow), 调用方从 `continuations` property 订阅 — 这是任务驱动的续轮
 
-两条流互不干扰, boss 不 wrap 事件 (无 `emitEvents` 开关)。状态机通过 `tryTriggerNext()` + `decisionLock` 串行化决策, 避免并发触发多个 round。
+两条流互不干扰, boss 不 wrap 事件 (无 `emitEvents` 开关)。状态机通过 `handlePending()` + `decisionLock` 串行化决策, 避免并发触发多个 round。
 
-**实现细节 (含 `BossState` / `UserRound` / `TaskState` / 完整 BossAgent 类、`tryTriggerNext` 决策逻辑、并发锁)** 详见独立 spec:
+**实现细节 (含 `BossState` / `UserRound` / `TaskState` / 完整 BossAgent 类、`handlePending` 决策逻辑、并发锁)** 详见独立 spec:
 
 > **[§ 1 BossAgent 内部实现](./2026-07-15-team-boss-and-agent-impl.md#1-bossagent-内部实现)**
 
@@ -1326,7 +1326,7 @@ User 调 `run()` 拿到一个 Flow, 内部是 per-round Channel, 该 round 跑�
 8. emit Final("已让 web_search 助手去查,稍等")
 9. BossAgent.run() 完成: round.channel.close()
    → user 拿到的 Flow 自然结束, 任务仍在后台跑
-   → state → WAITING, tryTriggerNext() 决策 (没 terminals, idle)
+   → state → WAITING, handlePending() 决策 (没 terminals, idle)
 
 10. Pasture.handleAssignment 接到 TaskAssignment
 11. assembleHorse([Skill("web_search")]) →
@@ -1346,7 +1346,7 @@ User 调 `run()` 拿到一个 Flow, 内部是 per-round Channel, 该 round 跑�
 18. BossAgent.handleTaskUpdate 接到 TaskUpdate (Final)
 19. tasksLock.withLock: tasks[taskId].events += event, terminal=true
 20. pendingResultEvents.trySend(update)
-21. state=WAITING → tryTriggerNext()
+21. state=WAITING → handlePending()
 22. decisionLock.withLock: 看到 hasResults, hasActive=false → 启动 runContinuationRound()
 23. state → RUNNING, innerAgent.run("任务 X 已 Final: 结果是 Y")
 24. boss LLM 决定 final 文本回复用户
@@ -1474,10 +1474,10 @@ User 调 `run()` 拿到一个 Flow, 内部是 per-round Channel, 该 round 跑�
 
 | 状态 | 含义 | 进入条件 | 退出条件 |
 |---|---|---|---|
-| `WAITING` | idle, 等待外部输入 (用户或终态 TaskUpdate) | 构造时 / round finally / COLLECTING 1s 等待结束 | user `run()` / 终态 TaskUpdate 触发 `tryTriggerNext` |
+| `WAITING` | idle, 等待外部输入 (用户或终态 TaskUpdate) | 构造时 / round finally / COLLECTING 1s 等待结束 | user `run()` / 终态 TaskUpdate 触发 `handlePending` |
 | `RUNNING` | round 正在跑 (user-driven 或 task-driven 续轮) | `runUserRound` / `runContinuationRound` 起始 | round finally → WAITING |
 | `INPUTTING` | user 在 WAITING 状态下开始打字 (UI 信号) | `inputting(true)` 当 state = WAITING | `inputting(false)` / user 提交 (`run()` → RUNNING) |
-| `COLLECTING` | 任务触发的续轮等 1s 合并窗口 | `tryTriggerNext` 见 hasResults + hasActive | 1s 等待结束 → 续轮 (→ RUNNING) 或回 WAITING |
+| `COLLECTING` | 任务触发的续轮等 1s 合并窗口 | `handlePending` 见 hasResults + hasActive | 1s 等待结束 → 续轮 (→ RUNNING) 或回 WAITING |
 
 ### 7.2 转换规则 (双事件流分流)
 
@@ -1500,7 +1500,7 @@ WAITING ──user run()──► RUNNING ──round finally──► WAITING �
    │   ┌─────── TaskUpdate 终态 (channel.trySend) ───────────┐ │
    │   │                                                    │ │
    │   ▼                                                    ▼ │
-tryTriggerNext()  ──(decisionLock.withLock)──► hasResults? │
+handlePending()  ──(decisionLock.withLock)──► hasResults? │
    │                                                │          │
    │                          ┌─────────────────────┘          │
    │                          ▼                                │
@@ -1535,8 +1535,8 @@ WAITING ──inputting(true)──► INPUTTING ──inputting(false)──►
 
 | 当前 state | 终态 TaskUpdate 到达时 |
 |---|---|
-| `WAITING` / `INPUTTING` | 缓存到 `pendingResultEvents`, 调 `tryTriggerNext` 决策 |
-| `RUNNING` | 缓存到 `pendingResultEvents`, round finally 会调 `tryTriggerNext` |
+| `WAITING` / `INPUTTING` | 缓存到 `pendingResultEvents`, 调 `handlePending` 决策 |
+| `RUNNING` | 缓存到 `pendingResultEvents`, round finally 会调 `handlePending` |
 | `COLLECTING` | 缓存到 `pendingResultEvents`, 1s 等待结束自然处理 |
 
 **`formatTaskResults` 格式**:
@@ -1561,7 +1561,7 @@ INPUTTING 状态的语义: "user 在 WAITING 状态下开始打字, 意图提交
 
 ### 7.5 并发安全
 
-`tryTriggerNext()` 是唯一决策点, 串行化所有触发源:
+`handlePending()` 是唯一决策点, 串行化所有触发源:
 - `run()` (state 闲时) 调
 - `handleTaskUpdate` 收到终态时 调
 - `runUserRound` / `runContinuationRound` finally 调

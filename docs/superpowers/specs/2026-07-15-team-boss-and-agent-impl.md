@@ -25,7 +25,7 @@ Boss = 包装 `ReActAgent` + 状态机 + 异步 ProgressEvent 合并 + 双事件
 | 路径 | 触发源 | 流向 | 调用方拿到 |
 |---|---|---|---|
 | User round | `run(input)` (state 闲时启动, 忙时挂起) | `UserRound.channel` (per-round, UNLIMITED) | `run()` 返回的 Flow |
-| Continuation | TaskUpdate 终态 (state WAITING/INPUTTING 时由 `tryTriggerNext` 启动) | `continuationsEmitter` (hot SharedFlow) | `continuations` property |
+| Continuation | TaskUpdate 终态 (state WAITING/INPUTTING 时由 `handlePending` 启动) | `continuationsEmitter` (hot SharedFlow) | `continuations` property |
 
 `run()` 返回的 Flow 内容就是 `innerAgent.run(merged)` — boss 不 wrap 事件,直接转发。`emitEvents` 开关**彻底删除**,每条路径只 emit 一次到自己的 sink。
 
@@ -102,8 +102,8 @@ internal class BossAgent internal constructor(
     val state: StateFlow<BossState> = _state.asStateFlow()
 
     // ===== 用户轮次 =====
-    // pendingUserRound: state 忙时由 run() 写入,tryTriggerNext() 取出并清空
-    // 字段生命周期: 唯一写入点 run(), 唯一消费点 tryTriggerNext()
+    // pendingUserRound: state 忙时由 run() 写入,handlePending() 取出并清空
+    // 字段生命周期: 唯一写入点 run(), 唯一消费点 handlePending()
     private var pendingUserRound: UserRound? = null
 
     // ===== 续轮事件流 (hot SharedFlow) =====
@@ -120,7 +120,7 @@ internal class BossAgent internal constructor(
     private val pendingResultEvents: Channel<TaskUpdate> = Channel(capacity = Channel.UNLIMITED)
 
     // ===== 并发控制 =====
-    // 序列化"决定 + 启动"序列: run() / handleTaskUpdate() / round finally 都会调 tryTriggerNext,
+    // 序列化"决定 + 启动"序列: run() / handleTaskUpdate() / round finally 都会调 handlePending,
     // 必须互斥,否则 state 检查和 scope.launch 之间会有 TOCTOU race, 触发两个 round.
     private val decisionLock: Mutex = Mutex()
 
@@ -148,7 +148,7 @@ internal class BossAgent internal constructor(
         val round = UserRound(input, Channel(Channel.UNLIMITED))
 
         if (_state.value in setOf(BossState.RUNNING, BossState.COLLECTING)) {
-            // 状态忙: 挂起到 pendingUserRound, 等 tryTriggerNext() 取出清空 + 启动
+            // 状态忙: 挂起到 pendingUserRound, 等 handlePending() 取出清空 + 启动
             pendingUserRound = round
         } else {
             // 状态闲 (WAITING/INPUTTING): 直接启动, 字段不沾
@@ -185,7 +185,7 @@ internal class BossAgent internal constructor(
         } finally {
             round.channel.close()  // Flow 自然结束
             _state.value = BossState.WAITING
-            tryTriggerNext()  // 检查是否还有 pending (终态 / user pending)
+            handlePending()  // 检查是否还有 pending (终态 / user pending)
         }
     }
 
@@ -198,13 +198,13 @@ internal class BossAgent internal constructor(
             }
         } finally {
             _state.value = BossState.WAITING
-            tryTriggerNext()
+            handlePending()
         }
     }
 
     // ========== 内部: 决定 + 启动 (并发安全) ==========
 
-    private fun tryTriggerNext() {
+    private fun handlePending() {
         scope.launch {
             decisionLock.withLock {
                 if (_state.value in setOf(BossState.RUNNING, BossState.COLLECTING)) return@withLock
@@ -241,7 +241,7 @@ internal class BossAgent internal constructor(
         if (pendingResultEvents.isEmpty) {
             // 1s 期间没新终态, 状态回 WAITING, 重新检查
             _state.value = BossState.WAITING
-            tryTriggerNext()
+            handlePending()
             return
         }
         runContinuationRound()
@@ -258,9 +258,9 @@ internal class BossAgent internal constructor(
         // 终态事件: 缓存到 channel + 触发决策
         pendingResultEvents.trySend(update)
         if (_state.value in setOf(BossState.WAITING, BossState.INPUTTING)) {
-            tryTriggerNext()
+            handlePending()
         }
-        // RUNNING/COLLECTING: 缓存即可, 当前 round finally 会调 tryTriggerNext
+        // RUNNING/COLLECTING: 缓存即可, 当前 round finally 会调 handlePending
     }
 
     // ========== 内部: 状态查询与合并 ==========
@@ -295,7 +295,7 @@ internal class BossAgent internal constructor(
 1. **`run()` Flow 是 per-round Channel** (UNLIMITED) — 用户晚 collect 也能拿到整轮事件,单消费者语义
 2. **`continuations` 是 hot SharedFlow** — 多次续轮事件串到同一流,多消费者 (UI + logger),buffer overflow 丢最早事件
 3. **boss 不 wrap 事件** — `innerAgent.run(merged).collect { round.channel.send(e) }` 或 `continuationsEmitter.emit(e)`,无中转流,无 `emitEvents` 开关
-4. **`pendingUserRound` 单字段** — 唯一写入点 `run()` (state 忙时),唯一消费点 `tryTriggerNext()` (决定+启动序列内)
+4. **`pendingUserRound` 单字段** — 唯一写入点 `run()` (state 忙时),唯一消费点 `handlePending()` (决定+启动序列内)
 5. **`decisionLock` 序列化** — 防止 `run()` / `handleTaskUpdate()` / round finally 三处并发触发决策;lock 内重检 state,避免 TOCTOU
 6. **`tasks` map 全程 `tasksLock.withLock`** — `hasActiveTasks` 也是 suspending
 7. **`pendingResultEvents` 用 `isEmpty` peek** — 不用 tryReceive+trySend 的非原子 peek
