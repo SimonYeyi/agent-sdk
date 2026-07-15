@@ -259,11 +259,11 @@ internal sealed interface ProgressEvent : BulletinEvent
  *   - 含任何 [Selection.Subagent] → 同上, 兜底退 [Ox] (Horse 装配破坏 subagent 闭环)
  *   - 其余 → 派发到 [Horse] (pre-load 模式, Pasture 按 selections 预组装 persona + tools);
  *     任一 selection 找不到抛 [IllegalStateException], 同样兜底退 [Ox]
- * @param task 本任务的**核心指令** — beast 直接执行的目标. Pasture 装配时作为
- *   `Task:` 段渲染到 beast 的 user input.
+ * @param task 本任务的**核心指令** — beast 直接执行的目标. 非空时作为 beast 的 user input
+ *   (无 context 时直接是 task; 有 context 时拼在 context 后, 空行分隔).
  * @param context 可选 — 完成本 task **必要的上下文背景信息** (用户偏好 / 历史任务
- *   结果 / 环境状态 / 业务背景等). Pasture 装配时作为 `Context:` 段渲染到 beast 的
- *   user input 头部. 不传或空白时 beast 只接收 `Task:` 段.
+ *   结果 / 环境状态 / 业务背景等). 拼在 task 前 (空行分隔) 作为 beast 的 user input 头部.
+ *   不传或空白时 beast 只接收 task.
  */
 internal data class TaskAssignment(
     internal val taskId: String,
@@ -581,7 +581,7 @@ internal class Pasture internal constructor(
         val userInput = if (e.context.isNullOrBlank()) {
             e.task
         } else {
-            "Context:\n${e.context}\n\nTask:\n${e.task}"
+            "${e.context}\n\n${e.task}"
         }
         val job = scope.launch {
             try {
@@ -914,7 +914,7 @@ internal class PublishTaskTool(
                       },
                       "context": {
                         "type": "string",
-                        "description": "Optional background info needed to complete the task — user preferences, prior task results, environment state, etc. Rendered as a separate 'Context:' section before the task. Omit if the task is self-contained."
+                        "description": "Optional background info needed to complete the task — user preferences, prior task results, environment state, etc. Prepended to the task (blank-line separated) in the worker's input. Omit if the task is self-contained."
                       }
                     },
                     "required": ["selections", "task"]
