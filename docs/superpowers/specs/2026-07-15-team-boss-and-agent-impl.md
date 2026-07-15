@@ -284,7 +284,7 @@ internal class BossAgent internal constructor(
     }
 
     private fun formatTaskResults(updates: List<TaskUpdate>): String = buildString {
-        append("[Task Result]")
+        append("以下是之前派出的后台任务的结果:")
         updates.forEach { append("\n${it.taskId}: ${it.event}") }
     }
 }

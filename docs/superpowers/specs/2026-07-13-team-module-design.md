@@ -1541,7 +1541,7 @@ WAITING ──inputting(true)──► INPUTTING ──inputting(false)──►
 
 **`formatTaskResults` 格式**:
 ```
-[Task Result]
+以下是之前派出的后台任务的结果:
 taskId: Final: AgentResult(...)
 taskId: Failed: <throwable 类别名 + message>
 ```
