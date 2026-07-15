@@ -2,7 +2,7 @@
 
 > 日期：2026-07-13 · 状态：**Draft**（待用户审阅）
 > 模块：新增 `team/`
-> 范围：把 `boss` + `布告栏` + `牧场` + `牛马` 四个组件封装为 `TeamAgent` 容器，提供异步任务编排能力。boss 包装 `ReActAgent` 做闲聊 / 意图识别 / 一次性工具调用 / 派活；牛马包装 `ReActAgent` 做单次任务执行；布告栏作纯事件总线；牧场作任务路由 + 调度。
+> 范围：把 `boss` + `布告栏` + `牧场` + `牛马` 四个组件封装为 `BossAgent` 容器，提供异步任务编排能力。boss 包装 `ReActAgent` 做闲聊 / 意图识别 / 一次性工具调用 / 派活；牛马包装 `ReActAgent` 做单次任务执行；布告栏作纯事件总线；牧场作任务路由 + 调度。
 
 ---
 
@@ -49,7 +49,7 @@ boss LLM 调 subagent 工具
 
 - **复用优先**：不引入新的执行循环、不重写 `ReActAgent`；不引入新的能力抽象，复用 `Skill` / `Subagent` / `Toolset` / `Capability` 现有体系；不引入新的 memory 抽象，boss 用 `Session.memory`、ox 用 `InMemoryMemory`。
 - **包装不重写**：`BossAgent` 包装 `ReActAgent` + 状态机；`Beast` 接口（牛/马）也是 `ReActAgent` 的薄包装，按工作模式区分（牛=通用、马=专项），承担"任务执行"职责。
-- **配置外部一次**：team 是一个整体容器 — 每个 capability 类别至多 1 个 registry (`ToolRegistry`/`SkillRegistry`/`SubagentRegistry`/`ToolsetRegistry`)，在 `teamAgent { }` DSL 里一次性配置，由 `TeamAgent` 内部分配给 boss（菜单）和 pasture（路由），不要求外部配置两次。MCP 经 `McpRegistry` 内部注册到 `ToolsetRegistry`，不单独占位。boss 看到的能力 = pasture 路由的能力（同一 registry 实例），保证派活的"承诺"和执行的"能力"对得上。
+- **配置外部一次**：BossAgent 是一个整体 — 每个 capability 类别至多 1 个 registry (`ToolRegistry`/`SkillRegistry`/`SubagentRegistry`/`ToolsetRegistry`)，在 `bossAgent { }` DSL 里一次性配置，由 `BossAgent` 内部分配给 boss（菜单）和 pasture（路由），不要求外部配置两次。MCP 经 `McpRegistry` 内部注册到 `ToolsetRegistry`，不单独占位。boss 看到的能力 = pasture 路由的能力（同一 registry 实例），保证派活的"承诺"和执行的"能力"对得上。
 - **Beast 抽象**：牛 (Ox) 通用 beast，registry 自由配置；马 (Horse) 专项 beast，pre-resolved capability 描述塞 persona + 按类型 wire Tool。Pasture 按 `TaskAssignment` 派发，v1 多数走 `Horse` 分支；Ox 是 [Pasture.assembleHorse] 失败 (selections 空 / 含任何 subagent / 找不到 selection) 经 `error` 抛 `IllegalStateException` 后由 `handleAssignment` 兜底退 [Ox] — 三类失败共用 [Pasture.buildOx] helper.
 - **闲聊 / 派活靠 LLM 自主**：框架不区分，由 `PublishTaskTool.description` 引导 LLM 选择"直接 final 回复"还是"调 publish_task 派活"。
 - **纯事件总线**：`BulletinBoard` 是无状态的事件发布 / 订阅器，不持有任务状态、不提供业务方法（不提供 `submitAssignment` / `publishInput` 这种带业务语义的 API）。
@@ -64,9 +64,9 @@ boss LLM 调 subagent 工具
 
 ```
 ┌────────────────────────────────────────────────────────────────────┐
-│                      TeamAgent (容器 / 装配点)                       │
+│                      BossAgent (容器 / 装配点)                       │
 │                                                                    │
-│  team 整体配置 (一次性声明, TeamAgent 内部分配)                          │
+│  BossAgent 整体配置 (一次性声明, BossAgent 内部分配)                      │
 │    • skillRegistry        ──┐                                       │
 │    • subagentRegistry     ──┼──► boss (菜单)                          │
 │    • toolsetRegistry      ──┤   pasture (路由)                        │
@@ -252,7 +252,7 @@ internal sealed interface PublishEvent : BulletinEvent
 internal sealed interface ProgressEvent : BulletinEvent
 
 /**
- * 任务派发. 1 team 1 boss, 事件由 [BulletinBoard] 直传, 不带 boss 标识.
+ * 任务派发. 1 BossAgent, 事件由 [BulletinBoard] 直传, 不带 boss 标识.
  *
  * @param selections boss LLM 选定的能力列表 (一个 task 可组合多个 selection).
  *   - 空 → [assembleHorse] 抛 [IllegalStateException] → handleAssignment 兜底退 [Ox]
@@ -275,7 +275,7 @@ internal data class TaskAssignment(
 /**
  * 任务派发的"选了什么能力" — 一个 task 可携带多个 Selection, 由 [Pasture.assembleHorse] 一次性解析.
  *
- * 4 种类型分别对应 TeamAgent 配置的 4 个 registry:
+ * 4 种类型分别对应 BossAgentBuilder 配置的 4 个 registry:
  * - [Skill] → [io.github.yeyi.agent.skill.SkillRegistry]
  * - [Toolset] → [io.github.yeyi.agent.toolset.ToolsetRegistry] (含 MCP via [io.github.yeyi.agent.mcp.McpRegistry])
  * - [Subagent] → [io.github.yeyi.agent.subagent.SubagentRegistry]
@@ -359,7 +359,7 @@ internal data class TaskUpdate(
 **为什么三层 sealed interface**：表达"布告栏事件"的总类（订阅者可以 `events.collect { when (it) { is PublishEvent -> ...; is ProgressEvent -> ... } }`），同时按性质分流便于类型检查和未来扩展。`publishEvent` / `progressEvent` 在 API 边界强制方向, 杜绝事件污染。
 
 **`Selection` 与 registry 的关系**：
-- 每个 Selection 子类对应 1 个由 TeamAgent 配置的 registry (Skill → SkillRegistry / Toolset → ToolsetRegistry / Subagent → SubagentRegistry / Tool → ToolRegistry)
+- 每个 Selection 子类对应 1 个由 BossAgentBuilder 配置的 registry (Skill → SkillRegistry / Toolset → ToolsetRegistry / Subagent → SubagentRegistry / Tool → ToolRegistry)
 - `name` 字段在对应 registry 中按精确名查找 — 不同 selection 内的同名 tool 允许共存, 不去重 (不同 registry 下的同名 tool 不一定是同一实现, 由 LLM 按 tool 描述区分)
 - Selection 类型在 `publish_task` 工具 JSON 协议里以字符串 `"skill" / "toolset" / "subagent" / "tool"` 表示, 见 § 4.6
 
@@ -547,7 +547,7 @@ internal class Pasture internal constructor(
     private val maxIterations: Int,
     private val maxRounds: Int,
 ) {
-    /** Pasture 内部默认 base role — 由 Pasture 决定, 不暴露给 TeamAgentBuilder. */
+    /** Pasture 内部默认 base role — 由 Pasture 决定, 不暴露给 BossAgentBuilder. */
     private val baseRole: String = "You are a helpful worker. Complete the given task and return the result."
 
     private val runningJobs: MutableMap<String, Job> = mutableMapOf()
@@ -732,7 +732,7 @@ internal class Pasture internal constructor(
 
 ### 4.5 `BossAgent`（boss — 包装 innerAgent + 状态机 + 双事件流分流）
 
-BossAgent 是 team 的核心调度者 — 包装一个内部 `Agent` 作为 innerAgent, 在外层承担三件事:
+BossAgent 是核心调度者 — 包装一个内部 `Agent` 作为 innerAgent, 在外层承担三件事:
 - 把 `PublishTaskTool` / `CancelTaskTool` 注册到 innerAgent 的 ToolRegistry, 让 boss LLM 可以派活 / 取消
 - 订阅 `BulletinBoard` 的 `TaskAssignment` 跟踪自己派出的任务, 订阅 `TaskUpdate` 把异步进度事件合并到下一轮 input
 - 维护 `BossState` 状态机 (WAITING / RUNNING / INPUTTING / COLLECTING — 详见 § 7) 决定什么时候触发新的 innerAgent.run(), 什么时候进入 1s 合并窗口
@@ -941,22 +941,22 @@ internal class CancelTaskTool(
 }
 ```
 
-### 4.7 `TeamAgent`（容器 — 单一装配点）
+### 4.7 `BossAgent`（容器 — 唯一公开 API）
 
-TeamAgent 是 team 唯一对外 API 表面 — 自身实现 `Agent` 接口, 把 `run` / `runStream` 转交给内部 `BossAgent`. 内部 boss / pasture / bulletinBoard 全部私有, 外部通过 `team.run` / `team.runStream` / `team.continuations` / `team.state` / `team.inputting` / `team.shutdown` 与之交互.
+BossAgent 是唯一对外 API 表面 — 自身实现 `Agent` 接口, 内部持有 innerAgent / bulletinBoard / scope. 外部通过 `boss.run` / `boss.runStream` / `boss.continuations` / `boss.state` / `boss.inputting` / `boss.shutdown` 与之交互. pasture 对外不可见, 由 BossAgentBuilder 内部构造并共享 scope.
 
-**事件流转发**:
-- `team.run(input).collect { }` — 拿到 user round 流 (单次 round 的事件, 含合并 round)
-- `team.continuations.collect { }` — 拿到续轮流 (任务驱动, 订阅一次即可收所有续轮)
-- `team.state.collect { }` — boss 状态
+**事件流**:
+- `boss.run(input).collect { }` — 拿到 user round 流 (单次 round 的事件, 含合并 round)
+- `boss.continuations.collect { }` — 拿到续轮流 (任务驱动, 订阅一次即可收所有续轮)
+- `boss.state.collect { }` — boss 状态
 
-构造由 `TeamAgentBuilder` 完成 — 用户通过 `teamAgent { }` DSL 配置; builder 内部装配 bulletinBoard / pasture / boss, 把 teamScope 注入 boss, 然后返回 [TeamAgent].
+构造由 `BossAgentBuilder` 完成 — 用户通过 `bossAgent { }` DSL 配置; builder 内部装配 bulletinBoard / pasture / boss (共享 teamScope), 然后返回 [BossAgent].
 
-**TeamAgent 类本身的实现** (薄壳 — 仅持有 boss 引用 + team 协程作用域, 转发 run/continuations/state/inputting/shutdown) 详见独立 spec:
+**BossAgent 自身实现** 详见独立 spec:
 
-> **[§ 2 TeamAgent 公开容器](./2026-07-15-team-boss-and-agent-impl.md#2-teamagent-公开容器)**
+> **[BossAgent 完整实现](./2026-07-15-team-boss-and-agent-impl.md)**
 
-下面列出 TeamAgentBuilder + `teamAgent { }` DSL 的完整实现 — 这是主 spec 范围内:
+下面列出 BossAgentBuilder + `bossAgent { }` DSL 的完整实现 — 这是主 spec 范围内:
 
 ```kotlin
 package io.github.yeyi.agent.team
@@ -974,7 +974,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 
-public class TeamAgentBuilder internal constructor() {
+public class BossAgentBuilder internal constructor() {
     // 配置字段 — 方法式, 不提供默认 builder (用户必须显式调用)
     private var memory0: Memory? = null
     private var llmProvider0: LlmProvider? = null
@@ -997,7 +997,7 @@ public class TeamAgentBuilder internal constructor() {
      * boss 必须知道自己能闲聊 / 用 quick tools / 派活 (`publish_task`).
      */
     private val baseRole: String = """
-        You are the boss of a team. You can:
+        You are the boss of a boss. You can:
         1. Respond to chitchat directly.
         2. Answer simple questions using your quick tools.
         3. Delegate complex tasks to workers (beast) by calling publish_task — see the tool description
@@ -1057,7 +1057,7 @@ public class TeamAgentBuilder internal constructor() {
      */
     public fun persona(persona: Persona) {
         require(persona.role.isBlank()) {
-            "Persona.role is reserved by the team framework — must be empty string. " +
+            "Persona.role is reserved by the BossAgent framework — must be empty string. " +
                 "Use personality / domain / constraints / extra to customize agent persona."
         }
         bossPersona0 = persona
@@ -1075,15 +1075,15 @@ public class TeamAgentBuilder internal constructor() {
         @Suppress("UNUSED_PARAMETER") registry
     }
 
-    public fun build(): TeamAgent {
+    public fun build(): BossAgent {
         val llm = requireNotNull(llmProvider0) { "llmProvider must be set" }
         val mem = requireNotNull(memory0) { "memory must be set" }
 
         val bulletinBoard = BulletinBoard()
 
         // 团队统一协程作用域 — boss 和 pasture 共享同一个 SupervisorJob.
-        // 一个子树失败不会级联取消另一个; [TeamAgent.shutdown] 取消整个 scope.
-        val teamScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        // 一个子树失败不会级联取消另一个; [BossAgent.shutdown] 取消整个 scope.
+        val bossScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
         val pasture = Pasture(
             bulletinBoard = bulletinBoard,
@@ -1092,12 +1092,12 @@ public class TeamAgentBuilder internal constructor() {
             skillRegistry = skillRegistry0,
             subagentRegistry = subagentRegistry0,
             toolsetRegistry = toolsetRegistry0,
-            scope = teamScope,
+            scope = bossScope,
             maxIterations = maxIterations0,
             maxRounds = maxRounds0,
         )
 
-        val boss = buildBoss(
+        return buildBoss(
             memory = mem,
             llmProvider = llm,
             bulletinBoard = bulletinBoard,
@@ -1108,10 +1108,8 @@ public class TeamAgentBuilder internal constructor() {
             quickToolRegistry = quickToolRegistry0,
             maxIterations = maxIterations0,
             maxRounds = maxRounds0,
-            scope = teamScope,
+            scope = bossScope
         )
-
-        return TeamAgent(boss, teamScope)
     }
 
     private fun buildBoss(
@@ -1125,7 +1123,7 @@ public class TeamAgentBuilder internal constructor() {
         quickToolRegistry: ToolRegistry?,
         maxIterations: Int,
         maxRounds: Int,
-        scope: CoroutineScope,
+        scope: CoroutineScope
     ): BossAgent {
         // 按 type 分组的 capability 列表 — 用于 PublishTaskTool 菜单渲染
         // 4 类都列出 (含 tool — Selection.Tool 也走菜单); 用 NamedCapability 暴露 (name, description) 不外泄内部细节
@@ -1166,7 +1164,7 @@ public class TeamAgentBuilder internal constructor() {
         return BossAgent(
             innerAgent = innerAgent,
             bulletinBoard = bulletinBoard,
-            scope = scope,
+            scope = scope
         )
     }
 
@@ -1182,8 +1180,8 @@ public class TeamAgentBuilder internal constructor() {
     }
 }
 
-public fun teamAgent(block: TeamAgentBuilder.() -> Unit): TeamAgent =
-    TeamAgentBuilder().apply(block).build()
+public fun bossAgent(block: BossAgentBuilder.() -> Unit): BossAgent =
+    BossAgentBuilder().apply(block).build()
 ```
 
 **说明**：
@@ -1198,9 +1196,9 @@ public fun teamAgent(block: TeamAgentBuilder.() -> Unit): TeamAgent =
 
 ---
 
-## 5. team 整体配置
+## 5. BossAgent 整体配置
 
-team 是一个整体容器 — registry 是 team 自己的配置, 单一来源. `teamAgent { }` DSL 里 4 个 setXxx 一次性配置, TeamAgent 内部分配给 boss (菜单) 和 pasture (路由). boss 看到的和 pasture 路由的是同一 registry 实例.
+BossAgent 是一个整体 — registry 是 BossAgent 自己的配置, 单一来源. `bossAgent { }` DSL 里 4 个 setXxx 一次性配置, BossAgent 内部分配给 boss (菜单) 和 pasture (路由). boss 看到的和 pasture 路由的是同一 registry 实例.
 
 ### 5.1 配置示例
 
@@ -1213,7 +1211,7 @@ val mcpRegistry = McpRegistry(toolsetRegistry, clientInfo).apply {
     register(webMcpServer)
 }
 
-val team = teamAgent {
+val boss = bossAgent {
     // 一次性配置, 每个 capability 类别最多 1 个 registry
     skills(skillRegistry)
     subagents(subagentRegistry)
@@ -1226,7 +1224,7 @@ val team = teamAgent {
 **配置外部一次的好处**:
 - boss 看到的"能力菜单" = pasture 路由的能力 = 同一 registry 实例
 - 派活的"承诺"和执行的"能力"对得上 — boss LLM 派到不存在的 selection 时 [assembleHorse] 抛 [IllegalStateException], [handleAssignment] 兜底为 [buildOx] 静默降级, 让 LLM 用全 registry 自选工具补齐
-- 调用方只配置一次, TeamAgent 内部分配 — 不要求调用方管理"boss 视角"和"pasture 视角"两份配置
+- 调用方只配置一次, BossAgent 内部分配 — 不要求调用方管理"boss 视角"和"pasture 视角"两份配置
 
 **关于 McpServer**：`McpRegistry` 不是 `CapabilityRegistry`，它内部把每个 `Mcp` 实例注册到目标 `ToolsetRegistry`（复用 toolset 框架的 `load_toolset` / `sub_tool_delegate`）。所以 MCP 的工具集天然属于该 `ToolsetRegistry`，对 LLM 而言 `Selection.Toolset(name)` 路由，description 文案上区分（如 "Web search (via MCP)"），路由和解析全部走 toolset 分支。
 
@@ -1278,7 +1276,7 @@ Pre-load 模式下, 全部装配逻辑由 [Pasture.assembleHorse] 一次性完�
 `tools(registry, quick)` 单一方法, `quick` 参数区分两条路径:
 
 ```kotlin
-teamAgent {
+bossAgent {
     // 快速响应工具 — boss LLM 可直接调 (同步阻塞, 执行耗时短; 合并到 innerAgent 的 ToolRegistry)
     tools(quickToolRegistry, quick = true)
 
@@ -1301,12 +1299,12 @@ teamAgent {
 
 ## 6. 消息流（端到端）
 
-**双事件流说明**: 整个 team 暴露两条事件流, 调用方按需订阅:
+**双事件流说明**: 整个 BossAgent 暴露两条事件流, 调用方按需订阅:
 
 | 流 | 何时收到事件 | API |
 |---|---|---|
-| User round 流 | 每次 `run(input)` 触发的 round (含合并 round) | `team.run("...").collect { }` |
-| Continuation 流 | 任务结果触发的续轮 (无 user input 参与) | `team.continuations.collect { }` |
+| User round 流 | 每次 `run(input)` 触发的 round (含合并 round) | `boss.run("...").collect { }` |
+| Continuation 流 | 任务结果触发的续轮 (无 user input 参与) | `boss.continuations.collect { }` |
 
 User 调 `run()` 拿到一个 Flow, 内部是 per-round Channel, 该 round 跑完 Flow 完成。**派活后该轮也正常结束** (boss LLM final 文本后 `run()` 返回的 Flow 终止) — 任务在后台继续, 续轮事件从 `continuations` 走。
 
@@ -1353,7 +1351,7 @@ User 调 `run()` 拿到一个 Flow, 内部是 per-round Channel, 该 round 跑�
 25. emit Final("搜索完成,结果如下: ...")
 26. BossAgent.runContinuationRound() finally: state → WAITING
     → continuationsEmitter.emit(event) 喂到续轮流
-    → 订阅 team.continuations 的 UI 收到该轮事件
+    → 订阅 boss.continuations 的 UI 收到该轮事件
 ```
 
 ### 6.2 多 selection 单 task (toolset + 直接 tool 组合)
@@ -1635,10 +1633,10 @@ public sealed interface AgentEvent {
 }
 ```
 
-**不引入 AgentException 类**: Failed 作为事件载体, 不该绑死具体异常层次. agent 模块自己的 LlmError / InvalidResponse 等内部异常, 抛出来直接 `Failed(e)` 传出, 不需要包装. team 模块同理 — 装配失败用 [error] 抛 `IllegalStateException` (内部控制流, 不外传), 取消直接用 stdlib `CancellationException`.
+**不引入 AgentException 类**: Failed 作为事件载体, 不该绑死具体异常层次. agent 模块自己的 LlmError / InvalidResponse 等内部异常, 抛出来直接 `Failed(e)` 传出, 不需要包装. BossAgent 框架同理 — 装配失败用 [error] 抛 `IllegalStateException` (内部控制流, 不外传), 取消直接用 stdlib `CancellationException`.
 
 **约束**:
-- 只为"需要外部消费者识别"的异常命名 — 当前 v1 没有这种需求, 所以不定义任何 team 异常类
+- 只为"需要外部消费者识别"的异常命名 — 当前 v1 没有这种需求, 所以不定义任何 BossAgent 异常类
 - boss / beast 收到 `Failed(throwable)` 只往外报 message, 不做 `when (e)` 分支, 所以不需要分类
 
 ### 9.2 异常传播路径
@@ -1751,7 +1749,7 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 | `subagent` | `Subagent.tools: List<Tool>?` 语义扩展: null = 父 ToolRegistry 由 `Selection.Tool` 路径处理, 非 null = v1 不注入 Horse (含 subagent 直接退 Ox, Ox 持全 registry) | 语义细化 | 已有字段, 文档化新语义 |
 | `mcp` | 不动 | 不变 | 内部仍走 Toolset 路径 |
 | `capability` | 不动 | 不变 | Pasture.assembleHorse 用 `Selection` sealed 子类分发, 不依赖 `CapabilityRegistry.findByName` |
-| `session` | 不动 | 不变 | `team` 用 `Session.memory` 作为 boss memory |
+| `session` | 不动 | 不变 | `BossAgent` 用 `Session.memory` 作为 boss memory |
 
 ### 12.2 破坏性变更 (load() 去 ctx)
 
@@ -1766,18 +1764,19 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 
 **回退方案**: 若 `load()` 必须保留 ctx, 改用 pre-load mode 之外的另一条路径 (e.g., 让 boss LLM 通过 `load_skill` 工具动态加载). 暂不需要.
 
-### 12.3 新增 API (`team` 模块)
+### 12.3 新增 API (`BossAgent` 模块)
 
 **公开 (public)**:
-- `TeamAgent` / `teamAgent { }` DSL (入口表面)
-- `TeamAgentBuilder` (DSL 接收器, 构造器 `internal`)
+- `BossAgent` (入口表面, 实现 `Agent` 接口)
+- `BossAgentBuilder` / `bossAgent { }` DSL (入口表面)
+- `BossState` (公开因 `BossAgent.state: StateFlow<BossState>` 需对外暴露)
 
 **模块内部 (internal)**:
 - `BulletinBoard` / `BulletinEvent` / `PublishEvent` / `ProgressEvent` / `TaskAssignment` / `TaskUpdate` / `Cancellation`
 - `Selection` (sealed: `Skill` / `Toolset` / `Subagent` / `Tool`)
 - `Beast` (interface) / `Ox` / `Horse`
 - `Pasture` (含 `assembleHorse(selections)`)
-- `BossAgent` / `TaskState` (`BossState` 升级为 public, 因 `TeamAgent.state: StateFlow<BossState>` 需对外暴露)
+- `UserRound` / `TaskState` / `handlePending` / `runPendingRound`
 - `PublishTaskTool` / `CancelTaskTool` / `NamedCapability`
 
 ### 12.4 builder 字段变化
@@ -1808,7 +1807,7 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 | 派活到 MCP server-level | v1 只支持把 MCP 暴露的 toolset 拆给 ox，server-level 派活等同 subagent 模式 |
 | 派活 selection 部分失败 (partial success) | 任一 selection 找不到 → `assembleHorse` 抛 IllegalStateException → `handleAssignment` fallback Ox (静默降级, 不向 boss 报错); 不做"少一个还能跑"语义 — 让 LLM 用全 registry 自主补齐 |
 | 多 Subagent 协同 per task | v1 不支持 — 任何含 subagent 的 selection 一律退 Ox (单一 subagent 也退); 真正的多 subagent 协同留 v2 |
-| 任务进度可视化 | UI 关注，team 框架不感知 |
+| 任务进度可视化 | UI 关注，BossAgent 框架不感知 |
 | 任务重试 / 死信队列 | LLM 自主重试（再调一次 `publish_task`） |
 | 任务的资源占用统计 | v1 不需要 |
 | 任务的状态查询 API | boss 内部维护 `Map<taskId, TaskState>` 即可，不暴露给外部 |
@@ -1819,10 +1818,10 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 
 | # | 决策 | 备注 |
 |---|---|---|
-| A | 命名：`TeamAgent` / `teamAgent { }` / 4 组件 `BulletinBoard` / `Pasture` / `BossAgent` / `Beast` (Ox/Horse) | 外部单一装配点 |
+| A | 命名：`BossAgent` / `bossAgent { }` / 4 组件 `BulletinBoard` / `Pasture` / `BossAgent` / `Beast` (Ox/Horse) | 外部唯一公开 API |
 | B | `BossAgent` 包装 `ReActAgent`，不重写 ReAct 循环 | 包装模式 |
 | C | `Beast` 接口 — `Ox` (通用, 持 4 个单 capability registry + Persona) + `Horse` (专项, 持 Persona + 派生 tools 列表) — 包装 `ReActAgent`；每次任务 new, 不维护 pool | 双实现, 按工作模式分 |
-| D | team 整体配置：每个 capability 类别至多 1 个 registry (`ToolRegistry` / `SkillRegistry` / `SubagentRegistry` / `ToolsetRegistry`), 4 个单 setter 一次配置, TeamAgent 内部分配给 boss (菜单) 和 pasture (路由). MCP 通过 `McpRegistry` 内部注册到 `ToolsetRegistry`. baseRole 由 Pasture 内部决定 (不暴露给用户) | team 是一整体, 内部封装 base role |
+| D | BossAgent 整体配置：每个 capability 类别至多 1 个 registry (`ToolRegistry` / `SkillRegistry` / `SubagentRegistry` / `ToolsetRegistry`), 4 个单 setter 一次配置, BossAgent 内部分配给 boss (菜单) 和 pasture (路由). MCP 通过 `McpRegistry` 内部注册到 `ToolsetRegistry`. baseRole 由 Pasture 内部决定 (不暴露给用户) | BossAgent 是一整体, 内部封装 base role |
 | E | `tools(registry, quick: Boolean = false)` 单一形态 — `quick = true` 把 registry 内容合并到 innerAgent 的 ToolRegistry (boss 快速可调, 同步阻塞当前 run, 执行耗时短), `quick = false` (默认) 是 tool 池, 经 `Selection.Tool` 选用 | 合并两个重载, 统一通过 ToolRegistry 注册; 方法名复数化 (skills/subagents/toolsets/tools/mcps) 与 AgentBuilder DSL 对齐 |
 | F | 多意图/依赖：`publish_task(tasks=[...])` 一次批量并发派多个无依赖任务; 多次 `publish_task` 跨轮串行依赖任务; **同一 task 多 selections** 组合资源 — LLM 显式表达, 框架不特殊处理 | 状态机 + LLM 自主 + 工具 description 引导 |
 | G | 消息分层：3 个并列顶层 sealed interface (`BulletinEvent` / `PublishEvent` / `ProgressEvent`); `BulletinBoard` 发布入口拆成 `publishEvent` / `progressEvent`, 类型系统强制方向防污染 | 性质分层 + API 边界 |
@@ -1837,9 +1836,9 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 | P | `INPUTTING` 状态由 UI 层通过 `inputting(true/false)` 控制 | boss 框架不感知 UI |
 | Q | `publish_task` 每条 task 必须显式指定 `selections` 数组, 每条 selection 形如 `{"type": "skill\|toolset\|subagent\|tool", "name": "..."}` — type 是路由键, name 是 registry 内查找键 | 4 类 sealed 分发, 取代旧的 `(type, name)` tuple |
 | R | Skill 文本中的 tool 名 → 自动绑定到 Horse.tools (经 `SkillRegistry.allTools()` 全词匹配), LLM 在 Horse 中直接调, 绕过 `skill_tool_loader` + `skill_tool_caller` 二段式 | pre-load 模式下的特殊处理, 约定 Skill 作者在 load() 文本里把 tool 名作为独立词写出 |
-| S | 容器为 `TeamAgent` (实现 [Agent]), `teamAgent { }` DSL 单次装配 — boss / pasture / bulletinBoard 全部私有, 外部仅通过 `team.run` / `team.runStream` / `team.state` / `team.shutdown` 与之交互 | 单一对外表面, 屏蔽内部协作细节 |
-| T | 不引入 team / boss 名称字段 — 1 team 1 boss 隐式成立, `TaskAssignment` / `TaskUpdate` / `Cancellation` 不携带 bossName; 取消用 stdlib `CancellationException`, 不引入 `Cancelled` 异常类 | 避免唯一约束冗余; 派发 → 路由按 taskId 关联 |
-| U | `maxIterations` / `maxRounds` 是 team 层级统一配置 — 同时作用于 boss innerAgent 和 beast (Ox/Horse) 内部 ReActAgent; Pasture 透传, builder 仍只暴露一份参数 | ReAct 护栏语义对等, 避免"boss 受限 / beast 不受限"的不一致; 统一对外表面 |
+| S | 容器为 `BossAgent` (实现 [Agent]), `bossAgent { }` DSL 单次装配 — boss / pasture / bulletinBoard 全部私有, 外部仅通过 `boss.run` / `boss.runStream` / `boss.state` / `boss.shutdown` 与之交互 | 单一公开 API, 屏蔽内部协作细节 |
+| T | 不引入 boss 名称字段 — 1 BossAgent 隐式成立, `TaskAssignment` / `TaskUpdate` / `Cancellation` 不携带 bossName; 取消用 stdlib `CancellationException`, 不引入 `Cancelled` 异常类 | 避免唯一约束冗余; 派发 → 路由按 taskId 关联 |
+| U | `maxIterations` / `maxRounds` 是 BossAgent 层级统一配置 — 同时作用于 boss innerAgent 和 beast (Ox/Horse) 内部 ReActAgent; Pasture 透传, builder 仍只暴露一份参数 | ReAct 护栏语义对等, 避免"boss 受限 / beast 不受限"的不一致; 统一对外表面 |
 
 ---
 
