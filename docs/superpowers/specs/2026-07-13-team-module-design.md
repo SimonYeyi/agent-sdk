@@ -1475,7 +1475,7 @@ User 调 `run()` 拿到一个 Flow, 内部是 per-round Channel, 该 round 跑�
 | 状态 | 含义 | 进入条件 | 退出条件 |
 |---|---|---|---|
 | `WAITING` | idle, 等待外部输入 (用户或终态 TaskUpdate) | 构造时 / `handlePending` 真 idle 路径 (round finally / COLLECTING 1s 结束后) | user `run()` / 终态 TaskUpdate 触发 `handlePending` |
-| `RUNNING` | round 正在跑 (user-driven 或 task-driven 续轮) | `runUserRound` / `runContinuationRound` 起始 | round finally → `handlePending(postRound = true)`, 可能 launch 同类型新 round (state 持续 RUNNING), 或 → COLLECTING, 或真 idle → WAITING |
+| `RUNNING` | round 正在跑 (user-driven 或 task-driven 续轮) | `runPendingRound` 起始 | round finally → `handlePending(postRound = true)`, 可能 launch 新 round (state 持续 RUNNING), 或 → COLLECTING, 或真 idle → WAITING |
 | `INPUTTING` | user 在 WAITING 状态下开始打字 (UI 信号) | `inputting(true)` 当 state = WAITING | `inputting(false)` / user 提交 (`run()` → RUNNING) |
 | `COLLECTING` | 任务触发的续轮等 1s 合并窗口 | `handlePending` 见 hasResults + hasActive | 1s 等待结束 → `handlePending(postRound = true)`, 可能续 COLLECTING / → RUNNING / 真 idle → WAITING |
 
@@ -1507,7 +1507,7 @@ handlePending()  ──(decisionLock.withLock)──► hasResults? │
    │                  hasActive?                              │
    │                  ┌─────┴─────┐                            │
    │                  ▼           ▼                            │
-   │              yes: COLLECTING  no: runContinuationRound() │
+   │              yes: COLLECTING  no: runPendingRound() │
    │                  │           │                            │
    │                  │ 1s wait   │                            │
    │                  │           ▼                            │

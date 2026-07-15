@@ -156,8 +156,9 @@ internal class BossAgent internal constructor(
             // 状态忙: 挂起到 pendingUserRound, 等 handlePending() 取出清空 + 启动
             pendingUserRound = round
         } else {
-            // 状态闲 (WAITING/INPUTTING): 直接启动, 字段不沾
-            scope.launch { runUserRound(round) }
+            // 状态闲 (WAITING/INPUTTING): 直接启动
+            pendingUserRound = round
+            scope.launch { runPendingRound() }
         }
 
         // 返回的 Flow 内容就是该轮的事件; channel 关闭时 Flow 自然结束
@@ -188,10 +189,7 @@ internal class BossAgent internal constructor(
         }
         // 终态事件: 缓存到 channel + 触发决策
         pendingResultEvents.trySend(update)
-        if (_state.value in setOf(BossState.WAITING, BossState.INPUTTING)) {
-            handlePending()
-        }
-        // RUNNING/COLLECTING: 缓存即可, 当前 round finally 会调 handlePending
+        handlePending()
     }
 
     // ========== 内部: 决定 + 启动 (并发安全) ==========
@@ -212,26 +210,23 @@ internal class BossAgent internal constructor(
         scope.launch {
             decisionLock.withLock {
                 // 外部撞忙就退出,round 撞忙就接着干.
-                if (!postRound && _state.value in setOf(BossState.RUNNING, BossState.COLLECTING)) return@withLock
+                if (!postRound && _state.value in setOf(
+                        BossState.RUNNING,
+                        BossState.COLLECTING
+                    )
+                ) return@withLock
                 val pendingRound = pendingUserRound
                 val hasActive = hasActiveTasks()
                 val hasResults = !pendingResultEvents.isEmpty
 
                 when {
-                    pendingRound != null -> {
-                        // 合并 round: 走 user 流
-                        pendingUserRound = null
-                        scope.launch { runUserRound(pendingRound) }
-                        // runUserRound 在函数顶部 state→RUNNING
-                    }
                     hasResults && hasActive -> {
                         // COLLECTING 续轮: 等 1s 后跑续轮
-                        scope.launch { runContinuationWithCollecting() }
-                        // runContinuationWithCollecting 在函数顶部 state→COLLECTING — 直接续, 不闪烁
+                        scope.launch { runPendingRoundWithCollecting() }
                     }
-                    hasResults -> {
-                        scope.launch { runContinuationRound() }
-                        // runContinuationRound 在函数顶部 state→RUNNING
+                    pendingRound != null || hasResults -> {
+                        // 合并用户输入或处理终态结果
+                        scope.launch { runPendingRound() }
                     }
                     // 真 idle: 切回 WAITING. 已经 WAITING 时 no-op.
                     else -> if (_state.value != BossState.WAITING) {
@@ -244,46 +239,35 @@ internal class BossAgent internal constructor(
 
     // ========== 内部: 跑轮次 ==========
 
-    private suspend fun runUserRound(round: UserRound) {
+    private suspend fun runPendingRound() {
         _state.value = BossState.RUNNING
+        val userRound = pendingUserRound
         try {
-            val merged = drainPendingWith(round.input)
+            val merged = drainPendingWith(userRound?.input)
             if (merged != null) {
-                innerAgent.run(merged).collect { e -> round.channel.send(e) }
+                innerAgent.run(merged).collect { e ->
+                    if (userRound == null) {
+                        continuationsEmitter.emit(e)
+                    } else {
+                        userRound.channel.send(e)
+                    }
+                }
             }
         } finally {
-            round.channel.close()  // Flow 自然结束
-            handlePending(postRound = true)  // 不再 state=WAITING;handlePending 在锁内做 state 转换, 避免 RUNNING→WAITING→RUNNING 闪烁
+            pendingUserRound = null
+            userRound?.channel.close()
+            handlePending(postRound = true)
         }
     }
 
-    private suspend fun runContinuationRound() {
-        _state.value = BossState.RUNNING
-        try {
-            val merged = drainPendingWith(null)  // 续轮无 user input, 只拼终态
-            if (merged != null) {
-                innerAgent.run(merged).collect { e -> continuationsEmitter.emit(e) }
-            }
-        } finally {
-            round.channel.close()
-            handlePending(postRound = true)  // 同上:不显式 set WAITING,handlePending 全权负责状态流转
-        }
-    }
-
-    private suspend fun runContinuationWithCollecting() {
+    private suspend fun runPendingRoundWithCollecting() {
         _state.value = BossState.COLLECTING
         val deadline = System.currentTimeMillis() + COLLECTING_WINDOW_MS
         while (System.currentTimeMillis() < deadline) {
             if (!hasActiveTasks()) break
             delay(50)
         }
-        if (pendingResultEvents.isEmpty) {
-            // 不再 state=WAITING:handlePending 在锁内重检状态 (postRound=true, 不会 bail),
-            // 可能续 COLLECTING / 切 RUNNING / 转 WAITING — 避免 COLLECTING→WAITING→COLLECTING 闪烁.
-            handlePending(postRound = true)
-            return
-        }
-        runContinuationRound()
+        runPendingRound()
     }
 
     // ========== 内部: 状态查询与合并 ==========
