@@ -210,7 +210,7 @@ internal class BossAgent internal constructor(
                 if (_state.value in setOf(BossState.RUNNING, BossState.COLLECTING)) return@withLock
                 val pendingRound = pendingUserRound
                 val hasActive = hasActiveTasks()
-                val hasTerminals = !pendingResultEvents.isEmpty
+                val hasResults = !pendingResultEvents.isEmpty
 
                 when {
                     pendingRound != null -> {
@@ -218,11 +218,11 @@ internal class BossAgent internal constructor(
                         pendingUserRound = null
                         scope.launch { runUserRound(pendingRound) }
                     }
-                    hasTerminals && hasActive -> {
+                    hasResults && hasActive -> {
                         // COLLECTING 续轮: 等 1s 后跑续轮
                         scope.launch { runContinuationWithCollecting() }
                     }
-                    hasTerminals -> {
+                    hasResults -> {
                         scope.launch { runContinuationRound() }
                     }
                     // else: idle, state 保持 WAITING

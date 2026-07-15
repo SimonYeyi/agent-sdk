@@ -1347,7 +1347,7 @@ User 调 `run()` 拿到一个 Flow, 内部是 per-round Channel, 该 round 跑�
 19. tasksLock.withLock: tasks[taskId].events += event, terminal=true
 20. pendingResultEvents.trySend(update)
 21. state=WAITING → tryTriggerNext()
-22. decisionLock.withLock: 看到 hasTerminals, hasActive=false → 启动 runContinuationRound()
+22. decisionLock.withLock: 看到 hasResults, hasActive=false → 启动 runContinuationRound()
 23. state → RUNNING, innerAgent.run("任务 X 已 Final: 结果是 Y")
 24. boss LLM 决定 final 文本回复用户
 25. emit Final("搜索完成,结果如下: ...")
@@ -1477,7 +1477,7 @@ User 调 `run()` 拿到一个 Flow, 内部是 per-round Channel, 该 round 跑�
 | `WAITING` | idle, 等待外部输入 (用户或终态 TaskUpdate) | 构造时 / round finally / COLLECTING 1s 等待结束 | user `run()` / 终态 TaskUpdate 触发 `tryTriggerNext` |
 | `RUNNING` | round 正在跑 (user-driven 或 task-driven 续轮) | `runUserRound` / `runContinuationRound` 起始 | round finally → WAITING |
 | `INPUTTING` | user 在 WAITING 状态下开始打字 (UI 信号) | `inputting(true)` 当 state = WAITING | `inputting(false)` / user 提交 (`run()` → RUNNING) |
-| `COLLECTING` | 任务触发的续轮等 1s 合并窗口 | `tryTriggerNext` 见 hasTerminals + hasActive | 1s 等待结束 → 续轮 (→ RUNNING) 或回 WAITING |
+| `COLLECTING` | 任务触发的续轮等 1s 合并窗口 | `tryTriggerNext` 见 hasResults + hasActive | 1s 等待结束 → 续轮 (→ RUNNING) 或回 WAITING |
 
 ### 7.2 转换规则 (双事件流分流)
 
@@ -1500,7 +1500,7 @@ WAITING ──user run()──► RUNNING ──round finally──► WAITING �
    │   ┌─────── TaskUpdate 终态 (channel.trySend) ───────────┐ │
    │   │                                                    │ │
    │   ▼                                                    ▼ │
-tryTriggerNext()  ──(decisionLock.withLock)──► hasTerminals? │
+tryTriggerNext()  ──(decisionLock.withLock)──► hasResults? │
    │                                                │          │
    │                          ┌─────────────────────┘          │
    │                          ▼                                │
