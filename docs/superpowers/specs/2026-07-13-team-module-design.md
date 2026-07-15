@@ -171,7 +171,7 @@ boss LLM 调 subagent 工具
 [Pasture.handleAssignment catch]  bulletinBoard.progressEvent(TaskUpdate(taskId, AgentEvent.Failed(CancellationException())))
    │
    ▼
-[BossAgent]  看到 Failed(Cancelled) → 报告用户
+[BossAgent]  看到 Failed(CancellationException) → 报告用户
 ```
 
 ---
@@ -934,7 +934,7 @@ internal class CancelTaskTool(
         val taskId = arguments.jsonObject["task_id"]?.jsonPrimitive?.content
             ?: return ToolExecutionResult.error("Missing 'task_id'")
         // 取消意图通过 Cancellation 事件发到 BulletinBoard, 由 Pasture 处理 (取消 beast job).
-        // BossAgent 不需要直接感知 — 后续 TaskUpdate(Failed(Cancelled)) 会通过 progressEvents 回来.
+        // BossAgent 不需要直接感知 — 后续 TaskUpdate(Failed(CancellationException)) 会通过 progressEvents 回来.
         bulletinBoard.publishEvent(Cancellation(taskId))
         return ToolExecutionResult("Task $taskId cancellation requested")
     }
@@ -1345,7 +1345,7 @@ User 调 `run()` 拿到一个 Flow, 内部是 per-round Channel, 该 round 跑�
 
 18. BossAgent.handleTaskUpdate 接到 TaskUpdate (Final)
 19. tasksLock.withLock: tasks[taskId].events += event, terminal=true
-20. pendingTerminalUpdates.trySend(update)
+20. pendingResultEvents.trySend(update)
 21. state=WAITING → tryTriggerNext()
 22. decisionLock.withLock: 看到 hasTerminals, hasActive=false → 启动 runContinuationRound()
 23. state → RUNNING, innerAgent.run("任务 X 已 Final: 结果是 Y")
@@ -1535,9 +1535,9 @@ WAITING ──inputting(true)──► INPUTTING ──inputting(false)──►
 
 | 当前 state | 终态 TaskUpdate 到达时 |
 |---|---|
-| `WAITING` / `INPUTTING` | 缓存到 `pendingTerminalUpdates`, 调 `tryTriggerNext` 决策 |
-| `RUNNING` | 缓存到 `pendingTerminalUpdates`, round finally 会调 `tryTriggerNext` |
-| `COLLECTING` | 缓存到 `pendingTerminalUpdates`, 1s 等待结束自然处理 |
+| `WAITING` / `INPUTTING` | 缓存到 `pendingResultEvents`, 调 `tryTriggerNext` 决策 |
+| `RUNNING` | 缓存到 `pendingResultEvents`, round finally 会调 `tryTriggerNext` |
+| `COLLECTING` | 缓存到 `pendingResultEvents`, 1s 等待结束自然处理 |
 
 **`formatTaskResults` 格式**:
 ```
@@ -1568,13 +1568,13 @@ INPUTTING 状态的语义: "user 在 WAITING 状态下开始打字, 意图提交
 
 通过 `decisionLock: Mutex.withLock { }` 保护:
 1. 重检 state (lock 内, 避免 TOCTOU)
-2. 读 `pendingUserRound` / `pendingTerminalUpdates` / `tasks`
+2. 读 `pendingUserRound` / `pendingResultEvents` / `tasks`
 3. 决定下一步 (user round / COLLECTING / continuation)
 4. `scope.launch { ... }` 启动
 
 **其他并发安全**:
 - `tasks` map 所有访问走 `tasksLock.withLock`
-- `pendingTerminalUpdates` Channel 自带线程安全; peek 用 `isEmpty` 而非 `tryReceive + trySend` 的非原子操作
+- `pendingResultEvents` Channel 自带线程安全; peek 用 `isEmpty` 而非 `tryReceive + trySend` 的非原子操作
 - `_state` (StateFlow) 线程安全
 - `continuationsEmitter` (SharedFlow) 线程安全
 
@@ -1720,7 +1720,7 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 ### 11.4 取消测试
 
 - 牛马跑长任务时取消
-- 验证 `TaskUpdate(Failed(Cancelled))` 出现
+- 验证 `TaskUpdate(Failed(CancellationException))` 出现
 - 验证 `runningJobs` 清理
 - 验证幂等性
 
