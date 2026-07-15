@@ -1145,18 +1145,15 @@ public class BossAgentBuilder internal constructor() {
             bulletinBoard = bulletinBoard,
         )
 
-        // boss innerAgent 的最终 ToolRegistry: 立即响应工具 (可选) + 派活工具 (publish_task / cancel_task)
-        val bossToolRegistry = quickToolRegistry.apply {
-            register(publishTask)
-            register(cancelTask)
-        }
-
         val persona = buildPersona()
 
         val innerAgent = agent {
             persona(persona)
             llmProvider(llmProvider)
             memory(memory, maxRounds)
+            tool(publishTask)
+            tool(cancelTask)
+            quickToolRegistry?.let { tools(it) }
             tools(bossToolRegistry)
             maxIterations(maxIterations)
         }
