@@ -360,7 +360,7 @@ internal data class TaskUpdate(
 
 **`Selection` 与 registry 的关系**：
 - 每个 Selection 子类对应 1 个由 TeamAgent 配置的 registry (Skill → SkillRegistry / Toolset → ToolsetRegistry / Subagent → SubagentRegistry / Tool → ToolRegistry)
-- `name` 字段在对应 registry 中按精确名查找 — 同一 task 内的多 selection **可以**重名 (如不同 subagent 都有名为 `default` 的 tool), 由 `distinctBy { it.name }` 在 Pasture 装配 tools 阶段去重
+- `name` 字段在对应 registry 中按精确名查找 — 不同 selection 内的同名 tool 允许共存, 不去重 (不同 registry 下的同名 tool 不一定是同一实现, 由 LLM 按 tool 描述区分)
 - Selection 类型在 `publish_task` 工具 JSON 协议里以字符串 `"skill" / "toolset" / "subagent" / "tool"` 表示, 见 § 4.6
 
 ### 4.3 `Beast`（牛马 — 任务执行抽象）
@@ -378,7 +378,7 @@ internal data class TaskUpdate(
 - **persona 由 Pasture 预组装**, Beast 内部不拼接:这是核心解耦 — Beast 不再持有任何 registry/selection 解析逻辑,只接 Pasture 算好的成品.
 - Ox 持 4 个 **单** registry(每个类别最多 1 个), 不是 list — 团队内每个 capability 类别只有 1 个 registry.
 - Ox 持全类别 registry (tool/skill/subagent/toolset) — 不只是 tool/skill, subagent/toolset 也要能访问 (MCP 经 `McpRegistry` 内部注册到 `ToolsetRegistry`, 不单独算).
-- Horse 的 `tools` 列表由 Pasture 根据 selections 一次性解析组装好,**去重后**直接传给 inner agent; Horse 内部不再做 extract / invoke / describe 这种 wire-up.
+- Horse 的 `tools` 列表由 Pasture 根据 selections 一次性解析组装好,直接传给 inner agent; Horse 内部不再做 extract / invoke / describe 这种 wire-up.
 - **Tool 与 Capability 解耦** — Tool 不属于 Skill/Toolset/Subagent 这三种 Capability 类别, 但 Beast 也能用到 Tool. Ox 通过 `toolRegistry` 持 Tool 池; Horse 通过 `tools: List<Tool>` 拿到 Pasture 组装好的 Tool 列表(含来自 `tool` selection、Toolset.all()、SkillRegistry.allTools()、Subagent 自己的 tools 等所有来源).
 
 ```kotlin
@@ -706,10 +706,11 @@ internal class Pasture internal constructor(
         // 工具按 name 去重 — 同一 task 内不同 selection 可能引入同名 tool
         val distinctTools = tools.distinctBy { it.name }
 
+        // 工具不去重 — 不同 selection 引入的同名 tool 允许共存, 由 LLM 按 tool 描述区分
         return Horse(
             llmProvider = llmProvider,
             persona = persona,
-            tools = distinctTools,
+            tools = tools,
             maxIterations = maxIterations,
             maxRounds = maxRounds,
         )
@@ -740,7 +741,7 @@ internal class Pasture internal constructor(
   - Subagent 自带 (`sub.tools` 非 null; null = 继承父, 本流程不流入)
   - Skill 自动绑定 — `skill.load()` 文本中以全词出现的 `SkillRegistry.allTools()` tool 名, 主动注入 (绕过二段式调用)
   - 直接 Tool (`Selection.Tool`)
-  - 最后 `distinctBy { it.name }` 去重, 保留先出现的实例.
+  - 不同 selection 引入的同名 tool 不去重 (允许共存, 由 LLM 按 tool 描述区分)
 - **Skill tool 自动绑定的理由**: Skill 涉及的 tool 在 agent 里原本只能通过 `skill_tool_loader` + `skill_tool_caller` 二段式访问, LLM 看不见、不能直接调. 但 Horse 已经持有 skill 文本, 不需要二段式 — 把文本里提到的 tool 名解析后注入 Horse, LLM 就能直接调. 约定 Skill 作者在 `load()` 文本里把所需 tool 名作为独立词写出.
 - **`sub.tools == null` 的语义**: 文档上 Subagent.tools 注释说"null = 继承父 agent 工具"; 在 Pasture 流程里父 agent 的 ToolRegistry **不会**自动流入 Horse.tools, 因此 null 等价于"本 task 不追加 Subagent 自己的 tools" — 实际使用上, Subagent 既然接管 persona 就应自带 tools, 选 null + 委派到 Subagent 通常是配置错误, 但不在 v1 校验.
 - **找不到 selection 时的处理**: 不向 boss 报错, [assembleHorse] 用 [error] 抛 [IllegalStateException],
@@ -1268,7 +1269,7 @@ Pre-load 模式下, 全部装配逻辑由 [Pasture.assembleHorse] 一次性完�
 | `Selection.Subagent(name)` | `sub.tools` 非 null 时拼入; null = 继承父, 本流程不流入 |
 | `Selection.Skill(name)` | `skill.load()` 文本中以全词出现的 `SkillRegistry.allTools()` tool 名, 自动注入 |
 | `Selection.Tool(name)` | 该 tool 本身 |
-| **去重** | `distinctBy { it.name }`, 保留先出现的实例 (LinkedHashMap 顺序) |
+| (无去重) | 不同 selection 引入的同名 tool 允许共存, 由 LLM 按 tool 描述区分 |
 
 **重要说明**:
 - Skill 文本里提到的 tool 名 → 自动绑定到 Horse.tools, LLM 能直接调 (绕过 `skill_tool_loader` + `skill_tool_caller` 二段式). 这是 Skill 在 Horse 上下文里的特殊处理 — Skill 自身架构保持不变.
@@ -1284,7 +1285,7 @@ Pre-load 模式下, 全部装配逻辑由 [Pasture.assembleHorse] 一次性完�
    - `is Selection.Skill`    → `skillRegistry?.all()?.firstOrNull { it.name == s.name }`, 找不到 → `error("assembleHorse: skill not found: ${s.name}")`
    - `is Selection.Toolset`  → `toolsetRegistry?.all()?.firstOrNull { it.name == s.name }`, 找不到 → `error("assembleHorse: toolset not found: ${s.name}")`
    - `is Selection.Tool`     → `toolRegistry?.all()?.firstOrNull { it.name == s.name }`, 找不到 → `error("assembleHorse: tool not found: ${s.name}")`
-4. 全找到 → 拼 persona + 拼 tools (去重) → [Horse]
+4. 全找到 → 拼 persona + 拼 tools (不去重) → [Horse]
 
 **示例**:
 - `assembleHorse(t1, [Selection.Skill("web_search")])` → 在 `skillRegistry` 里找 `name == "web_search"` 的 Skill, `skill.load()` 进 persona, 文本里提到的 tool 自动注入 tools, 返回 [Horse]
@@ -1392,7 +1393,7 @@ User 调 `run()` 拿到一个 Flow, 内部是 per-round Channel, 该 round 跑�
 6. Pasture.assembleHorse([Toolset("weather"), Tool("get_time")]) →
    - toolsetRegistry.all() 找 "weather" → 找到, 取出 weather.all() (含 get_weather / get_forecast)
    - toolRegistry.all() 找 "get_time" → 找到, 加入 tools
-   - tools = [get_weather, get_forecast, get_time] (去重)
+   - tools = [get_weather, get_forecast, get_time] (不去重)
    - persona = baseRole (无 skill / subagent)
    - 返回 Horse(persona=baseRole, tools=[get_weather, get_forecast, get_time])
 7. Horse 启动 ReAct 循环, LLM 看到 3 个 tool 都能用
@@ -1714,7 +1715,7 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 | `Beast` (`Ox` / `Horse`) | Ox run 正常 / Horse run 正常 (skill 路径 / toolset 路径 / 多 selection (skill+toolset+tool) 路径, 不含 subagent) / run 异常 / run 被取消 |
 | `Pasture` | handleAssignment 正常 / assembleHorse 抛 IllegalStateException (空 selection / 含 subagent / 单 selection 找不到) → fallback Ox / beast 异常 / 取消 |
 | `BossAgent` 状态机 | WAITING→RUNNING / RUNNING→WAITING / TaskUpdate 触发 / 缓存合并 |
-| `Pasture.assembleHorse` 单元测试 | skill tool 文本匹配绑定 (text 提到 get_weather → 自动注入) / 多 selection 拼装 (skill+toolset+tool, 不含 subagent) / 空 selections → error() 抛出 / 含 subagent → error() 抛出 / 单 selection 找不到 → error() 抛出 / distinctBy 去重 / buildOx() 构造等价 |
+| `Pasture.assembleHorse` 单元测试 | skill tool 文本匹配绑定 (text 提到 get_weather → 自动注入) / 多 selection 拼装 (skill+toolset+tool, 不含 subagent) / 空 selections → error() 抛出 / 含 subagent → error() 抛出 / 单 selection 找不到 → error() 抛出 / 同名 tool 不去重 / buildOx() 构造等价 |
 
 ### 11.2 端到端测试
 
