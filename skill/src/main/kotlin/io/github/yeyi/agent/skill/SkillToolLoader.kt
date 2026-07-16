@@ -43,7 +43,24 @@ internal class SkillToolLoader(private val registry: SkillRegistry) : Tool {
             ?.map { it.jsonPrimitive.content }
             ?: return ToolExecutionResult.error("Missing tool_names")
 
-        val toolsList = registry.toolsList(toolNames)
-        return ToolExecutionResult.success("发现以下可用 Skill 工具：\n$toolsList")
+        val toolDefinitions = definitions(toolNames)
+        return ToolExecutionResult.success("发现以下可用 Skill 工具：\n[$toolDefinitions]")
+    }
+
+    private fun definitions(toolNames: List<String>): String {
+        return toolNames.mapNotNull { name -> registry.allTools().find { it.name == name } }
+            .joinToString(",\n") { tool ->
+                val schemaStr = when (val params = tool.parametersSchema) {
+                    is ToolParameters.JsonSchema -> params.schema
+                    is ToolParameters.Empty -> "{}"
+                }
+                """
+                {
+                    "name": "${tool.name}",
+                    "description": "${tool.description.replace("\"", "\\\"")}",
+                    "parameters_schema": $schemaStr
+                }
+                """.trimIndent()
+            }
     }
 }

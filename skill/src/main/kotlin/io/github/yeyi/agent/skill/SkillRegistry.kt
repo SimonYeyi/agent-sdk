@@ -7,7 +7,6 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolDispatcher
 import io.github.yeyi.agent.tool.ToolExecutionResult
-import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
 
 /**
@@ -40,22 +39,4 @@ public class SkillRegistry :
     }
     /** 返回所有注册的 Skill 相关工具。 */
     public fun allTools(): List<Tool> = tools.values.toList()
-
-    internal fun toolsList(toolNames: List<String>): String {
-        val definitions = toolNames.mapNotNull { tools[it] }
-            .joinToString(",\n") { tool ->
-                val schemaStr = when (val params = tool.parametersSchema) {
-                    is ToolParameters.JsonSchema -> params.schema
-                    is ToolParameters.Empty -> "{}"
-                }
-                """
-                {
-                    "name": "${tool.name}",
-                    "description": "${tool.description.replace("\"", "\\\"")}",
-                    "parameters_schema": $schemaStr
-                }
-                """.trimIndent()
-            }
-        return "[$definitions]"
-    }
 }
