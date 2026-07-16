@@ -150,7 +150,7 @@ class ChatViewModel(
             }
             is AgentEvent.Failed -> {
                 _messages.update {
-                    it + UiMessage.Error(event.cause.message ?: "Unknown error", id = nextUiId())
+                    it + UiMessage.Error(event.throwable.message ?: "Unknown error", id = nextUiId())
                 }
                 _liveBubble.value = null
             }

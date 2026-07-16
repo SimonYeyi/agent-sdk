@@ -3,8 +3,9 @@ package io.github.yeyi.agent
 /**
  * Agent 领域异常体系，所有公开异常均继承自此 sealed class。
  *
- * SDK 内部边界（ReActAgent.loop）会将任意非 [kotlinx.coroutines.CancellationException] 的
- * Throwable 统一通过 [toAgentException] 抬升为此体系成员，确保对外只暴露领域异常。
+ * 保留作为 hook 契约（[io.github.yeyi.agent.AgentHook.onRunFailed] 的 `cause: AgentException`）
+ * 与 ReActAgent 边界的抬升目标；事件层 [AgentEvent.Failed] 不再要求 [AgentException]，
+ * 可以携带任意 [Throwable]。
  */
 public sealed class AgentException(message: String, cause: Throwable? = null) :
     RuntimeException(message, cause) {
