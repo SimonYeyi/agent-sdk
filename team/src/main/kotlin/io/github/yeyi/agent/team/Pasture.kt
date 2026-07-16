@@ -3,13 +3,10 @@ package io.github.yeyi.agent.team
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.skill.Skill
 import io.github.yeyi.agent.skill.SkillRegistry
-import io.github.yeyi.agent.subagent.Subagent
 import io.github.yeyi.agent.subagent.SubagentRegistry
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolRegistry
-import io.github.yeyi.agent.toolset.Toolset
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope

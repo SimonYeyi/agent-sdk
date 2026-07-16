@@ -29,9 +29,8 @@ internal class Ox internal constructor(
     private val maxRounds: Int,
 ) : Beast {
     override suspend fun run(task: String, onEvent: suspend (AgentEvent) -> Unit) {
-        val p = persona
         val inner = agent {
-            persona(p)
+            persona(this@Ox.persona)
             llmProvider(llmProvider)
             memory(InMemoryMemory(), maxRounds)
             toolRegistry?.let { tools(it) }
@@ -52,9 +51,8 @@ internal class Horse internal constructor(
     private val maxRounds: Int,
 ) : Beast {
     override suspend fun run(task: String, onEvent: suspend (AgentEvent) -> Unit) {
-        val p = persona
         val inner = agent {
-            persona(p)
+            persona(this@Horse.persona)
             llmProvider(llmProvider)
             memory(InMemoryMemory(), maxRounds)
             tools(tools)

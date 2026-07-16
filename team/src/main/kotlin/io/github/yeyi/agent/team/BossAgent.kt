@@ -1,11 +1,10 @@
-@file:OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
-
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
@@ -182,6 +181,7 @@ public class BossAgent internal constructor(
      * @param round     [run] 投递的 user round (锁内消费: 闲启动 / 忙挂起)
      * @param postRound 当前 round/collect 已跑完 (锁内接续决策)
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun handlePending(
         round: UserRound? = null,
         postRound: Boolean = false,
