@@ -28,6 +28,9 @@ public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
     /** 批量添加子 Tool。 */
     public fun add(tools: Iterable<Tool>)
 
+    /** 返回当前 Toolset 持有的所有子 Tool 快照。 */
+    public fun all(): List<Tool>
+
     /** 当前 Toolset 持有的子工具结构化定义列表,供 LLM schema 渲染或下游消费。 */
     public fun definitions(): List<ToolDefinition>
 
@@ -65,6 +68,8 @@ private class DefaultToolset(
     override fun add(tools: Iterable<Tool>) {
         tools.forEach(::add)
     }
+
+    override fun all(): List<Tool> = subTools.values.toList()
 
     override fun definitions(): List<ToolDefinition> =
         subTools.values.map { tool -> tool.toDefinition() }

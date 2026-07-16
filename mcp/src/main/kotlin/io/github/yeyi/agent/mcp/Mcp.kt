@@ -65,6 +65,15 @@ public abstract class Mcp : Toolset {
         createToolset().also { delegate = it }.definitions()
 
     /**
+     * 返回当前已拉取的远端 MCP 工具列表快照。
+     *
+     * MCP 工具是动态管理的,没有静态容器;返回 [delegate] 中已缓存的工具集合(若 [delegate]
+     * 尚未通过 [definitions] 初始化,则返回空列表,与 [dispatch] 未初始化时抛错的行为互补 —
+     * [all] 是只读快照,不应隐式触发远端拉取,避免与 [definitions] 的语义重叠)。
+     */
+    final override fun all(): List<Tool> = delegate?.all() ?: emptyList()
+
+    /**
      * 委托给 [delegate] 中的 [Tool] 执行。
      * 调用方需先调用 [definitions] 拉取工具列表,否则抛错。
      */
