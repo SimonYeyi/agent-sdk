@@ -1324,9 +1324,9 @@ User 调 `run()` 拿到一个 Flow, 内部是 per-round Channel, 该 round 跑�
 6. innerAgent.memory 记录 ToolResult
 7. innerAgent 继续 LLM 循环: 决定 final 文本回复用户
 8. emit Final("已让 web_search 助手去查,稍等")
-9. BossAgent.run() 完成: round.channel.close()
+9. BossAgent.run() 完成: round.channel.close() 在 finally 中执行
    → user 拿到的 Flow 自然结束, 任务仍在后台跑
-   → state → WAITING, handlePending() 决策 (没 terminals, idle)
+   → finally 调 handlePending(postRound=true); 锁内:pendingRound=null, hasResults=false → idle → state → WAITING
 
 10. Pasture.handleAssignment 接到 TaskAssignment
 11. assembleHorse([Skill("web_search")]) →
@@ -1346,14 +1346,14 @@ User 调 `run()` 拿到一个 Flow, 内部是 per-round Channel, 该 round 跑�
 18. BossAgent.handleTaskUpdate 接到 TaskUpdate (Final)
 19. tasksLock.withLock: tasks[taskId].events += event, terminal=true
 20. pendingResultEvents.trySend(update)
-21. state=WAITING → handlePending()
-22. decisionLock.withLock: 看到 hasResults, hasActive=false → 启动 runContinuationRound()
-23. state → RUNNING, innerAgent.run("任务 X 已 Final: 结果是 Y")
+21. handlePending(postRound=false, round=null) (外部触发)
+22. decisionLock.withLock: state=WAITING 撞闲; hasResults=true, hasActive=false → 启动 runPendingRound(null) (纯续轮, 无 user round 参数)
+23. _state.value = RUNNING, innerAgent.run("任务 X 已 Final: 结果是 Y")
 24. boss LLM 决定 final 文本回复用户
-25. emit Final("搜索完成,结果如下: ...")
-26. BossAgent.runContinuationRound() finally: state → WAITING
-    → continuationsEmitter.emit(event) 喂到续轮流
-    → 订阅 boss.continuations 的 UI 收到该轮事件
+25. emit Final("搜索完成,结果如下: ...") → continuationsEmitter.emit(...)
+26. BossAgent.runPendingRound() finally: round.channel.close() (round=null, 跳过), 调 handlePending(postRound=true)
+    → 锁内: pendingRound=null, hasResults=false → idle → state → WAITING
+    → 订阅 boss.continuations 的 UI 持续收到续轮事件
 ```
 
 ### 6.2 多 selection 单 task (toolset + 直接 tool 组合)
@@ -1477,7 +1477,7 @@ User 调 `run()` 拿到一个 Flow, 内部是 per-round Channel, 该 round 跑�
 | `WAITING` | idle, 等待外部输入 (用户或终态 TaskUpdate) | 构造时 / `handlePending` 真 idle 路径 (round finally / COLLECTING 1s 结束后) | user `run()` / 终态 TaskUpdate 触发 `handlePending` |
 | `RUNNING` | round 正在跑 (user-driven 或 task-driven 续轮) | `runPendingRound` 起始 | round finally → `handlePending(postRound = true)`, 可能 launch 新 round (state 持续 RUNNING), 或 → COLLECTING, 或真 idle → WAITING |
 | `INPUTTING` | user 在 WAITING 状态下开始打字 (UI 信号) | `inputting(true)` 当 state = WAITING | `inputting(false)` / user 提交 (`run()` → RUNNING) |
-| `COLLECTING` | 任务触发的续轮等 1s 合并窗口 | `handlePending` 见 hasResults + hasActive | 1s 等待结束 → `handlePending(postRound = true)`, 可能续 COLLECTING / → RUNNING / 真 idle → WAITING |
+| `COLLECTING` | 任务触发的续轮等 1s 合并窗口 | `handlePending` 外部触发 + 仍有 active 任务 + 有 results | 1s 等待结束 → `handlePending(postRound = true)`, → RUNNING (跑 round) 或真 idle → WAITING. **postRound 路径不进 COLLECTING 分支** (防死循环) |
 
 ### 7.2 转换规则 (双事件流分流)
 
@@ -1501,17 +1501,17 @@ WAITING ──user run()──► RUNNING ──round finally──► WAITING �
    │   │                                                    │ │
    │   ▼                                                    ▼ │
 handlePending()  ──(decisionLock.withLock)──► hasResults? │
-   │                                                │          │
+   │ (外部触发, postRound=false)                │          │
    │                          ┌─────────────────────┘          │
    │                          ▼                                │
    │                  hasActive?                              │
    │                  ┌─────┴─────┐                            │
    │                  ▼           ▼                            │
-   │              yes: COLLECTING  no: runPendingRound() │
+   │              yes: COLLECTING  no: runPendingRound(null) │
    │                  │           │                            │
    │                  │ 1s wait   │                            │
    │                  │           ▼                            │
-   │                  │    RUNNING ──finally──► WAITING        │
+   │                  │    RUNNING ──finally──► handlePending(postRound=true) │
    │                  │           │                            │
    │                  │           ▼                            │
    │                  │   continuationsEmitter ──► continuations (Flow)
@@ -1522,14 +1522,19 @@ handlePending()  ──(decisionLock.withLock)──► hasResults? │
                                                                │
 WAITING ──inputting(true)──► INPUTTING ──inputting(false)──► WAITING
                                        │
-                                       └── user run() ──► RUNNING (user 流)
+                                       └── user run() ──► handlePending(round=X) ─► RUNNING (user 流)
 ```
 
+**`handlePending` 决策路径** (锁内):
+1. **run() 投递** (`round != null`): 闲时 launch round; 忙时挂起到 `pendingUserRound` (latest-wins).
+2. **外部触发** (`round = null, postRound = false`): 撞忙 bail; 撞闲按 hasActive 走 COLLECTING 或 runPendingRound.
+3. **postRound 接班** (`round = null, postRound = true`): 锁内读+清字段; 按 pendingRound/hasResults 走 runPendingRound 或 idle. **不进 COLLECTING 分支** (防死循环).
+
 **关键点**:
-- `run()` 触发 → `UserRound.channel` 流 (返回的 Flow)
+- `run()` 触发 → `UserRound.channel` 流 (返回的 Flow) — 经 `handlePending(round=X)` 决策启动
 - 续轮触发 → `continuationsEmitter` 流 (`continuations` property)
-- 合并 round (有 user pending) → 走 user 流 (UserRound.channel)
-- 纯续轮 (无 user pending) → 走 continuations 流
+- 合并 round (有 user pending) → 走 user 流 (UserRound.channel) — via `runPendingRound(round=X)`
+- 纯续轮 (无 user pending) → 走 continuations 流 — via `runPendingRound(null)`
 
 ### 7.3 终态事件合并策略
 
@@ -1561,19 +1566,22 @@ INPUTTING 状态的语义: "user 在 WAITING 状态下开始打字, 意图提交
 
 ### 7.5 并发安全
 
-`handlePending()` 是唯一决策点, 串行化所有触发源:
-- `run()` (state 闲时) 调
-- `handleTaskUpdate` 收到终态时 调
-- `runUserRound` / `runContinuationRound` finally 调
-- `runContinuationWithCollecting` 1s 窗口结束 (isEmpty 分支) 调
+`handlePending()` 是唯一决策点, 串行化所有触发源 (4 种):
+- `run()` 投递 (锁内决策: 闲时 launch, 忙时挂起到 `pendingUserRound`)
+- `handleTaskUpdate` 收到终态时 调 (`round = null`, `postRound = false`)
+- `runPendingRound` finally 调 (`postRound = true`)
+- `runPendingRoundWithCollecting` 1s 窗口结束 调 (`postRound = true`)
 
-通过 `decisionLock: Mutex.withLock { }` 保护:
+通过 `decisionLock: Mutex.withLock { }` 锁内 atomically:
 1. 重检 state (lock 内, 避免 TOCTOU)
-2. 读 `pendingUserRound` / `pendingResultEvents` / `tasks`
-3. 决定下一步 (user round / COLLECTING / continuation)
-4. `scope.launch { ... }` 启动
+2. 读+清 `pendingUserRound` (原子化, 防 finally 清字段覆盖并发 write)
+3. 读 `pendingResultEvents` / `tasks`
+4. 决定下一步 (user round / COLLECTING / 续轮 / idle)
+5. `scope.launch { ... }` 启动
 
-**state 转换唯一收敛**:round/collect finally 不再显式 `state = WAITING`,把转换职责完全交给 `handlePending(postRound = true)`,避免 RUNNING→WAITING→RUNNING 闪烁;COLLECTING 允许递归进入"续 collect"分支,避免 COLLECTING→WAITING→COLLECTING 闪烁. `postRound = false` (外部触发) 在 state 错位 (变 RUNNING/COLLECTING) 时 bail,避免重复 launch.
+**字段不变量**:`pendingUserRound` 锁外只读不写. 唯一写入点是 handlePending 锁内 run() 投递 + busy 路径. 唯一读+清点是 handlePending 第 3 段 (postRound 或外部撞闲). `runPendingRound` 不沾字段 — round 作为参数传入. 这保证 finally 不清字段, 不会覆盖 busy 时另一线程 run() 写入的新 round.
+
+**state 转换唯一收敛**:round/collect finally 不再显式 `state = WAITING`,把转换职责完全交给 `handlePending(postRound = true)`,避免 RUNNING→WAITING→RUNNING 闪烁. **postRound 路径不进 COLLECTING 分支** — 防止 1s collect 死循环. `postRound = false` (外部触发) 在 state 错位 (变 RUNNING/COLLECTING) 时 bail,避免重复 launch.
 
 **其他并发安全**:
 - `tasks` map 所有访问走 `tasksLock.withLock`
