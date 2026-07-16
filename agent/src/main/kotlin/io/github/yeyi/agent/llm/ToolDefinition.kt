@@ -15,4 +15,14 @@ public data class ToolDefinition(
     public val name: String,
     public val description: String,
     public val parametersSchema: JsonObject
-)
+) {
+    override fun toString(): String {
+        val escapedDesc = description
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+        return """{"name": "$name", "description": "$escapedDesc", "parameters_schema": $parametersSchema}"""
+    }
+}
