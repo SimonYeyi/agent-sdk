@@ -130,9 +130,10 @@ class BossAgentTest {
         // 让 init 协程有时间启动并订阅 bulletin,然后再 shutdown 干净
         delay(50)
         boss.shutdown()
-        // subsequent run should not complete
+        // subsequent run returns Failed event
         val events = boss.run("hello").toList()
-        assertTrue(events.isEmpty())
+        assertEquals(1, events.size)
+        assertTrue(events[0] is AgentEvent.Failed)
     }
 
     // ===== Race-free behaviors (spec § 7.5 + § 6.1-6.3) =====

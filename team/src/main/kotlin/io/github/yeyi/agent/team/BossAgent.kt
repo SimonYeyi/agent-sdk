@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -64,6 +65,7 @@ public class BossAgent internal constructor(
     private val continuationsEmitter = MutableSharedFlow<AgentEvent>(
         replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
+
     /**
      * 续轮事件流 (hot SharedFlow) — 任务结果触发的 round 事件都流到这里.
      * 与 [run] 互补: `run` 是用户驱动的单次 round 流, `continuations` 是任务驱动的多 round 流.
@@ -116,17 +118,17 @@ public class BossAgent internal constructor(
     // ========== Public API ==========
 
     override fun run(input: String): Flow<AgentEvent> {
-        val round = UserRound(input, Channel(Channel.UNLIMITED))
-        // scope 已取消 (shutdown 调用过) — run() 直接关 channel 返回, Flow 立刻终化空列表.
+        // scope 已取消 (shutdown 调用过) — run() 返回 Failed 事件.
         if (!scope.isActive) {
-            round.channel.close()
-            return kotlinx.coroutines.flow.flow { for (e in round.channel) emit(e) }
+            return flow { emit(AgentEvent.Failed(IllegalStateException("Agent is shut down"))) }
         }
+
+        val round = UserRound(input, Channel(Channel.UNLIMITED))
         // 投递到 handlePending — 锁内决策: 闲时直接 launch, 忙时挂起到字段.
         // run() 不沾字段,避免与 finally 清字段覆盖并发写入的 race.
         scope.launch { handlePending(round = round) }
         // 返回的 Flow 内容就是该轮的事件; channel 关闭时 Flow 自然结束
-        return kotlinx.coroutines.flow.flow { for (e in round.channel) emit(e) }
+        return flow { for (e in round.channel) emit(e) }
     }
 
     override fun runStream(input: String): Flow<AgentEvent> = run(input)
@@ -194,6 +196,7 @@ public class BossAgent internal constructor(
                         _state.value = BossState.RUNNING
                         scope.launch { runPendingRound(round) }
                     }
+
                     else -> {
                         // 老挂起 round 被最新 run() 替代: close 前 emit Failed(CancellationException)
                         // 让 Flow 收到终止事件 (而非静默 close),符合 AgentEvent 终止语义.
