@@ -7,6 +7,7 @@ import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
@@ -175,5 +176,21 @@ class PublishTaskToolTest {
 
         assertEquals(1, collected.size)
         assertTrue(collected[0] is TaskAssignment)
+    }
+
+    @Test
+    fun `parametersSchema enum contains all selection types`() {
+        val caps = mapOf(
+            "skill" to listOf(NamedCapability("s1", "d1")),
+            "tool" to listOf(NamedCapability("t1", "d1")),
+            "toolset" to listOf(NamedCapability("ts1", "d1")),
+            "subagent" to listOf(NamedCapability("sa1", "d1")),
+        )
+        val tool = PublishTaskTool(BulletinBoard(), caps)
+        val schema = (tool.parametersSchema as ToolParameters.JsonSchema).schema
+        assertTrue(schema.contains("\"skill\""), "schema should contain skill enum value")
+        assertTrue(schema.contains("\"tool\""), "schema should contain tool enum value")
+        assertTrue(schema.contains("\"toolset\""), "schema should contain toolset enum value")
+        assertTrue(schema.contains("\"subagent\""), "schema should contain subagent enum value")
     }
 }
