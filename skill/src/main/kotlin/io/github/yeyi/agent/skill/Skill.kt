@@ -29,7 +29,7 @@ import io.github.yeyi.agent.capability.Capability
  * class WeatherSkill : Skill {
  *     override val name = "weather"
  *     override val description = "天气查询助手"
- *     override fun load(context: SkillContext) = "你是天气助手,使用 get_weather / get_forecast 工具回答问题。"
+ *     override fun load() = "你是天气助手,使用 get_weather / get_forecast 工具回答问题。"
  * }
  * ```
  *
@@ -38,10 +38,11 @@ import io.github.yeyi.agent.capability.Capability
  * is explicit and type-checked.
  */
 public interface Skill : Capability<Unit, SkillContext> {
-    public fun load(context: SkillContext): String
+    /** 加载技能指令文本。不再需要 context 参数。 */
+    public fun load(): String
 
     override suspend fun activate(arguments: Unit?, context: SkillContext): String =
-        load(context)
+        load()
 
     public companion object {
         public const val CAPABILITY_NAME: String = "skill"
