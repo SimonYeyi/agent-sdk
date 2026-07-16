@@ -38,9 +38,6 @@ public class SkillRegistry :
             tools[tool.name] = tool
         }
     }
-
-    internal fun hasTools() = tools.isNotEmpty()
-
     /** 返回所有注册的 Skill 相关工具。 */
     public fun allTools(): List<Tool> = tools.values.toList()
 
