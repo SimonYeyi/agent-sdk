@@ -55,6 +55,6 @@ class AgentResultExtensionsTest {
             AgentEvent.Failed(cause),
         )
         val thrown = assertFailsWith<AgentException> { flow.awaitResult() }
-        assertSame(cause, thrown, "awaitResult must propagate the exact Failed.throwable, not wrap it")
+        assertSame(cause, thrown, "awaitResult must propagate the exact Failed.cause, not wrap it")
     }
 }

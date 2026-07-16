@@ -209,7 +209,7 @@ class ReActAgentTest {
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 2)
         val events = agent.run("hi").toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
-        val ex = failed.throwable as AgentException.MaxIterations
+        val ex = failed.cause as AgentException.MaxIterations
         assertEquals(2, ex.max)
     }
 
@@ -325,8 +325,8 @@ class ReActAgentTest {
         val events = agent.runStream("hi").toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
         // Failed 现在直接携带原始 Throwable,不再包成 AgentException.Unknown;
-        // 因此 throwable 即 boom 本体。
-        assertSame(boom, failed.throwable)
+        // 因此 cause 即 boom 本体。
+        assertSame(boom, failed.cause)
     }
 
     @Test
@@ -357,7 +357,7 @@ class ReActAgentTest {
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 2)
         val events = agent.runStream("hi").toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
-        val ex = failed.throwable as AgentException.MaxIterations
+        val ex = failed.cause as AgentException.MaxIterations
         assertEquals(2, ex.max)
     }
 }

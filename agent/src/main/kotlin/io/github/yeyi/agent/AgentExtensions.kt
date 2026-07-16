@@ -32,7 +32,7 @@ public fun Tool.toDefinition(): ToolDefinition {
  *
  * 终端事件识别:
  * - [AgentEvent.Final] → 返回其 [AgentEvent.Final.result]
- * - [AgentEvent.Failed] → 抛出其 [AgentEvent.Failed.throwable]（原始异常，不重新包装）
+ * - [AgentEvent.Failed] → 抛出其 [AgentEvent.Failed.cause]（原始异常，不重新包装）
  *
  * 其他 [AgentEvent] 子类型被忽略。
  * Flow 自身异常按 Flow 协议传播。
@@ -41,7 +41,7 @@ public suspend fun Flow<AgentEvent>.awaitResult(): AgentResult {
     val terminal = filter { it is AgentEvent.Final || it is AgentEvent.Failed }.first()
     return when (terminal) {
         is AgentEvent.Final -> terminal.result
-        is AgentEvent.Failed -> throw terminal.throwable
+        is AgentEvent.Failed -> throw terminal.cause
         else -> error("unreachable: filter restricts to Final|Failed, got ${terminal::class.simpleName}")
     }
 }

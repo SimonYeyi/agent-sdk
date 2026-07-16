@@ -189,7 +189,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                         }
                         is io.github.yeyi.agent.AgentEvent.Failed -> {
                             _uiState.value = _uiState.value.copy(
-                                messages = _uiState.value.messages + UiMessage.Error(event.throwable.message ?: "Unknown error", id = nextUiId()),
+                                messages = _uiState.value.messages + UiMessage.Error(event.cause.message ?: "Unknown error", id = nextUiId()),
                                 liveBubble = null,
                                 isToolExecutionPending = false
                             )

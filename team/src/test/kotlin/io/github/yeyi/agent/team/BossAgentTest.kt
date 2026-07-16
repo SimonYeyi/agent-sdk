@@ -213,12 +213,12 @@ class BossAgentTest {
         )
         val flow2Failed = flow2Last as AgentEvent.Failed
         assertTrue(
-            flow2Failed.throwable is CancellationException,
-            "expected CancellationException, got: ${flow2Failed.throwable::class.simpleName}"
+            flow2Failed.cause is CancellationException,
+            "expected CancellationException, got: ${flow2Failed.cause::class.simpleName}"
         )
         assertEquals(
             "superseded by newer run()",
-            flow2Failed.throwable.message,
+            flow2Failed.cause.message,
             "supersede CancellationException must carry the spec-mandated message"
         )
 

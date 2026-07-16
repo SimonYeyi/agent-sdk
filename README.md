@@ -34,7 +34,7 @@ agent.runStream("现在几点？", memory).collect { event ->
         is AgentEvent.ToolCallStart -> println("→ ${event.toolName}")
         is AgentEvent.ToolCallEnd -> println("✓ ${event.result.content}")
         is AgentEvent.Final -> println()                        // 终态
-        is AgentEvent.Failed -> System.err.println(event.throwable)
+        is AgentEvent.Failed -> System.err.println(event.cause)
     }
 }
 
