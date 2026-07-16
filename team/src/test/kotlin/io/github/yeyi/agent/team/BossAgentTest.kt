@@ -7,14 +7,20 @@ import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
+import io.github.yeyi.agent.llm.LlmProvider
+import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.memory.InMemoryMemory
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -22,29 +28,55 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class BossAgentTest {
 
-    private fun createBossAgent(bb: BulletinBoard = BulletinBoard()): Pair<BossAgent, BulletinBoard> {
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val innerAgent = agent {
-            // Brief has `FakeLlmProvider("Hello from boss")` — that constructor doesn't exist.
-            // FakeLlmProvider expects List<ChatResponse>; substitute a single-scripted response.
-            llmProvider(
-                FakeLlmProvider(
-                    nonStreamResponses = listOf(
-                        ChatResponse(
-                            message = ChatMessage.Assistant(content = "Hello from boss"),
-                            finishReason = FinishReason.Stop,
-                        )
-                    )
+    private fun createBossAgent(
+        bb: BulletinBoard = BulletinBoard(),
+        provider: LlmProvider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    message = ChatMessage.Assistant(content = "Hello from boss"),
+                    finishReason = FinishReason.Stop,
                 )
             )
+        ),
+    ): Pair<BossAgent, BulletinBoard> {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val innerAgent = agent {
+            llmProvider(provider)
             memory(InMemoryMemory(), 20)
             maxIterations(1) // single-turn agent
         }
         return BossAgent(innerAgent, bb, scope) to bb
+    }
+
+    /**
+     * Fake LLM provider where the first [chat] call suspends for [firstCallDelayMs] ms
+     * before returning the first scripted response; subsequent calls return the next
+     * scripted response immediately. Used by the supersede test to keep the first run's
+     * round in RUNNING long enough to interleave further run() calls on the busy path.
+     */
+    private class SlowFirstLlmProvider(
+        private val responses: List<ChatResponse>,
+        private val firstCallDelayMs: Long,
+    ) : LlmProvider {
+        override val name: String = "slow-first"
+        private var index = 0
+
+        override suspend fun chat(request: ChatRequest): ChatResponse {
+            val i = index++
+            check(i < responses.size) {
+                "SlowFirstLlmProvider: chat() called ${i + 1} times, but only ${responses.size} responses scripted"
+            }
+            if (i == 0) delay(firstCallDelayMs)
+            return responses[i]
+        }
+
+        override fun chatStream(request: ChatRequest): Flow<StreamEvent> =
+            kotlinx.coroutines.flow.flow { /* not used by innerAgent.run() */ }
     }
 
     @Test
@@ -106,25 +138,112 @@ class BossAgentTest {
     // ===== Race-free behaviors (spec § 7.5 + § 6.1-6.3) =====
 
     @Test
-    fun `run() supersedes pending round with Failed(CancellationException) when boss busy`() = runTest {
-        // 用一个 sleep 风格的 LLM provider 模拟"round 还在跑" — 第一次 run 还没结束, 第二次 run 应触发 supersedeRound.
-        // 策略: 第一次 run 的 innerAgent 调一次 LLM (返回 sleep 风格的 slow response),
-        // 第二次 run 进入 handlePending busy 分支, 挂起到 pendingUserRound 字段;
-        // 当第一次 round 终于完成, postRound 决策 → 取第二次 round 跑.
-        // 简化: 直接构造场景 — 第一次 run 后, 立即手动 publish 第二次 input (busy path)
-        // 实际更简单: 不验证 supersedeRound 内部机制 (private), 而验证 user 视角:
-        //   - 第二次 run() 拿到的 flow 应当 close 前 emit Failed(CancellationException("superseded by newer run()"))
-        //     仅当它**被 superseded** 时.
-        // 测试构造: 直接调两次 boss.run(), 第二次的 flow 必须最终化 (无论路径).
-        val (boss, _) = createBossAgent()
+    fun `run() supersedes pending round with Failed(CancellationException) when boss busy`() = runBlocking {
+        // Spec § 7.5 invariant #2: a newer run() arriving while another round is still RUNNING
+        // supersedes the previously-pending round and emits AgentEvent.Failed(CancellationException).
+        //
+        // Setup uses a slow-first LLM provider so the first round's LLM call suspends long
+        // enough for two more run() calls to land while the boss is in state RUNNING:
+        //   T1: run("first")  → state WAITING → RUNNING, round1 LLM suspends ~500ms
+        //   T2: run("second") → state RUNNING → pendingUserRound = round2 (no previous pending, no supersede)
+        //   T3: run("third")  → state RUNNING → supersedeRound(round2) + pendingUserRound = round3
+        //   T4: round1 LLM completes → handlePending(postRound=true) picks up round3
+        //   T5: runPendingRound(round3) completes → state WAITING
+        //
+        // Expected:
+        //   - flow1 ends with Final("response 1") (round1 was running, never superseded)
+        //   - flow2 ends with Failed(CancellationException("superseded by newer run()")) — round2 was superseded by run3
+        //   - flow3 ends with Final("response 3") (round3 was the latest pending and got picked up by postRound)
+        val provider = SlowFirstLlmProvider(
+            responses = listOf(
+                ChatResponse(
+                    message = ChatMessage.Assistant(content = "response 1"),
+                    finishReason = FinishReason.Stop,
+                ),
+                ChatResponse(
+                    message = ChatMessage.Assistant(content = "response 3"),
+                    finishReason = FinishReason.Stop,
+                ),
+            ),
+            firstCallDelayMs = 500,
+        )
+        val (boss, _) = createBossAgent(provider = provider)
 
-        // 第一次 run 立即返回 (FakeLlmProvider 1 turn); 第二次 run 同步接上.
-        // 这两次都落在 WAITING 分支, 不会 supersede — 但能验证双 run 不丢失事件.
-        val flow1Events = boss.run("first").toList()
-        val flow2Events = boss.run("second").toList()
+        // T1: launch run1 collector in a coroutine, do NOT await completion
+        val flow1Events = mutableListOf<AgentEvent>()
+        val flow1Job = launch {
+            boss.run("first").collect { flow1Events.add(it) }
+        }
 
-        assertTrue(flow1Events.isNotEmpty(), "first run produced no events")
-        assertTrue(flow2Events.isNotEmpty(), "second run produced no events")
+        // Wait until state is RUNNING — deterministic, no arbitrary delay
+        withTimeout(2000) {
+            boss.state.first { it == BossState.RUNNING }
+        }
+
+        // T2: run2 — gets queued in pendingUserRound
+        val flow2Events = mutableListOf<AgentEvent>()
+        val flow2Job = launch {
+            boss.run("second").collect { flow2Events.add(it) }
+        }
+
+        // Brief delay so run2's handlePending has committed pendingUserRound = round2
+        // before run3 arrives. Without this, run3 might race ahead of run2 and the test
+        // wouldn't actually exercise the supersede path.
+        delay(50)
+
+        // T3: run3 — supersedes round2 (which is in pendingUserRound)
+        val flow3Events = mutableListOf<AgentEvent>()
+        val flow3Job = launch {
+            boss.run("third").collect { flow3Events.add(it) }
+        }
+
+        // Wait for all three flows to terminate
+        withTimeout(5000) {
+            flow1Job.join()
+            flow2Job.join()
+            flow3Job.join()
+        }
+
+        // flow2 must end with Failed(CancellationException("superseded by newer run()"))
+        val flow2Last = flow2Events.lastOrNull()
+        assertNotNull(flow2Last, "flow2 produced no events")
+        assertTrue(
+            flow2Last is AgentEvent.Failed,
+            "expected flow2 to end with AgentEvent.Failed, got: $flow2Last"
+        )
+        val flow2Failed = flow2Last as AgentEvent.Failed
+        assertTrue(
+            flow2Failed.throwable is CancellationException,
+            "expected CancellationException, got: ${flow2Failed.throwable::class.simpleName}"
+        )
+        assertEquals(
+            "superseded by newer run()",
+            flow2Failed.throwable.message,
+            "supersede CancellationException must carry the spec-mandated message"
+        )
+
+        // flow1 ends with Final("response 1") — round1 was running, never superseded
+        val flow1Last = flow1Events.lastOrNull()
+        assertTrue(
+            flow1Last is AgentEvent.Final,
+            "expected flow1 to end with AgentEvent.Final, got: $flow1Last"
+        )
+        assertEquals(
+            ChatMessage.Assistant("response 1"),
+            (flow1Last as AgentEvent.Final).result.message,
+        )
+
+        // flow3 ends with Final("response 3") — round3 was the latest pending and got picked up
+        val flow3Last = flow3Events.lastOrNull()
+        assertTrue(
+            flow3Last is AgentEvent.Final,
+            "expected flow3 to end with AgentEvent.Final, got: $flow3Last"
+        )
+        assertEquals(
+            ChatMessage.Assistant("response 3"),
+            (flow3Last as AgentEvent.Final).result.message,
+        )
+
         assertEquals(BossState.WAITING, boss.state.value)
     }
 
