@@ -254,6 +254,9 @@ class BossAgentTest {
         // 验证 continuations 流收到 boss LLM 看到结果后发出的续轮 Final.
         val (boss, bb) = createBossAgent()
 
+        // 等待 BossAgent 订阅回调就绪后再发布任务
+        delay(50)
+
         // 直接 publish 一个 taskId 的 TaskAssignment (跳过 PublishTaskTool)
         val taskId = "test-task-1"
         bb.publishEvent(
@@ -263,8 +266,6 @@ class BossAgentTest {
                 task = "do something",
             )
         )
-        // 等待 BossAgent 订阅回调写入 tasks map (init 中的订阅, 在 Dispatchers.Default 上启动需一点时间)
-        delay(500)
 
         // 订阅 continuations 后 publish 终态 TaskUpdate
         val continuations = mutableListOf<AgentEvent>()
@@ -299,11 +300,13 @@ class BossAgentTest {
         // 验证: state 经历 WAITING → COLLECTING → RUNNING → WAITING (无 RUNNING→WAITING→RUNNING 闪烁).
         val (boss, bb) = createBossAgent()
 
+        // 等待 BossAgent 订阅回调就绪后再发布任务
+        delay(50)
+
         val taskIdA = "task-A"
         val taskIdB = "task-B"
         bb.publishEvent(TaskAssignment(taskIdA, listOf(Selection.Tool("t")), "A"))
         bb.publishEvent(TaskAssignment(taskIdB, listOf(Selection.Tool("t")), "B"))
-        delay(200)  // 让 BossAgent 订阅回调写入 tasks map
 
         // 收集 state 变更
         val stateLog = mutableListOf<BossState>()

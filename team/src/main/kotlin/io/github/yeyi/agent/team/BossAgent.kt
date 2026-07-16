@@ -16,11 +16,9 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -106,12 +104,6 @@ public class BossAgent internal constructor(
         scope.launch {
             bulletinBoard.progressEvents
                 .collect { handleTaskUpdate(it as TaskUpdate) }
-        }
-        // 阻塞 init 直至 bulletinBoard 双方订阅就绪:派件 + 进度各一, subscriptionCount >= 2.
-        // 否则MutableSharedFlow(replay=0) 在订阅前 emit 的值被丢弃 — 调用方 race.
-        // runBlocking 阻塞构造线程;scope 用 Dispatchers.Default,launch 在其它线程不受影响.
-        runBlocking {
-            bulletinBoard.subscriptionCount.first { it >= 2 }
         }
     }
 
