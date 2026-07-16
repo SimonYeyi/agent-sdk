@@ -13,6 +13,8 @@ import io.github.yeyi.agent.toolset.Toolset
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -49,7 +51,7 @@ internal class Pasture internal constructor(
 
     private suspend fun handleAssignment(e: TaskAssignment) {
         val beast: Beast = try {
-            assembleHorse(e.selections)
+            withContext(Dispatchers.IO) { assembleHorse(e.selections) }
         } catch (_: IllegalStateException) {
             buildOx()
         }
