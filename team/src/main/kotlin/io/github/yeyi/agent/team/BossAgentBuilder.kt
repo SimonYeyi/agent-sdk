@@ -68,7 +68,7 @@ public class BossAgentBuilder internal constructor() {
 
     public fun persona(persona: Persona) {
         require(persona.role.isBlank()) {
-            "Persona.role is reserved by the BossAgent framework — must be empty string. " +
+            "Persona.role is reserved by the BossAgent framework — must be blank. " +
                 "Use personality / domain / constraints / extra to customize agent persona."
         }
         bossPersona0 = persona
@@ -81,7 +81,9 @@ public class BossAgentBuilder internal constructor() {
         val bulletinBoard = BulletinBoard()
         val bossScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-        val pasture = Pasture(
+        // Pasture subscription is held by the bossScope-launched coroutine in its init {} —
+        // BossAgent keeps bossScope alive, so the collector stays subscribed for the agent's lifetime.
+        Pasture(
             bulletinBoard = bulletinBoard,
             llmProvider = llm,
             toolRegistry = delegatedToolRegistry0,
@@ -92,10 +94,6 @@ public class BossAgentBuilder internal constructor() {
             maxIterations = maxIterations0,
             maxRounds = maxRounds0,
         )
-        // pasture is used for its init side-effect (subscribing to bulletinBoard)
-        // Keep reference to prevent GC
-        @Suppress("UNUSED_VARIABLE")
-        val _pasture = pasture
 
         return buildBoss(mem, llm, bulletinBoard, bossScope)
     }
