@@ -20,7 +20,7 @@ package io.github.yeyi.agent
  *     .extra("你可以使用以下技能：...", "Tools")
  * ```
  */
-public class Persona(private val role: String) {
+public class Persona(public val role: String) {
     private var personality: String? = null
     private var domain: String? = null
     private val constraints: MutableList<String> = mutableListOf()
