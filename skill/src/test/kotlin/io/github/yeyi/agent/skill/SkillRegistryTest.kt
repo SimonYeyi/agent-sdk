@@ -1,6 +1,11 @@
 package io.github.yeyi.agent.skill
 
+import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionResult
+import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonElement
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -15,6 +20,15 @@ class SkillRegistryTest {
         private val content: String,
     ) : Skill {
         override fun load(context: SkillContext): String = content
+    }
+
+    private class FixedTool(
+        override val name: String,
+        override val description: String = "test tool",
+    ) : Tool {
+        override val parametersSchema: ToolParameters = ToolParameters.Empty
+        override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+            ToolExecutionResult.success("ok")
     }
 
     private fun emptyContext(): SkillContext = SkillContext()
@@ -88,5 +102,32 @@ class SkillRegistryTest {
     fun `unknown skill returns null when searching via all`() {
         val registry = SkillRegistry()
         assertNull(registry.all().find { it.name == "unknown" })
+    }
+
+    @Test
+    fun `allTools returns empty list when no tools registered`() {
+        val registry = SkillRegistry()
+        assertEquals(emptyList(), registry.allTools())
+    }
+
+    @Test
+    fun `allTools returns all registered tools in insertion order`() {
+        val registry = SkillRegistry()
+        val t1 = FixedTool("alpha")
+        val t2 = FixedTool("beta")
+        val t3 = FixedTool("gamma")
+        registry.registerTools(listOf(t1, t2, t3))
+        val names = registry.allTools().map { it.name }
+        assertEquals(listOf("alpha", "beta", "gamma"), names)
+    }
+
+    @Test
+    fun `allTools returns snapshot independent of subsequent mutations`() {
+        val registry = SkillRegistry()
+        registry.registerTools(listOf(FixedTool("a")))
+        val snapshot = registry.allTools()
+        registry.registerTools(listOf(FixedTool("b")))
+        assertEquals(listOf("a"), snapshot.map { it.name })
+        assertEquals(listOf("a", "b"), registry.allTools().map { it.name })
     }
 }
