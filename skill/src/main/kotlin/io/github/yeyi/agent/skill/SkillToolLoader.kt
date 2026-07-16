@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.skill
 
+import io.github.yeyi.agent.toDefinition
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -43,21 +44,12 @@ internal class SkillToolLoader(private val registry: SkillRegistry) : Tool {
             ?.map { it.jsonPrimitive.content }
             ?: return ToolExecutionResult.error("Missing tool_names")
 
-        val toolDefinitions = definitions(toolNames)
-        return ToolExecutionResult.success("发现以下可用 Skill 工具：\n$toolDefinitions")
+        return ToolExecutionResult.success("发现以下可用 Skill 工具：\n${toolNames.toDefinitions()}")
     }
 
-    private fun definitions(toolNames: List<String>): String {
-        val items = toolNames.mapNotNull { name -> registry.allTools().find { it.name == name } }
-            .joinToString(",\n") { tool ->
-                val schemaStr = when (val params = tool.parametersSchema) {
-                    is ToolParameters.JsonSchema -> params.schema
-                    is ToolParameters.Empty -> "{}"
-                }
-                """{"name": "${tool.name}", "description": "${
-                    tool.description.replace("\"", "\\\"")
-                }", "parameters_schema": $schemaStr}"""
-            }
+    private fun List<String>.toDefinitions(): String {
+        val items = mapNotNull { name -> registry.allTools().find { it.name == name } }
+            .joinToString(",\n") { tool -> tool.toDefinition().toString() }
         return if (items.isEmpty()) "[]" else "[\n    $items\n]"
     }
 }
