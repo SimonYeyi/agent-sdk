@@ -227,8 +227,8 @@ class McpTest {
             callToolResult = CallToolResult(content = JsonPrimitive("42")),
         )
         val mcp = fakeMcp(name = "calc", transport = transport)
-        // 模拟 LLM 流程：先访问 definitions() 触发 delegate 懒初始化
-        mcp.definitions()
+        // 模拟 LLM 流程：先访问 all() 触发 delegate 懒初始化
+        mcp.all()
         val args = buildJsonObject { put("a", JsonPrimitive(1)); put("b", JsonPrimitive(2)) }
 
         val out = mcp.dispatch("add", args, stubToolContext())
@@ -249,7 +249,7 @@ class McpTest {
             callToolResult = CallToolResult(content = JsonPrimitive("ok")),
         )
         val mcp = fakeMcp(name = "calc", transport = transport)
-        mcp.definitions()
+        mcp.all()
         val args = buildJsonObject { put("any", JsonPrimitive("value")) }
 
         mcp.dispatch("ping", args, stubToolContext())
@@ -266,7 +266,7 @@ class McpTest {
             callToolResult = CallToolResult(content = JsonArray(listOf(JsonPrimitive("err msg"))), isError = true),
         )
         val mcp = fakeMcp(name = "calc", transport = transport)
-        mcp.definitions()
+        mcp.all()
         assertFailsWith<McpException> {
             mcp.dispatch("add", buildJsonObject { put("a", JsonPrimitive(1)) }, stubToolContext())
         }

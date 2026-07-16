@@ -2,7 +2,6 @@ package io.github.yeyi.agent.toolset
 
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.capability.Capability
-import io.github.yeyi.agent.llm.ToolDefinition
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolDispatcher
@@ -31,17 +30,14 @@ public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
     /** 返回当前 Toolset 持有的所有子 Tool 快照。 */
     public fun all(): List<Tool>
 
-    /** 当前 Toolset 持有的子工具结构化定义列表,供 LLM schema 渲染或下游消费。 */
-    public fun definitions(): List<ToolDefinition>
-
     /**
-     * 默认实现:把 [definitions] 渲染为简明文本返回给 LLM —— 不预设 wire 格式,
+     * 默认实现:把 [all] 渲染为简明文本返回给 LLM —— 不预设 wire 格式,
      * MCP / LLM provider 等消费者可按需覆写本方法(例如嵌 JSON schema)。
      */
     public override suspend fun activate(
         arguments: Unit?,
         context: ToolsetContext,
-    ): String = "Toolset '$name' 包含以下子工具 (完整 schema):\n${definitions()}"
+    ): String = "Toolset '$name' 包含以下子工具 (完整 schema):\n${all().map { it.toDefinition() }}"
 
     public companion object {
         /** 能力框架中的路由类别名，生成工具名 `load_toolset`、路由字段 `toolset_name`。 */
@@ -71,8 +67,6 @@ private class DefaultToolset(
 
     override fun all(): List<Tool> = subTools.values.toList()
 
-    override fun definitions(): List<ToolDefinition> =
-        subTools.values.map { tool -> tool.toDefinition() }
 
     override suspend fun dispatch(
         name: String,

@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.mcp
 
-import io.github.yeyi.agent.llm.ToolDefinition
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -14,7 +13,7 @@ import kotlinx.serialization.json.JsonElement
  *
  * 抽象类继承 [Toolset],内部持有可空委托实例([delegate])。
  * - [add] 始终抛 [UnsupportedOperationException]（MCP 工具由远端动态管理）。
- * - [definitions] 每次调用都通过 [McpClient] 拉取远端工具列表，对每个 [ToolDef] 调用
+ * - [all] 每次调用都通过 [McpClient] 拉取远端工具列表，对每个 [ToolDef] 调用
  *   [adaptTool] 钩子包装为 [Tool],构建新的 [Toolset] 赋值给 [delegate]。
  *   保证工具定义反映远端 MCP 的最新状态。装饰行为由子类覆写 [adaptTool] 注入。
  * - [dispatch] 委托给 [delegate] 中的 [Tool] 执行。
@@ -52,37 +51,21 @@ public abstract class Mcp : Toolset {
     }
 
     /**
-     * 返回当前 MCP 服务的工具定义列表。
-     *
      * 每次调用都通过 [McpClient] 重新拉取远端工具列表，对每个 [ToolDef] 调用 [adaptTool]
-     * 包装为 [Tool]，构建新的 [Toolset] 并赋值给 [delegate]。
+     * 包装为 [Tool]，构建新的 [Toolset]。
      * 保证工具定义反映远端 MCP 服务的最新状态。
-     *
-     * 无锁 —— 并发调用各自拉取,后写覆盖 [delegate];[dispatch] 看到"工具不存在"
-     * 即当前快照里没有,属于正常状态而非缓存错位。
      */
-    final override fun definitions(): List<ToolDefinition> =
-        createToolset().also { delegate = it }.definitions()
-
-    /**
-     * 返回当前已拉取的远端 MCP 工具列表快照。
-     *
-     * MCP 工具是动态管理的,没有静态容器;返回 [delegate] 中已缓存的工具集合(若 [delegate]
-     * 尚未通过 [definitions] 初始化,则返回空列表,与 [dispatch] 未初始化时抛错的行为互补 —
-     * [all] 是只读快照,不应隐式触发远端拉取,避免与 [definitions] 的语义重叠)。
-     */
-    final override fun all(): List<Tool> = delegate?.all() ?: emptyList()
+    final override fun all(): List<Tool> = createToolset().also { delegate = it }.all()
 
     /**
      * 委托给 [delegate] 中的 [Tool] 执行。
-     * 调用方需先调用 [definitions] 拉取工具列表,否则抛错。
      */
     final override suspend fun dispatch(
         name: String,
         arguments: JsonElement,
         context: ToolContext,
     ): ToolExecutionResult = delegate?.dispatch(name, arguments, context)
-        ?: error("Mcp '$name' not initialized: call definitions() first to fetch tool schemas")
+        ?: error("Mcp '$name' not initialized: call all() first to fetch tool schemas")
 
     /**
      * 钩子方法 —— 把 MCP 协议 [ToolDef] 包装为 agent [Tool]。
@@ -102,7 +85,7 @@ public abstract class Mcp : Toolset {
         McpTool(client, toolDef)
 
     /**
-     * 拉取远端工具列表并包装为 [Toolset] —— [definitions] 每次都新建,保证工具定义新鲜度。
+     * 拉取远端工具列表并包装为 [Toolset] —— [all] 每次都新建,保证工具定义新鲜度。
      * 失败时抛异常,本方法不更新任何外部状态;调用方负责决定是否重试。
      */
     private fun createToolset(): Toolset {

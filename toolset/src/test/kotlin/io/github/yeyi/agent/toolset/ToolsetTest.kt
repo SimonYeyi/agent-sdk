@@ -9,6 +9,7 @@ import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.toDefinition
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -94,7 +95,7 @@ class ToolsetTest {
     fun `add iterable stores multiple sub tools`() = runTest {
         val ts = Toolset("weather", "d")
         ts.add(listOf(StubTool("a"), StubTool("b"), StubTool("c")))
-        assertEquals(3, ts.definitions().size)
+        assertEquals(3, ts.all().map { it.toDefinition() }.size)
         assertEquals("ok", ts.dispatch("b", JsonNull, emptyContext()).content)
     }
 
@@ -102,7 +103,7 @@ class ToolsetTest {
     fun `add iterable with empty list is a no-op`() = runTest {
         val ts = Toolset("empty", "d")
         ts.add(emptyList<Tool>())
-        assertEquals(0, ts.definitions().size)
+        assertEquals(0, ts.all().map { it.toDefinition() }.size)
     }
 
     @Test
@@ -142,7 +143,7 @@ class ToolsetTest {
         ts.add(StubTool("z"))
         ts.add(StubTool("a"))
         ts.add(StubTool("m"))
-        val names = ts.definitions().map { it.name }
+        val names = ts.all().map { it.toDefinition() }.map { it.name }
         assertEquals(listOf("z", "a", "m"), names)
     }
 
@@ -155,7 +156,7 @@ class ToolsetTest {
             description = "获取天气",
             parametersSchema = ToolParameters.JsonSchema(schemaJson),
         ))
-        val def = ts.definitions().single()
+        val def = ts.all().map { it.toDefinition() }.single()
         assertEquals("get_weather", def.name)
         assertEquals("获取天气", def.description)
         val schema = def.parametersSchema
@@ -168,7 +169,7 @@ class ToolsetTest {
     fun `definitions uses empty JsonObject for Empty parametersSchema`() = runTest {
         val ts = Toolset("t", "d")
         ts.add(StubTool("noop", parametersSchema = ToolParameters.Empty))
-        val params = ts.definitions().single().parametersSchema
+        val params = ts.all().map { it.toDefinition() }.single().parametersSchema
         assertEquals("object", params["type"]!!.jsonPrimitive.content)
         assertEquals(JsonObject(emptyMap()), params["properties"]!!.jsonObject)
     }
