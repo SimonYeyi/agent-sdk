@@ -46,13 +46,15 @@ class AgentResultExtensionsTest {
     }
 
     @Test
-    fun `awaitResult throws Failed_cause when Failed event is the terminal event`() = runTest {
+    fun `awaitResult throws Failed_throwable when Failed event is the terminal event`() = runTest {
+        // Failed 现在携带 Throwable 而非 AgentException;这里沿用 LlmError
+        // (它仍是 Throwable),验证 throwable 原样传播,不被重新包装。
         val cause = AgentException.LlmError(RuntimeException("boom"))
         val flow = flowOf<AgentEvent>(
             AgentEvent.TextDelta("he"),
             AgentEvent.Failed(cause),
         )
         val thrown = assertFailsWith<AgentException> { flow.awaitResult() }
-        assertSame(cause, thrown, "awaitResult must propagate the exact Failed.cause, not wrap it")
+        assertSame(cause, thrown, "awaitResult must propagate the exact Failed.throwable, not wrap it")
     }
 }

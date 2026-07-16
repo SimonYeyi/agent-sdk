@@ -48,12 +48,12 @@ public sealed interface AgentEvent {
     public data class Final(public val result: AgentResult) : AgentEvent
 
     /**
-     * 终态事件：Agent 内部出现未捕获异常，被边界包装为 [AgentException] 后发出。
+     * 终态事件：Agent 内部出现未捕获异常后发出。
      *
-     * 消费者拿到的 [cause] 一定是 [AgentException] 家族成员（非通用 Throwable）；
-     * 这把"领域异常"的契约下放到事件层，下游不必再防御性判型。
+     * 携带原始 [Throwable]（可能为 [AgentException] 家族成员，也可能是任意其他异常）。
+     * 调用方拿到 [throwable] 后自行决定是否按 [AgentException] 判型——不再由 SDK 边界强制包装。
      */
-    public data class Failed(public val cause: AgentException) : AgentEvent
+    public data class Failed(public val throwable: Throwable) : AgentEvent
 
     public data class MemoryCompressing(public val summaries: List<Summary>) : AgentEvent
 

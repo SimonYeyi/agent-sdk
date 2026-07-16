@@ -41,6 +41,9 @@ public class SkillRegistry :
 
     internal fun hasTools() = tools.isNotEmpty()
 
+    /** 返回所有注册的 Skill 相关工具。 */
+    public fun allTools(): List<Tool> = tools.values.toList()
+
     internal fun toolsList(toolNames: List<String>): String {
         val definitions = toolNames.mapNotNull { tools[it] }
             .joinToString(",\n") { tool ->

@@ -45,9 +45,8 @@ class WeatherExpertSubagentTest {
 
     @Test
     fun `loadInstructions returns non-empty multi-section markdown`() {
-        val llm = FakeLlmProvider(nonStreamResponses = listOf(chatResponse("")),)
         val sub = WeatherExpertSubagent()
-        val instructions = sub.load(SubagentContext(stubAgentContext(llm)))
+        val instructions = sub.load()
         assertTrue(instructions.isNotBlank(), "instructions should not be blank")
         assertTrue(instructions.contains("get_weather"), "instructions should reference get_weather")
         assertTrue(

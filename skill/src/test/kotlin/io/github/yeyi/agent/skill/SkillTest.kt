@@ -11,7 +11,7 @@ class SkillTest {
         override val description: String,
         private val content: String,
     ) : Skill {
-        override fun load(context: SkillContext): String = content
+        override fun load(): String = content
     }
 
     private fun emptyContext(): SkillContext = SkillContext()
@@ -21,7 +21,7 @@ class SkillTest {
         val s = FixedSkill(name = "x", description = "d", content = "instructions-text")
         assertEquals("x", s.name)
         assertEquals("d", s.description)
-        assertEquals("instructions-text", s.load(emptyContext()))
+        assertEquals("instructions-text", s.load())
     }
 
     @Test
@@ -30,13 +30,13 @@ class SkillTest {
         val s = object : Skill {
             override val name = "n"
             override val description = "d"
-            override fun load(context: SkillContext): String {
+            override fun load(): String {
                 callCount++
                 return "v$callCount"
             }
         }
-        assertEquals("v1", s.load(emptyContext()))
-        assertEquals("v2", s.load(emptyContext()))
+        assertEquals("v1", s.load())
+        assertEquals("v2", s.load())
     }
 
     @Test
