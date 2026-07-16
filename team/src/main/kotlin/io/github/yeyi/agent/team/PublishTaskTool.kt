@@ -34,7 +34,7 @@ internal class PublishTaskTool(
             (e.g. one toolset + one standalone tool). At most one 'subagent' per task — multiple subagents in one
             task are rejected.
 
-            Available workers (grouped by type):
+            Capabilities available to worker (grouped by type):
         """.trimIndent())
         capabilitiesByType.forEach { (type, caps) ->
             append("\n  [").append(type).append("]")
@@ -43,7 +43,7 @@ internal class PublishTaskTool(
     }
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
-        SCHEMA_JSON.replace("\$ENUM", Selection.FACTORIES.keys.joinToString("\", \"", "\"", "\""))
+        SCHEMA_JSON.replace($$"$ENUM", Selection.FACTORIES.keys.joinToString("\", \"", "\"", "\""))
     )
 
     override suspend fun execute(
@@ -91,7 +91,7 @@ internal class PublishTaskTool(
     }
 
     private companion object {
-        private val SCHEMA_JSON: String = """
+        private val SCHEMA_JSON: String = $$"""
             {
               "type": "object",
               "properties": {
@@ -109,7 +109,7 @@ internal class PublishTaskTool(
                           "properties": {
                             "type": {
                               "type": "string",
-                              "enum": [${'$'}ENUM],
+                              "enum": [$ENUM],
                               "description": "Type of the resource to load"
                             },
                             "name": {

@@ -30,9 +30,8 @@ public class BossAgentBuilder internal constructor() {
     private val baseRole: String = """
         You are the boss of a team. You can:
         1. Respond to chitchat directly.
-        2. Answer simple questions using your quick tools.
-        3. Delegate complex tasks to workers (beast) by calling publish_task — see the tool description
-           for available workers and the selection format.
+        2. Handle simple questions using your tools.
+        3. Delegate complex tasks to workers (beast) by calling publish_task — see the tool description for available capabilities and how to specify selections.
     """.trimIndent()
 
     public fun memory(value: Memory) { memory0 = value }
