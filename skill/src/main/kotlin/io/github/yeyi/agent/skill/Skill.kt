@@ -39,7 +39,7 @@ import io.github.yeyi.agent.capability.Capability
  */
 public interface Skill : Capability<Unit, SkillContext> {
     /** 加载技能指令文本。不再需要 context 参数。 */
-    public fun load(): String
+    public suspend fun load(): String
 
     override suspend fun activate(arguments: Unit?, context: SkillContext): String =
         load()

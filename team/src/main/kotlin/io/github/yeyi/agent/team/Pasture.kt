@@ -85,7 +85,7 @@ internal class Pasture internal constructor(
         }
     }
 
-    private fun assembleHorse(selections: List<Selection>): Horse {
+    private suspend fun assembleHorse(selections: List<Selection>): Horse {
         if (selections.isEmpty()) error("assembleHorse: selections is empty")
         if (selections.any { it is Selection.Subagent }) error("assembleHorse: selections contains Subagent, fallback to Ox")
 

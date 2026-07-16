@@ -13,7 +13,7 @@ class WeatherExpertSubagent(
     description: String = "天气查询专家",
     tools: List<Tool> = listOf(getWeatherTool),
 ) : Subagent by subagent(name, description, tools = tools) {
-    override fun load(): String = """
+    override suspend fun load(): String = """
         # 天气查询助手
 
         你是一个专业的天气查询助手。当收到任务时,按以下流程操作:

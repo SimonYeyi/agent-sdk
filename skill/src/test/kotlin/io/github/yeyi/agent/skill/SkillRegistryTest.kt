@@ -19,7 +19,7 @@ class SkillRegistryTest {
         override val description: String,
         private val content: String,
     ) : Skill {
-        override fun load(): String = content
+        override suspend fun load(): String = content
     }
 
     private class FixedTool(

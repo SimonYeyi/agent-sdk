@@ -61,7 +61,7 @@ class SubagentTest {
         private val instructions: String = "stub instructions",
     ) : Subagent {
         var loadCallCount: Int = 0
-        override fun load(): String {
+        override suspend fun load(): String {
             loadCallCount++
             return instructions
         }

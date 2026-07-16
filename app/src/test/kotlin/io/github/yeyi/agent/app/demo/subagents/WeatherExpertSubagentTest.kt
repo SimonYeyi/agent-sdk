@@ -44,7 +44,7 @@ class WeatherExpertSubagentTest {
     }
 
     @Test
-    fun `loadInstructions returns non-empty multi-section markdown`() {
+    fun `loadInstructions returns non-empty multi-section markdown`() = runTest {
         val sub = WeatherExpertSubagent()
         val instructions = sub.load()
         assertTrue(instructions.isNotBlank(), "instructions should not be blank")

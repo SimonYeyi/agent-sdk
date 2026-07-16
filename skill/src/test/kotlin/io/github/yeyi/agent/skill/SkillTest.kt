@@ -11,13 +11,13 @@ class SkillTest {
         override val description: String,
         private val content: String,
     ) : Skill {
-        override fun load(): String = content
+        override suspend fun load(): String = content
     }
 
     private fun emptyContext(): SkillContext = SkillContext()
 
     @Test
-    fun `Skill interface exposes name, description and load() returns content`() {
+    fun `Skill interface exposes name, description and load() returns content`() = runTest {
         val s = FixedSkill(name = "x", description = "d", content = "instructions-text")
         assertEquals("x", s.name)
         assertEquals("d", s.description)
@@ -25,12 +25,12 @@ class SkillTest {
     }
 
     @Test
-    fun `Skill load is idempotent and side effect free`() {
+    fun `Skill load is idempotent and side effect free`() = runTest {
         var callCount = 0
         val s = object : Skill {
             override val name = "n"
             override val description = "d"
-            override fun load(): String {
+            override suspend fun load(): String {
                 callCount++
                 return "v$callCount"
             }

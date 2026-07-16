@@ -11,7 +11,7 @@ class NewsSkill : Skill {
     override val name: String = "news"
     override val description: String = "当需要查询新闻资讯时使用该技能，如：今天的新闻、最近有什么大事等。"
 
-    override fun load(): String = """
+    override suspend fun load(): String = """
         # 新闻查询助手
 
         你是一个专业的新闻查询助手。当用户询问新闻时，请按以下步骤操作：

@@ -11,7 +11,7 @@ private class DefaultSubagent(
     override val memory: Memory?,
     override val tools: List<Tool>?
 ) : Subagent {
-    override fun load(): String = instruction
+    override suspend fun load(): String = instruction
 }
 
 /**

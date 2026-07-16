@@ -24,7 +24,7 @@ class SkillExtensionsTest {
         override val description: String,
         private val content: String,
     ) : Skill {
-        override fun load(): String = content
+        override suspend fun load(): String = content
     }
 
     /** A minimal LlmProvider that records every request and returns a stop response. */

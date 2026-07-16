@@ -11,7 +11,7 @@ class WeatherSkill : Skill {
     override val name: String = "weather"
     override val description: String = "当需要查询无明确位置的天气情况时使用该技能，如：今天天气如何、明天天气怎样等无明确地点的情况，技能会指导你如何获取准确的位置信息。"
 
-    override fun load(): String = """
+    override suspend fun load(): String = """
         # 天气查询助手
 
         你是一个专业的天气查询助手。当用户询问天气时，请按以下步骤操作：

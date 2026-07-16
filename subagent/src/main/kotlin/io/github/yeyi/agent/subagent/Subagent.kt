@@ -30,7 +30,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
      * 在 [run] 构造子 agent 前调用，返回值作为子 agent 的 [io.github.yeyi.agent.Persona] role 文本。
      * 可实现为从文件/网络/应用状态动态加载。
      */
-    public fun load(): String
+    public suspend fun load(): String
 
     override suspend fun activate(arguments: SubagentTask?, context: SubagentContext): String {
         arguments?.task ?: throw IllegalArgumentException("Missing 'task' argument")
