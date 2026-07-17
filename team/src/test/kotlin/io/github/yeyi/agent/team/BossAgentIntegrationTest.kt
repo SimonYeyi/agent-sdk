@@ -98,7 +98,7 @@ class BossAgentIntegrationTest {
             maxIterations = 1,
             maxRounds = 5,
         )
-        pasture.observe(bb)
+        runBlocking { pasture.observe(bb) }
 
         val bossLlm = FakeLlmProvider(
             nonStreamResponses = listOf(BOSS_PUBLISH_CALL, BOSS_WAITING, BOSS_CONTINUATION),
@@ -113,7 +113,7 @@ class BossAgentIntegrationTest {
             maxIterations(5)
         }
         val boss = BossAgent(innerAgent, scope)
-        boss.attach(bb)
+        runBlocking { boss.attach(bb) }
 
         // 订阅 continuations 验证续轮事件回流
         val continuations = mutableListOf<AgentEvent>()
@@ -162,7 +162,7 @@ class BossAgentIntegrationTest {
             maxIterations = 1,
             maxRounds = 5,
         )
-        pasture.observe(bb)
+        runBlocking { pasture.observe(bb) }
 
         val twoTaskCall = ChatResponse(
             message = ChatMessage.Assistant(
@@ -213,7 +213,7 @@ class BossAgentIntegrationTest {
             maxIterations(5)
         }
         val boss = BossAgent(innerAgent, scope)
-        boss.attach(bb)
+        runBlocking { boss.attach(bb) }
 
         val continuations = mutableListOf<AgentEvent>()
         val contJob = launch { boss.continuations.collect { continuations.add(it) } }

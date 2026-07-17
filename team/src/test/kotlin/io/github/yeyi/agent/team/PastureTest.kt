@@ -307,13 +307,15 @@ class PastureCancellationTest {
         )
         runBlocking { pasture.observe(bb) }
 
-        // fork-join: Pasture.observe 已同步等到 collector 注册, 可直接订阅 progressEvents
-        // (本测试的订阅与 Pasture 内部订阅都已在 bb.subscriptionCount 中, 无需额外 delay).
+        // fork-join: async 调度协程, 等它跑到 .first 真正订阅 bb.progressEvents 后再 publish.
+        // bb.subscriptionCount >= 2 = Pasture (1) + 本测试 async collector (1), 同步屏障,
+        // 不依赖 slowLlm.delay(5000) 给协程挂订阅的窗口.
         val taskDeferred = async {
             bb.progressEvents
                 .filterIsInstance<TaskUpdate>()
                 .first { it.event is AgentEvent.Failed }
         }
+        bb.subscriptionCount.first { it >= 2 }
         bb.publishEvent(TaskAssignment("t1", listOf(Selection.Tool("foo")), "long task"))
         delay(100)  // 让 beast 开始跑, 真正进入 slowLlm.delay 窗口
 
