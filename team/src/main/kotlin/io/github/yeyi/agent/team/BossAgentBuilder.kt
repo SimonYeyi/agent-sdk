@@ -93,7 +93,8 @@ public class BossAgentBuilder internal constructor() {
         )
         val boss = buildBoss(mem, llm, bulletinBoard, bossScope)
 
-        // 短阻塞当前线程, 等订阅 collector 就位 (subscriptionCount 同步等到, 几 ms 完成).
+        // 短阻塞当前线程, 等订阅 collector 就位 (attach/observe 内部用 onSubscription +
+        // CompletableDeferred 同步等到自己的 collector 注册, 几 ms 完成).
         // 调用方拿到的 BossAgent 已"开箱即用", 不再有"构造返回 ≠ 订阅就位"的隐性 race.
         runBlocking {
             pasture.observe(bulletinBoard)

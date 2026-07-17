@@ -3,6 +3,7 @@ package io.github.yeyi.agent.team
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
@@ -15,8 +16,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -95,7 +96,8 @@ public class BossAgent internal constructor(
     /**
      * 启动后台 collect 协程, 订阅 [bb] 的原始 [BulletinBoard.events] 统一流, 内部 when 区分
      * TaskAssignment / TaskUpdate 分发到对应处理逻辑. BossAgent 在 `_events` 上注册**一个**
-     * collector — `subscriptionCount.first { it >= expected }` 用 `expected = +1` 同步等到.
+     * collector — 用 [onSubscription] 回调 + [CompletableDeferred] 同步等到"**自己的**" collector
+     * 注册完成 (而不是别人注册把 subscriptionCount 顶上来).
      *
      * 两次 attach 会抛 [IllegalStateException]. 由 [BossAgentBuilder.build] 在构造完成后
      * runBlocking 调用一次.
@@ -103,22 +105,24 @@ public class BossAgent internal constructor(
     internal suspend fun attach(bb: BulletinBoard) {
         check(!::bulletinBoard.isInitialized) { "BossAgent.attach() must be called only once" }
         bulletinBoard = bb
-        val expected = bulletinBoard.subscriptionCount.value + 1
+        val subscribed = CompletableDeferred<Unit>()
         scope.launch {
-            bulletinBoard.events.collect { event ->
-                when (event) {
-                    is TaskAssignment -> tasksLock.withLock {
-                        tasks[event.taskId] = TaskState(event.selections, event.task)
-                    }
+            bulletinBoard.events
+                .onSubscription { subscribed.complete(Unit) }
+                .collect { event ->
+                    when (event) {
+                        is TaskAssignment -> tasksLock.withLock {
+                            tasks[event.taskId] = TaskState(event.selections, event.task)
+                        }
 
-                    is TaskUpdate -> handleTaskUpdate(event)
-                    // 其他事件 (Cancellation 等) BossAgent 不关心, 显式 no-op
-                    // 让编译器在 BulletinEvent 加新类型时强制更新此 when.
-                    else -> Unit
+                        is TaskUpdate -> handleTaskUpdate(event)
+                        // 其他事件 (Cancellation 等) BossAgent 不关心, 显式 no-op
+                        // 让编译器在 BulletinEvent 加新类型时强制更新此 when.
+                        else -> Unit
+                    }
                 }
-            }
         }
-        bulletinBoard.subscriptionCount.first { it >= expected }
+        subscribed.await()
     }
 
     // ========== Public API ==========

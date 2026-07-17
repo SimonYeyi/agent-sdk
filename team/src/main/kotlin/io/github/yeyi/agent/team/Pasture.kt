@@ -9,9 +9,10 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolRegistry
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -39,8 +40,10 @@ internal class Pasture internal constructor(
     private lateinit var bulletinBoard: BulletinBoard
 
     /**
-     * 启动后台 collect 协程, 订阅 [bb] 的 publishEvents (TaskAssignment + Cancellation 路径).
-     * 返回时**保证** collector 已注册到 `_events` (`subscriptionCount.first {}` 同步等到).
+     * 启动后台 collect 协程, 订阅 [bb] 的原始 [BulletinBoard.events] 统一流, 内部 when 区分
+     * TaskAssignment / Cancellation 分发到对应处理逻辑. Pasture 在 `_events` 上注册**一个**
+     * collector — 用 [onSubscription] 回调 + [CompletableDeferred] 同步等到"**自己的**" collector
+     * 注册完成 (而不是别人注册把 subscriptionCount 顶上来).
      *
      * 两次 observe 会抛 [IllegalStateException]. 由 [BossAgentBuilder.build] 在构造完成后
      * runBlocking 调用一次.
@@ -48,16 +51,21 @@ internal class Pasture internal constructor(
     internal suspend fun observe(bb: BulletinBoard) {
         check(!::bulletinBoard.isInitialized) { "Pasture.observe() must be called only once" }
         bulletinBoard = bb
-        val expected = bulletinBoard.subscriptionCount.value + 1
+        val subscribed = CompletableDeferred<Unit>()
         scope.launch {
-            bulletinBoard.publishEvents.collect { event ->
-                when (event) {
-                    is TaskAssignment -> handleAssignment(event)
-                    is Cancellation -> handleCancellation(event)
+            bulletinBoard.events
+                .onSubscription { subscribed.complete(Unit) }
+                .collect { event ->
+                    when (event) {
+                        is TaskAssignment -> handleAssignment(event)
+                        is Cancellation -> handleCancellation(event)
+                        // ProgressEvent Pasture 不关心, 显式 no-op — 让编译器在
+                        // BulletinEvent 加新类型时强制更新此 when.
+                        else -> Unit
+                    }
                 }
-            }
         }
-        bulletinBoard.subscriptionCount.first { it >= expected }
+        subscribed.await()
     }
 
     private suspend fun handleAssignment(e: TaskAssignment) {
