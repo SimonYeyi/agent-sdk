@@ -97,7 +97,7 @@ public class BossAgent internal constructor(
      * 启动后台 collect 协程, 订阅 [bb] 的原始 [BulletinBoard.events] 统一流, 内部 when 区分
      * TaskAssignment / TaskUpdate 分发到对应处理逻辑. BossAgent 在 `_events` 上注册**一个**
      * collector — 用 [onSubscription] 回调 + [CompletableDeferred] 同步等到"**自己的**" collector
-     * 注册完成 (而不是别人注册把 subscriptionCount 顶上来).
+     * 注册完成.
      *
      * 两次 attach 会抛 [IllegalStateException]. 由 [BossAgentBuilder.build] 在构造完成后
      * runBlocking 调用一次.

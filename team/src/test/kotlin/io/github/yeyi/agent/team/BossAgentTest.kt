@@ -129,7 +129,7 @@ class BossAgentTest {
     @Test
     fun `shutdown cancels scope`() = runBlocking {
         val (boss, _) = createBossAgent()
-        // createBossAgent 已同步等到订阅就绪 (attach blocks on subscriptionCount),
+        // createBossAgent 已同步等到订阅就绪 (attach 用 onSubscription + CompletableDeferred 等自己的 collector 注册),
         // 直接 shutdown 即可, 无需额外 delay.
         boss.shutdown()
         // subsequent run returns Failed event
@@ -270,7 +270,7 @@ class BossAgentTest {
 
         // 订阅 continuations 后 publish 终态 TaskUpdate
         // 注: boss.continuations 是 SharedFlow (asSharedFlow() 返回的只读接口),
-        // 不暴露 subscriptionCount — 此处 delay(100) 是 SharedFlow collector attach 的功能性等待,
+        // 不能直接套 onSubscription — 此处 delay(100) 是 SharedFlow collector attach 的功能性等待,
         // 不可避免 (除非改 continuations 暴露 MutableSharedFlow 或包一层 wrapper).
         val continuations = mutableListOf<AgentEvent>()
         val job = launch { boss.continuations.collect { continuations.add(it) } }

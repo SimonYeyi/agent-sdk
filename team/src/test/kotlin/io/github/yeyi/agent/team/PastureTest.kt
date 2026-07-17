@@ -58,9 +58,10 @@ private suspend fun awaitFinalUpdate(bb: BulletinBoard, timeoutMs: Long = 5000):
 }
 
 /**
- * 用 async + subscriptionCount 把 progressEvents 订阅与 publishEvent 解耦 —
- * 先启动 awaitFinalUpdate 协程, 等 subscriptionCount >= 2 (Pasture 1 + 本测试 1)
- * 真正 attach 后再 publish. 避免 Pasture 路径太快, progressEvent 在 subscription 就绪前 emit 完.
+ * 用 async(UNDISPATCHED) 同步挂上测试自己的 collector —
+ * UNDISPATCHED 让协程在当前线程跑到首个挂起点 (SharedFlow.collect 内的
+ * awaitValue), 此时 allocateSlot() 已同步执行, async 返回时 collector 已注册,
+ * 无需任何外部屏障.
  */
 private suspend fun publishAndAwaitFinal(
     bb: BulletinBoard,
@@ -68,8 +69,7 @@ private suspend fun publishAndAwaitFinal(
     selections: List<Selection>,
     task: String,
 ): TaskUpdate = coroutineScope {
-    val deferred = async { awaitFinalUpdate(bb) }
-    bb.subscriptionCount.first { it >= 2 }
+    val deferred = async(start = CoroutineStart.UNDISPATCHED) { awaitFinalUpdate(bb) }
     bb.publishEvent(TaskAssignment(taskId, selections, task))
     deferred.await()
 }
@@ -307,15 +307,14 @@ class PastureCancellationTest {
         )
         runBlocking { pasture.observe(bb) }
 
-        // fork-join: async 调度协程, 等它跑到 .first 真正订阅 bb.progressEvents 后再 publish.
-        // bb.subscriptionCount >= 2 = Pasture (1) + 本测试 async collector (1), 同步屏障,
+        // fork-join: UNDISPATCHED 让 async 同步挂上 collector, 返回时
+        // allocateSlot() 已执行 (SharedFlow.collect 首个挂起点是 awaitValue).
         // 不依赖 slowLlm.delay(5000) 给协程挂订阅的窗口.
-        val taskDeferred = async {
+        val taskDeferred = async(start = CoroutineStart.UNDISPATCHED) {
             bb.progressEvents
                 .filterIsInstance<TaskUpdate>()
                 .first { it.event is AgentEvent.Failed }
         }
-        bb.subscriptionCount.first { it >= 2 }
         bb.publishEvent(TaskAssignment("t1", listOf(Selection.Tool("foo")), "long task"))
         delay(100)  // 让 beast 开始跑, 真正进入 slowLlm.delay 窗口
 

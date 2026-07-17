@@ -5,7 +5,6 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.filterIsInstance
 
@@ -43,15 +42,6 @@ internal class BulletinBoard {
     )
 
     internal val events: SharedFlow<BulletinEvent> = _events.asSharedFlow()
-
-    /**
-     * 已注册的 collector 数量 — 测试用 `subscriptionCount.first {}` 同步等到自己的 collector 注册.
-     * 生产代码 (BossAgent.attach / Pasture.observe) 改用 [kotlinx.coroutines.flow.onSubscription]
-     * 回调 + CompletableDeferred 精确绑定"自己的 collector", 避免被第三方订阅满足.
-     *
-     * 直接转发 `_events.subscriptionCount`, 不持额外状态.
-     */
-    internal val subscriptionCount: StateFlow<Int> = _events.subscriptionCount
 
     internal val publishEvents: Flow<PublishEvent> = _events.filterIsInstance()
 
