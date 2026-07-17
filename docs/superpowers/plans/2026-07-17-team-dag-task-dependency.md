@@ -9,7 +9,7 @@
 **Architecture:**
 
 - **类型分层**:`PublishEvent`(LLM 端发布:TaskAssignments + Cancellation)走 `publishEvents` 流;`ProgressEvent`(Pasture 端进度:TaskUpdate)走 `progressEvents` 流。统一流 `events: SharedFlow<BulletinEvent>` 供 BossAgent / UI 订阅全量。`TaskAssignment` 退化为普通 data class(非 event),只描述 task 本身
-- **新事件 `PublishEvent.TaskAssignments(tasks)`**: 一次 `publish_task` 调用 → 一个 `TaskAssignments` 事件,整批原子 publish。**事件本身不带 roundId** —— roundId 是 BossAgent 内部视角(『这次 publish 属于哪个用户轮次』),由 BossAgent 收到 `TaskAssignments` 时用自己 `run()` 时生成的 `currentRoundId` 自行关联
+- **新事件 `TaskAssignments(tasks)`**: 一次 `publish_task` 调用 → 一个 `TaskAssignments` 事件,整批原子 publish。**事件本身不带 roundId** —— roundId 是 BossAgent 内部视角(『这次 publish 属于哪个用户轮次』),由 BossAgent 收到 `TaskAssignments` 时用自己 `run()` 时生成的 `currentRoundId` 自行关联
 - **`knownTaskIds` 由 `PublishTaskTool` 内部维护**: 类内 `MutableSet<String>` + `Mutex`,publish 成功后登记新 task_id。**BulletinBoard 不维护任何业务 set**(Board 是事件总线基础设施,不该知道 `TaskAssignments.tasks[*].taskId` 的字段语义 —— 让 Board 维护业务 set 等于让公交车帮别人记快递)
 - **`PublishTaskTool` = 透传层**: schema 校验 + task_id 唯一性 + dependsOn 引用校验 + intra-batch 环检测 → 透传 publish `TaskAssignments(tasks)`。**不计算叶子、不标 upstream、不织 DAG,不需要 roundIdProvider / 外部 knownTaskIds 回调**
 - **`Pasture` = 全局 DAG 调度器**: 维护 `Map<taskId, DagNode>`,收到 `TaskAssignments` 整批注册,按 dependsOn 拓扑 dispatch。每个 task terminal 时 emit `TaskUpdate(taskId, event)`(不带 roundId,**Pasture 不感知 round 概念**)。cascade 失败时链式推进
@@ -67,9 +67,10 @@
 
 | 路径 | 改动 |
 |---|---|
-| `team/src/main/kotlin/io/github/yeyi/agent/team/BulletinBoard.kt` | 新增 `PublishEvent.TaskAssignments(tasks)` 扁平 data class(**不带 roundId**);`TaskAssignment` 加 `dependsOn` 字段,从 `PublishEvent` 实现中移除退化为非 event;**Board 本身零改动**(三流派生 + subscriptionCount + publish/progress 方法不变) |
+| `team/src/main/kotlin/io/github/yeyi/agent/team/BulletinBoard.kt` | 新增 `TaskAssignments(tasks)` 扁平 data class(**不带 roundId**);`TaskAssignment` 加 `dependsOn` 字段,从 `PublishEvent` 实现中移除退化为非 event;**Board 本身零改动**(三流派生 + subscriptionCount + publish/progress 方法不变) |
 | `team/src/main/kotlin/io/github/yeyi/agent/team/PublishTaskTool.kt` | schema 加 `ref`(LLM 提供,本批唯一) + `depends_on`(可选,引用 ref 本批或 task_id 跨批);execute 改为纯透传 + ref → UUID task_id 解析 + 一次性 publish `TaskAssignments(tasks)`(不带 roundId);**类内**新增 `knownTaskIds: MutableSet<String>` + `knownTaskIdsLock: Mutex` + `internal fun knownTaskIdsSnapshot()`,publish 成功后登记新 task_id;**构造签名零变化**;删除原 UUID 生成(task_id 改为程序在 execute 内生成,LLM 只提供 ref) |
-| `team/src/main/kotlin/io/github/yeyi/agent/team/Pasture.kt` | 替换 `runningJobs` 派发为 DAG 调度器;observe 改订阅 `publishEvents` 处理 `TaskAssignments` + `Cancellation`;每个 task terminal emit `TaskUpdate`;cascade 链式推进;**不**新增 `knownTaskIds()` 暴露(权威源在 `PublishTaskTool` 侧,Pasture 自己用 `dag.keys` 即可) |
+| `team/src/main/kotlin/io/github/yeyi/agent/team/BeastAssembler.kt` | 新文件,根据 `Selection` 列表组装 `Beast`(Horse/Ox) |
+| `team/src/main/kotlin/io/github/yeyi/agent/team/Pasture.kt` | 替换 `runningJobs` 派发为 DAG 调度器;observe 改订阅 `publishEvents` 处理 `TaskAssignments` + `Cancellation`;注入 `BeastAssembler` 依赖;每个 task terminal emit `TaskUpdate`;cascade 链式推进;**不**新增 `knownTaskIds()` 暴露(权威源在 `PublishTaskTool` 侧,Pasture 自己用 `dag.keys` 即可) |
 | `team/src/main/kotlin/io/github/yeyi/agent/team/BossAgent.kt` | 新增 `currentRoundId` 字段;`TaskState` 加 `roundId` 字段;`run()` 每轮生成 currentRoundId;`attach` 收到 `TaskAssignments` 时用 `currentRoundId`(内部状态)关联 task,**不读 event.roundId**(事件不带);新增 `handleTaskUpdate` 的 round 完成判断 + `formatRoundSummary`;`handlePending` 扩展 `roundSummary` 参数 |
 | `team/src/main/kotlin/io/github/yeyi/agent/team/BossAgentBuilder.kt` | **PublishTaskTool 构造完全不变**;**唯一改动**:`baseRole` 第 3 条后追加第 4 条 (DAG 用法摘要) |
 | `team/src/main/kotlin/io/github/yeyi/agent/team/CancelTaskTool.kt` | `description` 字段改写(详见设计决策 #10 的 `cancel_task` 工具描述);execute 逻辑不变(已正确处理 PENDING/READY/RUNNING/DONE 分支 + cascade) |
@@ -238,10 +239,105 @@
 
   KDoc:「**校验语义** —— ① intra-call `ref` 非空且唯一; ② `selections` 数组非空 + 每个 selection type 在 `Selection.FACTORIES` 中; ③ `depends_on` 每项要么是本批 `ref`(程序解析为 task_id)要么是已注册 `task_id`(在 knownTaskIds 中); ④ intra-call 环检测。**`task_id` 由程序 UUID 生成,LLM 不提供** —— LLM 只提供本批唯一的 `ref`,跨次引用用 task_id(从之前 roundSummary 拿)。所有校验失败的请求整体返回 error,**不**触发 partial publish。校验通过后才 publish + 登记 task_id。」
 
-## Task 3: `Pasture` DAG 调度器
+## Task 3: `BeastAssembler` Beast 组装 + `Pasture` DAG 调度器
+
+将 beast 组装逻辑从 Pasture 分离到独立类 `BeastAssembler`，Pasture 只负责 DAG 调度。
+
+### BeastAssembler
+
+新增 `BeastAssembler.kt`，负责根据 `Selection` 列表组装 `Beast`（Horse 或 Ox）：
+
+- [ ] 新文件 `BeastAssembler.kt`:
+  ```kotlin
+  internal class BeastAssembler(
+      private val llmProvider: LlmProvider,
+      private val toolRegistry: ToolRegistry?,
+      private val skillRegistry: SkillRegistry?,
+      private val subagentRegistry: SubagentRegistry?,
+      private val toolsetRegistry: ToolsetRegistry?,
+      private val baseRole: String,
+      private val maxIterations: Int,
+      private val maxRounds: Int,
+  ) {
+      suspend fun assemble(selections: List<Selection>): Beast {
+          return try {
+              assembleHorse(selections)
+          } catch (_: IllegalStateException) {
+              buildOx()
+          }
+      }
+  
+      private suspend fun assembleHorse(selections: List<Selection>): Horse {
+          if (selections.isEmpty()) error("assembleHorse: selections is empty")
+          if (selections.any { it is Selection.Subagent }) {
+              error("assembleHorse: subagent not supported")
+          }
+          
+          val skillTexts = mutableListOf<String>()
+          val tools = mutableListOf<Tool>()
+  
+          for (s in selections) {
+              when (s) {
+                  is Selection.Skill -> {
+                      val skill = skillRegistry?.all()?.firstOrNull { it.name == s.name }
+                          ?: error("assembleHorse: skill not found: ${s.name}")
+                      val text = skill.load()
+                      skillTexts += text
+                      skillRegistry.allTools().forEach { tool ->
+                          val pattern = Regex("\\b" + Regex.escape(tool.name) + "\\b")
+                          if (pattern.containsMatchIn(text)) tools += tool
+                      }
+                  }
+                  is Selection.Toolset -> {
+                      val toolset = toolsetRegistry?.all()?.firstOrNull { it.name == s.name }
+                          ?: error("assembleHorse: toolset not found: ${s.name}")
+                      tools += toolset.all()
+                  }
+                  is Selection.Tool -> {
+                      val tool = toolRegistry?.all()?.firstOrNull { it.name == s.name }
+                          ?: error("assembleHorse: tool not found: ${s.name}")
+                      tools += tool
+                  }
+                  is Selection.Subagent -> { /* unreachable */
+                  }
+              }
+          }
+  
+          val persona = Persona(
+              buildString {
+                  append(baseRole)
+                  skillTexts.forEach { append("\n\n").append(it) }
+              }
+          )
+  
+          return Horse(llmProvider, persona, tools, maxIterations, maxRounds)
+      }
+  
+      private fun buildOx(): Ox = Ox(
+          llmProvider = llmProvider,
+          persona = Persona(baseRole),
+          toolRegistry = toolRegistry,
+          skillRegistry = skillRegistry,
+          subagentRegistry = subagentRegistry,
+          toolsetRegistry = toolsetRegistry,
+          maxIterations = maxIterations,
+          maxRounds = maxRounds,
+      )
+  }
+  ```
+
+### Pasture DAG 调度器
 
 替换 `runningJobs` 简单派发为 DAG tracker。`TaskUpdate` 透明 emit 所有 task(包括 upstream)。cascade 链式推进。**完全不感知 roundId**。
 
+- [ ] `Pasture.kt` 构造函数改为注入 `BeastAssembler`:
+  ```kotlin
+  internal class Pasture(
+      private val assembler: BeastAssembler,
+      private val scope: CoroutineScope,
+  )
+  ```
+  删掉 `llmProvider` / `toolRegistry` / `skillRegistry` / `subagentRegistry` / `toolsetRegistry` / `maxIterations` / `maxRounds` / `baseRole` 参数。
 - [ ] `Pasture.kt:34-35` 删除 `runningJobs: MutableMap<String, Job>` 与 `jobsLock: Mutex`(被 DAG 状态取代)
 - [ ] `Pasture.kt` 新增内部状态:
   ```kotlin
@@ -263,15 +359,15 @@
   private enum class Status { PENDING, READY, RUNNING, DONE, FAILED, CANCELED }
   ```
 - [ ] **不需要新增** `internal fun knownTaskIds()` —— knownTaskIds 由 PublishTaskTool 内部维护(权威源在发布工具侧),Pasture 自己用 `dag.keys` 即可,不暴露给外部。**避免『BulletinBoard 不维护业务 set 但 Pasture 维护』的不对称设计** —— 业务 set 应该收敛到唯一所有者(`PublishTaskTool`)
-- [ ] `Pasture.observe` 的 collect handler 改订阅 `publishEvents`,处理 `PublishEvent.TaskAssignments` + `PublishEvent.Cancellation`:
+- [ ] `Pasture.observe` 的 collect handler 改订阅 `publishEvents`,处理 `TaskAssignments` + `Cancellation`:
   ```kotlin
-  is PublishEvent.TaskAssignments -> handleTaskAssignments(event)
-  is PublishEvent.Cancellation -> handleCancellation(event)
+  is TaskAssignments -> handleTaskAssignments(event)
+  is Cancellation -> handleCancellation(event)
   ```
-  (注意:`PublishEvent` 和 `ProgressEvent` 类型参数不同,这里订阅 `publishEvents: SharedFlow<PublishEvent>` 类型安全)
-- [ ] 实现 `private suspend fun handleTaskAssignments(group: PublishEvent.TaskAssignments)`:
+  (注意:订阅 `publishEvents: SharedFlow<PublishEvent>`,类型安全)
+- [ ] 实现 `private suspend fun handleTaskAssignments(group: TaskAssignments)`:
   ```kotlin
-  private suspend fun handleTaskAssignments(group: PublishEvent.TaskAssignments) {
+  private suspend fun handleTaskAssignments(group: TaskAssignments) {
       // 整批注册到全局 DAG (锁内). 批次只是 publish 边界, 不是调度边界 —— DAG 是全局的.
       // Pasture 完全不感知 roundId, 不存不读.
       val newNodes = dagLock.withLock {
@@ -344,11 +440,7 @@
                       else "$mergedContext\n\n${node.assignment.task}"
 
       // 2) assemble beast
-      val beast: Beast = try {
-          withContext(Dispatchers.IO) { assembleHorse(node.assignment.selections) }
-      } catch (_: IllegalStateException) {
-          buildOx()
-      }
+      val beast: Beast = withContext(Dispatchers.IO) { assembler.assemble(node.assignment.selections) }
 
       // 3) launch job
       val job = scope.launch {
@@ -411,9 +503,9 @@
       }
   }
   ```
-- [ ] 实现 `private suspend fun handleCancellation(e: PublishEvent.Cancellation)`:
+- [ ] 实现 `private suspend fun handleCancellation(e: Cancellation)`:
   ```kotlin
-  private suspend fun handleCancellation(e: PublishEvent.Cancellation) {
+  private suspend fun handleCancellation(e: Cancellation) {
       val node = dagLock.withLock { dag[e.taskId] } ?: return
       when (node.status) {
           Status.DONE, Status.FAILED, Status.CANCELED -> return  // idempotent
@@ -426,7 +518,7 @@
       }
   }
   ```
-- [ ] `Pasture.kt:99-144` `assembleHorse` / `buildOx` / `Persona` 等不变
+- [ ] `Pasture` 删掉 `assembleHorse` / `buildOx` / `baseRole` 等 beast 组装相关代码,改用注入的 `BeastAssembler`
 
 ## Task 4: `BossAgent` 维护 round 状态 + 续轮触发
 
@@ -462,7 +554,7 @@
               .onSubscription { subscribed.complete(Unit) }
               .collect { event ->
                   when (event) {
-                      is PublishEvent.TaskAssignments -> {
+                      is TaskAssignments -> {
                           // BossAgent 内部 currentRoundId, 自行关联这批 task 到当前 round.
                           // 一次 publish_task 调用可以属于当前 round 的多次调用之一.
                           val roundId = currentRoundId
@@ -611,9 +703,27 @@
   ```
 - [ ] 删掉 `hasActiveTasks()`、`runPendingRoundWithCollecting()`、`formatTaskResults()`、`pendingResultEvents` 原来是 `Channel<TaskUpdate>` 改为 `Channel<String>`
 
-## Task 5: `BossAgentBuilder` 接线(零侵入,PublishTaskTool 构造完全不变)
+## Task 5: `BossAgentBuilder` 接线
 
-**本 Task 没有代码改动** —— 因为 roundId 由 BossAgent 内部管理、knownTaskIds 由 BulletinBoard 派生,`PublishTaskTool` 构造签名不变,Builder 也不需要新增 lambda 注入。BossAgentBuilder 现有的 `buildBoss(mem, llm, bulletinBoard, scope)` 流程完全复用。
+Pasture 构造器改为注入 BeastAssembler，BossAgentBuilder 需先创建 BeastAssembler：
+
+- [ ] `BossAgentBuilder.kt` 先创建 `BeastAssembler` 再创建 `Pasture`:
+  ```kotlin
+  val assembler = BeastAssembler(
+      llmProvider = llm,
+      toolRegistry = delegatedToolRegistry0,
+      skillRegistry = skillRegistry0,
+      subagentRegistry = subagentRegistry0,
+      toolsetRegistry = toolsetRegistry0,
+      baseRole = "You are a helpful worker. Complete the given task and return the result.",
+      maxIterations = maxIterations0,
+      maxRounds = maxRounds0,
+  )
+  val pasture = Pasture(
+      assembler = assembler,
+      scope = bossScope,
+  )
+  ```
 
 - [ ] **不需要改**: `BossAgentBuilder.kt:127` 的 `val publishTask = PublishTaskTool(bulletinBoard, capabilitiesByType)` 保持不变
 - [ ] **不需要改**: 构造顺序(pasture → buildBoss → observe + attach)保持不变
@@ -625,7 +735,7 @@
 
 ## Task 6: 测试 — `PublishTaskToolDagTest`
 
-新文件 `team/src/test/kotlin/io/github/yeyi/agent/team/PublishTaskToolDagTest.kt`,覆盖 schema 解析 + 校验 + 透传 publish。每个 case 验证 BulletinBoard 收到的 `PublishEvent.TaskAssignments` 事件载荷(整批 List<TaskAssignment> + roundId)。
+新文件 `team/src/test/kotlin/io/github/yeyi/agent/team/PublishTaskToolDagTest.kt`,覆盖 schema 解析 + 校验 + 透传 publish。每个 case 验证 BulletinBoard 收到的 `TaskAssignments` 事件载荷(整批 List<TaskAssignment> + roundId)。
 
 - [ ] **happy path (intra-call ref)**: `tasks=[{ref:"lookup",...}, {ref:"summary", depends_on:["lookup"],...}]` → publish `TaskAssignments([lookup_ta, summary_ta])`,其中 `summary_ta.dependsOn = [lookup_ta.taskId]`(ref 解析成 UUID task_id)
 - [ ] **parallel roots**: `tasks=[{ref:"a",...}, {ref:"b",...}]` (无依赖) → publish `TaskAssignments([a_ta, b_ta])`,两个 task_id 都是新生成 UUID,无 dependsOn
@@ -640,7 +750,7 @@
 - [ ] **TaskAssignments 不带 roundId**: 验证 emit 的 `TaskAssignments` 没有 roundId 字段(roundId 由 BossAgent 内部管理,不在事件里)
 - [ ] **knownTaskIdsSnapshot 行为**: publish 成功后 `publishTask.knownTaskIdsSnapshot()` 包含新 task_id(程序生成的 UUID);校验失败不污染 snapshot
 
-每个 case 用 `kotlinx.coroutines.test.runTest` 或 `runBlocking`, 真实 `BulletinBoard` + spy collector 验证 emit 的事件类型是 `PublishEvent.TaskAssignments`,并对比 spy 收集的 task_id 与 knownTaskIdsSnapshot 一致。跨 round 测试通过「先调一次 `publishTask.execute(...)` 累积 knownTaskIds,再从响应里拿 task_id」准备前置状态(走完整 publish 路径,更接近真实使用)。
+每个 case 用 `kotlinx.coroutines.test.runTest` 或 `runBlocking`, 真实 `BulletinBoard` + spy collector 验证 emit 的事件类型是 `TaskAssignments`,并对比 spy 收集的 task_id 与 knownTaskIdsSnapshot 一致。跨 round 测试通过「先调一次 `publishTask.execute(...)` 累积 knownTaskIds,再从响应里拿 task_id」准备前置状态(走完整 publish 路径,更接近真实使用)。
 
 ## Task 7: 测试 — `PastureDagTest`
 
@@ -679,7 +789,7 @@
 
 - **API 变更 (破坏性)**:
   - `TaskAssignment` 加必填字段 `dependsOn`,退化为非 event —— 所有构造点需更新(主要是 `PublishTaskTool.execute` 和测试)
-  - `TaskUpdate` 移出 `PublishEvent`,改属 `TaskUpdate` —— 任何直接引用 `PublishEvent.TaskUpdate` 的代码需改为 `TaskUpdate`
+  - `TaskUpdate` 原来是 `PublishEvent` 的实现类,现在改为独立的 `ProgressEvent` 实现类 —— 任何直接引用 `PublishEvent.TaskUpdate` 的代码需改为 `TaskUpdate`
   - `pendingResultEvents` channel 类型从 `Channel<TaskUpdate>` 改为 `Channel<TaskUpdate>`
   - ~~`PublishTaskTool` 构造签名变(加 `roundIdProvider` + `knownTaskIds` 回调)~~ —— **撤回**:roundId 由 BossAgent 内部管理,knownTaskIds 由 PublishTaskTool 内部维护,**PublishTaskTool 构造签名零变化**,BossAgentBuilder 零改动
   - ~~`task_id` 从 UUID 生成改为 LLM 提供~~ —— **撤回**:`task_id` 仍由 UUID 生成(只是从 PublishTaskTool 内部生成,而不是原代码每次 execute 内生成);LLM 只提供 `ref`(本批唯一 symbolic name)。**LLM 不必提供 task_id,token 节省 + 拼写错风险消除**
