@@ -50,7 +50,9 @@ class BossAgentTest {
             memory(InMemoryMemory(), 20)
             maxIterations(1) // single-turn agent
         }
-        return BossAgent(innerAgent, bb, scope) to bb
+        val boss = BossAgent(innerAgent, scope)
+        runBlocking { boss.attach(bb) }
+        return boss to bb
     }
 
     /**
@@ -127,8 +129,8 @@ class BossAgentTest {
     @Test
     fun `shutdown cancels scope`() = runBlocking {
         val (boss, _) = createBossAgent()
-        // 让 init 协程有时间启动并订阅 bulletin,然后再 shutdown 干净
-        delay(50)
+        // createBossAgent 已同步等到订阅就绪 (attach blocks on subscriptionCount),
+        // 直接 shutdown 即可, 无需额外 delay.
         boss.shutdown()
         // subsequent run returns Failed event
         val events = boss.run("hello").toList()
@@ -254,8 +256,7 @@ class BossAgentTest {
         // 验证 continuations 流收到 boss LLM 看到结果后发出的续轮 Final.
         val (boss, bb) = createBossAgent()
 
-        // 等待 BossAgent 订阅回调就绪后再发布任务
-        delay(50)
+        // createBossAgent 已同步等到 BossAgent 订阅就绪, 直接 publish 即可.
 
         // 直接 publish 一个 taskId 的 TaskAssignment (跳过 PublishTaskTool)
         val taskId = "test-task-1"
@@ -300,8 +301,7 @@ class BossAgentTest {
         // 验证: state 经历 WAITING → COLLECTING → RUNNING → WAITING (无 RUNNING→WAITING→RUNNING 闪烁).
         val (boss, bb) = createBossAgent()
 
-        // 等待 BossAgent 订阅回调就绪后再发布任务
-        delay(50)
+        // createBossAgent 已同步等到 BossAgent 订阅就绪, 直接 publish 即可.
 
         val taskIdA = "task-A"
         val taskIdB = "task-B"

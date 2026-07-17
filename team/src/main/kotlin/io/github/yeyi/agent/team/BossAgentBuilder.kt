@@ -12,6 +12,7 @@ import io.github.yeyi.agent.toolset.ToolsetRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.runBlocking
 
 public class BossAgentBuilder internal constructor() {
     private var memory0: Memory? = null
@@ -80,10 +81,7 @@ public class BossAgentBuilder internal constructor() {
         val bulletinBoard = BulletinBoard()
         val bossScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-        // Pasture subscription is held by the bossScope-launched coroutine in its init {} —
-        // BossAgent keeps bossScope alive, so the collector stays subscribed for the agent's lifetime.
-        Pasture(
-            bulletinBoard = bulletinBoard,
+        val pasture = Pasture(
             llmProvider = llm,
             toolRegistry = delegatedToolRegistry0,
             skillRegistry = skillRegistry0,
@@ -93,8 +91,16 @@ public class BossAgentBuilder internal constructor() {
             maxIterations = maxIterations0,
             maxRounds = maxRounds0,
         )
+        val boss = buildBoss(mem, llm, bulletinBoard, bossScope)
 
-        return buildBoss(mem, llm, bulletinBoard, bossScope)
+        // 短阻塞当前线程, 等订阅 collector 就位 (subscriptionCount 同步等到, 几 ms 完成).
+        // 调用方拿到的 BossAgent 已"开箱即用", 不再有"构造返回 ≠ 订阅就位"的隐性 race.
+        runBlocking {
+            pasture.observe(bulletinBoard)
+            boss.attach(bulletinBoard)
+        }
+
+        return boss
     }
 
     private fun buildBoss(
@@ -132,7 +138,7 @@ public class BossAgentBuilder internal constructor() {
             maxIterations(maxIterations0)
         }
 
-        return BossAgent(innerAgent, bulletinBoard, scope)
+        return BossAgent(innerAgent, scope)
     }
 
     private fun buildPersona(): Persona {

@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -44,7 +45,6 @@ internal class TaskState(
 
 public class BossAgent internal constructor(
     private val innerAgent: Agent,
-    private val bulletinBoard: BulletinBoard,
     private val scope: CoroutineScope
 ) : Agent {
 
@@ -89,11 +89,24 @@ public class BossAgent internal constructor(
     // 单一入口: 所有 race-free 集中在 [handlePending] 锁内的"读+清+launch"三步.
     private val decisionLock: Mutex = Mutex()
 
-    init {
-        // 订阅 BulletinBoard: 1 boss 1 BossAgent, 自己的 publishEvents / progressEvents 全是本 boss 的,
-        // 直接订阅即可, 不需按名称过滤.
+    // 用 null/非 null 同时表达 "是否已 attach" 和 "attach 到哪个 bb" — 比单独 Boolean flag 表达力更强
+    // (顺带防 attach 到不同 bb 的逻辑混乱), 且字段少一个.
+    private var attachedBoard: BulletinBoard? = null
+
+    /**
+     * 启动后台 collect 协程, 订阅 [bb] 的 publishEvents (TaskAssignment 路径) 与
+     * progressEvents (TaskUpdate 路径). 返回时**保证**两个 collector 都已注册到 `_events`
+     * (用 `subscriptionCount.first {}` 同步等到 — 这是 SharedFlow 标准的硬保证).
+     *
+     * 两次 attach 会抛 [IllegalStateException]. 由 [BossAgentBuilder.build] 在构造完成后
+     * runBlocking 调用一次.
+     */
+    internal suspend fun attach(bb: BulletinBoard) {
+        check(attachedBoard == null) { "BossAgent.attach() must be called only once" }
+        attachedBoard = bb
+        val expected = bb.subscriptionCount.value + 2
         scope.launch {
-            bulletinBoard.publishEvents
+            bb.publishEvents
                 .filterIsInstance<TaskAssignment>()
                 .collect { assignment ->
                     tasksLock.withLock {
@@ -102,9 +115,10 @@ public class BossAgent internal constructor(
                 }
         }
         scope.launch {
-            bulletinBoard.progressEvents
+            bb.progressEvents
                 .collect { handleTaskUpdate(it as TaskUpdate) }
         }
+        bb.subscriptionCount.first { it >= expected }
     }
 
     // ========== Public API ==========

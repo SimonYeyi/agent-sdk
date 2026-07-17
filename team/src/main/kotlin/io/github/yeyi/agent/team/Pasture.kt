@@ -11,6 +11,7 @@ import io.github.yeyi.agent.toolset.ToolsetRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -19,7 +20,6 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 internal class Pasture internal constructor(
-    private val bulletinBoard: BulletinBoard,
     private val llmProvider: LlmProvider,
     private val toolRegistry: ToolRegistry?,
     private val skillRegistry: SkillRegistry?,
@@ -34,9 +34,26 @@ internal class Pasture internal constructor(
     private val runningJobs: MutableMap<String, Job> = mutableMapOf()
     private val jobsLock: Mutex = Mutex()
 
-    init {
+    // 用 null/非 null 同时表达 "是否已 observe" 和 "observe 到哪个 bb".
+    private var observingBoard: BulletinBoard? = null
+    private val bulletinBoard: BulletinBoard
+        get() = checkNotNull(observingBoard) { "Pasture.observe() must be called first" }
+
+    /**
+     * 启动后台 collect 协程, 订阅 [bb] 的 publishEvents (TaskAssignment + Cancellation 路径).
+     * 返回时**保证** collector 已注册到 `_events` (`subscriptionCount.first {}` 同步等到).
+     *
+     * 两次 observe 会抛 [IllegalStateException]. 由 [BossAgentBuilder.build] 在构造完成后
+     * runBlocking 调用一次.
+     */
+    internal suspend fun observe(bb: BulletinBoard) {
+        check(observingBoard == null) { "Pasture.observe() must be called only once" }
+        observingBoard = bb
+        // 旧 field 名 bulletinBoard 的非空别名 — launchBeast 需要发 TaskUpdate 事件,
+        // 用属性 getter 而非 !! 让"未 observe"错误更明确.
+        val expected = bb.subscriptionCount.value + 1
         scope.launch {
-            bulletinBoard.publishEvents
+            bb.publishEvents
                 .collect { event ->
                     when (event) {
                         is TaskAssignment -> handleAssignment(event)
@@ -44,6 +61,7 @@ internal class Pasture internal constructor(
                     }
                 }
         }
+        bb.subscriptionCount.first { it >= expected }
     }
 
     private suspend fun handleAssignment(e: TaskAssignment) {

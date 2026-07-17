@@ -85,7 +85,6 @@ class PastureTest {
         val bb = BulletinBoard()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val pasture = Pasture(
-            bulletinBoard = bb,
             llmProvider = FakeLlmProvider(nonStreamResponses = llmResponses),
             toolRegistry = toolReg,
             skillRegistry = skillReg,
@@ -95,6 +94,7 @@ class PastureTest {
             maxIterations = 1,
             maxRounds = 5,
         )
+        runBlocking { pasture.observe(bb) }
         return Triple(bb, pasture, scope)
     }
 
@@ -234,7 +234,6 @@ class PastureCancellationTest {
         val bb = BulletinBoard()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val pasture = Pasture(
-            bulletinBoard = bb,
             llmProvider = FakeLlmProvider(nonStreamResponses = listOf(PASTURE_FINAL)),
             toolRegistry = null,
             skillRegistry = null,
@@ -244,6 +243,7 @@ class PastureCancellationTest {
             maxIterations = 1,
             maxRounds = 5,
         )
+        runBlocking { pasture.observe(bb) }
         return Triple(bb, pasture, scope)
     }
 
@@ -262,8 +262,7 @@ class PastureCancellationTest {
     @Test
     fun `cancel of unknown task_id is silent`() = runBlocking {
         val (bb, _, _) = setupPasture()
-        // 让 Pasture 的 init { scope.launch { collect } } attach 到 publishEvents
-        delay(100)
+        // setupPasture 已同步等到 Pasture 订阅就绪, 直接 publish 即可.
         bb.publishEvent(Cancellation("never-ran"))
         delay(100)
         // 不抛异常
@@ -296,8 +295,7 @@ class PastureCancellationTest {
                     error("chatStream not expected in this test")
                 }
         }
-        Pasture(
-            bulletinBoard = bb,
+        val pasture = Pasture(
             llmProvider = slowLlm,
             toolRegistry = null,
             skillRegistry = null,
@@ -307,15 +305,15 @@ class PastureCancellationTest {
             maxIterations = 1,
             maxRounds = 5,
         )
+        runBlocking { pasture.observe(bb) }
 
-        // fork-join: 先启动订阅协程, 等 50ms 让 Pasture 的 collect 也 attach (Pasture 订阅
-        // 与本测试的订阅是独立的, 都需要时间 attach). 再 publish task.
+        // fork-join: Pasture.observe 已同步等到 collector 注册, 可直接订阅 progressEvents
+        // (本测试的订阅与 Pasture 内部订阅都已在 bb.subscriptionCount 中, 无需额外 delay).
         val taskDeferred = async {
             bb.progressEvents
                 .filterIsInstance<TaskUpdate>()
                 .first { it.event is AgentEvent.Failed }
         }
-        delay(50)
         bb.publishEvent(TaskAssignment("t1", listOf(Selection.Tool("foo")), "long task"))
         delay(100)  // 让 beast 开始跑, 真正进入 slowLlm.delay 窗口
 
