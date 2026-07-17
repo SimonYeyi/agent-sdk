@@ -15,6 +15,7 @@ import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.memory.InMemoryMemory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.SupervisorJob
@@ -268,13 +269,12 @@ class BossAgentTest {
             )
         )
 
-        // 订阅 continuations 后 publish 终态 TaskUpdate
-        // 注: boss.continuations 是 SharedFlow (asSharedFlow() 返回的只读接口),
-        // 不能直接套 onSubscription — 此处 delay(100) 是 SharedFlow collector attach 的功能性等待,
-        // 不可避免 (除非改 continuations 暴露 MutableSharedFlow 或包一层 wrapper).
+        // 用 launch(UNDISPATCHED) 同步挂上 boss.continuations collector —
+        // 与 publishAndAwaitFinal 同一个套路,无需 delay 等待 subscribe 完成.
         val continuations = mutableListOf<AgentEvent>()
-        val job = launch { boss.continuations.collect { continuations.add(it) } }
-        delay(100)  // 让 collector 订阅就位
+        val job = launch(start = CoroutineStart.UNDISPATCHED) {
+            boss.continuations.collect { continuations.add(it) }
+        }
 
         bb.progressEvent(
             TaskUpdate(taskId, AgentEvent.Final(AgentResult(ChatMessage.Assistant("done"), 1, emptyList(), null)))

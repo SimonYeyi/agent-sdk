@@ -115,9 +115,11 @@ class BossAgentIntegrationTest {
         val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
 
-        // 订阅 continuations 验证续轮事件回流
+        // 用 launch(UNDISPATCHED) 同步挂上 boss.continuations collector,无需 delay 屏障.
         val continuations = mutableListOf<AgentEvent>()
-        val contJob = launch { boss.continuations.collect { continuations.add(it) } }
+        val contJob = launch(start = CoroutineStart.UNDISPATCHED) {
+            boss.continuations.collect { continuations.add(it) }
+        }
 
         // 用户输入 → boss 决策 → publish_task → 完成 round → state WAITING
         val userRoundEvents = boss.run("帮我跑 echo").toList()
@@ -216,7 +218,9 @@ class BossAgentIntegrationTest {
         runBlocking { boss.attach(bb) }
 
         val continuations = mutableListOf<AgentEvent>()
-        val contJob = launch { boss.continuations.collect { continuations.add(it) } }
+        val contJob = launch(start = CoroutineStart.UNDISPATCHED) {
+            boss.continuations.collect { continuations.add(it) }
+        }
 
         boss.run("并发派 A 和 B").toList()
 

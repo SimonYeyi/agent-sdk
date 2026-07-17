@@ -316,7 +316,7 @@ class PastureCancellationTest {
                 .first { it.event is AgentEvent.Failed }
         }
         bb.publishEvent(TaskAssignment("t1", listOf(Selection.Tool("foo")), "long task"))
-        delay(100)  // 让 beast 开始跑, 真正进入 slowLlm.delay 窗口
+        delay(100)  // 让 Pasture collect 协程消费 TaskAssignment, 把 beast job 注册到 runningJobs — handleCancellation 依赖这个, 否则 cancel 是 no-op
 
         bb.publishEvent(Cancellation("t1"))
 
