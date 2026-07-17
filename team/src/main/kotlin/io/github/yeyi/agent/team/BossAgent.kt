@@ -15,7 +15,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.isActive
@@ -94,9 +93,9 @@ public class BossAgent internal constructor(
     private lateinit var bulletinBoard: BulletinBoard
 
     /**
-     * 启动后台 collect 协程, 订阅 [bb] 的 publishEvents (TaskAssignment 路径) 与
-     * progressEvents (TaskUpdate 路径). 返回时**保证**两个 collector 都已注册到 `_events`
-     * (用 `subscriptionCount.first {}` 同步等到 — 这是 SharedFlow 标准的硬保证).
+     * 启动后台 collect 协程, 订阅 [bb] 的原始 [BulletinBoard.events] 统一流, 内部 when 区分
+     * TaskAssignment / TaskUpdate 分发到对应处理逻辑. BossAgent 在 `_events` 上注册**一个**
+     * collector — `subscriptionCount.first { it >= expected }` 用 `expected = +1` 同步等到.
      *
      * 两次 attach 会抛 [IllegalStateException]. 由 [BossAgentBuilder.build] 在构造完成后
      * runBlocking 调用一次.
@@ -104,19 +103,20 @@ public class BossAgent internal constructor(
     internal suspend fun attach(bb: BulletinBoard) {
         check(!::bulletinBoard.isInitialized) { "BossAgent.attach() must be called only once" }
         bulletinBoard = bb
-        val expected = bb.subscriptionCount.value + 2
+        val expected = bulletinBoard.subscriptionCount.value + 1
         scope.launch {
-            bulletinBoard.publishEvents
-                .filterIsInstance<TaskAssignment>()
-                .collect { assignment ->
-                    tasksLock.withLock {
-                        tasks[assignment.taskId] = TaskState(assignment.selections, assignment.task)
+            bulletinBoard.events.collect { event ->
+                when (event) {
+                    is TaskAssignment -> tasksLock.withLock {
+                        tasks[event.taskId] = TaskState(event.selections, event.task)
                     }
+
+                    is TaskUpdate -> handleTaskUpdate(event)
+                    // 其他事件 (Cancellation 等) BossAgent 不关心, 显式 no-op
+                    // 让编译器在 BulletinEvent 加新类型时强制更新此 when.
+                    else -> Unit
                 }
-        }
-        scope.launch {
-            bulletinBoard.progressEvents
-                .collect { handleTaskUpdate(it as TaskUpdate) }
+            }
         }
         bulletinBoard.subscriptionCount.first { it >= expected }
     }

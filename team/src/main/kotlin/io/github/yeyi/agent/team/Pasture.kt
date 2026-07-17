@@ -48,15 +48,14 @@ internal class Pasture internal constructor(
     internal suspend fun observe(bb: BulletinBoard) {
         check(!::bulletinBoard.isInitialized) { "Pasture.observe() must be called only once" }
         bulletinBoard = bb
-        val expected = bb.subscriptionCount.value + 1
+        val expected = bulletinBoard.subscriptionCount.value + 1
         scope.launch {
-            bulletinBoard.publishEvents
-                .collect { event ->
-                    when (event) {
-                        is TaskAssignment -> handleAssignment(event)
-                        is Cancellation -> handleCancellation(event)
-                    }
+            bulletinBoard.publishEvents.collect { event ->
+                when (event) {
+                    is TaskAssignment -> handleAssignment(event)
+                    is Cancellation -> handleCancellation(event)
                 }
+            }
         }
         bulletinBoard.subscriptionCount.first { it >= expected }
     }
@@ -116,17 +115,21 @@ internal class Pasture internal constructor(
                         if (pattern.containsMatchIn(text)) tools += tool
                     }
                 }
+
                 is Selection.Toolset -> {
                     val toolset = toolsetRegistry?.all()?.firstOrNull { it.name == s.name }
                         ?: error("assembleHorse: toolset not found: ${s.name}")
                     tools += toolset.all()
                 }
+
                 is Selection.Tool -> {
                     val tool = toolRegistry?.all()?.firstOrNull { it.name == s.name }
                         ?: error("assembleHorse: tool not found: ${s.name}")
                     tools += tool
                 }
-                is Selection.Subagent -> { /* unreachable */ }
+
+                is Selection.Subagent -> { /* unreachable */
+                }
             }
         }
 

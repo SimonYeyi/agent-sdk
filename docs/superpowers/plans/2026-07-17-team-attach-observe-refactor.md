@@ -9,7 +9,7 @@
 **Architecture:**
 
 - `BulletinBoard` 不动（`replay = 0` 表达业务语义"现场直播"，不背负测试基建）
-- `BossAgent` 构造不再接收 `BulletinBoard`；新增 `suspend fun attach(bb)` —— 内部 launch 两个 collect 协程（后台长生命周期），`bb.events.subscriptionCount.first { it >= expected }` 等到两个 collector 都注册完成
+- `BossAgent` 构造不再接收 `BulletinBoard`；新增 `suspend fun attach(bb)` —— 内部 launch 一个 collect 协程（后台长生命周期）订阅 `bulletinBoard.events` 统一流，内部 when 区分 TaskAssignment / TaskUpdate。BossAgent 在 `_events` 上是 1 个订阅者，`subscriptionCount.first { it >= expected }` 用 `expected = +1` 同步等到
 - `Pasture` 构造不再接收 `BulletinBoard`；新增 `suspend fun observe(bb)` —— 同上，单 collect 版本
 - `BossAgentBuilder.build()` 在创建完 `Pasture` 和 `BossAgent` 后 `runBlocking { pasture.observe(bb); boss.attach(bb) }` —— runBlocking 等的是 `subscriptionCount.first { ... }` 同步信号，几 ms 完成，build 是"同步组装"语义
 
@@ -52,24 +52,25 @@
   public suspend fun attach(bb: BulletinBoard) {
       check(!::bulletinBoard.isInitialized) { "BossAgent.attach() must be called only once" }
       bulletinBoard = bb
-      val expected = bb.subscriptionCount.value + 2
+      val expected = bulletinBoard.subscriptionCount.value + 1   // BossAgent 是 1 个订阅者
       scope.launch {
-          bulletinBoard.publishEvents
-              .filterIsInstance<TaskAssignment>()
-              .collect { assignment ->
-                  tasksLock.withLock {
-                      tasks[assignment.taskId] = TaskState(assignment.selections, assignment.task)
+          bulletinBoard.events.collect { event ->
+              when (event) {
+                  is TaskAssignment -> tasksLock.withLock {
+                      tasks[event.taskId] = TaskState(event.selections, event.task)
                   }
+                  is TaskUpdate -> handleTaskUpdate(event)
+                  // 其他事件 (Cancellation 等) BossAgent 不关心, 显式 no-op
+                  // 让编译器在 BulletinEvent 加新类型时强制更新此 when.
+                  else -> Unit
               }
-      }
-      scope.launch {
-          bulletinBoard.progressEvents
-              .collect { handleTaskUpdate(it as TaskUpdate) }
+          }
       }
       bulletinBoard.subscriptionCount.first { it >= expected }
   }
   ```
 - [ ] 加 import：`kotlinx.coroutines.flow.first`
+- [ ] 移除 import：`kotlinx.coroutines.flow.filterIsInstance`（改用 `events` + when 替代 filterIsInstance）
 
 ## Task 2: `Pasture` 改造
 
