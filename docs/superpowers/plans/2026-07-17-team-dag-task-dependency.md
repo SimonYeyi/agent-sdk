@@ -430,13 +430,13 @@
 
 ## Task 4: `BossAgent` 维护 round 状态 + 续轮触发
 
-BossAgent 内部维护 `currentRoundId`,`TaskState` 加 `roundId` 字段,收到 `TaskAssignments` 注册 task + 关联 roundId,收到 `TaskUpdate` 累加 events + 检查 round 完成 → 触发续轮带 `formatRoundSummary`。
+`TaskState` 加 `roundId` 字段,`pendingResultEvents` 改为 `Channel<String>` 存 round summary 字符串。`handleTaskUpdate` 检查 round 完成时把 summary 压入 channel,调用普通 `handlePending()` 触发续轮。删掉 COLLECTING 和 `hasActiveTasks()`。
 
-- [ ] `BossAgent.kt` 新增 round 状态字段:
+- [ ] `BossAgent.kt` 新增 `currentRoundId` 字段（用于 attach 时关联 task 到当前 round）:
   ```kotlin
   private var currentRoundId: String = ""
   ```
-- [ ] `BossAgent.kt` `run()` 每轮更新 `currentRoundId`:
+- [ ] `BossAgent.kt` `run()` 每轮生成 `currentRoundId`:
   ```kotlin
   override fun run(input: String): Flow<AgentEvent> {
       if (!scope.isActive) {
@@ -444,13 +444,13 @@ BossAgent 内部维护 `currentRoundId`,`TaskState` 加 `roundId` 字段,收到 
       }
 
       currentRoundId = java.util.UUID.randomUUID().toString()  // 每轮一个新 roundId
-      val round = UserRound(currentRoundId, input, Channel(Channel.UNLIMITED))
+      val round = UserRound(input, Channel(Channel.UNLIMITED))
       scope.launch { handlePending(round = round) }
       return flow { for (e in round.channel) emit(e) }
   }
   ```
-  注:`UserRound` 现有签名加 `roundId` 字段(后续可在 prompt 里引用)
-- [ ] `BossAgent.kt` `UserRound` 加 `val roundId: String` 字段
+  KDoc:「每轮生成新的 `currentRoundId`,LLM 响应 `publish_task` 时 attach 收到的 `TaskAssignments` 会关联到这个 roundId。」
+- [ ] `BossAgent.kt` `UserRound` 不变（不需要 roundId 字段，roundId 存在 BossAgent 内部状态）
 - [ ] `BossAgent.kt` `attach` 改订阅 `events` 统一流(因类型是 `Any`,用 `is` 类型检查)。**关键:收到 `TaskAssignments` 时用 `currentRoundId`(BossAgent 内部状态)关联 task,不是从 `event.roundId` 读 —— `TaskAssignments` 事件本身不带 roundId**:
   ```kotlin
   internal suspend fun attach(bb: BulletinBoard) {
@@ -494,41 +494,38 @@ BossAgent 内部维护 `currentRoundId`,`TaskState` 加 `roundId` 字段,收到 
           get() = events.lastOrNull() is AgentEvent.Final || events.lastOrNull() is AgentEvent.Failed
   }
   ```
-- [ ] 改造 `handleTaskUpdate`(累加 events + 检查 round 完成 + 触发续轮):
+- [ ] 改造 `handleTaskUpdate`(累加 events + 检查 round 完成 → 把 summary 压入 channel):
   ```kotlin
   private suspend fun handleTaskUpdate(update: TaskUpdate) {
       val roundId: String
       tasksLock.withLock {
           val task = tasks[update.taskId] ?: return  // unknown task_id 忽略
           task.events += update.event
+          if (!task.terminal) return  // 非终态, 只更新状态
           roundId = task.roundId
       }
-      // pendingResultEvents 仍保留(向后兼容,作为 LLM input 的一部分)
-      // 但 channel 改为 TaskUpdate 类型
-      pendingResultEvents.trySend(update)
-
       // 检查 round 内所有 task 是否都 terminal
       val allDone = tasksLock.withLock {
           tasks.values.filter { it.roundId == roundId }.all { it.terminal }
       }
       if (allDone) {
-          val summary = formatRoundSummary(roundId)
-          handlePending(roundSummary = summary)
+          val summary = formatRoundSummary(roundId) ?: return
+          pendingResultEvents.trySend(summary)  // 压入 round summary
+          handlePending()  // 触发续轮
       }
   }
   ```
-- [ ] 改造 `pendingResultEvents` channel 类型从 `Channel<TaskUpdate>` 改为 `Channel<TaskUpdate>`:
+- [ ] 改造 `pendingResultEvents` channel 类型存 round summary 字符串:
   ```kotlin
-  private val pendingResultEvents: Channel<TaskUpdate> = Channel(capacity = Channel.UNLIMITED)
+  private val pendingResultEvents: Channel<String> = Channel(capacity = Channel.UNLIMITED)
   ```
-  同步更新 `drainPendingWith` 里取出的 `updates` 类型
 - [ ] 新增 `private fun formatRoundSummary(roundId: String): String?`:
   ```kotlin
   private fun formatRoundSummary(roundId: String): String? = tasksLock.withLock {
       val roundTasks = tasks.entries.filter { it.value.roundId == roundId }
       if (roundTasks.isEmpty()) return@withLock null
       buildString {
-          append("Round completed:\n")
+          append("Tasks completed:\n")
           for ((taskId, task) in roundTasks) {
               val lastEvent = task.events.lastOrNull()
               val marker = when (lastEvent) {
@@ -543,20 +540,19 @@ BossAgent 内部维护 `currentRoundId`,`TaskState` 加 `roundId` 字段,收到 
   }
   ```
   KDoc:「从 `tasks[taskId].events` 聚合 round 内每个 task 的 terminal event 格式化。BossAgent 拥有完整 task 状态视图,不依赖 Pasture 提供 summary。返回 null 表示 round 内无 task。」
-- [ ] 扩展 `handlePending` 签名加 `roundSummary: String? = null` 参数:
+- [ ] 改造 `handlePending` 简化逻辑（删掉 roundSummary 参数、删掉 COLLECTING）:
   ```kotlin
   private suspend fun handlePending(
       round: UserRound? = null,
       postRound: Boolean = false,
-      roundSummary: String? = null,  // 新增:round 完成时携带的 summary
   ) {
       decisionLock.withLock {
-          // 1) run() 投递(原逻辑不变, 把 roundSummary 传给 runPendingRound)
+          // 1) run() 投递: 闲时启动, 忙时挂起到字段
           if (round != null) {
               when {
                   _state.value in setOf(BossState.WAITING, BossState.INPUTTING) -> {
                       _state.value = BossState.RUNNING
-                      scope.launch { runPendingRound(round, roundSummary = roundSummary) }
+                      scope.launch { runPendingRound(round) }
                   }
                   else -> {
                       pendingUserRound?.let { supersedeRound(it) }
@@ -566,36 +562,18 @@ BossAgent 内部维护 `currentRoundId`,`TaskState` 加 `roundId` 字段,收到 
               return@withLock
           }
 
-          // 2) roundSummary 触发 (round 完成): 立即决策
-          if (roundSummary != null) {
-              val pendingRound = pendingUserRound
-              pendingUserRound = null
-              val hasActive = hasActiveTasks()
-              if (hasActive) {
-                  _state.value = BossState.COLLECTING
-                  scope.launch { runPendingRoundWithCollecting(roundSummary = roundSummary) }
-              } else {
-                  _state.value = BossState.RUNNING
-                  scope.launch { runPendingRound(pendingRound, roundSummary = roundSummary) }
-              }
-              return@withLock
-          }
+          // 2) 外部触发撞忙 bail
+          if (!postRound && _state.value == BossState.RUNNING) return@withLock
 
-          // 3) 原有外部触发 + postRound 逻辑(不变)
-          if (!postRound && _state.value in setOf(BossState.RUNNING, BossState.COLLECTING)) return@withLock
-
+          // 3) postRound 接班 或 外部撞闲: 决策
           val pendingRound = pendingUserRound
           pendingUserRound = null
-          val hasActive = hasActiveTasks()
-          val hasResults = !pendingResultEvents.isEmpty
+          val roundSummary = pendingResultEvents.tryReceive().getOrNull()
 
           when {
-              !postRound && hasResults && hasActive -> {
-                  scope.launch { runPendingRoundWithCollecting() }
-              }
-              pendingRound != null || hasResults -> {
+              pendingRound != null || roundSummary != null -> {
                   _state.value = BossState.RUNNING
-                  scope.launch { runPendingRound(pendingRound) }
+                  scope.launch { runPendingRound(pendingRound, roundSummary) }
               }
               else -> if (_state.value != BossState.WAITING) {
                   _state.value = BossState.WAITING
@@ -604,7 +582,7 @@ BossAgent 内部维护 `currentRoundId`,`TaskState` 加 `roundId` 字段,收到 
       }
   }
   ```
-- [ ] 扩展 `runPendingRound` 和 `runPendingRoundWithCollecting` 接收 `roundSummary`,传给 `drainPendingWith`:
+- [ ] 改造 `runPendingRound` 接收 `roundSummary: String?`:
   ```kotlin
   private suspend fun runPendingRound(round: UserRound? = null, roundSummary: String? = null) {
       try {
@@ -620,45 +598,18 @@ BossAgent 内部维护 `currentRoundId`,`TaskState` 加 `roundId` 字段,收到 
           round?.channel?.close()
       }
   }
-
-  private suspend fun runPendingRoundWithCollecting(roundSummary: String? = null) {
-      _state.value = BossState.COLLECTING
-      val deadline = System.currentTimeMillis() + COLLECTING_WINDOW_MS
-      while (System.currentTimeMillis() < deadline) {
-          if (!hasActiveTasks()) break
-          delay(50)
-      }
-      handlePending(postRound = true, roundSummary = roundSummary)
-  }
   ```
-- [ ] 扩展 `drainPendingWith` 接收 `roundSummary`,把 roundSummary 放进 LLM input:
+- [ ] 改造 `drainPendingWith` 只接收 `roundSummary` 字符串（删掉 TaskUpdate 相关逻辑）:
   ```kotlin
-  private fun drainPendingWith(input: String?, roundSummary: String? = null): String? {
-      val updates = mutableListOf<TaskUpdate>()
-      while (true) {
-          val next = pendingResultEvents.tryReceive().getOrNull() ?: break
-          updates.add(next)
-      }
-      if (updates.isEmpty() && input == null && roundSummary == null) return null
+  private fun drainPendingWith(input: String?, roundSummary: String?): String? {
+      if (input == null && roundSummary == null) return null
       return buildString {
-          input?.let { append(it); if (updates.isNotEmpty() || roundSummary != null) append("\n\n") }
-          if (roundSummary != null) {
-              append(roundSummary)
-              if (updates.isNotEmpty()) append("\n\n")
-          }
-          if (updates.isNotEmpty()) append(formatTaskResults(updates))
+          input?.let { append(it); if (roundSummary != null) append("\n\n") }
+          roundSummary?.let { append(it) }
       }
   }
   ```
-- [ ] `formatTaskResults` 签名扩展接受 `List<TaskUpdate>`(从原 `List<TaskUpdate>` 改名):
-  ```kotlin
-  private fun formatTaskResults(updates: List<TaskUpdate>): String = buildString {
-      append("以下是已发生的 task 更新:")
-      updates.forEach { append("\n${it.taskId}: ${it.event}") }
-  }
-  ```
-  KDoc:「作为 roundSummary 之外的 fallback. 当 round 完成触发续轮时优先用 roundSummary(整 round 摘要), 没 roundSummary 时用本方法格式化 pending 单 task 更新.」
-- [ ] `hasActiveTasks` / `decisionLock` / state machine / `shutdown` 等其他逻辑不变
+- [ ] 删掉 `hasActiveTasks()`、`runPendingRoundWithCollecting()`、`formatTaskResults()`、`pendingResultEvents` 原来是 `Channel<TaskUpdate>` 改为 `Channel<String>`
 
 ## Task 5: `BossAgentBuilder` 接线(零侵入,PublishTaskTool 构造完全不变)
 
@@ -737,8 +688,8 @@ BossAgent 内部维护 `currentRoundId`,`TaskState` 加 `roundId` 字段,收到 
 - **行为变更**:
   - `cancel_task(any_task_id)` 现在会 cascade 所有传递依赖
   - 跨 round 引用未注册的 task_id 现在返回 error(PublishTaskTool 入口拒绝)
-  - BossAgent 续轮触发改由 round 完成决定(原 `handleTaskUpdate` 触发逻辑保留但不再用于续轮触发 —— 现在 round 完成时通过 roundSummary 触发)
-  - LLM input 优先用 `roundSummary`(round summary),原 `formatTaskResults` 作为 fallback
+  - BossAgent 续轮触发改由 round 完成决定(`handleTaskUpdate` 检测 allDone 后把 roundSummary 压入 channel)
+  - LLM input 用 `roundSummary`(round summary),删掉了 `formatTaskResults`
 - **回滚**: 没有「软回滚」路径 —— 改动需一步到位(Git revert 即整批回退)
 - **未覆盖**: 跨 round 环检测(数学上不可能);group 抽象(本计划主动去除,用 roundId 替代);DAG 可视化(v2);roundId 持久化(每次 run() 重新生成,BossAgent 重启后 round 信息丢失 —— 后续 v2 可考虑持久化)
 
