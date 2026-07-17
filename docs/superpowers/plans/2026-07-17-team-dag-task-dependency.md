@@ -12,9 +12,9 @@
 - **新事件 `PublishEvent.TaskAssignments(tasks)`**: 一次 `publish_task` 调用 → 一个 `TaskAssignments` 事件,整批原子 publish。**事件本身不带 roundId** —— roundId 是 BossAgent 内部视角(『这次 publish 属于哪个用户轮次』),由 BossAgent 收到 `TaskAssignments` 时用自己 `run()` 时生成的 `currentRoundId` 自行关联
 - **`knownTaskIds` 由 `PublishTaskTool` 内部维护**: 类内 `MutableSet<String>` + `Mutex`,publish 成功后登记新 task_id。**BulletinBoard 不维护任何业务 set**(Board 是事件总线基础设施,不该知道 `TaskAssignments.tasks[*].taskId` 的字段语义 —— 让 Board 维护业务 set 等于让公交车帮别人记快递)
 - **`PublishTaskTool` = 透传层**: schema 校验 + task_id 唯一性 + dependsOn 引用校验 + intra-batch 环检测 → 透传 publish `TaskAssignments(tasks)`。**不计算叶子、不标 upstream、不织 DAG,不需要 roundIdProvider / 外部 knownTaskIds 回调**
-- **`Pasture` = 全局 DAG 调度器**: 维护 `Map<taskId, DagNode>`,收到 `TaskAssignments` 整批注册,按 dependsOn 拓扑 dispatch。每个 task terminal 时 emit `ProgressEvent.TaskUpdate(taskId, event)`(不带 roundId,**Pasture 不感知 round 概念**)。cascade 失败时链式推进
-- **`BossAgent` 维护 round 状态**: `currentRoundId`(每轮 run() 时更新)+ `taskRound: Map<taskId, roundId>`(attach 收到 `TaskAssignments` 时用 currentRoundId 关联)+ `rounds: Map<roundId, Set<taskId>>`(round 内 task 集合)
-- **`BossAgent` 续轮触发**: 收到 `ProgressEvent.TaskUpdate` 时,锁内查 `rounds[roundId].all { tasks[it].terminal }` → 都 terminal 时触发 `handlePending(chainSummary = formatRoundSummary(roundId))`。`formatRoundSummary` 由 BossAgent 从 `tasks[taskId].events` 聚合(不依赖 Pasture 提供 summary)
+- **`Pasture` = 全局 DAG 调度器**: 维护 `Map<taskId, DagNode>`,收到 `TaskAssignments` 整批注册,按 dependsOn 拓扑 dispatch。每个 task terminal 时 emit `TaskUpdate(taskId, event)`(不带 roundId,**Pasture 不感知 round 概念**)。cascade 失败时链式推进
+- **`BossAgent` 维护 round 状态**: `currentRoundId`(每轮 run() 时更新);`TaskState` 加 `roundId` 字段;attach 收到 `TaskAssignments` 时用 `currentRoundId` 关联 task
+- **`BossAgent` 续轮触发**: 收到 `TaskUpdate` 时,锁内查同 roundId 的所有 task 是否 terminal → 都 terminal 时触发 `handlePending(roundSummary = formatRoundSummary(roundId))`。`formatRoundSummary` 由 BossAgent 从 `tasks[taskId].events` 聚合(不依赖 Pasture 提供 summary)
 - **UI 按 roundId 分组**: UI 不直接订阅 events 推断 roundId —— BossAgent 通过 `continuations` 流(已经实现)驱动通知,UI 也可以独立订阅 `BulletinBoard.events` 全量流,从 `TaskAssignments` 注册顺序 + `TaskUpdate` 拿 task progress。同 roundId 内按 LLM 声明顺序(TaskAssignments 数组顺序)显示,UI 用 `dependsOn` 字段可视化链路拓扑
 
 **关键设计决策:**
@@ -22,14 +22,14 @@
 1. **类型分层 = 类型名表达语义** —— `PublishEvent` 是 LLM 端发布(用户/Boss LLM 视角),`ProgressEvent` 是 Pasture 端进度(系统视角)。**命名错了类型就不清晰,语义就被误解**。BulletinBoard 内部 `publishEvents: SharedFlow<PublishEvent>` + `progressEvents: SharedFlow<ProgressEvent>` 两个独立流,类型参数直接表达语义
 2. **roundId = 用户的一轮对话** —— `run()` 时生成 `currentRoundId`,后续 `publish_task` 调用关联到当前 round(可在同 round 内多次 publish_task 形成多批 task)。跨 round 累积:round 2 的 task 引用 round 1 的 task_id → `PublishTaskTool.knownTaskIds` 已包含,校验通过 → Pasture 调度时 round 1 task 已 DONE → round 2 task 立即 dispatch(无需 round 概念,纯 DAG 调度)
 3. **roundId 由 BossAgent 内部管理,事件不带 roundId** —— `PublishTaskTool` 不接收 `roundIdProvider` lambda,roundId 完全在 BossAgent 内部。`Agent.run(input)` 接口不变,`ToolContext` 不扩展,事件总线也不引入新字段。**关键洞察:roundId 是『BossAgent 视角的元数据』,不属于事件本身的业务载荷** —— 把 roundId 放进事件会让事件总线承载过多 BossAgent 视角信息,污染事件语义
-3a. **task_id 由程序生成,LLM 只提供 ref** —— LLM 在每次 publish_task 内提供 `ref`(本批唯一的人话短字符串,比如 "lookup"/"summary"),程序生成 UUID 作为 `task_id`。**关键洞察:让 LLM 生成 + 校验全局唯一 id 是不必要的负担** —— (1) 消耗 token;(2) LLM 必须自己维护名字拼写一致性(同批 + 跨次);(3) 校验失败需要重试。**`ref` 是 LLM 端的临时概念**,程序在 `execute()` 内把 `depends_on` 中的 ref 解析成 task_id,LLM 跨次引用时用 task_id(从之前 chainSummary 拿)。下游(Pasture / BossAgent)只看到 `task_id`,完全不知道 ref 的存在。
+3a. **task_id 由程序生成,LLM 只提供 ref** —— LLM 在每次 publish_task 内提供 `ref`(本批唯一的人话短字符串,比如 "lookup"/"summary"),程序生成 UUID 作为 `task_id`。**关键洞察:让 LLM 生成 + 校验全局唯一 id 是不必要的负担** —— (1) 消耗 token;(2) LLM 必须自己维护名字拼写一致性(同批 + 跨次);(3) 校验失败需要重试。**`ref` 是 LLM 端的临时概念**,程序在 `execute()` 内把 `depends_on` 中的 ref 解析成 task_id,LLM 跨次引用时用 task_id(从之前 roundSummary 拿)。下游(Pasture / BossAgent)只看到 `task_id`,完全不知道 ref 的存在。
 4. **knownTaskIds 由 PublishTaskTool 内部维护,BulletinBoard 不掺和业务关注** —— `PublishTaskTool` 类内 `private val knownTaskIds: MutableSet<String>` + `Mutex`,publish 成功后登记新 task_id。**BulletinBoard 不维护任何已知 task_id** —— Board 是事件总线基础设施,不该知道 `TaskAssignments.tasks[*].taskId` 的字段语义。让 Board 维护业务 set 等于让公交车帮别人记快递,会污染事件总线的纯粹性,也会让未来新增事件类型时面临『要不要也维护自己的业务 set』的困扰。**权威源在业务侧而非基础设施侧**。
-5. **Pasture 完全不感知 roundId** —— `ProgressEvent.TaskUpdate(taskId, event)` 不带 roundId,Pasture 只管 DAG 调度。`taskRound` 映射由 BossAgent 内部维护,从 `attach` handler 里用 `currentRoundId` 关联
-6. **chainSummary 由 BossAgent 自己聚合** —— `formatRoundSummary(roundId)` 从 `tasks[taskId].events` 提取每个 task 的 terminal event 格式化。不依赖 Pasture 提供(避免 Pasture 与 BossAgent 视角耦合)
-7. **续轮触发唯一 = round 内所有 task terminal** —— `TaskUpdate` 进来只累加 events + 检查 round 完成,只有 round 完成才触发 `handlePending(chainSummary)`。上游 task 完成时不触发续轮(避免多次续轮 + 中间结果噪音)
+5. **Pasture 完全不感知 roundId** —— `TaskUpdate(taskId, event)` 不带 roundId,Pasture 只管 DAG 调度。`roundId` 字段由 BossAgent 内部维护,存于 `TaskState` 中,从 `attach` handler 里用 `currentRoundId` 关联
+6. **roundSummary 由 BossAgent 自己聚合** —— `formatRoundSummary(roundId)` 从 `tasks[taskId].events` 提取每个 task 的 terminal event 格式化。不依赖 Pasture 提供(避免 Pasture 与 BossAgent 视角耦合)
+7. **续轮触发唯一 = round 内所有 task terminal** —— `TaskUpdate` 进来只累加 events + 检查 round 完成,只有 round 完成才触发 `handlePending(roundSummary)`。上游 task 完成时不触发续轮(避免多次续轮 + 中间结果噪音)
 8. **emit 决策 race-free** —— BulletinBoard 单线程顺序消费,Pasture collect handler 与 dispatch catch 是同一 actor。BossAgent 检查 round 完成时锁内查 `rounds` map,不会被并发 TaskAssignments 干扰
 9. **环检测只 intra-batch** —— 跨 batch 引用已发布的 task,数学上不可能成环。PublishTaskTool 只对当前 tasks 数组做 DFS 环检测
-10. **cancel cascade = 下游传播 + 单根调用** —— `cancel_task(taskId)` → Pasture 把该 task 标 CANCELED(RUNNING 时 `job.cancel()`,PENDING/READY 时直接标),沿依赖图下游传播(所有 dependsOn 包含此 taskId 的 task,直接或传递)同样标 CANCELED/FAILED。每个 cascade fail 的 task 都 emit `ProgressEvent.TaskUpdate`,BossAgent 检查所属 round 是否都 terminal → 是则触发续轮带失败 summary
+10. **cancel cascade = 下游传播 + 单根调用** —— `cancel_task(taskId)` → Pasture 把该 task 标 CANCELED(RUNNING 时 `job.cancel()`,PENDING/READY 时直接标),沿依赖图下游传播(所有 dependsOn 包含此 taskId 的 task,直接或传递)同样标 CANCELED/FAILED。每个 cascade fail 的 task 都 emit `TaskUpdate`,BossAgent 检查所属 round 是否都 terminal → 是则触发续轮带失败 summary
 
     **cascade 精确语义**:
     - **只向下传播**:cancelled task 的下游(被它 depends_on 的所有 task)会被取消;**上游不动**(被取消任务自己的依赖继续跑 —— 它们可能还被其他分支需要)
@@ -69,15 +69,15 @@
 |---|---|
 | `team/src/main/kotlin/io/github/yeyi/agent/team/BulletinBoard.kt` | 新增 `PublishEvent.TaskAssignments(tasks)` 扁平 data class(**不带 roundId**);`TaskAssignment` 加 `dependsOn` 字段,从 `PublishEvent` 实现中移除退化为非 event;**Board 本身零改动**(三流派生 + subscriptionCount + publish/progress 方法不变) |
 | `team/src/main/kotlin/io/github/yeyi/agent/team/PublishTaskTool.kt` | schema 加 `ref`(LLM 提供,本批唯一) + `depends_on`(可选,引用 ref 本批或 task_id 跨批);execute 改为纯透传 + ref → UUID task_id 解析 + 一次性 publish `TaskAssignments(tasks)`(不带 roundId);**类内**新增 `knownTaskIds: MutableSet<String>` + `knownTaskIdsLock: Mutex` + `internal fun knownTaskIdsSnapshot()`,publish 成功后登记新 task_id;**构造签名零变化**;删除原 UUID 生成(task_id 改为程序在 execute 内生成,LLM 只提供 ref) |
-| `team/src/main/kotlin/io/github/yeyi/agent/team/Pasture.kt` | 替换 `runningJobs` 派发为 DAG 调度器;observe 改订阅 `publishEvents` 处理 `TaskAssignments` + `Cancellation`;每个 task terminal emit `ProgressEvent.TaskUpdate`;cascade 链式推进;**不**新增 `knownTaskIds()` 暴露(权威源在 `PublishTaskTool` 侧,Pasture 自己用 `dag.keys` 即可) |
-| `team/src/main/kotlin/io/github/yeyi/agent/team/BossAgent.kt` | 新增 `currentRoundId` + `taskRound` + `rounds` 字段;`run()` 每轮生成 currentRoundId;`attach` 收到 `TaskAssignments` 时用 `currentRoundId`(内部状态)关联 task,**不读 event.roundId**(事件不带);新增 `handleTaskUpdate` 的 round 完成判断 + `formatRoundSummary`;`handlePending` 扩展 `chainSummary` 参数 |
+| `team/src/main/kotlin/io/github/yeyi/agent/team/Pasture.kt` | 替换 `runningJobs` 派发为 DAG 调度器;observe 改订阅 `publishEvents` 处理 `TaskAssignments` + `Cancellation`;每个 task terminal emit `TaskUpdate`;cascade 链式推进;**不**新增 `knownTaskIds()` 暴露(权威源在 `PublishTaskTool` 侧,Pasture 自己用 `dag.keys` 即可) |
+| `team/src/main/kotlin/io/github/yeyi/agent/team/BossAgent.kt` | 新增 `currentRoundId` 字段;`TaskState` 加 `roundId` 字段;`run()` 每轮生成 currentRoundId;`attach` 收到 `TaskAssignments` 时用 `currentRoundId`(内部状态)关联 task,**不读 event.roundId**(事件不带);新增 `handleTaskUpdate` 的 round 完成判断 + `formatRoundSummary`;`handlePending` 扩展 `roundSummary` 参数 |
 | `team/src/main/kotlin/io/github/yeyi/agent/team/BossAgentBuilder.kt` | **PublishTaskTool 构造完全不变**;**唯一改动**:`baseRole` 第 3 条后追加第 4 条 (DAG 用法摘要) |
 | `team/src/main/kotlin/io/github/yeyi/agent/team/CancelTaskTool.kt` | `description` 字段改写(详见设计决策 #10 的 `cancel_task` 工具描述);execute 逻辑不变(已正确处理 PENDING/READY/RUNNING/DONE 分支 + cascade) |
 | `team/src/test/kotlin/io/github/yeyi/agent/team/PublishTaskToolDagTest.kt` | 新文件,覆盖 ref 解析 + intra-call ref 唯一性 + dependsOn 引用(ref 本批 + task_id 跨批混用) + 环检测 + 验证 emit 的 `TaskAssignments` 不带 roundId + summary 返回 task_id 给 LLM |
 | `team/src/test/kotlin/io/github/yeyi/agent/team/PastureDagTest.kt` | 新文件,覆盖 DAG 调度 + 跨 round 引用 + cascade + TaskUpdate emit + Pasture 内部 dag 状态观察(internal getter) |
 | `team/src/test/kotlin/io/github/yeyi/agent/team/BossAgentDagIntegrationTest.kt` | 新文件,覆盖 Boss 只在 round 完成时续轮 + round summary 聚合 + 跨 round 累积 + roundId 由 BossAgent.run() 时生成 |
 
-`CancelTaskTool` 仅 `description` 字段改写(详见设计决策 #10),execute 逻辑不变(已正确处理 PENDING/READY/RUNNING/DONE 分支 + cascade);Beast / Selection / BossAgent 主流程(state machine / decisionLock / runPendingRound / handlePending 现有逻辑)不动,仅扩展 `handlePending` 签名加 `chainSummary` 参数。
+`CancelTaskTool` 仅 `description` 字段改写(详见设计决策 #10),execute 逻辑不变(已正确处理 PENDING/READY/RUNNING/DONE 分支 + cascade);Beast / Selection / BossAgent 主流程(state machine / decisionLock / runPendingRound / handlePending 现有逻辑)不动,仅扩展 `handlePending` 签名加 `roundSummary` 参数。
 
 ---
 
@@ -112,7 +112,7 @@
 
 ## Task 2: `PublishTaskTool` 透传改造
 
-职责收敛:**只校验 + 透传**。不计算叶子、不标 upstream、不织 DAG。**`task_id` 由程序生成 UUID(LLM 不提供)**,LLM 只提供 `ref`(本批内唯一的 symbolic name,人话短字符串)。`depends_on` 既支持引用 `ref`(本批)也支持引用 `task_id`(跨批,从之前 chainSummary 拿)。程序负责 `ref → task_id` 解析,下游只看到 `task_id`。**不再需要 roundIdProvider / 外部 knownTaskIds 回调** —— roundId 由 BossAgent 内部维护(attach 时自行关联),knownTaskIds 由 PublishTaskTool 内部维护(权威源在发布工具侧,不让 BulletinBoard 背负业务关注)。
+职责收敛:**只校验 + 透传**。不计算叶子、不标 upstream、不织 DAG。**`task_id` 由程序生成 UUID(LLM 不提供)**,LLM 只提供 `ref`(本批内唯一的 symbolic name,人话短字符串)。`depends_on` 既支持引用 `ref`(本批)也支持引用 `task_id`(跨批,从之前 roundSummary 拿)。程序负责 `ref → task_id` 解析,下游只看到 `task_id`。**不再需要 roundIdProvider / 外部 knownTaskIds 回调** —— roundId 由 BossAgent 内部维护(attach 时自行关联),knownTaskIds 由 PublishTaskTool 内部维护(权威源在发布工具侧,不让 BulletinBoard 背负业务关注)。
 
 - [ ] `PublishTaskTool.kt:94-138` `SCHEMA_JSON` task item 改写 —— 把 `task_id` 替换为 `ref`(LLM 提供):
   ```json
@@ -150,7 +150,7 @@
       // 测试可见 snapshot —— 同包测试不绕弯, 直接读.
       internal fun knownTaskIdsSnapshot(): Set<String> = knownTaskIdsLock.withLock { knownTaskIds.toSet() }
   ```
-  KDoc:「**跨轮追加意图**通过 `task_id` 表达,不通过 ref —— chainSummary 每轮返回 task_id 给 LLM,LLM 在下一轮 `depends_on` 里写 task_id 即可精确引用历史 task。**ref 严格限定为「本批内唯一符号名」**,跨轮没有稳定保证,所以不维护 refHistory(latest-wins 会让同名 ref 跨轮歧义,精确引用必须用 task_id)。」
+  KDoc:「**跨轮追加意图**通过 `task_id` 表达,不通过 ref —— roundSummary 每轮返回 task_id 给 LLM,LLM 在下一轮 `depends_on` 里写 task_id 即可精确引用历史 task。**ref 严格限定为「本批内唯一符号名」**,跨轮没有稳定保证,所以不维护 refHistory(latest-wins 会让同名 ref 跨轮歧义,精确引用必须用 task_id)。」
 - [ ] `PublishTaskTool.kt:23-43` `description` 在「Pass an array of independent tasks to run them concurrently」处替换为:
   ```
   Pass an array of tasks. Each task declares a `ref` (your short symbolic name, unique within this call)
@@ -236,11 +236,11 @@
 - [ ] 新增 `private fun detectIntraCycle(tasks: List<TaskAssignment>): String?` —— DFS 找环,基于 task_id 依赖图(Pass 2 解析后的 dependsOn 全是 task_id)。
 - [ ] 加 import:`kotlinx.coroutines.sync.Mutex` + `kotlinx.coroutines.sync.withLock` (供 `knownTaskIdsLock.withLock { ... }` 用)
 
-  KDoc:「**校验语义** —— ① intra-call `ref` 非空且唯一; ② `selections` 数组非空 + 每个 selection type 在 `Selection.FACTORIES` 中; ③ `depends_on` 每项要么是本批 `ref`(程序解析为 task_id)要么是已注册 `task_id`(在 knownTaskIds 中); ④ intra-call 环检测。**`task_id` 由程序 UUID 生成,LLM 不提供** —— LLM 只提供本批唯一的 `ref`,跨次引用用 task_id(从之前 chainSummary 拿)。所有校验失败的请求整体返回 error,**不**触发 partial publish。校验通过后才 publish + 登记 task_id。」
+  KDoc:「**校验语义** —— ① intra-call `ref` 非空且唯一; ② `selections` 数组非空 + 每个 selection type 在 `Selection.FACTORIES` 中; ③ `depends_on` 每项要么是本批 `ref`(程序解析为 task_id)要么是已注册 `task_id`(在 knownTaskIds 中); ④ intra-call 环检测。**`task_id` 由程序 UUID 生成,LLM 不提供** —— LLM 只提供本批唯一的 `ref`,跨次引用用 task_id(从之前 roundSummary 拿)。所有校验失败的请求整体返回 error,**不**触发 partial publish。校验通过后才 publish + 登记 task_id。」
 
 ## Task 3: `Pasture` DAG 调度器
 
-替换 `runningJobs` 简单派发为 DAG tracker。`ProgressEvent.TaskUpdate` 透明 emit 所有 task(包括 upstream)。cascade 链式推进。**完全不感知 roundId**。
+替换 `runningJobs` 简单派发为 DAG tracker。`TaskUpdate` 透明 emit 所有 task(包括 upstream)。cascade 链式推进。**完全不感知 roundId**。
 
 - [ ] `Pasture.kt:34-35` 删除 `runningJobs: MutableMap<String, Job>` 与 `jobsLock: Mutex`(被 DAG 状态取代)
 - [ ] `Pasture.kt` 新增内部状态:
@@ -393,7 +393,7 @@
       // emit TaskUpdate (透明, 所有 task 包括 upstream 都 emit, 不带 roundId)
       val event = if (isSuccess) AgentEvent.Final(node.result ?: "")
                   else AgentEvent.Failed(throwable ?: IllegalStateException(node.failureMessage))
-      bulletinBoard.progressEvent(ProgressEvent.TaskUpdate(taskId, event))
+      bulletinBoard.progressEvent(TaskUpdate(taskId, event))
       // BossAgent 收到后自己判断所属 round 是否完成 → 触发续轮
   }
   ```
@@ -430,13 +430,11 @@
 
 ## Task 4: `BossAgent` 维护 round 状态 + 续轮触发
 
-BossAgent 内部维护 round 状态(`currentRoundId` + `taskRound` + `rounds`),收到 `TaskAssignments` 注册 task + 关联 roundId,收到 `TaskUpdate` 累加 events + 检查 round 完成 → 触发续轮带 `formatRoundSummary`。
+BossAgent 内部维护 `currentRoundId`,`TaskState` 加 `roundId` 字段,收到 `TaskAssignments` 注册 task + 关联 roundId,收到 `TaskUpdate` 累加 events + 检查 round 完成 → 触发续轮带 `formatRoundSummary`。
 
 - [ ] `BossAgent.kt` 新增 round 状态字段:
   ```kotlin
   private var currentRoundId: String = ""
-  private val taskRound: MutableMap<String, String> = mutableMapOf()       // taskId → roundId
-  private val rounds: MutableMap<String, MutableSet<String>> = mutableMapOf()  // roundId → taskIds
   ```
 - [ ] `BossAgent.kt` `run()` 每轮更新 `currentRoundId`:
   ```kotlin
@@ -458,36 +456,37 @@ BossAgent 内部维护 round 状态(`currentRoundId` + `taskRound` + `rounds`),�
   internal suspend fun attach(bb: BulletinBoard) {
       check(!::bulletinBoard.isInitialized) { "BossAgent.attach() must be called only once" }
       bulletinBoard = bb
-      val expected = bulletinBoard.events.subscriptionCount.value + 1
+      val subscribed = CompletableDeferred<Unit>()
       scope.launch {
-          bulletinBoard.events.collect { event ->
-              when (event) {
-                  is PublishEvent.TaskAssignments -> {
-                      // BossAgent 内部 currentRoundId, 自行关联这批 task 到当前 round.
-                      // 一次 publish_task 调用可以属于当前 round 的多次调用之一.
-                      val roundId = currentRoundId
-                      tasksLock.withLock {
-                          for (task in event.tasks) {
-                              tasks[task.taskId] = TaskState(task.selections, task.task, task.dependsOn)
-                              taskRound[task.taskId] = roundId
-                              rounds.getOrPut(roundId) { mutableSetOf() }.add(task.taskId)
+          bulletinBoard.events
+              .onSubscription { subscribed.complete(Unit) }
+              .collect { event ->
+                  when (event) {
+                      is PublishEvent.TaskAssignments -> {
+                          // BossAgent 内部 currentRoundId, 自行关联这批 task 到当前 round.
+                          // 一次 publish_task 调用可以属于当前 round 的多次调用之一.
+                          val roundId = currentRoundId
+                          tasksLock.withLock {
+                              for (task in event.tasks) {
+                                  tasks[task.taskId] = TaskState(task.selections, task.task, roundId, task.dependsOn)
+                              }
                           }
                       }
+                      is TaskUpdate -> handleTaskUpdate(event)
+                      else -> Unit  // Cancellation 不关心
                   }
-                  is ProgressEvent.TaskUpdate -> handleTaskUpdate(event)
-                  else -> Unit  // Cancellation 不关心
               }
-          }
       }
-      bulletinBoard.events.subscriptionCount.first { it >= expected }
+      subscribed.await()
   }
   ```
   KDoc 更新:「订阅 `events` 统一流。`TaskAssignments` 注册所有 task 到 map + 用 BossAgent 内部 `currentRoundId` 关联(不依赖事件本身带 roundId —— roundId 是 BossAgent 视角的『这次 publish 属于哪个用户轮次』);`TaskUpdate` 累加 events + 检查 round 完成;`Cancellation` 不关心。」
-- [ ] `TaskState` data class 加 `dependsOn: List<String>` 字段(默认 emptyList()):
+- [ ] `TaskState` data class 加 `roundId: String` + `dependsOn: List<String>` 字段:
   ```kotlin
   internal class TaskState(
       val selections: List<Selection>,
       val task: String,
+      val roundId: String,
       val dependsOn: List<String> = emptyList(),
       val events: MutableList<AgentEvent> = mutableListOf(),
   ) {
@@ -497,41 +496,40 @@ BossAgent 内部维护 round 状态(`currentRoundId` + `taskRound` + `rounds`),�
   ```
 - [ ] 改造 `handleTaskUpdate`(累加 events + 检查 round 完成 + 触发续轮):
   ```kotlin
-  private suspend fun handleTaskUpdate(update: ProgressEvent.TaskUpdate) {
+  private suspend fun handleTaskUpdate(update: TaskUpdate) {
       val roundId: String
       tasksLock.withLock {
           val task = tasks[update.taskId] ?: return  // unknown task_id 忽略
           task.events += update.event
-          roundId = taskRound[update.taskId] ?: return
+          roundId = task.roundId
       }
       // pendingResultEvents 仍保留(向后兼容,作为 LLM input 的一部分)
-      // 但 channel 改为 ProgressEvent.TaskUpdate 类型
+      // 但 channel 改为 TaskUpdate 类型
       pendingResultEvents.trySend(update)
 
       // 检查 round 内所有 task 是否都 terminal
       val allDone = tasksLock.withLock {
-          val taskIds = rounds[roundId] ?: return@withLock false
-          taskIds.all { tasks[it]?.terminal == true }
+          tasks.values.filter { it.roundId == roundId }.all { it.terminal }
       }
       if (allDone) {
           val summary = formatRoundSummary(roundId)
-          handlePending(chainSummary = summary)
+          handlePending(roundSummary = summary)
       }
   }
   ```
-- [ ] 改造 `pendingResultEvents` channel 类型从 `Channel<TaskUpdate>` 改为 `Channel<ProgressEvent.TaskUpdate>`:
+- [ ] 改造 `pendingResultEvents` channel 类型从 `Channel<TaskUpdate>` 改为 `Channel<TaskUpdate>`:
   ```kotlin
-  private val pendingResultEvents: Channel<ProgressEvent.TaskUpdate> = Channel(capacity = Channel.UNLIMITED)
+  private val pendingResultEvents: Channel<TaskUpdate> = Channel(capacity = Channel.UNLIMITED)
   ```
   同步更新 `drainPendingWith` 里取出的 `updates` 类型
-- [ ] 新增 `private fun formatRoundSummary(roundId: String): String`:
+- [ ] 新增 `private fun formatRoundSummary(roundId: String): String?`:
   ```kotlin
-  private fun formatRoundSummary(roundId: String): String = tasksLock.withLock {
-      val taskIds = rounds[roundId] ?: return@withLock ""
+  private fun formatRoundSummary(roundId: String): String? = tasksLock.withLock {
+      val roundTasks = tasks.entries.filter { it.value.roundId == roundId }
+      if (roundTasks.isEmpty()) return@withLock null
       buildString {
           append("Round completed:\n")
-          for (taskId in taskIds) {
-              val task = tasks[taskId] ?: continue
+          for ((taskId, task) in roundTasks) {
               val lastEvent = task.events.lastOrNull()
               val marker = when (lastEvent) {
                   is AgentEvent.Final -> "✓ done"
@@ -544,21 +542,21 @@ BossAgent 内部维护 round 状态(`currentRoundId` + `taskRound` + `rounds`),�
       }
   }
   ```
-  KDoc:「从 `tasks[taskId].events` 聚合 round 内每个 task 的 terminal event 格式化。BossAgent 拥有完整 task 状态视图,不依赖 Pasture 提供 summary。」
-- [ ] 扩展 `handlePending` 签名加 `chainSummary: String? = null` 参数:
+  KDoc:「从 `tasks[taskId].events` 聚合 round 内每个 task 的 terminal event 格式化。BossAgent 拥有完整 task 状态视图,不依赖 Pasture 提供 summary。返回 null 表示 round 内无 task。」
+- [ ] 扩展 `handlePending` 签名加 `roundSummary: String? = null` 参数:
   ```kotlin
   private suspend fun handlePending(
       round: UserRound? = null,
       postRound: Boolean = false,
-      chainSummary: String? = null,  // 新增:round 完成时携带的 summary
+      roundSummary: String? = null,  // 新增:round 完成时携带的 summary
   ) {
       decisionLock.withLock {
-          // 1) run() 投递(原逻辑不变, 把 chainSummary 传给 runPendingRound)
+          // 1) run() 投递(原逻辑不变, 把 roundSummary 传给 runPendingRound)
           if (round != null) {
               when {
                   _state.value in setOf(BossState.WAITING, BossState.INPUTTING) -> {
                       _state.value = BossState.RUNNING
-                      scope.launch { runPendingRound(round, chainSummary = chainSummary) }
+                      scope.launch { runPendingRound(round, roundSummary = roundSummary) }
                   }
                   else -> {
                       pendingUserRound?.let { supersedeRound(it) }
@@ -568,17 +566,17 @@ BossAgent 内部维护 round 状态(`currentRoundId` + `taskRound` + `rounds`),�
               return@withLock
           }
 
-          // 2) chainSummary 触发 (round 完成): 立即决策
-          if (chainSummary != null) {
+          // 2) roundSummary 触发 (round 完成): 立即决策
+          if (roundSummary != null) {
               val pendingRound = pendingUserRound
               pendingUserRound = null
               val hasActive = hasActiveTasks()
               if (hasActive) {
                   _state.value = BossState.COLLECTING
-                  scope.launch { runPendingRoundWithCollecting(chainSummary = chainSummary) }
+                  scope.launch { runPendingRoundWithCollecting(roundSummary = roundSummary) }
               } else {
                   _state.value = BossState.RUNNING
-                  scope.launch { runPendingRound(pendingRound, chainSummary = chainSummary) }
+                  scope.launch { runPendingRound(pendingRound, roundSummary = roundSummary) }
               }
               return@withLock
           }
@@ -606,11 +604,11 @@ BossAgent 内部维护 round 状态(`currentRoundId` + `taskRound` + `rounds`),�
       }
   }
   ```
-- [ ] 扩展 `runPendingRound` 和 `runPendingRoundWithCollecting` 接收 `chainSummary`,传给 `drainPendingWith`:
+- [ ] 扩展 `runPendingRound` 和 `runPendingRoundWithCollecting` 接收 `roundSummary`,传给 `drainPendingWith`:
   ```kotlin
-  private suspend fun runPendingRound(round: UserRound? = null, chainSummary: String? = null) {
+  private suspend fun runPendingRound(round: UserRound? = null, roundSummary: String? = null) {
       try {
-          val merged = drainPendingWith(round?.input, chainSummary)
+          val merged = drainPendingWith(round?.input, roundSummary)
           if (merged != null) {
               innerAgent.run(merged).collect { e ->
                   if (round == null) continuationsEmitter.emit(e)
@@ -623,43 +621,43 @@ BossAgent 内部维护 round 状态(`currentRoundId` + `taskRound` + `rounds`),�
       }
   }
 
-  private suspend fun runPendingRoundWithCollecting(chainSummary: String? = null) {
+  private suspend fun runPendingRoundWithCollecting(roundSummary: String? = null) {
       _state.value = BossState.COLLECTING
       val deadline = System.currentTimeMillis() + COLLECTING_WINDOW_MS
       while (System.currentTimeMillis() < deadline) {
           if (!hasActiveTasks()) break
           delay(50)
       }
-      handlePending(postRound = true, chainSummary = chainSummary)
+      handlePending(postRound = true, roundSummary = roundSummary)
   }
   ```
-- [ ] 扩展 `drainPendingWith` 接收 `chainSummary`,把 chainSummary 放进 LLM input:
+- [ ] 扩展 `drainPendingWith` 接收 `roundSummary`,把 roundSummary 放进 LLM input:
   ```kotlin
-  private fun drainPendingWith(input: String?, chainSummary: String? = null): String? {
-      val updates = mutableListOf<ProgressEvent.TaskUpdate>()
+  private fun drainPendingWith(input: String?, roundSummary: String? = null): String? {
+      val updates = mutableListOf<TaskUpdate>()
       while (true) {
           val next = pendingResultEvents.tryReceive().getOrNull() ?: break
           updates.add(next)
       }
-      if (updates.isEmpty() && input == null && chainSummary == null) return null
+      if (updates.isEmpty() && input == null && roundSummary == null) return null
       return buildString {
-          input?.let { append(it); if (updates.isNotEmpty() || chainSummary != null) append("\n\n") }
-          if (chainSummary != null) {
-              append(chainSummary)
+          input?.let { append(it); if (updates.isNotEmpty() || roundSummary != null) append("\n\n") }
+          if (roundSummary != null) {
+              append(roundSummary)
               if (updates.isNotEmpty()) append("\n\n")
           }
           if (updates.isNotEmpty()) append(formatTaskResults(updates))
       }
   }
   ```
-- [ ] `formatTaskResults` 签名扩展接受 `List<ProgressEvent.TaskUpdate>`(从原 `List<TaskUpdate>` 改名):
+- [ ] `formatTaskResults` 签名扩展接受 `List<TaskUpdate>`(从原 `List<TaskUpdate>` 改名):
   ```kotlin
-  private fun formatTaskResults(updates: List<ProgressEvent.TaskUpdate>): String = buildString {
+  private fun formatTaskResults(updates: List<TaskUpdate>): String = buildString {
       append("以下是已发生的 task 更新:")
       updates.forEach { append("\n${it.taskId}: ${it.event}") }
   }
   ```
-  KDoc:「作为 chainSummary 之外的 fallback. 当 round 完成触发续轮时优先用 chainSummary(整 round 摘要), 没 chainSummary 时用本方法格式化 pending 单 task 更新.」
+  KDoc:「作为 roundSummary 之外的 fallback. 当 round 完成触发续轮时优先用 roundSummary(整 round 摘要), 没 roundSummary 时用本方法格式化 pending 单 task 更新.」
 - [ ] `hasActiveTasks` / `decisionLock` / state machine / `shutdown` 等其他逻辑不变
 
 ## Task 5: `BossAgentBuilder` 接线(零侵入,PublishTaskTool 构造完全不变)
@@ -697,7 +695,7 @@ BossAgent 内部维护 round 状态(`currentRoundId` + `taskRound` + `rounds`),�
 
 新文件 `team/src/test/kotlin/io/github/yeyi/agent/team/PastureDagTest.kt`,覆盖 DAG 调度 + TaskUpdate emit + cascade + 跨 round 引用。**不验证 roundId**(Pasture 不感知)。
 
-- [ ] **链式**: publish `[a, b dep a]`, 验证 a 完成前 b 不 dispatch, a 完成 → b dispatch 时 context 含 a 的结果, **a 和 b 都 emit `ProgressEvent.TaskUpdate`**(透明, Pasture 不区分)
+- [ ] **链式**: publish `[a, b dep a]`, 验证 a 完成前 b 不 dispatch, a 完成 → b dispatch 时 context 含 a 的结果, **a 和 b 都 emit `TaskUpdate`**(透明, Pasture 不区分)
 - [ ] **diamond**: publish `[a, b dep a, c dep a, d dep b,c]`, 验证 dispatch 顺序: a 先, b/c 并发, d 最后; **四个 task 都 emit TaskUpdate**
 - [ ] **parallel roots**: publish `[a, b]` (无依赖), 验证两者都 dispatch 并发, **两者都 emit TaskUpdate**
 - [ ] **上游结果合并格式**: 验证 b 的 context 形如 `"[a]\n${aResult}\n\n${b.context || b.task}"`
@@ -716,7 +714,7 @@ BossAgent 内部维护 round 状态(`currentRoundId` + `taskRound` + `rounds`),�
 - [ ] **跨 round 累积**: round 1 publish `[a]` → round 完成 → 续轮; round 2 (用户输入) → publish `[b dep a]` → 加进 round 2(新 roundId) → b 完成 → round 2 完成 → 续轮看到新 summary(round 2 的 summary)
 - [ ] **DAG 失败 cascade 端到端**: Boss publish `[a, b dep a, c dep b]`, a 的 LLM 模拟抛异常 → b/c cascade failed → round 完成(三个都 terminal)→ Boss 续轮看到失败 summary
 - [ ] **diamond 并发**: 4-task DAG, 验证 Pasture 调度并发正确, round 最终完成 → Boss 续轮看到 summary 包含四个 task
-- [ ] **LLM input 包含 chainSummary**: 验证续轮 round 中 Boss LLM 收到的 input 包含 `formatRoundSummary` 的字符串(round summary),不是单 task 结果列表
+- [ ] **LLM input 包含 roundSummary**: 验证续轮 round 中 Boss LLM 收到的 input 包含 `formatRoundSummary` 的字符串(round summary),不是单 task 结果列表
 
 ## Task 9: 验证
 
@@ -730,8 +728,8 @@ BossAgent 内部维护 round 状态(`currentRoundId` + `taskRound` + `rounds`),�
 
 - **API 变更 (破坏性)**:
   - `TaskAssignment` 加必填字段 `dependsOn`,退化为非 event —— 所有构造点需更新(主要是 `PublishTaskTool.execute` 和测试)
-  - `TaskUpdate` 移出 `PublishEvent`,改属 `ProgressEvent.TaskUpdate` —— 任何直接引用 `PublishEvent.TaskUpdate` 的代码需改为 `ProgressEvent.TaskUpdate`
-  - `pendingResultEvents` channel 类型从 `Channel<TaskUpdate>` 改为 `Channel<ProgressEvent.TaskUpdate>`
+  - `TaskUpdate` 移出 `PublishEvent`,改属 `TaskUpdate` —— 任何直接引用 `PublishEvent.TaskUpdate` 的代码需改为 `TaskUpdate`
+  - `pendingResultEvents` channel 类型从 `Channel<TaskUpdate>` 改为 `Channel<TaskUpdate>`
   - ~~`PublishTaskTool` 构造签名变(加 `roundIdProvider` + `knownTaskIds` 回调)~~ —— **撤回**:roundId 由 BossAgent 内部管理,knownTaskIds 由 PublishTaskTool 内部维护,**PublishTaskTool 构造签名零变化**,BossAgentBuilder 零改动
   - ~~`task_id` 从 UUID 生成改为 LLM 提供~~ —— **撤回**:`task_id` 仍由 UUID 生成(只是从 PublishTaskTool 内部生成,而不是原代码每次 execute 内生成);LLM 只提供 `ref`(本批唯一 symbolic name)。**LLM 不必提供 task_id,token 节省 + 拼写错风险消除**
   - `PublishTaskTool.execute` 校验失败的请求返回 error
@@ -739,8 +737,8 @@ BossAgent 内部维护 round 状态(`currentRoundId` + `taskRound` + `rounds`),�
 - **行为变更**:
   - `cancel_task(any_task_id)` 现在会 cascade 所有传递依赖
   - 跨 round 引用未注册的 task_id 现在返回 error(PublishTaskTool 入口拒绝)
-  - BossAgent 续轮触发改由 round 完成决定(原 `handleTaskUpdate` 触发逻辑保留但不再用于续轮触发 —— 现在 round 完成时通过 chainSummary 触发)
-  - LLM input 优先用 `chainSummary`(round summary),原 `formatTaskResults` 作为 fallback
+  - BossAgent 续轮触发改由 round 完成决定(原 `handleTaskUpdate` 触发逻辑保留但不再用于续轮触发 —— 现在 round 完成时通过 roundSummary 触发)
+  - LLM input 优先用 `roundSummary`(round summary),原 `formatTaskResults` 作为 fallback
 - **回滚**: 没有「软回滚」路径 —— 改动需一步到位(Git revert 即整批回退)
 - **未覆盖**: 跨 round 环检测(数学上不可能);group 抽象(本计划主动去除,用 roundId 替代);DAG 可视化(v2);roundId 持久化(每次 run() 重新生成,BossAgent 重启后 round 信息丢失 —— 后续 v2 可考虑持久化)
 
