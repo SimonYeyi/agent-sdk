@@ -18,7 +18,7 @@
 1. **attach 是 suspend 而非 fire-and-forget** —— 调用方 await 它 = 拿到"订阅已挂上"的同步保证。fire-and-forget 必须配 magic delay，违背初衷
 2. **内部用 `scope.launch` 包 collect** —— attach 方法本身是短生命周期（启动后台 + await ready + 返回），collect 协程是长生命周期（持续订阅直到 scope 取消）。直接 collect 会让 attach 方法永不返回
 3. **用 `SharedFlow.subscriptionCount` 而非 `onStart` 触发就绪** —— `onStart` 的 lambda 在 collect 内部注册 collector **之前**同步执行，存在时序 race：`complete()` 唤醒调用方线程后，后台协程可能还没进入 `MutableSharedFlow.collect` 注册 collector，调用方提前 publishEvent 仍会丢事件。`subscriptionCount: StateFlow<Int>` 在 collect 内部**同步原子 +1**，`first { it >= expected }` 返回时所有 expected 个 collector 必然已注册到 `_events`。这是 SharedFlow 标准 API 的硬保证，语义比 `onStart` 紧
-4. **记录 BulletinBoard 引用而非单独的 attached flag** —— 用 `private var attachedBoard: BulletinBoard? = null` 同时表达"是否已 attach"和"attach 到哪个 bb"，check `null` 即可防止重复调用。比单独的 `Boolean` flag 表达力更强（顺便防 attach 到不同 bb 的逻辑混乱），且字段少一个
+4. **用 `lateinit var bulletinBoard` 而非 nullable + getter 视图** —— `private lateinit var bulletinBoard: BulletinBoard` 由 `attach` / `observe` 赋值，后续 collect / `launchBeast` 统一从此字段读取。check `!::bulletinBoard.isInitialized` 防止重复调用。未初始化访问抛 `UninitializedPropertyAccessException`（消息固定但可读）。比 `BulletinBoard?` + 自定义 getter 视图表达力更强（无「两个 BulletinBoard 字段」歧义），且避免 `!!` 在使用点撒糖
 5. **build() 用 runBlocking 而非改 suspend** —— `bossAgent { ... }` 调用方零侵入；runBlocking 阻塞的是当前线程（应用启动或测试 setup），不阻塞 dispatcher worker
 
 **Tech Stack:** Kotlin + kotlinx.coroutines + kotlinx.serialization (json)
@@ -46,15 +46,15 @@
 
 - [ ] `BossAgent.kt` 构造签名去掉 `bulletinBoard: BulletinBoard` 参数（`BossAgent.kt:45-49`）
 - [ ] 删除 `BossAgent.kt:92-108` 整个 `init {}` 块（含两个 `scope.launch { ... .collect { ... } }`）
-- [ ] 新增 `private var attachedBoard: BulletinBoard? = null` 字段（与其他字段同区）—— 用 null/非 null 同时表达"是否已 attach"和"attach 到哪个 bb"，避免单独的 `attached: Boolean` 冗余字段
+- [ ] 新增 `private lateinit var bulletinBoard: BulletinBoard` 字段（与其他字段同区）—— `lateinit` 标记「稍后由 attach 初始化」，避免 nullable + 自定义 getter 视图的双字段形态
 - [ ] 在 `run()` 方法前新增 `suspend fun attach(bb: BulletinBoard)`：
   ```kotlin
   public suspend fun attach(bb: BulletinBoard) {
-      check(attachedBoard == null) { "BossAgent.attach() must be called only once" }
-      attachedBoard = bb
-      val expected = bb.events.subscriptionCount.value + 2
+      check(!::bulletinBoard.isInitialized) { "BossAgent.attach() must be called only once" }
+      bulletinBoard = bb
+      val expected = bb.subscriptionCount.value + 2
       scope.launch {
-          bb.publishEvents
+          bulletinBoard.publishEvents
               .filterIsInstance<TaskAssignment>()
               .collect { assignment ->
                   tasksLock.withLock {
@@ -63,10 +63,10 @@
               }
       }
       scope.launch {
-          bb.progressEvents
+          bulletinBoard.progressEvents
               .collect { handleTaskUpdate(it as TaskUpdate) }
       }
-      bb.events.subscriptionCount.first { it >= expected }
+      bulletinBoard.subscriptionCount.first { it >= expected }
   }
   ```
 - [ ] 加 import：`kotlinx.coroutines.flow.first`
@@ -75,15 +75,15 @@
 
 - [ ] `Pasture.kt` 构造签名去掉 `bulletinBoard: BulletinBoard` 参数（`Pasture.kt:21-31`）
 - [ ] 删除 `Pasture.kt:37-47` 整个 `init {}` 块（含一个 `scope.launch { ... .collect { ... } }`）
-- [ ] 新增 `private var observingBoard: BulletinBoard? = null` 字段—— 同 BossAgent，用 null/非 null 表达"是否已 observe"和"observe 到哪个 bb"
+- [ ] 新增 `private lateinit var bulletinBoard: BulletinBoard` 字段—— `lateinit` 标记「稍后由 observe 初始化」
 - [ ] 新增 `suspend fun observe(bb: BulletinBoard)`：
   ```kotlin
   internal suspend fun observe(bb: BulletinBoard) {
-      check(observingBoard == null) { "Pasture.observe() must be called only once" }
-      observingBoard = bb
-      val expected = bb.events.subscriptionCount.value + 1
+      check(!::bulletinBoard.isInitialized) { "Pasture.observe() must be called only once" }
+      bulletinBoard = bb
+      val expected = bb.subscriptionCount.value + 1
       scope.launch {
-          bb.publishEvents
+          bulletinBoard.publishEvents
               .collect { event ->
                   when (event) {
                       is TaskAssignment -> handleAssignment(event)
@@ -91,7 +91,7 @@
                   }
               }
       }
-      bb.events.subscriptionCount.first { it >= expected }
+      bulletinBoard.subscriptionCount.first { it >= expected }
   }
   ```
 - [ ] 加 import：`kotlinx.coroutines.flow.first`

@@ -89,9 +89,9 @@ public class BossAgent internal constructor(
     // 单一入口: 所有 race-free 集中在 [handlePending] 锁内的"读+清+launch"三步.
     private val decisionLock: Mutex = Mutex()
 
-    // 用 null/非 null 同时表达 "是否已 attach" 和 "attach 到哪个 bb" — 比单独 Boolean flag 表达力更强
-    // (顺带防 attach 到不同 bb 的逻辑混乱), 且字段少一个.
-    private var attachedBoard: BulletinBoard? = null
+    // lateinit: 由 [attach] 赋值, 后续 collect 统一从此字段读取.
+    // 未初始化访问抛 UninitializedPropertyAccessException (消息固定但可读).
+    private lateinit var bulletinBoard: BulletinBoard
 
     /**
      * 启动后台 collect 协程, 订阅 [bb] 的 publishEvents (TaskAssignment 路径) 与
@@ -102,11 +102,11 @@ public class BossAgent internal constructor(
      * runBlocking 调用一次.
      */
     internal suspend fun attach(bb: BulletinBoard) {
-        check(attachedBoard == null) { "BossAgent.attach() must be called only once" }
-        attachedBoard = bb
+        check(!::bulletinBoard.isInitialized) { "BossAgent.attach() must be called only once" }
+        bulletinBoard = bb
         val expected = bb.subscriptionCount.value + 2
         scope.launch {
-            bb.publishEvents
+            bulletinBoard.publishEvents
                 .filterIsInstance<TaskAssignment>()
                 .collect { assignment ->
                     tasksLock.withLock {
@@ -115,10 +115,10 @@ public class BossAgent internal constructor(
                 }
         }
         scope.launch {
-            bb.progressEvents
+            bulletinBoard.progressEvents
                 .collect { handleTaskUpdate(it as TaskUpdate) }
         }
-        bb.subscriptionCount.first { it >= expected }
+        bulletinBoard.subscriptionCount.first { it >= expected }
     }
 
     // ========== Public API ==========
