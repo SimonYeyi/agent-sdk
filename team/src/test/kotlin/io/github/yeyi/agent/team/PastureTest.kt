@@ -58,9 +58,9 @@ private suspend fun awaitFinalUpdate(bb: BulletinBoard, timeoutMs: Long = 5000):
 }
 
 /**
- * 用 async + delay(50) 把 progressEvents 订阅与 publishEvent 解耦 —
- * 先启动 awaitFinalUpdate 协程, 等 50ms 让 subscription 真正 attach,
- * 再 publish. 避免 Pasture 路径太快, progressEvent 在 subscription 就绪前 emit 完.
+ * 用 async + subscriptionCount 把 progressEvents 订阅与 publishEvent 解耦 —
+ * 先启动 awaitFinalUpdate 协程, 等 subscriptionCount >= 2 (Pasture 1 + 本测试 1)
+ * 真正 attach 后再 publish. 避免 Pasture 路径太快, progressEvent 在 subscription 就绪前 emit 完.
  */
 private suspend fun publishAndAwaitFinal(
     bb: BulletinBoard,
@@ -69,7 +69,7 @@ private suspend fun publishAndAwaitFinal(
     task: String,
 ): TaskUpdate = coroutineScope {
     val deferred = async { awaitFinalUpdate(bb) }
-    delay(50)
+    bb.subscriptionCount.first { it >= 2 }
     bb.publishEvent(TaskAssignment(taskId, selections, task))
     deferred.await()
 }

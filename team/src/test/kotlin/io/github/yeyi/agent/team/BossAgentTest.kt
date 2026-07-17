@@ -269,6 +269,9 @@ class BossAgentTest {
         )
 
         // 订阅 continuations 后 publish 终态 TaskUpdate
+        // 注: boss.continuations 是 SharedFlow (asSharedFlow() 返回的只读接口),
+        // 不暴露 subscriptionCount — 此处 delay(100) 是 SharedFlow collector attach 的功能性等待,
+        // 不可避免 (除非改 continuations 暴露 MutableSharedFlow 或包一层 wrapper).
         val continuations = mutableListOf<AgentEvent>()
         val job = launch { boss.continuations.collect { continuations.add(it) } }
         delay(100)  // 让 collector 订阅就位
