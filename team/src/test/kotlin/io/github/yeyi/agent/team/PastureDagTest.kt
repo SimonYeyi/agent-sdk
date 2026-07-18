@@ -72,9 +72,10 @@ class PastureDagTest {
         withTimeout(5000) { while (updates.size < 2) delay(50) }
         collectJob.cancel()
 
-        assertEquals(2, updates.size)
-        assertTrue(updates.any { it.taskId == "a" && it.event is AgentEvent.Final }, "a should complete")
-        assertTrue(updates.any { it.taskId == "b" && it.event is AgentEvent.Final }, "b should complete")
+        val terminalUpdates = updates.filter { it.event is AgentEvent.Final || it.event is AgentEvent.Failed }
+        assertEquals(2, terminalUpdates.size)
+        assertTrue(terminalUpdates.any { it.taskId == "a" && it.event is AgentEvent.Final }, "a should complete")
+        assertTrue(terminalUpdates.any { it.taskId == "b" && it.event is AgentEvent.Final }, "b should complete")
     }
 
     @Test
@@ -96,8 +97,9 @@ class PastureDagTest {
         withTimeout(5000) { while (updates.size < 4) delay(50) }
         collectJob.cancel()
 
-        assertEquals(4, updates.size)
-        assertTrue(updates.all { it.event is AgentEvent.Final }, "All tasks should complete")
+        val terminalUpdates = updates.filter { it.event is AgentEvent.Final || it.event is AgentEvent.Failed }
+        assertEquals(4, terminalUpdates.size)
+        assertTrue(terminalUpdates.all { it.event is AgentEvent.Final }, "All tasks should complete")
     }
 
     @Test
@@ -117,8 +119,9 @@ class PastureDagTest {
         withTimeout(5000) { while (updates.size < 2) delay(50) }
         collectJob.cancel()
 
-        assertEquals(2, updates.size)
-        assertTrue(updates.all { it.event is AgentEvent.Final })
+        val terminalUpdates = updates.filter { it.event is AgentEvent.Final || it.event is AgentEvent.Failed }
+        assertEquals(2, terminalUpdates.size)
+        assertTrue(terminalUpdates.all { it.event is AgentEvent.Final })
     }
 
     // Note: "upstream failure cascades" test is complex due to FakeLlm's synchronous
@@ -141,9 +144,10 @@ class PastureDagTest {
         withTimeout(5000) { while (updates.size < 1) delay(50) }
         collectJob.cancel()
 
-        assertEquals(1, updates.size)
-        assertEquals("b", updates[0].taskId)
-        assertTrue(updates[0].event is AgentEvent.Final, "b should complete (unknown dep is vacuously satisfied)")
+        val terminalUpdates = updates.filter { it.event is AgentEvent.Final || it.event is AgentEvent.Failed }
+        assertEquals(1, terminalUpdates.size)
+        assertEquals("b", terminalUpdates[0].taskId)
+        assertTrue(terminalUpdates[0].event is AgentEvent.Final, "b should complete (unknown dep is vacuously satisfied)")
     }
 
     @Test
@@ -158,17 +162,22 @@ class PastureDagTest {
         bb.publishEvent(TaskAssignments(listOf(
             TaskAssignment("a", listOf(Selection.Tool("t")), "task a", null, emptyList()),
         )))
-        withTimeout(5000) { while (updates.size < 1) delay(50) }
-        assertTrue(updates[0].event is AgentEvent.Final)
 
         bb.publishEvent(TaskAssignments(listOf(
             TaskAssignment("b", listOf(Selection.Tool("t")), "task b", null, listOf("a")),
         )))
-        withTimeout(5000) { while (updates.size < 2) delay(50) }
+
+        withTimeout(5000) {
+            while (updates.filter { it.event is AgentEvent.Final || it.event is AgentEvent.Failed }.size < 2) delay(50)
+        }
         collectJob.cancel()
 
-        assertEquals("b", updates[1].taskId)
-        assertTrue(updates[1].event is AgentEvent.Final, "b should complete after a")
+        val terminalUpdates = updates.filter { it.event is AgentEvent.Final || it.event is AgentEvent.Failed }
+        assertEquals(2, terminalUpdates.size)
+        val aUpdate = terminalUpdates.first { it.taskId == "a" }
+        val bUpdate = terminalUpdates.first { it.taskId == "b" }
+        assertTrue(aUpdate.event is AgentEvent.Final, "a should complete")
+        assertTrue(bUpdate.event is AgentEvent.Final, "b should complete after a")
     }
 
     @Test
@@ -188,9 +197,10 @@ class PastureDagTest {
         withTimeout(5000) { while (updates.size < 2) delay(50) }
         collectJob.cancel()
 
-        assertEquals(2, updates.size)
-        assertNotNull(updates.find { it.taskId == "a" })
-        assertNotNull(updates.find { it.taskId == "b" })
+        val terminalUpdates = updates.filter { it.event is AgentEvent.Final || it.event is AgentEvent.Failed }
+        assertEquals(2, terminalUpdates.size)
+        assertNotNull(terminalUpdates.find { it.taskId == "a" })
+        assertNotNull(terminalUpdates.find { it.taskId == "b" })
     }
 
     @Test
@@ -248,9 +258,10 @@ class PastureDagTest {
         collectJob.cancel()
         scope.cancel()
 
-        assertEquals(3, updates.size, "all three tasks should emit TaskUpdate")
-        assertTrue(updates.all { it.event is AgentEvent.Failed },
-            "all should be Failed: ${updates.map { "${it.taskId}=${it.event::class.simpleName}" }}")
+        val terminalUpdates = updates.filter { it.event is AgentEvent.Final || it.event is AgentEvent.Failed }
+        assertEquals(3, terminalUpdates.size, "all three tasks should emit TaskUpdate")
+        assertTrue(terminalUpdates.all { it.event is AgentEvent.Failed },
+            "all should be Failed: ${terminalUpdates.map { "${it.taskId}=${it.event::class.simpleName}" }}")
     }
 
     @Test

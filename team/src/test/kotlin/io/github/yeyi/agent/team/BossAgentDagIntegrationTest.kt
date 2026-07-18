@@ -295,15 +295,16 @@ class BossAgentDagIntegrationTest {
         )))
 
         withTimeout(5000) {
-            while (updates.size < 3) delay(50)
+            while (updates.filter { it.event is AgentEvent.Final || it.event is AgentEvent.Failed }.size < 3) delay(50)
         }
 
         collectJob.cancel()
         scope.cancel()
 
-        assertEquals(3, updates.size, "all three tasks should emit: $updates")
-        assertTrue(updates.all { it.event is AgentEvent.Failed },
-            "all should be Failed: ${updates.map { "${it.taskId}=${it.event::class.simpleName}" }}")
+        val terminalUpdates = updates.filter { it.event is AgentEvent.Final || it.event is AgentEvent.Failed }
+        assertEquals(3, terminalUpdates.size, "all three tasks should emit: $updates")
+        assertTrue(terminalUpdates.all { it.event is AgentEvent.Failed },
+            "all should be Failed: ${terminalUpdates.map { "${it.taskId}=${it.event::class.simpleName}" }}")
     }
 
     @Test

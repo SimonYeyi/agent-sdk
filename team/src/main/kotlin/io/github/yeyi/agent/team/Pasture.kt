@@ -170,7 +170,7 @@ internal class Pasture(
                             dagLock.withLock { dag[taskId]?.let { it.result = content ?: "" } }
                         }
                         is AgentEvent.Failed -> { failed = event }
-                        else -> {}
+                        else -> { bulletinBoard.progressEvent(TaskUpdate(taskId, event)) }
                     }
                 }
                 if (failed != null) {
