@@ -262,10 +262,16 @@ class BossAgentTest {
         // 直接 publish 一个 taskId 的 TaskAssignment (跳过 PublishTaskTool)
         val taskId = "test-task-1"
         bb.publishEvent(
-            TaskAssignment(
-                taskId = taskId,
-                selections = listOf(Selection.Tool("dummy")),
-                task = "do something",
+            TaskAssignments(
+                listOf(
+                    TaskAssignment(
+                        taskId = taskId,
+                        selections = listOf(Selection.Tool("dummy")),
+                        task = "do something",
+                        context = null,
+                        dependsOn = emptyList(),
+                    )
+                )
             )
         )
 
@@ -295,104 +301,4 @@ class BossAgentTest {
         assertEquals(BossState.WAITING, boss.state.value)
     }
 
-    @Test
-    fun `COLLECTING window — terminal update with active tasks enters COLLECTING then RUNNING`() = runBlocking {
-        // 派 2 个 task (A, B). 给 A 发终态, B 不动.
-        // BossAgent.handleTaskUpdate 看到 hasActive=true → handlePending 撞闲 + hasResults + hasActive
-        //   → 第 3 段第 1 分支 (postRound=false, hasResults, hasActive) → COLLECTING 1s
-        // 1s 后 postRound 决策 → 第 2 分支 (hasResults=true, postRound=true) → RUNNING 跑续轮.
-        // 验证: state 经历 WAITING → COLLECTING → RUNNING → WAITING (无 RUNNING→WAITING→RUNNING 闪烁).
-        val (boss, bb) = createBossAgent()
-
-        // createBossAgent 已同步等到 BossAgent 订阅就绪, 直接 publish 即可.
-
-        val taskIdA = "task-A"
-        val taskIdB = "task-B"
-        bb.publishEvent(TaskAssignment(taskIdA, listOf(Selection.Tool("t")), "A"))
-        bb.publishEvent(TaskAssignment(taskIdB, listOf(Selection.Tool("t")), "B"))
-
-        // 收集 state 变更
-        val stateLog = mutableListOf<BossState>()
-        val stateJob = launch { boss.state.collect { stateLog.add(it) } }
-
-        // publish A 终态
-        bb.progressEvent(TaskUpdate(taskIdA, AgentEvent.Final(AgentResult(ChatMessage.Assistant("A done"), 1, emptyList(), null))))
-
-        // 等 state 进入 COLLECTING
-        withTimeout(10000) {
-            while (boss.state.value != BossState.COLLECTING) delay(20)
-        }
-        assertEquals(BossState.COLLECTING, boss.state.value)
-
-        // 等 boss 跑完续轮 → WAITING
-        withTimeout(5000) {
-            while (boss.state.value != BossState.WAITING) delay(50)
-        }
-
-        stateJob.cancel()
-        assertEquals(BossState.WAITING, boss.state.value)
-
-        // 验证 state log 没出现 WAITING→RUNNING→WAITING→RUNNING 闪烁 — 只接受 WAITING→COLLECTING→RUNNING→WAITING
-        val collapsed = stateLog.distinct()
-        // collapsed 应该是 WAITING→COLLECTING→RUNNING→WAITING 子序列 (允许 RUNNING 后直接 WAITING)
-        assertTrue(collapsed.contains(BossState.COLLECTING), "expected COLLECTING in state log: $collapsed")
-    }
-
-    @Test
-    fun `postRound path does NOT enter COLLECTING even with pending results — anti-loop`() = runBlocking {
-        // 跑完一轮后, 即使 pendingResultEvents 还有数据, handlePending(postRound=true)
-        // 必须直接走 RUNNING (第 2 分支), 不能再进 COLLECTING (否则 1s collect 死循环).
-        //
-        // 构造: 先派一个 task, publish TaskUpdate(Final). 进入 COLLECTING 等 1s,
-        // 等 1s 过后 postRound 接管 → 跑续轮. 续轮跑完再 postRound → idle → WAITING.
-        // 期间不应再次进入 COLLECTING (即使有 pending).
-        val (boss, bb) = createBossAgent()
-
-        val taskId = "task-X"
-        bb.publishEvent(TaskAssignment(taskId, listOf(Selection.Tool("t")), "X"))
-        delay(200)
-
-        val stateLog = mutableListOf<BossState>()
-        val stateJob = launch { boss.state.collect { stateLog.add(it) } }
-
-        bb.progressEvent(TaskUpdate(taskId, AgentEvent.Final(AgentResult(ChatMessage.Assistant("done"), 1, emptyList(), null))))
-
-        // 等最终回到 WAITING
-        withTimeout(5000) {
-            while (boss.state.value != BossState.WAITING) delay(50)
-        }
-        // 再等一小段时间确认没有再次抖动
-        delay(200)
-        stateJob.cancel()
-
-        // 验证 COLLECTING 只进入一次 (postRound 路径不会再进)
-        val collectingCount = stateLog.count { it == BossState.COLLECTING }
-        assertTrue(collectingCount <= 1, "COLLECTING entered $collectingCount times — postRound loop bug: $stateLog")
-        assertEquals(BossState.WAITING, boss.state.value)
-    }
-
-    @Test
-    fun `terminal TaskUpdate with no active tasks triggers immediate continuation (no COLLECTING)`() = runBlocking {
-        // 派 1 个 task A → publish 终态 → handlePending 撞闲 + hasResults + !hasActive
-        //   → 第 3 段第 2 分支 (hasResults=true) → RUNNING 直接跑续轮, 不进 COLLECTING.
-        val (boss, bb) = createBossAgent()
-
-        val taskId = "task-A"
-        bb.publishEvent(TaskAssignment(taskId, listOf(Selection.Tool("t")), "A"))
-        delay(200)
-
-        val stateLog = mutableListOf<BossState>()
-        val stateJob = launch { boss.state.collect { stateLog.add(it) } }
-
-        bb.progressEvent(TaskUpdate(taskId, AgentEvent.Final(AgentResult(ChatMessage.Assistant("done"), 1, emptyList(), null))))
-
-        // 等回 WAITING
-        withTimeout(5000) {
-            while (boss.state.value != BossState.WAITING) delay(20)
-        }
-        stateJob.cancel()
-
-        // 不应经过 COLLECTING — 因为 hasActive=false
-        assertTrue(!stateLog.contains(BossState.COLLECTING), "unexpected COLLECTING when no active tasks: $stateLog")
-    }
 }

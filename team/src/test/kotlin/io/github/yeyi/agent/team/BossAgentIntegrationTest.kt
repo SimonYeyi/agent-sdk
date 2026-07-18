@@ -88,16 +88,17 @@ class BossAgentIntegrationTest {
         val bb = BulletinBoard()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-        val pasture = Pasture(
+        val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = listOf(BEAST_FINAL)),
             toolRegistry = toolReg,
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
-            scope = scope,
+            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )
+        val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
 
         val bossLlm = FakeLlmProvider(
@@ -154,16 +155,17 @@ class BossAgentIntegrationTest {
         val bb = BulletinBoard()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-        val pasture = Pasture(
+        val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = listOf(BEAST_FINAL, BEAST_FINAL)),
             toolRegistry = toolReg,
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
-            scope = scope,
+            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )
+        val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
 
         val twoTaskCall = ChatResponse(
@@ -224,8 +226,8 @@ class BossAgentIntegrationTest {
 
         boss.run("并发派 A 和 B").toList()
 
-        // 两个并发 task 都应 Final; 任一触发续轮后, 另一个若仍 active 则 COLLECTING (1s 窗口)
-        // 先等续轮有内容 (state 可能在 COLLECTING/RUNNING 中, 不能只看 WAITING)
+        // 两个并发 task 都应 Final; 续轮触发后直接 RUNNING
+        // 先等续轮有内容 (state 可能在 RUNNING 中, 不能只看 WAITING)
         withTimeout(5000) {
             while (continuations.isEmpty()) delay(50)
         }

@@ -43,6 +43,7 @@ class PublishTaskToolTest {
         val args = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
+                    put("ref", "my_task")
                     putJsonArray("selections") {
                         add(buildJsonObject {
                             put("type", "tool")
@@ -71,7 +72,7 @@ class PublishTaskToolTest {
     }
 
     @Test
-    fun `missing task field returns error`() = runTest {
+    fun `missing ref field returns error`() = runTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
@@ -83,13 +84,14 @@ class PublishTaskToolTest {
                             put("name", "echo")
                         })
                     }
+                    put("task", "hello")
                 })
             }
         }
 
         val result = tool.execute(args, ctx())
         assertTrue(result.isError)
-        assertTrue(result.content.contains("Missing 'task'"))
+        assertTrue(result.content.contains("Missing 'ref'"))
     }
 
     @Test
@@ -99,6 +101,7 @@ class PublishTaskToolTest {
         val args = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
+                    put("ref", "t1")
                     putJsonArray("selections") {
                         add(buildJsonObject {
                             put("type", "unknown_type")
@@ -122,6 +125,7 @@ class PublishTaskToolTest {
         val args = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
+                    put("ref", "t1")
                     putJsonArray("selections") {
                         add(buildJsonObject {
                             put("type", "tool")
@@ -131,6 +135,7 @@ class PublishTaskToolTest {
                     put("task", "task1")
                 })
                 add(buildJsonObject {
+                    put("ref", "t2")
                     putJsonArray("selections") {
                         add(buildJsonObject {
                             put("type", "tool")
@@ -153,6 +158,7 @@ class PublishTaskToolTest {
         val args = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
+                    put("ref", "my_task")
                     putJsonArray("selections") {
                         add(buildJsonObject {
                             put("type", "tool")
@@ -175,7 +181,7 @@ class PublishTaskToolTest {
         runCurrent()
 
         assertEquals(1, collected.size)
-        assertTrue(collected[0] is TaskAssignment)
+        assertTrue(collected[0] is TaskAssignments)
     }
 
     @Test

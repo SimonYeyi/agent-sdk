@@ -81,15 +81,19 @@ public class BossAgentBuilder internal constructor() {
         val bulletinBoard = BulletinBoard()
         val bossScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-        val pasture = Pasture(
+        val assembler = BeastAssembler(
             llmProvider = llm,
             toolRegistry = delegatedToolRegistry0,
             skillRegistry = skillRegistry0,
             subagentRegistry = subagentRegistry0,
             toolsetRegistry = toolsetRegistry0,
-            scope = bossScope,
+            baseRole = "You are a helpful worker. Complete the given task and return the result.",
             maxIterations = maxIterations0,
             maxRounds = maxRounds0,
+        )
+        val pasture = Pasture(
+            assembler = assembler,
+            scope = bossScope,
         )
         val boss = buildBoss(mem, llm, bulletinBoard, bossScope)
 

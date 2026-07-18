@@ -21,6 +21,11 @@ internal data class TaskAssignment(
     internal val selections: List<Selection>,
     internal val task: String,
     internal val context: String? = null,
+    internal val dependsOn: List<String> = emptyList(),
+)
+
+internal data class TaskAssignments(
+    internal val tasks: List<TaskAssignment>,
 ) : PublishEvent
 
 internal data class Cancellation(

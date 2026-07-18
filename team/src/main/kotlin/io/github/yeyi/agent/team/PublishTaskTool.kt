@@ -4,9 +4,12 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.util.UUID
@@ -23,10 +26,21 @@ internal class PublishTaskTool(
     override val description: String = buildString {
         val typeList = Selection.FACTORIES.keys.joinToString(" | ") { "'$it'" }
         append("""
-            Use this to delegate one or more tasks that need external execution to workers (beasts).
-            Pass an array of independent tasks to run them concurrently.
-            For dependent tasks (one needs the result of another), make multiple calls — the second call will happen
-            after the first task's result is available in the next turn.
+            Pass an array of tasks. Each task declares a `ref` (your short symbolic name, unique within this call)
+            and optionally lists references in `depends_on` to form a DAG. References in `depends_on` rules:
+              - Same publish_task call: use `ref` (your symbolic name from another task in this same call).
+                This is the ONLY option within one call because task_id is assigned AFTER publish completes.
+              - Different publish_task call (cross-round): MUST use `task_id` (UUID). Refs are NOT stable
+                across calls — the same ref name may be reused, mapped to different tasks, or absent.
+                Always read the prior round's summary to get task_ids, then list them in `depends_on`.
+              - Mixing `ref` (same call) and `task_id` (cross-call) in the same `depends_on` array is allowed.
+            Tasks without dependencies run concurrently; a task with `depends_on` waits for all referenced
+            tasks to finish, then runs with their final results prepended to its context. For a chain A→B,
+            put both in one call:
+              tasks=[{ref:"lookup",...}, {ref:"summary", depends_on:["lookup"],...}]
+            Each publish_task call belongs to the current round — extend a chain across rounds by listing
+            earlier task_ids in depends_on. The boss only sees a round summary when all tasks in the round
+            complete — intermediate task results are not individually reported.
             For chitchat or simple questions, just respond directly without calling this tool.
 
             Each task must specify a non-empty 'selections' array. Each selection is {type, name} where type is
@@ -46,6 +60,12 @@ internal class PublishTaskTool(
         SCHEMA_JSON.replace($$"$ENUM", Selection.FACTORIES.keys.joinToString("\", \"", "\"", "\""))
     )
 
+    // knownTaskIds: 历史 task_id (UUID, 程序生成) —— 校验跨批 task_id 引用 + 登记新 task_id.
+    // 不让 BulletinBoard 背负业务关注 (BulletinBoard 是事件总线, 不该知道 TaskAssignments 的字段语义).
+    // 单实例 (一个 BossAgent 一个 PublishTaskTool) + 锁保护即可.
+    private val knownTaskIds: MutableSet<String> = mutableSetOf()
+    private val knownTaskIdsLock: Mutex = Mutex()
+
     override suspend fun execute(
         arguments: JsonElement,
         context: ToolContext,
@@ -54,29 +74,56 @@ internal class PublishTaskTool(
             ?: return ToolExecutionResult.error("Missing 'tasks' array")
         if (tasksArray.isEmpty()) return ToolExecutionResult.error("'tasks' must not be empty")
 
-        val summary = tasksArray.mapIndexed { idx, taskElement ->
-            val obj = taskElement.jsonObject
-            val task = obj["task"]?.jsonPrimitive?.content
-                ?: return ToolExecutionResult.error("Missing 'task' in task #$idx")
+        // === Pass 1: 解析每个 task 到 TaskAssignment (taskId 暂存 ref, dependsOn 暂存原始字符串) ===
+        val placeholder = tasksArray.mapIndexed { idx, el ->
+            val obj = el.jsonObject
+            val ref = obj.str("ref") ?: return ToolExecutionResult.error("Missing 'ref' in task #$idx")
+            if (ref.isBlank()) return ToolExecutionResult.error("'ref' must not be empty in task #$idx")
+            val task = obj.str("task") ?: return ToolExecutionResult.error("Missing 'task' in task '$ref'")
             val context = obj["context"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
-            val selectionsArray = obj["selections"] as? JsonArray
-                ?: return ToolExecutionResult.error("Missing 'selections' array in task #$idx")
-            if (selectionsArray.isEmpty()) return ToolExecutionResult.error("'selections' must not be empty in task #$idx")
-
-            val selections = selectionsArray.mapIndexed { sIdx, selElement ->
-                val selObj = selElement.jsonObject
-                val type = selObj["type"]?.jsonPrimitive?.content
-                    ?: return ToolExecutionResult.error("Missing 'type' in task #$idx selection #$sIdx")
-                val name = selObj["name"]?.jsonPrimitive?.content
-                    ?: return ToolExecutionResult.error("Missing 'name' in task #$idx selection #$sIdx")
+            val selsArr = obj["selections"] as? JsonArray
+                ?: return ToolExecutionResult.error("Missing 'selections' in task '$ref'")
+            if (selsArr.isEmpty()) return ToolExecutionResult.error("'selections' must not be empty in task '$ref'")
+            val selections = selsArr.map { selEl ->
+                val selObj = selEl.jsonObject
+                val type = selObj.str("type") ?: return ToolExecutionResult.error("Missing 'type' in selection of task '$ref'")
+                val name = selObj.str("name") ?: return ToolExecutionResult.error("Missing 'name' in selection of task '$ref'")
                 Selection.FACTORIES[type]?.invoke(name)
-                    ?: return ToolExecutionResult.error("Unknown selection type '$type' in task #$idx selection #$sIdx — must be one of ${Selection.FACTORIES.keys}")
+                    ?: return ToolExecutionResult.error("Unknown selection type '$type' in task '$ref'")
             }
+            val deps = (obj["depends_on"] as? JsonArray)?.map { it.jsonPrimitive.content } ?: emptyList()
+            // 占位: taskId = ref (Pass 2 会 copy 成 UUID), dependsOn 暂存原始字符串列表 (Pass 2 会 copy 成 task_id 列表)
+            TaskAssignment(taskId = ref, selections = selections, task = task, context = context, dependsOn = deps)
+        }
 
-            val taskId = UUID.randomUUID().toString()
-            bulletinBoard.publishEvent(TaskAssignment(taskId, selections, task, context))
+        // intra-call ref 唯一性 (LLM 在同批内不能用相同 ref; 此时 taskId 还是 ref,直接 groupBy)
+        val dupRefs = placeholder.groupBy { it.taskId }.filterValues { it.size > 1 }.keys
+        if (dupRefs.isNotEmpty()) return ToolExecutionResult.error("Duplicate ref in this call: $dupRefs")
 
-            val selStr = selections.joinToString("+") { sel ->
+        // === Pass 2: 分配 UUID + 解析 depends_on (ref 本批 → UUID, task_id 跨批 → 直接复用 knownTaskIds) ===
+        val refToUuid = placeholder.associate { it.taskId to UUID.randomUUID().toString() }
+        val existing = knownTaskIdsLock.withLock { knownTaskIds.toSet() }
+        val resolved = placeholder.map { t ->
+            val resolvedDeps = t.dependsOn.map { dep ->
+                refToUuid[dep] ?: dep.takeIf { it in existing }
+                    ?: return ToolExecutionResult.error(
+                        "Unknown depends_on reference '$dep' in task '${t.taskId}'. " +
+                        "Within one publish_task call use `ref`; across calls use `task_id` (UUID) " +
+                        "from the previous round's summary. Registered task_ids: ${existing.sorted()}"
+                    )
+            }
+            // copy 终结: taskId 换 UUID, dependsOn 换解析后的 task_id 列表
+            t.copy(taskId = refToUuid[t.taskId]!!, dependsOn = resolvedDeps)
+        }
+
+        // === Pass 3: intra-call 环检测 + publish + 登记 knownTaskIds ===
+        detectIntraCycle(resolved)?.let { return ToolExecutionResult.error("Cycle detected involving task '$it'") }
+        bulletinBoard.publishEvent(TaskAssignments(resolved))
+        knownTaskIdsLock.withLock { resolved.forEach { knownTaskIds.add(it.taskId) } }
+
+        // === Summary: 返回 task_id 给 LLM 后续轮次引用 ===
+        val summary = resolved.map { task ->
+            val selStr = task.selections.joinToString("+") { sel ->
                 val name = when (sel) {
                     is Selection.Skill -> sel.name
                     is Selection.Toolset -> sel.name
@@ -85,9 +132,33 @@ internal class PublishTaskTool(
                 }
                 "${sel.type}($name)"
             }
-            "- $taskId → $selStr"
+            "- ${task.taskId} → $selStr"
         }
-        return ToolExecutionResult("Assigned ${summary.size} task(s):\n${summary.joinToString("\n")}")
+        return ToolExecutionResult("Assigned ${resolved.size} task(s):\n${summary.joinToString("\n")}")
+    }
+
+    private fun JsonObject.str(field: String): String? =
+        this[field]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
+
+    // DFS 环检测,基于 task_id 依赖图(Pass 2 解析后的 dependsOn 全是 task_id).
+    private fun detectIntraCycle(tasks: List<TaskAssignment>): String? {
+        val graph: Map<String, List<String>> = tasks.associate { it.taskId to it.dependsOn }
+        val visited = mutableSetOf<String>()
+        val stack = mutableSetOf<String>()
+
+        fun dfs(nodeId: String): String? {
+            if (nodeId in stack) return nodeId
+            if (nodeId in visited) return null
+            visited += nodeId
+            stack += nodeId
+            for (dep in graph[nodeId] ?: emptyList()) {
+                dfs(dep)?.let { return it }
+            }
+            stack -= nodeId
+            return null
+        }
+
+        return tasks.asSequence().map { dfs(it.taskId) }.firstOrNull { it != null }
     }
 
     private companion object {
@@ -101,6 +172,10 @@ internal class PublishTaskTool(
                   "items": {
                     "type": "object",
                     "properties": {
+                      "ref": {
+                        "type": "string",
+                        "description": "Symbolic name you provide, unique within this publish_task call. Use it in depends_on to reference another task in the same call. Cross-call references use the task_id you receive in the previous round's summary."
+                      },
                       "selections": {
                         "type": "array",
                         "minItems": 1,
@@ -127,9 +202,14 @@ internal class PublishTaskTool(
                       "context": {
                         "type": "string",
                         "description": "Optional background info"
+                      },
+                      "depends_on": {
+                        "type": "array",
+                        "items": { "type": "string" },
+                        "description": "Optional list of references. Each entry is either a `ref` from this same call or a `task_id` from a previously published task. Empty/missing = no dependencies, dispatched immediately."
                       }
                     },
-                    "required": ["selections", "task"]
+                    "required": ["ref", "selections", "task"]
                   }
                 }
               },

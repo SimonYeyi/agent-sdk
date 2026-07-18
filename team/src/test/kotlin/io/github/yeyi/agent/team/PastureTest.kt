@@ -70,7 +70,7 @@ private suspend fun publishAndAwaitFinal(
     task: String,
 ): TaskUpdate = coroutineScope {
     val deferred = async(start = CoroutineStart.UNDISPATCHED) { awaitFinalUpdate(bb) }
-    bb.publishEvent(TaskAssignment(taskId, selections, task))
+    bb.publishEvent(TaskAssignments(listOf(TaskAssignment(taskId, selections, task, null, emptyList()))))
     deferred.await()
 }
 
@@ -84,16 +84,17 @@ class PastureTest {
     ): Triple<BulletinBoard, Pasture, CoroutineScope> {
         val bb = BulletinBoard()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val pasture = Pasture(
+        val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = llmResponses),
             toolRegistry = toolReg,
             skillRegistry = skillReg,
             subagentRegistry = null,
             toolsetRegistry = toolsetReg,
-            scope = scope,
+            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )
+        val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
         return Triple(bb, pasture, scope)
     }
@@ -233,16 +234,17 @@ class PastureCancellationTest {
     private fun setupPasture(): Triple<BulletinBoard, Pasture, CoroutineScope> {
         val bb = BulletinBoard()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val pasture = Pasture(
+        val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = listOf(PASTURE_FINAL)),
             toolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
-            scope = scope,
+            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )
+        val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
         return Triple(bb, pasture, scope)
     }
@@ -295,16 +297,17 @@ class PastureCancellationTest {
                     error("chatStream not expected in this test")
                 }
         }
-        val pasture = Pasture(
+        val assembler = BeastAssembler(
             llmProvider = slowLlm,
             toolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
-            scope = scope,
+            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )
+        val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
 
         // fork-join: UNDISPATCHED 让 async 同步挂上 collector, 返回时
@@ -315,7 +318,7 @@ class PastureCancellationTest {
                 .filterIsInstance<TaskUpdate>()
                 .first { it.event is AgentEvent.Failed }
         }
-        bb.publishEvent(TaskAssignment("t1", listOf(Selection.Tool("foo")), "long task"))
+        bb.publishEvent(TaskAssignments(listOf(TaskAssignment("t1", listOf(Selection.Tool("foo")), "long task", null, emptyList()))))
         delay(100)  // 让 Pasture collect 协程消费 TaskAssignment, 把 beast job 注册到 runningJobs — handleCancellation 依赖这个, 否则 cancel 是 no-op
 
         bb.publishEvent(Cancellation("t1"))

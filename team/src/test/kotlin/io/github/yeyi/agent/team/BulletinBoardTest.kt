@@ -20,7 +20,7 @@ class BulletinBoardTest {
     fun `publishEvent emits to publishEvents`() = runTest {
         val bb = BulletinBoard()
         val task = "test task"
-        val assignment = TaskAssignment("id1", listOf(Selection.Tool("get_time")), task)
+        val assignment = TaskAssignments(listOf(TaskAssignment("id1", listOf(Selection.Tool("get_time")), task, null, emptyList())))
 
         val collected = mutableListOf<PublishEvent>()
         val job = launch { bb.publishEvents.toList(collected) }
@@ -30,8 +30,8 @@ class BulletinBoardTest {
         job.cancel()
 
         assertEquals(1, collected.size)
-        assertIs<TaskAssignment>(collected[0])
-        assertEquals("id1", (collected[0] as TaskAssignment).taskId)
+        assertIs<TaskAssignments>(collected[0])
+        assertEquals("id1", (collected[0] as TaskAssignments).tasks[0].taskId)
     }
 
     @Test
@@ -56,7 +56,7 @@ class BulletinBoardTest {
     @Test
     fun `publishEvent does NOT appear in progressEvents`() = runTest {
         val bb = BulletinBoard()
-        val assignment = TaskAssignment("id1", emptyList(), "task")
+        val assignment = TaskAssignments(listOf(TaskAssignment("id1", emptyList(), "task", null, emptyList())))
 
         val collected = mutableListOf<ProgressEvent>()
         val job = launch { bb.progressEvents.toList(collected) }
@@ -89,7 +89,7 @@ class BulletinBoardTest {
     @Test
     fun `events global bus contains all events`() = runTest {
         val bb = BulletinBoard()
-        val assignment = TaskAssignment("id1", emptyList(), "task")
+        val assignment = TaskAssignments(listOf(TaskAssignment("id1", emptyList(), "task", null, emptyList())))
         val update = TaskUpdate(
             "id1",
             AgentEvent.Final(AgentResult(ChatMessage.Assistant("ok"), 1, emptyList(), null))
