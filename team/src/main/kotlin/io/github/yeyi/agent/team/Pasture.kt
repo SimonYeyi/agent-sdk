@@ -174,7 +174,7 @@ internal class Pasture(
                     }
                 }
                 if (failed != null) {
-                    handleTerminal(taskId, isSuccess = false, throwable = failed!!.cause)
+                    handleTerminal(taskId, isSuccess = false, throwable = failed.cause)
                 } else {
                     handleTerminal(taskId, isSuccess = true)
                 }
@@ -197,24 +197,25 @@ internal class Pasture(
      * 处理 task 终态: 标 Status, emit TaskUpdate 给 BossAgent.
      */
     private suspend fun handleTerminal(taskId: String, isSuccess: Boolean, throwable: Throwable? = null) {
-        val node = dagLock.withLock { dag[taskId] } ?: return
         val newStatus = when {
             isSuccess -> Status.DONE
             throwable is CancellationException -> Status.CANCELED
             else -> Status.FAILED
         }
-        dagLock.withLock {
+
+        val snapshot = dagLock.withLock {
+            val node = dag[taskId] ?: return
+            if (node.status == Status.DONE || node.status == Status.FAILED || node.status == Status.CANCELED) return
             dag[taskId] = node.also {
                 it.status = newStatus
                 if (!isSuccess) it.failureMessage = throwable?.message ?: throwable?.toString() ?: "Unknown failure"
             }
+            node.result to node.failureMessage
         }
 
-        // emit TaskUpdate (透明, 所有 task 包括 upstream 都 emit, 不带 roundId)
-        val event = if (isSuccess) AgentEvent.Final(AgentResult(ChatMessage.Assistant(node.result ?: ""), 0, emptyList(), null))
-                    else AgentEvent.Failed(throwable ?: IllegalStateException(node.failureMessage))
+        val event = if (isSuccess) AgentEvent.Final(AgentResult(ChatMessage.Assistant(snapshot.first ?: ""), 0, emptyList(), null))
+                    else AgentEvent.Failed(throwable ?: IllegalStateException(snapshot.second))
         bulletinBoard.progressEvent(TaskUpdate(taskId, event))
-        // BossAgent 收到后自己判断所属 round 是否完成 → 触发续轮
     }
 
     /**
@@ -242,11 +243,14 @@ internal class Pasture(
         when (node.status) {
             Status.DONE, Status.FAILED, Status.CANCELED -> return  // 幂等
             Status.PENDING, Status.READY -> {
-                dagLock.withLock { dag[e.taskId] = node.also { it.status = Status.CANCELED } }
                 handleTerminal(e.taskId, isSuccess = false, throwable = CancellationException("task canceled"))
                 cascade(e.taskId)
             }
-            Status.RUNNING -> node.job?.cancel()
+            Status.RUNNING -> {
+                handleTerminal(e.taskId, isSuccess = false, throwable = CancellationException("task canceled"))
+                cascade(e.taskId)
+                node.job?.cancel()
+            }
         }
     }
 }
