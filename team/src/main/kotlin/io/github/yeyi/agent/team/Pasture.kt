@@ -10,7 +10,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -185,8 +184,7 @@ internal class Pasture(
             dag[taskId] = n.also { it.job = job; it.status = Status.RUNNING }
         }
 
-        // job 完成时 cascade 下游 (invokeOnCompletion 回调不是 suspend, 用 runBlocking 同步执行)
-        job.invokeOnCompletion { runBlocking { cascade(taskId) } }
+        job.invokeOnCompletion { scope.launch { cascade(taskId) } }
     }
 
     /**
