@@ -41,6 +41,7 @@ class BossAgentIntegrationTest {
                     arguments = buildJsonObject {
                         putJsonArray("tasks") {
                             add(buildJsonObject {
+                                put("ref", "hello_task")
                                 putJsonArray("selections") {
                                     add(buildJsonObject {
                                         put("type", "tool")
@@ -178,6 +179,7 @@ class BossAgentIntegrationTest {
                         arguments = buildJsonObject {
                             putJsonArray("tasks") {
                                 add(buildJsonObject {
+                                    put("ref", "task_a")
                                     putJsonArray("selections") {
                                         add(buildJsonObject {
                                             put("type", "tool")
@@ -187,6 +189,7 @@ class BossAgentIntegrationTest {
                                     put("task", "A")
                                 })
                                 add(buildJsonObject {
+                                    put("ref", "task_b")
                                     putJsonArray("selections") {
                                         add(buildJsonObject {
                                             put("type", "tool")

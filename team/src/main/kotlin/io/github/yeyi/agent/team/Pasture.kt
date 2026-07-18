@@ -105,16 +105,14 @@ internal class Pasture(
      * @return 要 dispatch 的节点, 或 null (不该 dispatch)
      */
     private suspend fun tryAdvancePending(taskId: String) {
+        var shouldFailFromUpstream = false
         val toDispatch = dagLock.withLock {
             val node = dag[taskId] ?: return
             val upstream = node.assignment.dependsOn.mapNotNull { dag[it] }
             when {
-                // 上游有失败/取消, 直接标 FAILED, 不等 dispatch
+                // 上游有失败/取消, 直接标 FAILED, emit TaskUpdate
                 upstream.any { it.status == Status.FAILED || it.status == Status.CANCELED } -> {
-                    dag[taskId] = node.also {
-                        it.status = Status.FAILED
-                        it.failureMessage = "Upstream task failed"
-                    }
+                    shouldFailFromUpstream = true
                     null
                 }
                 // 所有上游都 DONE, 合并上游结果后标 READY
@@ -129,9 +127,14 @@ internal class Pasture(
                 else -> null  // 还有上游 PENDING/RUNNING, 等 cascade 触发
             }
         }
-        toDispatch?.let { dispatch(it) }
-        if (toDispatch == null && dagLock.withLock { dag[taskId]?.status == Status.FAILED }) {
+        if (shouldFailFromUpstream) {
+            handleTerminal(taskId, isSuccess = false, throwable = RuntimeException("Upstream task failed"))
             cascade(taskId)
+        } else {
+            toDispatch?.let { dispatch(it) }
+            if (toDispatch == null && dagLock.withLock { dag[taskId]?.status == Status.FAILED }) {
+                cascade(taskId)
+            }
         }
     }
 
@@ -159,13 +162,22 @@ internal class Pasture(
         // 3) launch job
         val job = scope.launch {
             try {
+                var failed: AgentEvent.Failed? = null
                 beast.run(userInput) { event ->
-                    if (event is AgentEvent.Final) {
-                        val content = event.result.message.content
-                        dagLock.withLock { dag[taskId]?.let { it.result = content ?: "" } }
+                    when (event) {
+                        is AgentEvent.Final -> {
+                            val content = event.result.message.content
+                            dagLock.withLock { dag[taskId]?.let { it.result = content ?: "" } }
+                        }
+                        is AgentEvent.Failed -> { failed = event }
+                        else -> {}
                     }
                 }
-                handleTerminal(taskId, isSuccess = true)
+                if (failed != null) {
+                    handleTerminal(taskId, isSuccess = false, throwable = failed!!.cause)
+                } else {
+                    handleTerminal(taskId, isSuccess = true)
+                }
             } catch (t: Throwable) {
                 handleTerminal(taskId, isSuccess = false, throwable = t)
                 if (t is CancellationException) throw t
