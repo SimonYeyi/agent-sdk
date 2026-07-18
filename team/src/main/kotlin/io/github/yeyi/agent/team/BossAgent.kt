@@ -21,6 +21,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.util.UUID
 
 // ===== Types =====
 
@@ -119,10 +120,16 @@ public class BossAgent internal constructor(
                             val roundId = currentRoundId
                             tasksLock.withLock {
                                 for (task in event.tasks) {
-                                    tasks[task.taskId] = TaskState(task.selections, task.task, roundId, task.dependsOn)
+                                    tasks[task.taskId] = TaskState(
+                                        task.selections,
+                                        task.task,
+                                        roundId,
+                                        task.dependsOn
+                                    )
                                 }
                             }
                         }
+
                         is TaskUpdate -> handleTaskUpdate(event)
                         // 其他事件 (Cancellation 等) BossAgent 不关心, 显式 no-op
                         // 让编译器在 BulletinEvent 加新类型时强制更新此 when.
@@ -141,7 +148,6 @@ public class BossAgent internal constructor(
             return flow { emit(AgentEvent.Failed(IllegalStateException("Agent is shut down"))) }
         }
 
-        currentRoundId = java.util.UUID.randomUUID().toString()  // 每轮一个新 roundId
         val round = UserRound(input, Channel(Channel.UNLIMITED))
         // 投递到 handlePending — 锁内决策: 闲时直接 launch, 忙时挂起到字段.
         // run() 不沾字段,避免与 finally 清字段覆盖并发写入的 race.
@@ -188,7 +194,7 @@ public class BossAgent internal constructor(
             tasks.values.filter { it.roundId == roundId }.all { it.terminal }
         }
         if (allDone) {
-            val summary = formatRoundSummary(roundId) ?: return
+            val summary = formatRoundSummary(roundId)
             pendingResultEvents.trySend(summary)
             handlePending()
         }
@@ -279,9 +285,10 @@ public class BossAgent internal constructor(
      */
     private suspend fun runPendingRound(round: UserRound? = null, roundSummary: String? = null) {
         try {
-            val merged = drainPendingWith(round?.input, roundSummary)
-            if (merged != null) {
-                innerAgent.run(merged).collect { e ->
+            val input = mergeInput(round?.input, roundSummary)
+            if (input != null) {
+                currentRoundId = UUID.randomUUID().toString()  // 每轮一个新 roundId
+                innerAgent.run(input).collect { e ->
                     if (round == null) continuationsEmitter.emit(e)
                     else round.channel.send(e)
                 }
@@ -302,7 +309,7 @@ public class BossAgent internal constructor(
      * @param roundSummary 当前 round 内所有 task 完成后的 summary (可为 null)
      * @return 合并后的字符串, null 表示两者都为空
      */
-    private fun drainPendingWith(input: String?, roundSummary: String?): String? {
+    private fun mergeInput(input: String?, roundSummary: String?): String? {
         if (input == null && roundSummary == null) return null
         return buildString {
             input?.let { append(it); if (roundSummary != null) append("\n\n") }
@@ -317,13 +324,12 @@ public class BossAgent internal constructor(
      * @param roundId 要汇总的 round ID
      * @return summary 字符串, null 表示 round 内无 task
      */
-    private suspend fun formatRoundSummary(roundId: String): String? = tasksLock.withLock {
+    private suspend fun formatRoundSummary(roundId: String): String = tasksLock.withLock {
         val roundTasks = tasks.entries.filter { it.value.roundId == roundId }
-        if (roundTasks.isEmpty()) return@withLock null
         buildString {
             append("Tasks completed:\n")
             for ((taskId, task) in roundTasks) {
-                val lastEvent = task.events.lastOrNull()?.toString() ?: "?"
+                val lastEvent = task.events.last()
                 append("- $taskId: $lastEvent\n")
             }
         }
