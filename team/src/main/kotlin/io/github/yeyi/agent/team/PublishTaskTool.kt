@@ -39,9 +39,8 @@ internal class PublishTaskTool(
             put both in one call:
               tasks=[{ref:"lookup",...}, {ref:"summary", depends_on:["lookup"],...}]
             Each publish_task call belongs to the current round — extend a chain across rounds by listing
-            earlier task_ids in depends_on. The boss only sees a round summary when all tasks in the round
-            complete — intermediate task results are not individually reported.
-            For chitchat or simple questions, just respond directly without calling this tool.
+            earlier task_ids in depends_on. For chitchat or simple questions, just respond directly without
+            calling this tool.
 
             Each task must specify a non-empty 'selections' array. Each selection is {type, name} where type is
             $typeList. A task can carry multiple selections to combine resources
@@ -185,11 +184,11 @@ internal class PublishTaskTool(
                             "type": {
                               "type": "string",
                               "enum": [$ENUM],
-                              "description": "Type of the resource to load"
+                              "description": "Type of the capability to load"
                             },
                             "name": {
                               "type": "string",
-                              "description": "Name of the resource"
+                              "description": "Name of the specific capability to use"
                             }
                           },
                           "required": ["type", "name"]
