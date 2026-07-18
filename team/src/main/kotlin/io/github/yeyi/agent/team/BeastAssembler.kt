@@ -28,8 +28,9 @@ internal class BeastAssembler(
 
     private suspend fun assembleHorse(selections: List<Selection>): Horse {
         if (selections.isEmpty()) error("assembleHorse: selections is empty")
-        if (selections.any { it is Selection.Subagent }) {
-            error("assembleHorse: subagent not supported")
+
+        selections.filterIsInstance<Selection.Subagent>().takeIf { it.size > 1 }?.let {
+            error("assembleHorse: at most one subagent per task, got ${it.size}")
         }
 
         val skillTexts = mutableListOf<String>()
@@ -47,17 +48,27 @@ internal class BeastAssembler(
                         if (pattern.containsMatchIn(text)) tools += tool
                     }
                 }
+
                 is Selection.Toolset -> {
                     val toolset = toolsetRegistry?.all()?.firstOrNull { it.name == s.name }
                         ?: error("assembleHorse: toolset not found: ${s.name}")
                     tools += toolset.all()
                 }
+
                 is Selection.Tool -> {
                     val tool = toolRegistry?.all()?.firstOrNull { it.name == s.name }
                         ?: error("assembleHorse: tool not found: ${s.name}")
                     tools += tool
                 }
-                is Selection.Subagent -> { /* unreachable */
+
+                is Selection.Subagent -> {
+                    val subagent = subagentRegistry?.all()?.firstOrNull { it.name == s.name }
+                        ?: error("assembleHorse: subagent not found: ${s.name}")
+                    if (subagent.tools == null) {
+                        error("assembleHorse: subagent '${s.name}' requires global tools")
+                    } else {
+                        tools += subagent.tools!!
+                    }
                 }
             }
         }
