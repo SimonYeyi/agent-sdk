@@ -7,8 +7,6 @@ import io.github.yeyi.agent.subagent.SubagentRegistry
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolRegistry
 import io.github.yeyi.agent.toolset.ToolsetRegistry
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
 internal class BeastAssembler(
     private val llmProvider: LlmProvider,
