@@ -1,8 +1,6 @@
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
-import io.github.yeyi.agent.AgentResult
-import io.github.yeyi.agent.llm.ChatMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -13,6 +11,20 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+
+private enum class Status { PENDING, READY, RUNNING, DONE, FAILED, CANCELED }
+
+private class DagNode(
+    val assignment: TaskAssignment,
+    var status: Status,
+    var job: Job? = null,
+    // 上游结果缓存: key=上游 taskId, value=Final event.content(给下游 task 的 context prepend 用)
+    val upstreamResults: MutableMap<String, String> = mutableMapOf(),
+    // 从 beast 来的终态
+    var result: AgentEvent.Final? = null,
+    // 从 beast 来的 failed 或 pasture 自己产生的异常
+    var error: Throwable? = null,
+)
 
 internal class Pasture(
     private val assembler: BeastAssembler,
@@ -27,20 +39,6 @@ internal class Pasture(
     // lateinit: 由 [observe] 赋值, 后续 collect / dispatch 统一从此字段读取.
     // 未初始化访问抛 UninitializedPropertyAccessException (消息固定但可读).
     private lateinit var bulletinBoard: BulletinBoard
-
-    private enum class Status { PENDING, READY, RUNNING, DONE, FAILED, CANCELED }
-
-    private class DagNode(
-        val assignment: TaskAssignment,
-        var status: Status,
-        var job: Job? = null,
-        // 上游结果缓存: key=上游 taskId, value=Final event.content(给下游 task 的 context prepend 用)
-        val upstreamResults: MutableMap<String, String> = mutableMapOf(),
-        // 自己作为上游的 final 结果: 仅 DONE 状态填充.
-        var result: String? = null,
-        // 自己作为 task 的 final event(Failed 时存 throwable 的 message)
-        var failureMessage: String? = null,
-    )
 
     /**
      * 启动后台 collect 协程, 订阅 [bb] 的原始 [BulletinBoard.events] 统一流, 内部 when 区分
@@ -116,13 +114,16 @@ internal class Pasture(
                 }
                 // 所有上游都 DONE, 合并上游结果后标 READY
                 upstream.all { it.status == Status.DONE } -> {
-                    val results = upstream.associate { it.assignment.taskId to (it.result ?: "") }
+                    val results = upstream.associate {
+                        it.assignment.taskId to (it.result?.result?.message?.content ?: "")
+                    }
                     dag[taskId] = node.also {
                         it.status = Status.READY
                         it.upstreamResults.putAll(results)
                     }
                     dag[taskId]
                 }
+
                 else -> null  // 还有上游 PENDING/RUNNING, 等 cascade 触发
             }
         }
@@ -153,10 +154,11 @@ internal class Pasture(
         }.takeIf { it.isNotEmpty() }
 
         val userInput = if (mergedContext == null) node.assignment.task
-                        else "$mergedContext\n\n${node.assignment.task}"
+        else "$mergedContext\n\n${node.assignment.task}"
 
         // 2) assemble beast (可能 IO 耗时, 放 Dispatchers.IO)
-        val beast: Beast = withContext(Dispatchers.IO) { assembler.assemble(node.assignment.selections) }
+        val beast: Beast =
+            withContext(Dispatchers.IO) { assembler.assemble(node.assignment.selections) }
 
         // 3) launch job
         val job = scope.launch {
@@ -165,11 +167,16 @@ internal class Pasture(
                 beast.run(userInput) { event ->
                     when (event) {
                         is AgentEvent.Final -> {
-                            val content = event.result.message.content
-                            dagLock.withLock { dag[taskId]?.let { it.result = content ?: "" } }
+                            dagLock.withLock { dag[taskId]?.result = event }
                         }
-                        is AgentEvent.Failed -> { failed = event }
-                        else -> { bulletinBoard.progressEvent(TaskUpdate(taskId, event)) }
+
+                        is AgentEvent.Failed -> {
+                            failed = event
+                        }
+
+                        else -> {
+                            bulletinBoard.progressEvent(TaskUpdate(taskId, event))
+                        }
                     }
                 }
                 handleTerminal(taskId, failed?.cause)
@@ -197,18 +204,16 @@ internal class Pasture(
             else -> Status.FAILED
         }
 
-        val snapshot = dagLock.withLock {
+        val event = dagLock.withLock {
             val node = dag[taskId] ?: return
             if (node.status == Status.DONE || node.status == Status.FAILED || node.status == Status.CANCELED) return
             dag[taskId] = node.also {
                 it.status = newStatus
-                if (throwable != null) it.failureMessage = throwable.message ?: throwable.toString()
+                if (throwable != null) it.error = throwable
             }
-            node.result to node.failureMessage
+            if (throwable == null) node.result!!
+            else AgentEvent.Failed(throwable)
         }
-
-        val event = if (throwable == null) AgentEvent.Final(AgentResult(ChatMessage.Assistant(snapshot.first ?: ""), 0, emptyList(), null))
-                    else AgentEvent.Failed(throwable)
         bulletinBoard.progressEvent(TaskUpdate(taskId, event))
     }
 
