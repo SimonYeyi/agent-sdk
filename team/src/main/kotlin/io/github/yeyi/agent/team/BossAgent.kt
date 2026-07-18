@@ -312,7 +312,7 @@ public class BossAgent internal constructor(
 
     /**
      * 格式化 round 内所有 task 的 terminal event 为可读 summary.
-     * 由 BossAgent 从 tasks[taskId].events 聚合,不依赖 Pasture 提供.
+     * 由 BossAgent 从 tasks.get(taskId).events 聚合,不依赖 Pasture 提供.
      *
      * @param roundId 要汇总的 round ID
      * @return summary 字符串, null 表示 round 内无 task
@@ -323,14 +323,8 @@ public class BossAgent internal constructor(
         buildString {
             append("Tasks completed:\n")
             for ((taskId, task) in roundTasks) {
-                val lastEvent = task.events.lastOrNull()
-                val marker = when (lastEvent) {
-                    is AgentEvent.Final -> "✓ done"
-                    is AgentEvent.Failed -> "✗ failed"
-                    else -> "?"
-                }
-                val detail = lastEvent?.let { ": $it" } ?: ""
-                append("- $taskId $marker$detail\n")
+                val lastEvent = task.events.lastOrNull()?.toString() ?: "?"
+                append("- $taskId: $lastEvent\n")
             }
         }
     }
