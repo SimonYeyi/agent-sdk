@@ -128,7 +128,7 @@ internal class Pasture(
             }
         }
         if (shouldFailFromUpstream) {
-            handleTerminal(taskId, isSuccess = false, throwable = RuntimeException("Upstream task failed"))
+            handleTerminal(taskId, RuntimeException("Upstream task failed"))
             cascade(taskId)
         } else {
             toDispatch?.let { dispatch(it) }
@@ -173,13 +173,9 @@ internal class Pasture(
                         else -> { bulletinBoard.progressEvent(TaskUpdate(taskId, event)) }
                     }
                 }
-                if (failed != null) {
-                    handleTerminal(taskId, isSuccess = false, throwable = failed.cause)
-                } else {
-                    handleTerminal(taskId, isSuccess = true)
-                }
+                handleTerminal(taskId, failed?.cause)
             } catch (t: Throwable) {
-                handleTerminal(taskId, isSuccess = false, throwable = t)
+                handleTerminal(taskId, t)
                 if (t is CancellationException) throw t
             }
         }
@@ -196,10 +192,10 @@ internal class Pasture(
     /**
      * 处理 task 终态: 标 Status, emit TaskUpdate 给 BossAgent.
      */
-    private suspend fun handleTerminal(taskId: String, isSuccess: Boolean, throwable: Throwable? = null) {
-        val newStatus = when {
-            isSuccess -> Status.DONE
-            throwable is CancellationException -> Status.CANCELED
+    private suspend fun handleTerminal(taskId: String, throwable: Throwable? = null) {
+        val newStatus = when (throwable) {
+            null -> Status.DONE
+            is CancellationException -> Status.CANCELED
             else -> Status.FAILED
         }
 
@@ -208,13 +204,13 @@ internal class Pasture(
             if (node.status == Status.DONE || node.status == Status.FAILED || node.status == Status.CANCELED) return
             dag[taskId] = node.also {
                 it.status = newStatus
-                if (!isSuccess) it.failureMessage = throwable?.message ?: throwable?.toString() ?: "Unknown failure"
+                if (throwable != null) it.failureMessage = throwable.message ?: throwable.toString()
             }
             node.result to node.failureMessage
         }
 
-        val event = if (isSuccess) AgentEvent.Final(AgentResult(ChatMessage.Assistant(snapshot.first ?: ""), 0, emptyList(), null))
-                    else AgentEvent.Failed(throwable ?: IllegalStateException(snapshot.second))
+        val event = if (throwable == null) AgentEvent.Final(AgentResult(ChatMessage.Assistant(snapshot.first ?: ""), 0, emptyList(), null))
+                    else AgentEvent.Failed(throwable)
         bulletinBoard.progressEvent(TaskUpdate(taskId, event))
     }
 
@@ -242,12 +238,8 @@ internal class Pasture(
         val node = dagLock.withLock { dag[e.taskId] } ?: return
         when (node.status) {
             Status.DONE, Status.FAILED, Status.CANCELED -> return  // 幂等
-            Status.PENDING, Status.READY -> {
-                handleTerminal(e.taskId, isSuccess = false, throwable = CancellationException("task canceled"))
-                cascade(e.taskId)
-            }
-            Status.RUNNING -> {
-                handleTerminal(e.taskId, isSuccess = false, throwable = CancellationException("task canceled"))
+            else -> {
+                handleTerminal(e.taskId, CancellationException("task canceled"))
                 cascade(e.taskId)
                 node.job?.cancel()
             }
