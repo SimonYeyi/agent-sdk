@@ -4,7 +4,6 @@ import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
@@ -30,9 +29,11 @@ private class UserRound(
     val channel: Channel<AgentEvent>,
 )
 
-public class TaskState(
+public data class TaskState(
+    public val taskId: String,
     public val task: String,
-    public val roundId: String,
+    internal val roundId: String,
+    internal val userInput: String,
     public val events: MutableList<AgentEvent> = mutableListOf(),
 ) {
     public val terminal: Boolean
@@ -42,9 +43,9 @@ public class TaskState(
 public data class TaskGroupState(
     public val id: String,
     public val input: String,
-    public val taskStates: List<TaskState>
+    public val states: List<TaskState>
 ) {
-    public val terminal: Boolean get() = taskStates.all { it.terminal }
+    public val terminal: Boolean get() = states.all { it.terminal }
 }
 
 // ===== BossAgent =====
@@ -72,9 +73,6 @@ public class BossAgent internal constructor(
      */
     public val continuations: Flow<AgentEvent> = continuationsEmitter.asSharedFlow()
 
-    // ===== 当前 round ID =====
-    // 每 run() 时生成, attach 收到 TaskAssignments 时用来关联该批 task 所属 round.
-    // roundId 是 BossAgent 视角的元数据,不属于事件业务载荷 —— 事件本身不带 roundId.
     private lateinit var currentRound: UserRound
 
     // ===== 用户轮次队列 =====
@@ -84,6 +82,17 @@ public class BossAgent internal constructor(
     // ===== 续轮 summary 队列 =====
     // 结果完成时由 formatRoundSummary 格式化后压入,runPendingRound 消费.
     private val pendingResultEvents: Channel<String> = Channel(capacity = Channel.UNLIMITED)
+
+    // ===== 任务组状态推送 =====
+    private val tasksStateEmitter = MutableSharedFlow<TaskGroupState>(
+        replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    /**
+     * 任务组状态流 — 每次 TaskUpdate 时推送当前 round 的完整状态.
+     * 调用方订阅此 Flow 即可实时获取所有任务的更新状态.
+     */
+    public val tasksStates: Flow<TaskGroupState> = tasksStateEmitter.asSharedFlow()
 
     // ===== 并发控制 =====
     // decisionLock 锁内 atomically: 读 state + scope.launch.
@@ -109,26 +118,15 @@ public class BossAgent internal constructor(
         bulletinBoard = bb
         val subscribed = CompletableDeferred<Unit>()
         scope.launch {
-            bulletinBoard.events
-                .onSubscription { subscribed.complete(Unit) }
-                .collect { event ->
-                    when (event) {
-                        is TaskAssignments -> {
-                            // BossAgent 内部 currentRoundId, 自行关联这批 task 到当前 round.
-                            // 一次 publish_task 调用可以属于当前 round 的多次调用之一.
-                            tasksLock.withLock {
-                                for (task in event.tasks) {
-                                    tasks[task.taskId] = TaskState(task.task, currentRound.id)
-                                }
-                            }
-                        }
-
-                        is TaskUpdate -> handleTaskUpdate(event)
-                        // 其他事件 (Cancellation 等) BossAgent 不关心, 显式 no-op
-                        // 让编译器在 BulletinEvent 加新类型时强制更新此 when.
-                        else -> Unit
-                    }
+            bulletinBoard.events.onSubscription { subscribed.complete(Unit) }.collect { event ->
+                when (event) {
+                    is TaskAssignments -> handleTaskAssignments(event)
+                    is TaskUpdate -> handleTaskUpdate(event)
+                    // 其他事件 (Cancellation 等) BossAgent 不关心, 显式 no-op
+                    // 让编译器在 BulletinEvent 加新类型时强制更新此 when.
+                    else -> Unit
                 }
+            }
         }
         subscribed.await()
     }
@@ -161,23 +159,46 @@ public class BossAgent internal constructor(
 
     // ========== 内部: 任务事件处理 ==========
 
+    private suspend fun handleTaskAssignments(event: TaskAssignments) {
+        // BossAgent 内部 currentRoundId, 自行关联这批 task 到当前 round.
+        // 一次 publish_task 调用可以属于当前 round 的多次调用之一.
+        tasksLock.withLock {
+            for (task in event.tasks) {
+                tasks[task.taskId] =
+                    TaskState(task.taskId, task.task, currentRound.id, currentRound.input)
+            }
+        }
+    }
+
     private suspend fun handleTaskUpdate(update: TaskUpdate) {
+        val isTerminal: Boolean
         val roundId: String
+        val userInput: String
+        val roundTasks: List<TaskState>
         tasksLock.withLock {
             val task = tasks[update.taskId]!!
             task.events += update.event
-            if (!task.terminal) return  // 非终态, 只更新状态
+            isTerminal = task.terminal
             roundId = task.roundId
+            userInput = task.userInput
+            roundTasks = tasks.values.filter { it.roundId == roundId }
         }
 
+        // 每次 TaskUpdate 都推送当前 round 状态
+        roundTasks
+            .map { ts -> ts.copy(roundId = "", userInput = "", events = ts.events.toMutableList()) }
+            .let { TaskGroupState(roundId, userInput, it) }
+            .run { tasksStateEmitter.tryEmit(this) }
+
+        if (isTerminal.not()) return
+
         // 检查 round 内所有 task 是否都 terminal
-        val allDone = tasksLock.withLock {
-            tasks.values.filter { it.roundId == roundId }.all { it.terminal }
-        }
-        if (allDone) {
-            val summary = formatRoundSummary(roundId)
+        if (roundTasks.all { it.terminal }) {
+            val summary = formatTasksResultSummary(roundId)
             pendingResultEvents.trySend(summary)
             handlePending(postRound = false)
+
+            tasksLock.withLock { roundTasks.forEach { tasks.remove(it.taskId) } }
         }
     }
 
@@ -190,7 +211,6 @@ public class BossAgent internal constructor(
      * - run() 投递 user round 到 pendingUserRounds
      * - 终态 TaskUpdate 投递 summary 到 pendingResultEvents
      */
-    @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun handlePending(postRound: Boolean) {
         decisionLock.withLock {
             if (!postRound && state.value == BossState.RUNNING) return@withLock
@@ -243,7 +263,7 @@ public class BossAgent internal constructor(
      * @param roundId 要汇总的 round ID
      * @return summary 字符串
      */
-    private suspend fun formatRoundSummary(roundId: String): String = tasksLock.withLock {
+    private suspend fun formatTasksResultSummary(roundId: String): String = tasksLock.withLock {
         val roundTasks = tasks.entries.filter { it.value.roundId == roundId }
         buildString {
             append("Tasks finished:\n")

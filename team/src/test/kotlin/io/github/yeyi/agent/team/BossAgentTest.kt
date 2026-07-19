@@ -39,6 +39,10 @@ class BossAgentTest {
                 ChatResponse(
                     message = ChatMessage.Assistant(content = "Hello from boss"),
                     finishReason = FinishReason.Stop,
+                ),
+                ChatResponse(
+                    message = ChatMessage.Assistant(content = "continuation"),
+                    finishReason = FinishReason.Stop,
                 )
             )
         ),
@@ -151,7 +155,9 @@ class BossAgentTest {
         // 验证 continuations 流收到 boss LLM 看到结果后发出的续轮 Final.
         val (boss, bb) = createBossAgent()
 
-        // createBossAgent 已同步等到 BossAgent 订阅就绪, 直接 publish 即可.
+        // 先 run 一轮初始化 currentRound，否则 handleTaskAssignments 会因 currentRound 未初始化而失败
+        val initJob = launch { boss.run("init").collect { } }
+        withTimeout(5000) { initJob.join() }
 
         // 直接 publish 一个 taskId 的 TaskAssignment (跳过 PublishTaskTool)
         val taskId = "test-task-1"
