@@ -26,6 +26,7 @@ private enum class BossState { WAITING, RUNNING }
 private class UserRound(
     val id: String,
     val input: String,
+    val createdAt: Long,
     val channel: Channel<AgentEvent>,
 )
 
@@ -42,6 +43,7 @@ public data class TaskState(
     public val task: String,
     internal val roundId: String,
     internal val userInput: String,
+    internal val createdAt: Long,
     public val events: MutableList<AgentEvent> = mutableListOf(),
 ) {
     public val terminal: Boolean
@@ -53,12 +55,14 @@ public data class TaskState(
  *
  * @property id round ID
  * @property input 该 round 的用户输入
+ * @property createdAt 任务组创建时间，用于 UI 排序
  * @property states 该 round 内所有任务的 [TaskState] 列表
  * @property terminal 是否所有任务都处于终态
  */
 public data class TaskGroupState(
     public val id: String,
     public val input: String,
+    public val createdAt: Long,
     public val states: List<TaskState>
 ) {
     public val terminal: Boolean get() = states.all { it.terminal }
@@ -155,7 +159,12 @@ public class BossAgent internal constructor(
             return flow { emit(AgentEvent.Failed(IllegalStateException("Agent is shut down"))) }
         }
 
-        val round = UserRound(UUID.randomUUID().toString(), input, Channel(Channel.UNLIMITED))
+        val round = UserRound(
+            UUID.randomUUID().toString(),
+            input,
+            System.currentTimeMillis(),
+            Channel(Channel.UNLIMITED)
+        )
         pendingUserRounds.trySend(round)
 
         scope.launch { handlePending(false) }
@@ -181,36 +190,40 @@ public class BossAgent internal constructor(
         tasksLock.withLock {
             for (task in event.tasks) {
                 tasks[task.taskId] =
-                    TaskState(task.taskId, task.task, currentRound.id, currentRound.input)
+                    TaskState(
+                        task.taskId,
+                        task.task,
+                        currentRound.id,
+                        currentRound.input,
+                        currentRound.createdAt
+                    )
             }
         }
     }
 
     private suspend fun handleTaskUpdate(update: TaskUpdate) {
         val isTerminal: Boolean
-        val roundId: String
-        val userInput: String
+        val state: TaskState
         val roundTasks: List<TaskState>
         tasksLock.withLock {
             val task = tasks[update.taskId]!!
             task.events += update.event
             isTerminal = task.terminal
-            roundId = task.roundId
-            userInput = task.userInput
-            roundTasks = tasks.values.filter { it.roundId == roundId }
+            roundTasks = tasks.values.filter { it.roundId == task.roundId }
+            state = task
         }
 
         // 每次 TaskUpdate 都推送当前 round 状态
         roundTasks
-            .map { ts -> ts.copy(roundId = "", userInput = "", events = ts.events.toMutableList()) }
-            .let { TaskGroupState(roundId, userInput, it) }
+            .map { ts -> ts.copy(events = ts.events.toMutableList()) }
+            .let { TaskGroupState(state.roundId, state.userInput, state.createdAt, it) }
             .run { tasksStateEmitter.tryEmit(this) }
 
         if (isTerminal.not()) return
 
         // 检查 round 内所有 task 是否都 terminal
         if (roundTasks.all { it.terminal }) {
-            val summary = formatTasksResultSummary(roundId)
+            val summary = formatTasksResultSummary(state.roundId)
             pendingResultEvents.trySend(summary)
             handlePending(postRound = false)
 
