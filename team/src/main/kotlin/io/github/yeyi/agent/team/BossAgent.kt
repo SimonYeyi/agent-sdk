@@ -29,6 +29,14 @@ private class UserRound(
     val channel: Channel<AgentEvent>,
 )
 
+/**
+ * 单个任务的状态快照.
+ *
+ * @property taskId 任务 ID
+ * @property task 任务描述文本
+ * @property events 任务收到的事件列表，通过 [AgentEvent] 类型区分状态
+ * @property terminal 是否处于终态（收到 Final 或 Failed 事件）
+ */
 public data class TaskState(
     public val taskId: String,
     public val task: String,
@@ -40,6 +48,14 @@ public data class TaskState(
         get() = events.lastOrNull() is AgentEvent.Final || events.lastOrNull() is AgentEvent.Failed
 }
 
+/**
+ * 一个 round 内所有任务的状态快照，作为 [BossAgent.tasksStates] Flow 的推送单元.
+ *
+ * @property id round ID
+ * @property input 该 round 的用户输入
+ * @property states 该 round 内所有任务的 [TaskState] 列表
+ * @property terminal 是否所有任务都处于终态
+ */
 public data class TaskGroupState(
     public val id: String,
     public val input: String,
@@ -80,7 +96,7 @@ public class BossAgent internal constructor(
     private val pendingUserRounds: Channel<UserRound> = Channel(capacity = Channel.UNLIMITED)
 
     // ===== 续轮 summary 队列 =====
-    // 结果完成时由 formatRoundSummary 格式化后压入,runPendingRound 消费.
+    // 结果完成时由 formatTasksResultSummary 格式化后压入,runPendingRound 消费.
     private val pendingResultEvents: Channel<String> = Channel(capacity = Channel.UNLIMITED)
 
     // ===== 任务组状态推送 =====
