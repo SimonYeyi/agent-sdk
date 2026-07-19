@@ -13,7 +13,6 @@ import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.memory.InMemoryMemory
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -21,7 +20,6 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -83,11 +81,10 @@ class BossAgentTest {
     }
 
     @Test
-    fun `run returns events and state transitions to WAITING`() = runTest {
+    fun `run returns events`() = runTest {
         val (boss, _) = createBossAgent()
 
         val events = boss.run("hello").toList()
-        assertEquals(BossState.WAITING, boss.state.value)
         assertTrue(events.isNotEmpty())
     }
 
@@ -97,34 +94,6 @@ class BossAgentTest {
         // Should not throw when subscribing
         val job = GlobalScope.launch { boss.continuations.collect { } }
         job.cancel()
-    }
-
-    @Test
-    fun `state flow reflects WAITING initial state`() {
-        val (boss, _) = createBossAgent()
-        assertEquals(BossState.WAITING, boss.state.value)
-    }
-
-    @Test
-    fun `inputting transitions between WAITING and INPUTTING`() {
-        val (boss, _) = createBossAgent()
-        assertEquals(BossState.WAITING, boss.state.value)
-
-        boss.inputting(true)
-        assertEquals(BossState.INPUTTING, boss.state.value)
-
-        boss.inputting(false)
-        assertEquals(BossState.WAITING, boss.state.value)
-    }
-
-    @Test
-    fun `isActive does not interrupt RUNNING`() = runTest {
-        val (boss, _) = createBossAgent()
-        assertEquals(BossState.WAITING, boss.state.value)
-
-        boss.run("hello")
-        boss.inputting(true) // should be no-op
-        // state is WAITING after round finishes
     }
 
     @Test
@@ -174,12 +143,10 @@ class BossAgentTest {
         assertTrue(flow1Events.lastOrNull() is AgentEvent.Final, "flow1 should end with Final")
         assertTrue(flow2Events.lastOrNull() is AgentEvent.Final, "flow2 should end with Final")
         assertTrue(flow3Events.lastOrNull() is AgentEvent.Final, "flow3 should end with Final")
-
-        assertEquals(BossState.WAITING, boss.state.value)
     }
 
     @Test
-    fun `continuation flow receives events when terminal TaskUpdate arrives while WAITING`() = runBlocking {
+    fun `continuation flow receives events when terminal TaskUpdate arrives`() = runBlocking {
         // 构造 idle 状态 + 派一个 task + 直接 publish 终态 TaskUpdate;
         // 验证 continuations 流收到 boss LLM 看到结果后发出的续轮 Final.
         val (boss, bb) = createBossAgent()
@@ -217,15 +184,10 @@ class BossAgentTest {
         withTimeout(5000) {
             while (continuations.isEmpty()) delay(50)
         }
-        // 再等 boss 回到 WAITING, 避免下面 job.cancel 时还在跑
-        withTimeout(5000) {
-            while (boss.state.value != BossState.WAITING) delay(50)
-        }
+        delay(100) // 确保流程完成
         job.cancel()
 
         assertTrue(continuations.isNotEmpty(), "continuations was empty")
         assertTrue(continuations.any { it is AgentEvent.Final })
-        assertEquals(BossState.WAITING, boss.state.value)
     }
-
 }

@@ -10,7 +10,6 @@ import io.github.yeyi.agent.memory.InMemoryMemory
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
-import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 class BossAgentBuilderTest {
@@ -32,7 +31,6 @@ class BossAgentBuilderTest {
             maxIterations(1)
         }
 
-        assertEquals(BossState.WAITING, boss.state.value)
         val events = boss.run("hello").toList()
         assertTrue(events.isNotEmpty())
         boss.shutdown()

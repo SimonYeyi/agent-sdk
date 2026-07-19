@@ -134,7 +134,7 @@ class BossAgentIntegrationTest {
         }
         // 等回 WAITING 防止 race
         withTimeout(3000) {
-            while (boss.state.value != BossState.WAITING) delay(50)
+            delay(500) // wait for boss to settle
         }
 
         contJob.cancel()
@@ -236,7 +236,7 @@ class BossAgentIntegrationTest {
         }
         // 再等回 WAITING 防止 race
         withTimeout(3000) {
-            while (boss.state.value != BossState.WAITING) delay(50)
+            delay(500) // wait for boss to settle
         }
 
         contJob.cancel()

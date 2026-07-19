@@ -11,9 +11,7 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.isActive
@@ -24,18 +22,16 @@ import java.util.UUID
 
 // ===== Types =====
 
-public enum class BossState { WAITING, RUNNING, INPUTTING }
+private enum class BossState { WAITING, RUNNING }
 
-internal class UserRound(
+private class UserRound(
     val input: String,
     val channel: Channel<AgentEvent>,
 )
 
-internal class TaskState(
-    val selections: List<Selection>,
+private class TaskState(
     val task: String,
     val roundId: String,
-    val dependsOn: List<String> = emptyList(),
     val events: MutableList<AgentEvent> = mutableListOf(),
 ) {
     val terminal: Boolean
@@ -49,8 +45,7 @@ public class BossAgent internal constructor(
     private val scope: CoroutineScope
 ) : Agent {
 
-    private val _state = MutableStateFlow(BossState.WAITING)
-    public val state: StateFlow<BossState> = _state.asStateFlow()
+    private val state = MutableStateFlow(BossState.WAITING)
 
     // ===== 任务追踪 =====
     private val tasks: MutableMap<String, TaskState> = mutableMapOf()
@@ -115,12 +110,7 @@ public class BossAgent internal constructor(
                             val roundId = currentRoundId
                             tasksLock.withLock {
                                 for (task in event.tasks) {
-                                    tasks[task.taskId] = TaskState(
-                                        task.selections,
-                                        task.task,
-                                        roundId,
-                                        task.dependsOn
-                                    )
+                                    tasks[task.taskId] = TaskState(task.task, roundId)
                                 }
                             }
                         }
@@ -153,18 +143,6 @@ public class BossAgent internal constructor(
     override fun runStream(input: String): Flow<AgentEvent> = run(input)
 
     /**
-     * UI 通知: 用户开始/结束打字.
-     * 状态机感知: 只在合理的状态下转换, 不打断正在跑的 round.
-     */
-    public fun inputting(active: Boolean) {
-        when {
-            active && _state.value == BossState.WAITING -> _state.value = BossState.INPUTTING
-            !active && _state.value == BossState.INPUTTING -> _state.value = BossState.WAITING
-            // 其他 state: no-op (不打断 RUNNING)
-        }
-    }
-
-    /**
      * 关闭 BossAgent — 取消 [scope], 停止所有 boss/pasture 的后台任务.
      * 之后 boss LLM 不会再被新事件触发; pasture 的 running jobs 也会被取消.
      * 调用方负责在不再使用 boss 时调用本方法 (e.g., 在应用关闭时).
@@ -178,7 +156,7 @@ public class BossAgent internal constructor(
     private suspend fun handleTaskUpdate(update: TaskUpdate) {
         val roundId: String
         tasksLock.withLock {
-            val task = tasks[update.taskId] ?: return
+            val task = tasks[update.taskId]!!
             task.events += update.event
             if (!task.terminal) return  // 非终态, 只更新状态
             roundId = task.roundId
@@ -207,23 +185,23 @@ public class BossAgent internal constructor(
     @OptIn(ExperimentalCoroutinesApi::class)
     private suspend fun handlePending(postRound: Boolean) {
         decisionLock.withLock {
-            if (!postRound && _state.value == BossState.RUNNING) return@withLock
+            if (!postRound && state.value == BossState.RUNNING) return@withLock
 
             pendingUserRounds.tryReceive().getOrNull()?.let { userRound ->
                 currentRoundId = UUID.randomUUID().toString()
-                _state.value = BossState.RUNNING
+                state.value = BossState.RUNNING
                 scope.launch { runUserRound(userRound) }
                 return
             }
 
             pendingResultEvents.tryReceive().getOrNull()?.let { result ->
-                _state.value = BossState.RUNNING
+                state.value = BossState.RUNNING
                 scope.launch { runResultRound(result) }
                 return
             }
 
-            if (_state.value != BossState.WAITING) {
-                _state.value = BossState.WAITING
+            if (state.value != BossState.WAITING) {
+                state.value = BossState.WAITING
             }
         }
     }

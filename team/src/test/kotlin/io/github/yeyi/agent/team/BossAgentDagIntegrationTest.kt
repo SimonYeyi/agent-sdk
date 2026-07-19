@@ -160,9 +160,7 @@ class BossAgentDagIntegrationTest {
         withTimeout(5000) {
             while (continuations.isEmpty()) delay(50)
         }
-        withTimeout(3000) {
-            while (boss.state.value != BossState.WAITING) delay(50)
-        }
+        delay(500) // wait for boss to settle
 
         contJob.cancel()
         boss.shutdown()
@@ -192,9 +190,7 @@ class BossAgentDagIntegrationTest {
         withTimeout(5000) {
             while (continuations.isEmpty()) delay(50)
         }
-        withTimeout(3000) {
-            while (boss.state.value != BossState.WAITING) delay(50)
-        }
+        delay(500) // wait for boss to settle
 
         contJob.cancel()
         boss.shutdown()
@@ -333,9 +329,7 @@ class BossAgentDagIntegrationTest {
         withTimeout(5000) {
             while (continuations.isEmpty()) delay(50)
         }
-        withTimeout(3000) {
-            while (boss.state.value != BossState.WAITING) delay(50)
-        }
+        delay(500) // wait for boss to settle
 
         contJob.cancel()
         boss.shutdown()
@@ -410,9 +404,7 @@ class BossAgentDagIntegrationTest {
         withTimeout(5000) {
             while (continuations.isEmpty()) delay(50)
         }
-        withTimeout(3000) {
-            while (boss.state.value != BossState.WAITING) delay(50)
-        }
+        delay(500) // wait for boss to settle
 
         contJob.cancel()
         boss.shutdown()
