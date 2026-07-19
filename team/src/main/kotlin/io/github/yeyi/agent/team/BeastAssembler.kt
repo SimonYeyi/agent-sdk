@@ -43,6 +43,14 @@ internal class BeastAssembler(
                         ?: error("assembleHorse: skill not found: ${s.name}")
                     val text = skill.load()
                     skillTexts += text
+                    toolRegistry?.all()?.forEach { tool ->
+                        val pattern = Regex("\\b" + Regex.escape(tool.name) + "\\b")
+                        if (pattern.containsMatchIn(text)) tools += tool
+                    }
+                    toolsetRegistry?.all()?.forEach { toolset ->
+                        val pattern = Regex("\\b" + Regex.escape(toolset.name) + "\\b")
+                        if (pattern.containsMatchIn(text)) tools += toolset.all()
+                    }
                     skillRegistry.allTools().forEach { tool ->
                         val pattern = Regex("\\b" + Regex.escape(tool.name) + "\\b")
                         if (pattern.containsMatchIn(text)) tools += tool

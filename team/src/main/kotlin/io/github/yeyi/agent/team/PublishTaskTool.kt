@@ -26,15 +26,16 @@ internal class PublishTaskTool(
     override val description: String = buildString {
         val typeList = Selection.FACTORIES.keys.joinToString(" | ") { "'$it'" }
         append("""
-            Pass an array of tasks. Each task declares a `ref` (your short symbolic name, unique within this call)
-            and optionally lists references in `depends_on` to form a DAG. References in `depends_on` rules:
+            Publish an array of tasks to the bulletin board. Each task declares a `ref` (your short symbolic name, unique within this call)
+            and optionally lists references in `depends_on` to form a DAG. Publishing a task does NOT wait for its
+            execution — it is queued and dispatched asynchronously. References in `depends_on` rules:
               - Same publish_task call: use `ref` (your symbolic name from another task in this same call).
-                This is the ONLY option within one call because task_id is assigned AFTER publish completes.
+                This is the ONLY option within one call because task_id is assigned AFTER publish.
               - Different publish_task call (cross-round): MUST use `task_id` (UUID). Refs are NOT stable
                 across calls — the same ref name may be reused, mapped to different tasks, or absent.
                 Always read the prior round's summary to get task_ids, then list them in `depends_on`.
               - Mixing `ref` (same call) and `task_id` (cross-call) in the same `depends_on` array is allowed.
-            Tasks without dependencies run concurrently; a task with `depends_on` waits for all referenced
+            Tasks without dependencies run concurrently once published; a task with `depends_on` waits for all referenced
             tasks to finish, then runs with their final results prepended to its context. For a chain A→B,
             put both in one call:
               tasks=[{ref:"lookup",...}, {ref:"summary", depends_on:["lookup"],...}]
@@ -133,7 +134,7 @@ internal class PublishTaskTool(
             }
             "- ${task.taskId} → $selStr"
         }
-        return ToolExecutionResult("Assigned ${resolved.size} task(s):\n${summary.joinToString("\n")}")
+        return ToolExecutionResult("Published ${resolved.size} task(s):\n${summary.joinToString("\n")}")
     }
 
     private fun JsonObject.str(field: String): String? =
