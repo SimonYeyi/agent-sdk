@@ -22,9 +22,9 @@ public class BossAgentBuilder internal constructor() {
 
     private var delegatedToolRegistry0: ToolRegistry? = null
     private var quickToolRegistry0: ToolRegistry? = null
+    private var toolsetRegistry0: ToolsetRegistry? = null
     private var skillRegistry0: SkillRegistry? = null
     private var subagentRegistry0: SubagentRegistry? = null
-    private var toolsetRegistry0: ToolsetRegistry? = null
 
     private var bossPersona0: Persona? = null
 
@@ -58,9 +58,9 @@ public class BossAgentBuilder internal constructor() {
         quickToolRegistry0 = registry
     }
 
+    public fun toolsets(registry: ToolsetRegistry) { toolsetRegistry0 = registry }
     public fun skills(registry: SkillRegistry) { skillRegistry0 = registry }
     public fun subagents(registry: SubagentRegistry) { subagentRegistry0 = registry }
-    public fun toolsets(registry: ToolsetRegistry) { toolsetRegistry0 = registry }
 
     public fun mcps(registry: McpRegistry) {
         @Suppress("UNUSED_PARAMETER") registry
@@ -116,16 +116,16 @@ public class BossAgentBuilder internal constructor() {
     ): BossAgent {
         val capabilitiesByType: Map<String, List<NamedCapability>> = buildMap {
             delegatedToolRegistry0?.let { reg ->
-                put("tool", reg.all().map { NamedCapability(it.name, it.description) })
-            }
-            skillRegistry0?.let { reg ->
-                put("skill", reg.all().map { NamedCapability(it.name, it.description) })
-            }
-            subagentRegistry0?.let { reg ->
-                put("subagent", reg.all().map { NamedCapability(it.name, it.description) })
+                put(Selection.Tool.TYPE, reg.all().map { NamedCapability(it.name, it.description) })
             }
             toolsetRegistry0?.let { reg ->
-                put("toolset", reg.all().map { NamedCapability(it.name, it.description) })
+                put(Selection.Toolset.TYPE, reg.all().map { NamedCapability(it.name, it.description) })
+            }
+            skillRegistry0?.let { reg ->
+                put(Selection.Skill.TYPE, reg.all().map { NamedCapability(it.name, it.description) })
+            }
+            subagentRegistry0?.let { reg ->
+                put(Selection.Subagent.TYPE, reg.all().map { NamedCapability(it.name, it.description) })
             }
         }
 
