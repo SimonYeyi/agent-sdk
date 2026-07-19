@@ -2,7 +2,6 @@ package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -53,18 +52,9 @@ public class BossAgent internal constructor(
     private val _state = MutableStateFlow(BossState.WAITING)
     public val state: StateFlow<BossState> = _state.asStateFlow()
 
-    // ===== 用户轮次挂起 =====
-    // pendingUserRound 是决策字段 — 在 [handlePending] 锁内 "读 + 清" 三步原子化.
-    // 唯一写入点: handlePending 锁内, run() 投递且 state 忙时挂起到字段 (latest-wins).
-    // 唯一读+清点: handlePending 锁内, 第 3 段决策时取出并清.
-    // run() 闲时直接 launch (不走字段); runPendingRound 接收 round 参数 (也不沾字段).
-    // finally 不清字段 — 防止覆盖并发 busy 时另一线程 run() 写入的新 round.
-    private var pendingUserRound: UserRound? = null
-
-    // ===== 当前 round ID =====
-    // 每 run() 时生成, attach 收到 TaskAssignments 时用来关联该批 task 所属 round.
-    // roundId 是 BossAgent 视角的元数据,不属于事件业务载荷 —— 事件本身不带 roundId.
-    private var currentRoundId: String = ""
+    // ===== 任务追踪 =====
+    private val tasks: MutableMap<String, TaskState> = mutableMapOf()
+    private val tasksLock: Mutex = Mutex()
 
     // ===== 续轮事件流 (hot SharedFlow) =====
     private val continuationsEmitter = MutableSharedFlow<AgentEvent>(
@@ -78,18 +68,23 @@ public class BossAgent internal constructor(
      */
     public val continuations: Flow<AgentEvent> = continuationsEmitter.asSharedFlow()
 
-    // ===== 任务追踪 =====
-    private val tasks: MutableMap<String, TaskState> = mutableMapOf()
-    private val tasksLock: Mutex = Mutex()
+    // ===== 当前 round ID =====
+    // 每 run() 时生成, attach 收到 TaskAssignments 时用来关联该批 task 所属 round.
+    // roundId 是 BossAgent 视角的元数据,不属于事件业务载荷 —— 事件本身不带 roundId.
+    private var currentRoundId: String = ""
 
-    // ===== 待合并的 round summary 字符串 =====
-    // round 完成时由 formatRoundSummary 格式化后压入,handlePending 消费.
+    // ===== 用户轮次队列 =====
+    // Channel(UNLIMITED) 自然排队，handlePending 消费时取队首
+    private val pendingUserRounds: Channel<UserRound> = Channel(capacity = Channel.UNLIMITED)
+
+    // ===== 续轮 summary 队列 =====
+    // 结果完成时由 formatRoundSummary 格式化后压入,runPendingRound 消费.
     private val pendingResultEvents: Channel<String> = Channel(capacity = Channel.UNLIMITED)
 
     // ===== 并发控制 =====
-    // decisionLock 锁内 atomically: 读 state + 读/清 pendingUserRound + scope.launch.
+    // decisionLock 锁内 atomically: 读 state + scope.launch.
     // 跑 round 期间 (LLM 调用) 不持锁; handlePending 之间互斥防 TOCTOU & 字段竞争.
-    // 单一入口: 所有 race-free 集中在 [handlePending] 锁内的"读+清+launch"三步.
+    // 单一入口: 所有 race-free 集中在 [handlePending] 锁内.
     private val decisionLock: Mutex = Mutex()
 
     // lateinit: 由 [attach] 赋值, 后续 collect 统一从此字段读取.
@@ -149,10 +144,9 @@ public class BossAgent internal constructor(
         }
 
         val round = UserRound(input, Channel(Channel.UNLIMITED))
-        // 投递到 handlePending — 锁内决策: 闲时直接 launch, 忙时挂起到字段.
-        // run() 不沾字段,避免与 finally 清字段覆盖并发写入的 race.
-        scope.launch { handlePending(round = round) }
-        // 返回的 Flow 内容就是该轮的事件; channel 关闭时 Flow 自然结束
+        pendingUserRounds.trySend(round)
+
+        scope.launch { handlePending(false) }
         return flow { for (e in round.channel) emit(e) }
     }
 
@@ -189,6 +183,7 @@ public class BossAgent internal constructor(
             if (!task.terminal) return  // 非终态, 只更新状态
             roundId = task.roundId
         }
+
         // 检查 round 内所有 task 是否都 terminal
         val allDone = tasksLock.withLock {
             tasks.values.filter { it.roundId == roundId }.all { it.terminal }
@@ -196,138 +191,76 @@ public class BossAgent internal constructor(
         if (allDone) {
             val summary = formatRoundSummary(roundId)
             pendingResultEvents.trySend(summary)
-            handlePending()
+            handlePending(postRound = false)
         }
     }
 
     // ========== 内部: 决定 + 启动 (并发安全) ==========
 
     /**
-     * 唯一决策点 — 锁内 atomically "读 state + 清 pendingUserRound + scope.launch".
+     * 唯一决策点 — 锁内决策是否启动 runPendingRound.
      *
-     * 4 种触发源 (参数互斥):
-     * - [run] 投递 (`round != null`, `postRound = false`): 闲时直接 launch, 忙时挂起到字段
-     * - 终态 TaskUpdate (`round = null`, `postRound = false`): 外部触发; 撞忙 bail, 撞闲决策
-     * - round 跑完 (`round = null`, `postRound = true`): postRound 接班, 决策续轮或 idle
-     * - collect 跑完 — 同 postRound
-     *
-     * 锁外都不读不写 `pendingUserRound`, 锁内 "读 + 清" 一气呵成 — 防 finally 清字段覆盖并发 write.
-     *
-     * @param round     [run] 投递的 user round (锁内消费: 闲启动 / 忙挂起)
-     * @param postRound 当前 round/collect 已跑完 (锁内接续决策)
+     * 触发源:
+     * - run() 投递 user round 到 pendingUserRounds
+     * - 终态 TaskUpdate 投递 summary 到 pendingResultEvents
      */
     @OptIn(ExperimentalCoroutinesApi::class)
-    private suspend fun handlePending(
-        round: UserRound? = null,
-        postRound: Boolean = false,
-    ) {
+    private suspend fun handlePending(postRound: Boolean) {
         decisionLock.withLock {
-            // 1) run() 投递: 闲时启动, 忙时挂起到字段 (latest-wins: 老挂起 superseded)
-            if (round != null) {
-                when {
-                    _state.value in setOf(BossState.WAITING, BossState.INPUTTING) -> {
-                        _state.value = BossState.RUNNING
-                        scope.launch { runPendingRound(round) }
-                    }
-
-                    else -> {
-                        // 老挂起 round 被最新 run() 替代: close 前 emit Failed(CancellationException)
-                        // 让 Flow 收到终止事件 (而非静默 close),符合 AgentEvent 终止语义.
-                        pendingUserRound?.let { supersedeRound(it) }
-                        pendingUserRound = round
-                    }
-                }
-                return@withLock
-            }
-
-            // 2) 外部触发 (handleTaskUpdate): 撞忙 bail
             if (!postRound && _state.value == BossState.RUNNING) return@withLock
 
-            // 3) postRound 接班 或 外部撞闲: 决策
-            val pendingRound = pendingUserRound
-            pendingUserRound = null  // 锁内清, race-free
-            val roundSummary = pendingResultEvents.tryReceive().getOrNull()
+            pendingUserRounds.tryReceive().getOrNull()?.let { userRound ->
+                currentRoundId = UUID.randomUUID().toString()
+                _state.value = BossState.RUNNING
+                scope.launch { runUserRound(userRound) }
+                return
+            }
 
-            when {
-                // 合并用户输入 / 纯续轮
-                pendingRound != null || roundSummary != null -> {
-                    _state.value = BossState.RUNNING
-                    scope.launch { runPendingRound(pendingRound, roundSummary) }
-                }
-                // 真 idle: 切回 WAITING. 已经 WAITING 时 no-op.
-                else -> if (_state.value != BossState.WAITING) {
-                    _state.value = BossState.WAITING
-                }
+            pendingResultEvents.tryReceive().getOrNull()?.let { result ->
+                _state.value = BossState.RUNNING
+                scope.launch { runResultRound(result) }
+                return
+            }
+
+            if (_state.value != BossState.WAITING) {
+                _state.value = BossState.WAITING
             }
         }
     }
 
     // ========== 内部: 跑轮次 ==========
 
-    /**
-     * 关闭被 superseded 的挂起 round — close 前 emit Failed(CancellationException)
-     * 让其 Flow 收到终止事件, 符合 AgentEvent 流终止语义 (不静默 close).
-     */
-    private fun supersedeRound(round: UserRound) {
-        // 按主 spec § 9.1: AgentEvent.Failed 直接接 Throwable, 不再要求包成 AgentException.
-        // superseded 是控制流语义 (被更新 run() 取代, 而非业务失败), 用 CancellationException 表达.
-        round.channel.trySend(
-            AgentEvent.Failed(CancellationException("superseded by newer run()"))
-        )
-        round.channel.close()
+    private suspend fun runUserRound(userRound: UserRound) {
+        try {
+            innerAgent.run(userRound.input).collect { e ->
+                userRound.channel.send(e)
+            }
+        } finally {
+            userRound.channel.close()
+            handlePending(postRound = true)
+        }
     }
 
-    /**
-     * 跑一轮 — 接受 round 参数, 不沾字段.
-     *
-     * @param round user round (来自 handlePending 锁内参数); null = 纯续轮.
-     * @param roundSummary 当前 round 内所有 task 完成后的 summary (由 formatRoundSummary 生成).
-     */
-    private suspend fun runPendingRound(round: UserRound? = null, roundSummary: String? = null) {
-        try {
-            val input = mergeInput(round?.input, roundSummary)
-            if (input != null) {
-                currentRoundId = UUID.randomUUID().toString()  // 每轮一个新 roundId
-                innerAgent.run(input).collect { e ->
-                    if (round == null) continuationsEmitter.emit(e)
-                    else round.channel.send(e)
-                }
-            }
-            // postRound 决策先于 channel.close — 保证 toList() 返回前 state 已落定 (避免 race window).
-            handlePending(postRound = true)
-        } finally {
-            round?.channel?.close()
+    private suspend fun runResultRound(result: String) {
+        innerAgent.run(result).collect { e ->
+            continuationsEmitter.emit(e)
         }
+        handlePending(postRound = true)
     }
 
     // ========== 内部: 状态查询与合并 ==========
-
-    /**
-     * 取出 round summary, 与可选 user input 合并.
-     *
-     * @param input       用户本轮输入 (可为 null, 表示纯续轮)
-     * @param roundSummary 当前 round 内所有 task 完成后的 summary (可为 null)
-     * @return 合并后的字符串, null 表示两者都为空
-     */
-    private fun mergeInput(input: String?, roundSummary: String?): String? {
-        if (input == null && roundSummary == null) return null
-        return buildString {
-            input?.let { append(it); if (roundSummary != null) append("\n\n") }
-            roundSummary?.let { append(it) }
-        }
-    }
 
     /**
      * 格式化 round 内所有 task 的 terminal event 为可读 summary.
      * 由 BossAgent 从 tasks.get(taskId).events 聚合,不依赖 Pasture 提供.
      *
      * @param roundId 要汇总的 round ID
-     * @return summary 字符串, null 表示 round 内无 task
+     * @return summary 字符串
      */
     private suspend fun formatRoundSummary(roundId: String): String = tasksLock.withLock {
         val roundTasks = tasks.entries.filter { it.value.roundId == roundId }
         buildString {
-            append("Tasks completed:\n")
+            append("Tasks finished:\n")
             for ((taskId, task) in roundTasks) {
                 val lastEvent = task.events.last()
                 append("- $taskId: $lastEvent\n")

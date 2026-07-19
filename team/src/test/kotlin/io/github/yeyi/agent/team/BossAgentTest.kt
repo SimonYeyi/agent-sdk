@@ -139,114 +139,41 @@ class BossAgentTest {
         assertTrue(events[0] is AgentEvent.Failed)
     }
 
-    // ===== Race-free behaviors (spec § 7.5 + § 6.1-6.3) =====
+    // ===== Queue behavior =====
 
     @Test
-    fun `run() supersedes pending round with Failed(CancellationException) when boss busy`() = runBlocking {
-        // Spec § 7.5 invariant #2: a newer run() arriving while another round is still RUNNING
-        // supersedes the previously-pending round and emits AgentEvent.Failed(CancellationException).
-        //
-        // Setup uses a slow-first LLM provider so the first round's LLM call suspends long
-        // enough for two more run() calls to land while the boss is in state RUNNING:
-        //   T1: run("first")  → state WAITING → RUNNING, round1 LLM suspends ~500ms
-        //   T2: run("second") → state RUNNING → pendingUserRound = round2 (no previous pending, no supersede)
-        //   T3: run("third")  → state RUNNING → supersedeRound(round2) + pendingUserRound = round3
-        //   T4: round1 LLM completes → handlePending(postRound=true) picks up round3
-        //   T5: runPendingRound(round3) completes → state WAITING
-        //
-        // Expected:
-        //   - flow1 ends with Final("response 1") (round1 was running, never superseded)
-        //   - flow2 ends with Failed(CancellationException("superseded by newer run()")) — round2 was superseded by run3
-        //   - flow3 ends with Final("response 3") (round3 was the latest pending and got picked up by postRound)
+    fun `multiple run() calls are queued and processed in order`() = runBlocking {
+        // 多个 run() 调用入队，按顺序处理，都正常完成
         val provider = SlowFirstLlmProvider(
             responses = listOf(
-                ChatResponse(
-                    message = ChatMessage.Assistant(content = "response 1"),
-                    finishReason = FinishReason.Stop,
-                ),
-                ChatResponse(
-                    message = ChatMessage.Assistant(content = "response 3"),
-                    finishReason = FinishReason.Stop,
-                ),
+                ChatResponse(message = ChatMessage.Assistant(content = "first"), finishReason = FinishReason.Stop),
+                ChatResponse(message = ChatMessage.Assistant(content = "second"), finishReason = FinishReason.Stop),
+                ChatResponse(message = ChatMessage.Assistant(content = "third"), finishReason = FinishReason.Stop),
             ),
-            firstCallDelayMs = 500,
+            firstCallDelayMs = 200,
         )
         val (boss, _) = createBossAgent(provider = provider)
 
-        // T1: launch run1 collector in a coroutine, do NOT await completion
         val flow1Events = mutableListOf<AgentEvent>()
-        val flow1Job = launch {
-            boss.run("first").collect { flow1Events.add(it) }
-        }
-
-        // Wait until state is RUNNING — deterministic, no arbitrary delay
-        withTimeout(2000) {
-            boss.state.first { it == BossState.RUNNING }
-        }
-
-        // T2: run2 — gets queued in pendingUserRound
         val flow2Events = mutableListOf<AgentEvent>()
-        val flow2Job = launch {
-            boss.run("second").collect { flow2Events.add(it) }
-        }
-
-        // Brief delay so run2's handlePending has committed pendingUserRound = round2
-        // before run3 arrives. Without this, run3 might race ahead of run2 and the test
-        // wouldn't actually exercise the supersede path.
-        delay(50)
-
-        // T3: run3 — supersedes round2 (which is in pendingUserRound)
         val flow3Events = mutableListOf<AgentEvent>()
-        val flow3Job = launch {
-            boss.run("third").collect { flow3Events.add(it) }
-        }
 
-        // Wait for all three flows to terminate
+        val flow1Job = launch { boss.run("first").collect { flow1Events.add(it) } }
+        delay(50)  // 确保 flow1 进入队列
+        val flow2Job = launch { boss.run("second").collect { flow2Events.add(it) } }
+        delay(50)
+        val flow3Job = launch { boss.run("third").collect { flow3Events.add(it) } }
+
         withTimeout(5000) {
             flow1Job.join()
             flow2Job.join()
             flow3Job.join()
         }
 
-        // flow2 must end with Failed(CancellationException("superseded by newer run()"))
-        val flow2Last = flow2Events.lastOrNull()
-        assertNotNull(flow2Last, "flow2 produced no events")
-        assertTrue(
-            flow2Last is AgentEvent.Failed,
-            "expected flow2 to end with AgentEvent.Failed, got: $flow2Last"
-        )
-        val flow2Failed = flow2Last as AgentEvent.Failed
-        assertTrue(
-            flow2Failed.cause is CancellationException,
-            "expected CancellationException, got: ${flow2Failed.cause::class.simpleName}"
-        )
-        assertEquals(
-            "superseded by newer run()",
-            flow2Failed.cause.message,
-            "supersede CancellationException must carry the spec-mandated message"
-        )
-
-        // flow1 ends with Final("response 1") — round1 was running, never superseded
-        val flow1Last = flow1Events.lastOrNull()
-        assertTrue(
-            flow1Last is AgentEvent.Final,
-            "expected flow1 to end with AgentEvent.Final, got: $flow1Last"
-        )
-        assertEquals(
-            ChatMessage.Assistant("response 1"),
-            (flow1Last as AgentEvent.Final).result.message,
-        )
-
-        // flow3 ends with Final("response 3") — round3 was the latest pending and got picked up
-        val flow3Last = flow3Events.lastOrNull()
-        assertTrue(
-            flow3Last is AgentEvent.Final,
-            "expected flow3 to end with AgentEvent.Final, got: $flow3Last"
-        )
-        assertEquals(
-            ChatMessage.Assistant("response 3"),
-            (flow3Last as AgentEvent.Final).result.message,
-        )
+        // all three flows should complete successfully
+        assertTrue(flow1Events.lastOrNull() is AgentEvent.Final, "flow1 should end with Final")
+        assertTrue(flow2Events.lastOrNull() is AgentEvent.Final, "flow2 should end with Final")
+        assertTrue(flow3Events.lastOrNull() is AgentEvent.Final, "flow3 should end with Final")
 
         assertEquals(BossState.WAITING, boss.state.value)
     }

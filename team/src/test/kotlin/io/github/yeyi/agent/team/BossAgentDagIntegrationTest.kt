@@ -422,7 +422,7 @@ class BossAgentDagIntegrationTest {
 
         assertTrue(recordedInputs.isNotEmpty(), "should have recorded at least one LLM input")
         val summaryInput = recordedInputs.lastOrNull()
-        assertTrue(summaryInput?.contains("Tasks completed:") == true,
-            "LLM input should contain 'Tasks completed:' summary, got: $summaryInput")
+        assertTrue(summaryInput?.contains("Tasks finished:") == true,
+            "LLM input should contain 'Tasks finished:' summary, got: $summaryInput")
     }
 }
