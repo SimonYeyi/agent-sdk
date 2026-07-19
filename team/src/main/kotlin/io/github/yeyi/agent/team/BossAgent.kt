@@ -25,17 +25,26 @@ import java.util.UUID
 private enum class BossState { WAITING, RUNNING }
 
 private class UserRound(
+    val id: String,
     val input: String,
     val channel: Channel<AgentEvent>,
 )
 
-private class TaskState(
-    val task: String,
-    val roundId: String,
-    val events: MutableList<AgentEvent> = mutableListOf(),
+public class TaskState(
+    public val task: String,
+    public val roundId: String,
+    public val events: MutableList<AgentEvent> = mutableListOf(),
 ) {
-    val terminal: Boolean
+    public val terminal: Boolean
         get() = events.lastOrNull() is AgentEvent.Final || events.lastOrNull() is AgentEvent.Failed
+}
+
+public data class TaskGroupState(
+    public val id: String,
+    public val input: String,
+    public val taskStates: List<TaskState>
+) {
+    public val terminal: Boolean get() = taskStates.all { it.terminal }
 }
 
 // ===== BossAgent =====
@@ -66,7 +75,7 @@ public class BossAgent internal constructor(
     // ===== 当前 round ID =====
     // 每 run() 时生成, attach 收到 TaskAssignments 时用来关联该批 task 所属 round.
     // roundId 是 BossAgent 视角的元数据,不属于事件业务载荷 —— 事件本身不带 roundId.
-    private var currentRoundId: String = ""
+    private lateinit var currentRound: UserRound
 
     // ===== 用户轮次队列 =====
     // Channel(UNLIMITED) 自然排队，handlePending 消费时取队首
@@ -107,10 +116,9 @@ public class BossAgent internal constructor(
                         is TaskAssignments -> {
                             // BossAgent 内部 currentRoundId, 自行关联这批 task 到当前 round.
                             // 一次 publish_task 调用可以属于当前 round 的多次调用之一.
-                            val roundId = currentRoundId
                             tasksLock.withLock {
                                 for (task in event.tasks) {
-                                    tasks[task.taskId] = TaskState(task.task, roundId)
+                                    tasks[task.taskId] = TaskState(task.task, currentRound.id)
                                 }
                             }
                         }
@@ -133,7 +141,7 @@ public class BossAgent internal constructor(
             return flow { emit(AgentEvent.Failed(IllegalStateException("Agent is shut down"))) }
         }
 
-        val round = UserRound(input, Channel(Channel.UNLIMITED))
+        val round = UserRound(UUID.randomUUID().toString(), input, Channel(Channel.UNLIMITED))
         pendingUserRounds.trySend(round)
 
         scope.launch { handlePending(false) }
@@ -188,7 +196,7 @@ public class BossAgent internal constructor(
             if (!postRound && state.value == BossState.RUNNING) return@withLock
 
             pendingUserRounds.tryReceive().getOrNull()?.let { userRound ->
-                currentRoundId = UUID.randomUUID().toString()
+                currentRound = userRound
                 state.value = BossState.RUNNING
                 scope.launch { runUserRound(userRound) }
                 return
