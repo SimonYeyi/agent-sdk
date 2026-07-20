@@ -41,20 +41,10 @@ internal class BeastAssembler(
                 is Selection.Skill -> {
                     val skill = skillRegistry?.all()?.firstOrNull { it.name == s.name }
                         ?: error("assembleHorse: skill not found: ${s.name}")
+                    if (!skill.standalone) error("assembleHorse: skill '${skill.name}' is not standalone")
                     val text = skill.load()
                     skillTexts += text
-                    toolRegistry?.all()?.forEach { tool ->
-                        val pattern = Regex("\\b" + Regex.escape(tool.name) + "\\b")
-                        if (pattern.containsMatchIn(text)) tools += tool
-                    }
-                    toolsetRegistry?.all()?.forEach { toolset ->
-                        val pattern = Regex("\\b" + Regex.escape(toolset.name) + "\\b")
-                        if (pattern.containsMatchIn(text)) tools += toolset.all()
-                    }
-                    skillRegistry.allTools().forEach { tool ->
-                        val pattern = Regex("\\b" + Regex.escape(tool.name) + "\\b")
-                        if (pattern.containsMatchIn(text)) tools += tool
-                    }
+                    tools += scanTextForTools(text)
                 }
 
                 is Selection.Toolset -> {
@@ -101,4 +91,38 @@ internal class BeastAssembler(
         maxIterations = maxIterations,
         maxRounds = maxRounds,
     )
+
+    /**
+     * 从 Skill.load() 返回的文本中扫描工具名,自动绑定 Skill 实际依赖的 Tool —
+     * Skill 只声明人话描述, 描述里提到了哪些工具就拉哪些, 不需要 Skill 自己持有工具列表.
+     *
+     * 池子来源: toolRegistry / toolsetRegistry / skillRegistry.allTools() 的顶层 name.
+     * 返回 = skill 所有需要使用的 Tool 列表, 同名 Tool 实例只保留首个 (flatMap 后
+     * distinctBy name 去重 — 与 toolRegistry.register 拒绝同名语义一致).
+     *
+     * 匹配规则: `\b<name>\b` 全词匹配 (防 "fetcher" 命中 "fetch").
+     *
+     * 例子 (tool 池): Skill.load() 返回 "用 fetch_url 抓页面, parse_json 提取字段",
+     * 扫描后会把 fetch_url / parse_json 对应的 Tool 实例拉进 Horse 的 tools 列表.
+     *
+     * 例子 (toolset 池): 池里有 Toolset("weather", ...) 持有 GetWeather / GetForecast,
+     * 文本里提到 "weather" → 整个 Toolset 展开 (GetWeather + GetForecast) 一起累入.
+     * 但文本提 "GetWeather" 这种子 Tool 名不会触发 — 池子第一层是 Toolset 名字, 不是子 Tool 名字.
+     */
+    internal fun scanTextForTools(text: String): List<Tool> {
+        val providers: List<Pair<String, () -> List<Tool>>> = buildList {
+            toolRegistry?.all()?.forEach { add(it.name to { listOf(it) }) }
+            toolsetRegistry?.all()?.forEach { add(it.name to { it.all() }) }
+            skillRegistry?.allTools()?.forEach { add(it.name to { listOf(it) }) }
+        }
+        if (providers.isEmpty()) return emptyList()
+
+        val pattern = Regex(
+            "\\b(?:" + providers.map { Regex.escape(it.first) }.joinToString("|") + ")\\b"
+        )
+        val matched = pattern.findAll(text).map { it.value }
+        return providers.filter { it.first in matched }
+            .flatMap { it.second() }
+            .distinctBy { it.name }
+    }
 }

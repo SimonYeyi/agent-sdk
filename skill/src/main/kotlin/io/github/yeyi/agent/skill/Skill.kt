@@ -5,7 +5,7 @@ import io.github.yeyi.agent.capability.Capability
 /**
  * A named, lazily-loaded documentation unit that the LLM can pull into context on demand.
  *
- * `Skill` is consumed by being adapted to a `Tool` via [CapabilityAdapter]; the LLM invokes the
+ * `Skill` is consumed by being adapted to a `Tool` via [io.github.yeyi.agent.capability.CapabilityAdapter]; the LLM invokes the
  * skill exactly like any other tool, and the tool's result is whatever [load] returns. The
  * body is loaded into the LLM context only when the model explicitly asks for the skill —
  * not on every turn.
@@ -38,6 +38,12 @@ import io.github.yeyi.agent.capability.Capability
  * is explicit and type-checked.
  */
 public interface Skill : Capability<Unit, SkillContext> {
+    /**
+     * Skill 是否自包含 —— true 仅依赖 tool/toolset 等工具调用,
+     * 不组合其他 skill / subagent / script 等外部能力
+     */
+    public val standalone: Boolean get() = true
+
     /** 加载技能指令文本。不再需要 context 参数。 */
     public suspend fun load(): String
 
