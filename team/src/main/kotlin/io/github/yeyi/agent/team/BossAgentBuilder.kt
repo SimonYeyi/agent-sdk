@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.team
 
+import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.LlmProvider
@@ -15,10 +16,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 
 public class BossAgentBuilder internal constructor() {
+    private var bossPersona0: Persona? = null
     private var memory0: Memory? = null
+    private var maxRounds0: Int = 20
     private var llmProvider0: LlmProvider? = null
     private var maxIterations0: Int = 20
-    private var maxRounds0: Int = 20
+    private var hook0: AgentHook? = null
 
     private var delegatedToolRegistry0: ToolRegistry? = null
     private var quickToolRegistry0: ToolRegistry? = null
@@ -26,14 +29,24 @@ public class BossAgentBuilder internal constructor() {
     private var skillRegistry0: SkillRegistry? = null
     private var subagentRegistry0: SubagentRegistry? = null
 
-    private var bossPersona0: Persona? = null
-
     private val baseRole: String = """
         You are the boss of a team. You can:
         1. Respond to chitchat directly.
         2. Handle simple questions using your tools.
         3. Delegate complex tasks to workers (beast) by calling publish_task — see the tool description for available capabilities and how to specify selections.
     """.trimIndent()
+
+    public fun persona(persona: Persona) {
+        require(persona.role.isBlank()) {
+            "Persona.role is reserved by the BossAgent framework — must be blank. " +
+                    "Use personality / domain / constraints / extra to customize agent persona."
+        }
+        bossPersona0 = persona
+    }
+
+    public fun hook(value: AgentHook) {
+        hook0 = value
+    }
 
     public fun memory(memory: Memory, maxRounds: Int) {
         memory0 = memory; maxRounds0 = maxRounds
@@ -79,14 +92,6 @@ public class BossAgentBuilder internal constructor() {
 
     public fun mcps(registry: McpRegistry) {
         @Suppress("UNUSED_PARAMETER") registry
-    }
-
-    public fun persona(persona: Persona) {
-        require(persona.role.isBlank()) {
-            "Persona.role is reserved by the BossAgent framework — must be blank. " +
-                    "Use personality / domain / constraints / extra to customize agent persona."
-        }
-        bossPersona0 = persona
     }
 
     public fun build(): BossAgent {
@@ -136,32 +141,36 @@ public class BossAgentBuilder internal constructor() {
             toolsetRegistry0?.let { reg ->
                 put(
                     Selection.Toolset.TYPE,
-                    reg.all().map { NamedCapability(it.name, it.description) })
+                    reg.all().map { NamedCapability(it.name, it.description) }
+                )
             }
             skillRegistry0?.let { reg ->
                 put(
                     Selection.Skill.TYPE,
-                    reg.all().map { NamedCapability(it.name, it.description) })
+                    reg.all().map { NamedCapability(it.name, it.description) }
+                )
             }
             subagentRegistry0?.let { reg ->
                 put(
                     Selection.Subagent.TYPE,
-                    reg.all().map { NamedCapability(it.name, it.description) })
+                    reg.all().map { NamedCapability(it.name, it.description) }
+                )
             }
         }
 
+        val persona = buildPersona()
         val publishTask = PublishTaskTool(bulletinBoard, capabilitiesByType)
         val cancelTask = CancelTaskTool(bulletinBoard)
-        val persona = buildPersona()
 
         val innerAgent = agent {
             persona(persona)
             llmProvider(llmProvider)
             memory(memory, maxRounds0)
+            maxIterations(maxIterations0)
+            hook0?.let { hook(it) }
             tool(publishTask)
             tool(cancelTask)
             quickToolRegistry0?.let { tools(it) }
-            maxIterations(maxIterations0)
         }
 
         return BossAgent(innerAgent, scope)
