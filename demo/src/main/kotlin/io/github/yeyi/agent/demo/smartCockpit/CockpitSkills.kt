@@ -56,6 +56,8 @@ class GoHomeSkill : Skill {
     override val name: String = "go_home"
     override val description: String = "用户说回家了、导航回家时触发"
 
+    override val standalone: Boolean get() = true
+
     override suspend fun load(): String = """
         # 回家模式
 

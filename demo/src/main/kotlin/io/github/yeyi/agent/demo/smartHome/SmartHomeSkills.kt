@@ -57,6 +57,8 @@ class ComeHomeSkill : Skill {
     override val name: String = "come_home"
     override val description: String = "用户说我回来了、到家了时触发"
 
+    override val standalone: Boolean = true
+
     override suspend fun load(): String = """
         # 回家场景
 
