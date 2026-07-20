@@ -56,7 +56,7 @@ class PublishTaskToolTest {
         }
 
         val result = tool.execute(args, ctx())
-        assertTrue(result.content.contains("Assigned 1 task(s)"))
+        assertTrue(result.content.contains("1 task(s) accepted"))
         assertTrue(result.content.contains("tool(echo)"))
     }
 
@@ -148,7 +148,7 @@ class PublishTaskToolTest {
         }
 
         val result = tool.execute(args, ctx())
-        assertTrue(result.content.contains("Assigned 2 task(s)"))
+        assertTrue(result.content.contains("2 task(s) accepted"))
     }
 
     @Test
