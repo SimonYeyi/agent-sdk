@@ -51,8 +51,8 @@ object SmartHomeAgent {
         return bossAgent {
             memory(InMemoryMemory())
             llmProvider(llmProvider)
-            maxIterations(20)
-            maxRounds(20)
+            maxIterations(40)
+            maxRounds(40)
             quickTools(quickToolRegistry)
             tools(toolRegistry)
             toolsets(toolsetRegistry)
