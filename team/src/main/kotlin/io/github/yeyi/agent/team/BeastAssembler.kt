@@ -44,7 +44,7 @@ internal class BeastAssembler(
                     if (!skill.standalone) error("assembleHorse: skill '${skill.name}' is not standalone")
                     val text = skill.load()
                     skillTexts += text
-                    tools += scanTextForTools(text)
+                    tools += extractTools(text)
                 }
 
                 is Selection.Toolset -> {
@@ -97,8 +97,6 @@ internal class BeastAssembler(
      * Skill 只声明人话描述, 描述里提到了哪些工具就拉哪些, 不需要 Skill 自己持有工具列表.
      *
      * 池子来源: toolRegistry / toolsetRegistry / skillRegistry.allTools() 的顶层 name.
-     * 返回 = skill 所有需要使用的 Tool 列表, 同名 Tool 实例只保留首个 (flatMap 后
-     * distinctBy name 去重 — 与 toolRegistry.register 拒绝同名语义一致).
      *
      * 匹配规则: `\b<name>\b` 全词匹配 (防 "fetcher" 命中 "fetch").
      *
@@ -108,8 +106,11 @@ internal class BeastAssembler(
      * 例子 (toolset 池): 池里有 Toolset("weather", ...) 持有 GetWeather / GetForecast,
      * 文本里提到 "weather" → 整个 Toolset 展开 (GetWeather + GetForecast) 一起累入.
      * 但文本提 "GetWeather" 这种子 Tool 名不会触发 — 池子第一层是 Toolset 名字, 不是子 Tool 名字.
+     *
+     * @return 返回 skill 需要使用的 Tool 列表, 同名 Tool 实例只保留首个
+     * (flatMap 后 distinctBy name 去重 — 与 toolRegistry.register 拒绝同名语义一致).
      */
-    internal fun scanTextForTools(text: String): List<Tool> {
+    internal fun extractTools(text: String): List<Tool> {
         val providers: List<Pair<String, () -> List<Tool>>> = buildList {
             toolRegistry?.all()?.forEach { add(it.name to { listOf(it) }) }
             toolsetRegistry?.all()?.forEach { add(it.name to { it.all() }) }

@@ -44,7 +44,7 @@ class BeastAssemblerTest {
         val reg = ToolRegistry().apply { register(fetchUrl) }
         val a = assembler(toolReg = reg)
 
-        val matched = a.scanTextForTools("call fetch_url to get data")
+        val matched = a.extractTools("call fetch_url to get data")
 
         assertEquals(listOf("fetch_url"), matched.map { it.name })
     }
@@ -55,7 +55,7 @@ class BeastAssemblerTest {
         val reg = ToolRegistry().apply { register(fetchUrl) }
         val a = assembler(toolReg = reg)
 
-        val matched = a.scanTextForTools("do something else entirely")
+        val matched = a.extractTools("do something else entirely")
 
         assertTrue(matched.isEmpty(), "expected no tools, got: ${matched.map { it.name }}")
     }
@@ -72,7 +72,7 @@ class BeastAssemblerTest {
         }
         val a = assembler(toolsetReg = reg)
 
-        val matched = a.scanTextForTools("call weather to get forecast")
+        val matched = a.extractTools("call weather to get forecast")
 
         assertEquals(
             setOf("get_weather", "get_forecast"),
@@ -94,7 +94,7 @@ class BeastAssemblerTest {
         }
         val a = assembler(toolsetReg = reg)
 
-        val matched = a.scanTextForTools("call get_weather directly")
+        val matched = a.extractTools("call get_weather directly")
 
         assertTrue(matched.isEmpty(), "sub-tool name 不应触发, got: ${matched.map { it.name }}")
     }
@@ -110,7 +110,7 @@ class BeastAssemblerTest {
         val skillReg = SkillRegistry().apply { registerTools(listOf(echoInSkillReg)) }
         val a = assembler(toolReg = toolReg, skillReg = skillReg)
 
-        val matched = a.scanTextForTools("use echo")
+        val matched = a.extractTools("use echo")
 
         assertEquals(1, matched.size, "flatMap 后同名 Tool 应去重, got: ${matched.map { it.name }}")
         assertEquals("echo", matched.single().name)
