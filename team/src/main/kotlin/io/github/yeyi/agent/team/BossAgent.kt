@@ -56,16 +56,16 @@ public data class TaskState(
  * @property id round ID
  * @property input 该 round 的用户输入
  * @property createdAt 任务组创建时间，用于 UI 排序
- * @property states 该 round 内所有任务的 [TaskState] 列表
+ * @property task 该 round 内所有任务的 [TaskState] 列表
  * @property terminal 是否所有任务都处于终态
  */
 public data class TaskGroupState(
     public val id: String,
     public val input: String,
     public val createdAt: Long,
-    public val states: List<TaskState>
+    public val task: List<TaskState>
 ) {
-    public val terminal: Boolean get() = states.all { it.terminal }
+    public val terminal: Boolean get() = task.all { it.terminal }
 }
 
 // ===== BossAgent =====

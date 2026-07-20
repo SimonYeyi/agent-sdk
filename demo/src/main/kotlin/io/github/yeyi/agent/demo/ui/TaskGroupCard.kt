@@ -86,7 +86,7 @@ fun TaskGroupCard(
 
             // Task list - show task text once, then events
             Column(modifier = Modifier.padding(top = 8.dp)) {
-                for (taskState in groupState.states) {
+                for (taskState in groupState.task) {
                     Text(
                         text = taskState.task,
                         style = MaterialTheme.typography.labelMedium,
