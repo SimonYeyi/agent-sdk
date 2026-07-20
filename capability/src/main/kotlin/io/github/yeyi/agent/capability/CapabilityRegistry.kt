@@ -11,7 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
  */
 public interface CapabilityRegistry<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any> {
     /** 注册中心名称，用于日志和错误信息。 */
-    public val capabilityName: String
+    public val capabilityType: String
 
     /** 注册单个 capability，名称重复时抛 [IllegalArgumentException]。 */
     public fun register(capability: C)
@@ -30,12 +30,12 @@ public interface CapabilityRegistry<Ctx : CapabilityContext, C : Capability<T, C
 }
 
 public class DefaultCapabilityRegistry<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
-    override val capabilityName: String
+    override val capabilityType: String
 ) : CapabilityRegistry<Ctx, C, T> {
     private val capabilities: MutableMap<String, C> = ConcurrentHashMap()
 
     override fun register(capability: C) {
-        require(!capabilities.containsKey(capability.name)) { "$capabilityName with name '${capability.name}' is already registered" }
+        require(!capabilities.containsKey(capability.name)) { "$capabilityType with name '${capability.name}' is already registered" }
         capabilities[capability.name] = capability
     }
 
@@ -43,7 +43,7 @@ public class DefaultCapabilityRegistry<Ctx : CapabilityContext, C : Capability<T
 
     override fun get(name: String): C {
         return capabilities[name]
-            ?: throw NoSuchElementException("$capabilityName with name '$name' not found")
+            ?: throw NoSuchElementException("$capabilityType with name '$name' not found")
     }
 
     override fun all(): List<C> = capabilities.values.toList()

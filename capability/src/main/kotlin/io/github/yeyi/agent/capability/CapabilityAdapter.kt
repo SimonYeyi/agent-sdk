@@ -55,7 +55,7 @@ private class OneToOneAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>, T
         registry.all()
             .map { cap ->
                 CapabilityAdaptTool(
-                    registry.capabilityName,
+                    registry.capabilityType,
                     cap,
                     capabilityContextFactory,
                     arguments

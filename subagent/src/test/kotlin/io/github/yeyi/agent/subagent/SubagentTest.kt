@@ -100,8 +100,8 @@ class SubagentTest {
     @Test
     fun `registry capabilityName is Subagent NAME`() {
         val r = SubagentRegistry()
-        assertEquals(Subagent.CAPABILITY_TYPE, r.capabilityName)
-        assertEquals("subagent", r.capabilityName)
+        assertEquals(Subagent.CAPABILITY_TYPE, r.capabilityType)
+        assertEquals("subagent", r.capabilityType)
     }
 
     @Test

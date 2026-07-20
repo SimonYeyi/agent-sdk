@@ -4,7 +4,6 @@ import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
-import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.memory.InMemoryMemory
@@ -60,8 +59,8 @@ class ToolsetRegistryTest {
     @Test
     fun `capabilityName is toolset`() {
         val r = ToolsetRegistry()
-        assertEquals("toolset", r.capabilityName)
-        assertEquals(Toolset.CAPABILITY_TYPE, r.capabilityName)
+        assertEquals("toolset", r.capabilityType)
+        assertEquals(Toolset.CAPABILITY_TYPE, r.capabilityType)
     }
 
     @Test

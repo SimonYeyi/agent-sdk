@@ -13,42 +13,39 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 
 /**
- * Delegate-mode Tool: one shared Tool for all capabilities in [registry].
+ * Delegate-mode Tool: exposes all capabilities in [registry] through one shared Tool.
  *
- * Schema is `${capabilityName}_name` (the routing field) merged with the
- * Adapter-supplied [arguments] (the per-category call shape).
- * If [arguments] is null (capabilities in this category take no
- * arguments, e.g. a skill-style load), the schema is just the routing field.
- * The LLM-provided `arguments` JSON is forwarded in full to
- * [Capability.activate] so the matched capability can parse what it expects.
+ * The schema always contains `name` for routing to a registered capability. When
+ * [arguments] is present, the schema also contains a nested `arguments` object matching
+ * the capability category's call shape. The selected capability's arguments are decoded
+ * with [CapabilityArguments.serializer] before being passed to [Capability.activate].
  */
 internal class CapabilityLoadTool<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
     private val registry: CapabilityRegistry<Ctx, C, T>,
     private val capabilityContextFactory: CapabilityContextFactory<Ctx>,
     private val arguments: CapabilityArguments<T>?
 ) : Tool {
-    private val capabilityName = registry.capabilityName
-    private val capabilityNameKey = "${capabilityName}_name"
+    private val capabilityType = registry.capabilityType
 
-    override val name: String = "load_$capabilityName"
+    override val name: String = "load_$capabilityType"
 
     override val description: String by lazy {
         """
-        |当以下 $capabilityName 适用于本次任务时，调用本工具以激活使用：
+        |当以下 $capabilityType 适用于本次任务时，调用本工具以激活使用：
         |${registry.all().joinToString("\n") { "- ${it.name}：${it.description}" }}
-        |如果本次任务需要多个 $capabilityName 并行处理，可以生成多个工具调用。
+        |如果本次任务需要多个 $capabilityType 并行处理，可以生成多个工具调用。
     """.trimMargin()
     }
 
     override val parametersSchema: ToolParameters by lazy {
         val properties = buildJsonObject {
-            put(capabilityNameKey, buildJsonObject { put("type", "string") })
+            put("name", buildJsonObject { put("type", "string") })
             if (arguments != null) {
                 put("arguments", Json.parseToJsonElement(arguments.schema))
             }
         }
         val required = buildJsonArray {
-            add(JsonPrimitive(capabilityNameKey))
+            add(JsonPrimitive("name"))
             if (arguments != null) add(JsonPrimitive("arguments"))
         }
         ToolParameters.JsonSchema(
@@ -64,9 +61,9 @@ internal class CapabilityLoadTool<Ctx : CapabilityContext, C : Capability<T, Ctx
         arguments: JsonElement,
         context: ToolContext
     ): ToolExecutionResult {
-        val capabilityName = arguments.jsonObject[capabilityNameKey]
+        val capabilityName = arguments.jsonObject["name"]
             ?.let { (it as? JsonPrimitive)?.content }
-            ?: return ToolExecutionResult.error("Missing $capabilityNameKey")
+            ?: return ToolExecutionResult.error("Missing 'name'")
 
         return registry.all().find { it.name == capabilityName }
             ?.let { capability ->
@@ -79,6 +76,6 @@ internal class CapabilityLoadTool<Ctx : CapabilityContext, C : Capability<T, Ctx
                 }
                 ToolExecutionResult(capability.activate(input, capabilityContext))
             }
-            ?: ToolExecutionResult.error("${this.capabilityName} not found: $capabilityName")
+            ?: ToolExecutionResult.error("${this.capabilityType} not found: $capabilityName")
     }
 }
