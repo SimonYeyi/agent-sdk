@@ -258,11 +258,11 @@ class CapabilityAdapterTest {
         val parsed = parseSchema(schema)
         assertEquals("object", parsed["type"]?.toString()?.trim('"'))
         val properties = parsed["properties"] as JsonObject
-        assertNotNull(properties["cat_name"], "routing field cat_name should be in properties")
+        assertNotNull(properties["name"], "routing field name should be in properties")
         assertNotNull(properties["arguments"], "nested arguments should be in properties")
         val required = parsed["required"] as kotlinx.serialization.json.JsonArray
         val requiredKeys = required.map { it.toString().trim('"') }.toSet()
-        assertTrue(requiredKeys.contains("cat_name"))
+        assertTrue(requiredKeys.contains("name"))
         assertTrue(requiredKeys.contains("arguments"))
     }
 
@@ -275,7 +275,7 @@ class CapabilityAdapterTest {
         val schema = assertIs<ToolParameters.JsonSchema>(tool.parametersSchema)
         val parsed = parseSchema(schema)
         val properties = parsed["properties"] as JsonObject
-        assertNotNull(properties["cat_name"])
+        assertNotNull(properties["name"])
         assertNull(properties["arguments"], "no arguments field when no arguments supplied")
         val required = parsed["required"] as kotlinx.serialization.json.JsonArray
         assertEquals(1, required.size, "only the routing key should be required")
@@ -295,7 +295,7 @@ class CapabilityAdapterTest {
 
         val result = tool.execute(
             arguments = buildJsonObject {
-                put("cat_name", "beta")
+                put("name", "beta")
                 put("arguments", buildJsonObject { put("message", "hi") })
             },
             context = stubToolContext(),
@@ -319,7 +319,7 @@ class CapabilityAdapterTest {
         val tool = tools.single()
 
         val result = tool.execute(
-            arguments = buildJsonObject { put("cat_name", "alpha") },
+            arguments = buildJsonObject { put("name", "alpha") },
             context = stubToolContext(),
         )
 
@@ -342,7 +342,7 @@ class CapabilityAdapterTest {
         )
 
         assertEquals(true, result.isError)
-        assertTrue(result.content.contains("cat_name"))
+        assertTrue(result.content.contains("name"))
     }
 
     @Test
@@ -355,7 +355,7 @@ class CapabilityAdapterTest {
 
         val result = tool.execute(
             arguments = buildJsonObject {
-                put("cat_name", "ghost")
+                put("name", "ghost")
                 put("arguments", buildJsonObject { put("message", "x") })
             },
             context = stubToolContext(),
