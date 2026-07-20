@@ -35,10 +35,17 @@ public class BossAgentBuilder internal constructor() {
         3. Delegate complex tasks to workers (beast) by calling publish_task — see the tool description for available capabilities and how to specify selections.
     """.trimIndent()
 
-    public fun memory(value: Memory) { memory0 = value }
-    public fun llmProvider(value: LlmProvider) { llmProvider0 = value }
-    public fun maxIterations(value: Int) { maxIterations0 = value }
-    public fun maxRounds(value: Int) { maxRounds0 = value }
+    public fun memory(memory: Memory, maxRounds: Int) {
+        memory0 = memory; maxRounds0 = maxRounds
+    }
+
+    public fun llmProvider(value: LlmProvider) {
+        llmProvider0 = value
+    }
+
+    public fun maxIterations(value: Int) {
+        maxIterations0 = value
+    }
 
     /**
      * 注册 tool 池 — boss 通过 [Selection.Tool] 选用, pasture 解析注入 Horse.
@@ -58,9 +65,17 @@ public class BossAgentBuilder internal constructor() {
         quickToolRegistry0 = registry
     }
 
-    public fun toolsets(registry: ToolsetRegistry) { toolsetRegistry0 = registry }
-    public fun skills(registry: SkillRegistry) { skillRegistry0 = registry }
-    public fun subagents(registry: SubagentRegistry) { subagentRegistry0 = registry }
+    public fun toolsets(registry: ToolsetRegistry) {
+        toolsetRegistry0 = registry
+    }
+
+    public fun skills(registry: SkillRegistry) {
+        skillRegistry0 = registry
+    }
+
+    public fun subagents(registry: SubagentRegistry) {
+        subagentRegistry0 = registry
+    }
 
     public fun mcps(registry: McpRegistry) {
         @Suppress("UNUSED_PARAMETER") registry
@@ -69,7 +84,7 @@ public class BossAgentBuilder internal constructor() {
     public fun persona(persona: Persona) {
         require(persona.role.isBlank()) {
             "Persona.role is reserved by the BossAgent framework — must be blank. " +
-                "Use personality / domain / constraints / extra to customize agent persona."
+                    "Use personality / domain / constraints / extra to customize agent persona."
         }
         bossPersona0 = persona
     }
@@ -119,13 +134,19 @@ public class BossAgentBuilder internal constructor() {
                 put(Selection.Tool.TYPE, reg.all().map { NamedCapability(it.name, it.description) })
             }
             toolsetRegistry0?.let { reg ->
-                put(Selection.Toolset.TYPE, reg.all().map { NamedCapability(it.name, it.description) })
+                put(
+                    Selection.Toolset.TYPE,
+                    reg.all().map { NamedCapability(it.name, it.description) })
             }
             skillRegistry0?.let { reg ->
-                put(Selection.Skill.TYPE, reg.all().map { NamedCapability(it.name, it.description) })
+                put(
+                    Selection.Skill.TYPE,
+                    reg.all().map { NamedCapability(it.name, it.description) })
             }
             subagentRegistry0?.let { reg ->
-                put(Selection.Subagent.TYPE, reg.all().map { NamedCapability(it.name, it.description) })
+                put(
+                    Selection.Subagent.TYPE,
+                    reg.all().map { NamedCapability(it.name, it.description) })
             }
         }
 

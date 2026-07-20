@@ -27,7 +27,7 @@ class BossAgentBuilderTest {
                     )
                 )
             )
-            memory(InMemoryMemory())
+            memory(InMemoryMemory(), 20)
             maxIterations(1)
         }
 
