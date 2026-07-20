@@ -9,10 +9,14 @@ import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.ToolDefinition
 import io.github.yeyi.agent.llm.ChatRequest
+import io.github.yeyi.agent.skill.SkillRegistry
+import io.github.yeyi.agent.subagent.SubagentRegistry
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
+import io.github.yeyi.agent.tool.ToolRegistry
+import io.github.yeyi.agent.toolset.ToolsetRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
@@ -52,6 +56,26 @@ class BeastTest {
         ox.run("do it") { events.add(it) }
 
         assertTrue(events.any { it is AgentEvent.Final }, "expected Final, got: $events")
+    }
+
+    @Test
+    fun `Ox repeated run does not mutate shared tool registry`() = runTest {
+        val fake = FakeLlmProvider(nonStreamResponses = List(2) { FINAL_RESPONSE })
+        val toolRegistry = ToolRegistry().apply { register(EchoTool) }
+        val ox = Ox(
+            llmProvider = fake,
+            persona = Persona("test"),
+            toolRegistry = toolRegistry,
+            skillRegistry = SkillRegistry(),
+            subagentRegistry = SubagentRegistry(),
+            toolsetRegistry = ToolsetRegistry(),
+            maxIterations = 1,
+            maxRounds = 5,
+        )
+
+        repeat(2) { ox.run("do it") { } }
+
+        assertEquals(listOf("echo"), toolRegistry.all().map { it.name })
     }
 
     @Test

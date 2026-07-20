@@ -33,10 +33,10 @@ internal class Ox internal constructor(
             persona(this@Ox.persona)
             llmProvider(llmProvider)
             memory(InMemoryMemory(), maxRounds)
-            toolRegistry?.let { tools(it) }
+            toolRegistry?.let { tools(it.all()) }
+            toolsetRegistry?.let { toolsets(it) }
             skillRegistry?.let { skills(it) }
             subagentRegistry?.let { subagents(true, it) }
-            toolsetRegistry?.let { toolsets(it) }
             maxIterations(maxIterations)
         }
         inner.run(task).collect { onEvent(it) }
