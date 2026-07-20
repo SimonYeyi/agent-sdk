@@ -71,8 +71,8 @@ class ToolsetTest {
     // ---------- Factory & constants ----------
 
     @Test
-    fun `CAPABILITY_NAME is toolset`() {
-        assertEquals("toolset", Toolset.CAPABILITY_NAME)
+    fun `CAPABILITY_TYPE is toolset`() {
+        assertEquals("toolset", Toolset.CAPABILITY_TYPE)
     }
 
     @Test

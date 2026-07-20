@@ -92,7 +92,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
 
         val memory = memory ?: InMemoryMemory()
         val resolvedTools = tools
-            ?: context.agentContext.tools.filter { !it.name.contains(CAPABILITY_NAME) }
+            ?: context.agentContext.tools.filter { !it.name.contains(CAPABILITY_TYPE) }
         val instructions = load(context)
 
         val sub = agent {
@@ -108,7 +108,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
     }
 
     public companion object {
-        public const val CAPABILITY_NAME: String = "subagent"
+        public const val CAPABILITY_TYPE: String = "subagent"
     }
 }
 ```

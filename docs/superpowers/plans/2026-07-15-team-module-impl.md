@@ -146,7 +146,7 @@ git commit -m "feat(toolset): Toolset.all() 新增 — 返回所有子 Tool 快�
 ```kotlin
 public class SkillRegistry :
     ToolDispatcher, CapabilityRegistry<SkillContext, Skill, Unit> by DefaultCapabilityRegistry(
-    capabilityName = Skill.CAPABILITY_NAME
+    capabilityName = Skill.CAPABILITY_TYPE
 ) {
     private val tools: MutableMap<String, Tool> = mutableMapOf()
 
@@ -304,7 +304,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
     public suspend fun run(subagentTask: SubagentTask, context: SubagentContext): String {
         val memory = memory ?: InMemoryMemory()
         val resolvedTools = (tools ?: context.agentContext.tools)
-            .filter { !it.name.contains(CAPABILITY_NAME) }
+            .filter { !it.name.contains(CAPABILITY_TYPE) }
         val instruction = load()  // 不再传 context
 
         val sub = agent {

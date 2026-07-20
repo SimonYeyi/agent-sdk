@@ -36,7 +36,7 @@ class SkillRegistryTest {
     @Test
     fun `registry capabilityName is skill`() {
         val r = SkillRegistry()
-        assertEquals(Skill.CAPABILITY_NAME, r.capabilityName)
+        assertEquals(Skill.CAPABILITY_TYPE, r.capabilityName)
         assertEquals("skill", r.capabilityName)
     }
 

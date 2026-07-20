@@ -51,6 +51,6 @@ public interface Skill : Capability<Unit, SkillContext> {
         load()
 
     public companion object {
-        public const val CAPABILITY_NAME: String = "skill"
+        public const val CAPABILITY_TYPE: String = "skill"
     }
 }

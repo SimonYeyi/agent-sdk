@@ -47,7 +47,7 @@ class SkillTest {
     }
 
     @Test
-    fun `Skill has CAPABILITY_NAME constant`() {
-        assertEquals("skill", Skill.CAPABILITY_NAME)
+    fun `Skill has CAPABILITY_TYPE constant`() {
+        assertEquals("skill", Skill.CAPABILITY_TYPE)
     }
 }

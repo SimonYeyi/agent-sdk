@@ -100,7 +100,7 @@ class SubagentTest {
     @Test
     fun `registry capabilityName is Subagent NAME`() {
         val r = SubagentRegistry()
-        assertEquals(Subagent.CAPABILITY_NAME, r.capabilityName)
+        assertEquals(Subagent.CAPABILITY_TYPE, r.capabilityName)
         assertEquals("subagent", r.capabilityName)
     }
 
@@ -237,8 +237,8 @@ class SubagentTest {
         sub.activate(SubagentTask("x"), ctx)
         val visible = llm.chatRequests.single().tools.map { it.name }.toSet()
         assertTrue(visible.contains("keep_me"))
-        assertFalse(visible.contains("subagent_dispatch"), "must filter by Subagent.CAPABILITY_NAME containment")
-        assertFalse(visible.contains("load_subagent"), "must filter by Subagent.CAPABILITY_NAME containment")
+        assertFalse(visible.contains("subagent_dispatch"), "must filter by Subagent.CAPABILITY_TYPE containment")
+        assertFalse(visible.contains("load_subagent"), "must filter by Subagent.CAPABILITY_TYPE containment")
     }
 
     @Test

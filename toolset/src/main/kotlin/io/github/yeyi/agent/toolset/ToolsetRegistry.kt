@@ -24,5 +24,5 @@ import io.github.yeyi.agent.capability.DefaultCapabilityRegistry
  */
 public class ToolsetRegistry :
     CapabilityRegistry<ToolsetContext, Toolset, Unit> by DefaultCapabilityRegistry(
-        Toolset.CAPABILITY_NAME
+        Toolset.CAPABILITY_TYPE
     )

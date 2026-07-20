@@ -41,7 +41,7 @@ public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
 
     public companion object {
         /** 能力框架中的路由类别名，生成工具名 `load_toolset`、路由字段 `toolset_name`。 */
-        public const val CAPABILITY_NAME: String = "toolset"
+        public const val CAPABILITY_TYPE: String = "toolset"
     }
 }
 

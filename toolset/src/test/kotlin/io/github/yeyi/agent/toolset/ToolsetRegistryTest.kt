@@ -61,7 +61,7 @@ class ToolsetRegistryTest {
     fun `capabilityName is toolset`() {
         val r = ToolsetRegistry()
         assertEquals("toolset", r.capabilityName)
-        assertEquals(Toolset.CAPABILITY_NAME, r.capabilityName)
+        assertEquals(Toolset.CAPABILITY_TYPE, r.capabilityName)
     }
 
     @Test

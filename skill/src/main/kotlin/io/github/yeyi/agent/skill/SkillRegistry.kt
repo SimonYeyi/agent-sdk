@@ -14,7 +14,7 @@ import kotlinx.serialization.json.JsonElement
  */
 public class SkillRegistry :
     ToolDispatcher, CapabilityRegistry<SkillContext, Skill, Unit> by DefaultCapabilityRegistry(
-    capabilityName = Skill.CAPABILITY_NAME
+    capabilityName = Skill.CAPABILITY_TYPE
 ) {
     private val tools: MutableMap<String, Tool> = mutableMapOf()
 
