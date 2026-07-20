@@ -35,7 +35,7 @@ internal class Ox internal constructor(
             memory(InMemoryMemory(), maxRounds)
             toolRegistry?.let { tools(it) }
             skillRegistry?.let { skills(it) }
-            subagentRegistry?.let { subagents(it) }
+            subagentRegistry?.let { subagents(true, it) }
             toolsetRegistry?.let { toolsets(it) }
             maxIterations(maxIterations)
         }

@@ -42,7 +42,7 @@ public interface Skill : Capability<Unit, SkillContext> {
      * Skill 是否自包含 —— true 仅依赖 tool/toolset 等工具调用,
      * 不组合其他 skill / subagent / script 等外部能力
      */
-    public val standalone: Boolean get() = true
+    public val standalone: Boolean get() = false
 
     /** 加载技能指令文本。不再需要 context 参数。 */
     public suspend fun load(): String

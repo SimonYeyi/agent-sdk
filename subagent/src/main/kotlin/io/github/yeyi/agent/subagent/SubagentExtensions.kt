@@ -22,4 +22,4 @@ public fun AgentBuilder.subagents(
     ).installOn(this)
 }
 
-internal val log = LoggingTagged("hook")
+internal val log = LoggingTagged("subagent")
