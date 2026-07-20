@@ -57,17 +57,15 @@ internal class Pasture(
         bulletinBoard = bb
         val subscribed = CompletableDeferred<Unit>()
         scope.launch {
-            bulletinBoard.events
-                .onSubscription { subscribed.complete(Unit) }
-                .collect { event ->
-                    when (event) {
-                        is TaskAssignments -> handleTaskAssignments(event)
-                        is Cancellation -> handleCancellation(event)
-                        // 其他事件 (TaskUpdate 等) Pasture 不关心, 显式 no-op
-                        // 让编译器在 BulletinEvent 加新类型时强制更新此 when.
-                        else -> Unit
-                    }
+            bulletinBoard.events.onSubscription { subscribed.complete(Unit) }.collect { event ->
+                when (event) {
+                    is TaskAssignments -> handleTaskAssignments(event)
+                    is Cancellation -> handleCancellation(event)
+                    // 其他事件 (TaskUpdate 等) Pasture 不关心, 显式 no-op
+                    // 让编译器在 BulletinEvent 加新类型时强制更新此 when.
+                    else -> Unit
                 }
+            }
         }
         subscribed.await()
     }
@@ -166,17 +164,9 @@ internal class Pasture(
                 var failed: AgentEvent.Failed? = null
                 beast.run(userInput) { event ->
                     when (event) {
-                        is AgentEvent.Final -> {
-                            dagLock.withLock { dag[taskId]?.result = event }
-                        }
-
-                        is AgentEvent.Failed -> {
-                            failed = event
-                        }
-
-                        else -> {
-                            bulletinBoard.progressEvent(TaskUpdate(taskId, event))
-                        }
+                        is AgentEvent.Final -> dagLock.withLock { dag[taskId]?.result = event }
+                        is AgentEvent.Failed -> failed = event
+                        else -> bulletinBoard.progressEvent(TaskUpdate(taskId, event))
                     }
                 }
                 handleTerminal(taskId, failed?.cause)
