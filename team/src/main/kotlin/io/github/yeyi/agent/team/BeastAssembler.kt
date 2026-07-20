@@ -118,9 +118,8 @@ internal class BeastAssembler(
         }
         if (providers.isEmpty()) return emptyList()
 
-        val pattern = Regex(
-            "\\b(?:" + providers.map { Regex.escape(it.first) }.joinToString("|") + ")\\b"
-        )
+        val names = providers.joinToString(separator = "\\b|\\b") { Regex.escape(it.first) }
+        val pattern = Regex("\\b$names\\b")
         val matched = pattern.findAll(text).map { it.value }
         return providers.filter { it.first in matched }
             .flatMap { it.second() }
