@@ -14,9 +14,9 @@ kotlin {
 dependencies {
     api(project(":agent"))
     api(project(":capability"))
+    api(project(":toolset"))
     api(project(":skill"))
     api(project(":subagent"))
-    api(project(":toolset"))
     api(project(":mcp"))
 
     implementation(libs.kotlinx.serialization.json)
