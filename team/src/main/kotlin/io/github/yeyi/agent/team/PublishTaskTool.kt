@@ -134,7 +134,7 @@ internal class PublishTaskTool(
             }
             "- ${task.taskId} → $selStr"
         }
-        return ToolExecutionResult("Published ${resolved.size} task(s):\n${summary.joinToString("\n")}")
+        return ToolExecutionResult("${resolved.size} task(s) accepted; dispatching asynchronously:\n${summary.joinToString("\n")}")
     }
 
     private fun JsonObject.str(field: String): String? =
