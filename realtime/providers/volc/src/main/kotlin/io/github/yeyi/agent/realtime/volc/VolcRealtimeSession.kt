@@ -19,8 +19,12 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.util.UUID
+import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 class VolcRealtimeSession(
@@ -31,31 +35,83 @@ class VolcRealtimeSession(
     private val wsRef = AtomicReference<WebSocketSession?>(null)
     private val writeLock = Mutex()
     private var readJob: Job? = null
+    private val eventSeq = AtomicInteger(0)
 
     override val events: Flow<RealtimeEvent> get() = emitter.asSharedFlow()
 
     override suspend fun connect(config: SessionConfig) {
         val session = client.webSocketSession(
             urlString = config.endpoint,
-            block = { header("Authorization", "Bearer; ${config.apiKey}") },
+            block = { header("X-Api-Key", config.apiKey) },
         )
         wsRef.set(session)
         sendSessionCreate(config)
+        waitForSessionCreated(session)
         readJob = CoroutineScope(Dispatchers.Default).launch { readLoop(session) }
     }
 
     private suspend fun sendSessionCreate(config: SessionConfig) {
-        val payload = buildJsonObject {
-            put("type", "session.create")
-            put("model", config.model)
-            put("instructions", config.instructions)
-            put("voice", config.voice)
-            put("input_format", "pcm_s16le")
-            put("output_format", "pcm_s16le")
+        val sessionId = UUID.randomUUID().toString()
+        sendRawFrame("session.create") {
+            put("session", buildJsonObject {
+                put("id", sessionId)
+                put("model", config.model)
+                put("instructions", config.instructions)
+                put("audio", buildJsonObject {
+                    put("input", buildJsonObject {
+                        put("format", buildJsonObject {
+                            put("type", "pcm_s16le")
+                            put("rate", 16000)
+                        })
+                    })
+                    put("output", buildJsonObject {
+                        put("format", buildJsonObject {
+                            put("type", "pcm_s16le")
+                            put("rate", 24000)
+                        })
+                        put("voice", config.voice)
+                    })
+                })
+                put("tools", buildJsonArray { })
+            })
+            put("extension", buildJsonObject {
+                put("asr", buildJsonObject { put("extra", buildJsonObject { }) })
+                put("tts", buildJsonObject { put("extra", buildJsonObject { }) })
+                put("dialog", buildJsonObject {
+                    put("location", buildJsonObject { })
+                    put("extra", buildJsonObject {
+                        put(
+                            "audit_response",
+                            "抱歉，这个问题我无法回答，你可以换个其他话题，我会尽力为你提供帮助。",
+                        )
+                        put("enable_loudness_norm", true)
+                        put("enable_music", false)
+                    })
+                })
+            })
         }
-        writeLock.withLock {
-            wsRef.get()?.send(Frame.Text(payload.toString()))
+    }
+
+    private suspend fun waitForSessionCreated(session: WebSocketSession) {
+        for (frame in session.incoming) {
+            if (frame !is Frame.Text) continue
+            val text = frame.readText()
+            val events = VolcStreamDecoder.decode(text)
+            for (evt in events) {
+                when (evt) {
+                    is RealtimeEvent.Connected -> {
+                        emitter.emit(evt)
+                        return
+                    }
+                    is RealtimeEvent.Error -> {
+                        emitter.emit(evt)
+                        if (evt.isFatal) return
+                    }
+                    else -> emitter.emit(evt)
+                }
+            }
         }
+        emitter.emit(RealtimeEvent.Disconnected(null))
     }
 
     private suspend fun readLoop(session: WebSocketSession) {
@@ -70,24 +126,21 @@ class VolcRealtimeSession(
 
     override suspend fun sendAudio(pcm: ByteArray) {
         val encoded = java.util.Base64.getEncoder().encodeToString(pcm)
-        val payload = buildJsonObject {
-            put("type", "input_audio_buffer.append")
+        sendRawFrame("input_audio_buffer.append") {
             put("delta", encoded)
         }
-        sendRawFrame(payload.toString())
     }
 
     override suspend fun commitInput() {
-        sendRawFrame("""{"type":"input_audio_buffer.commit"}""")
+        sendRawFrame("input_audio_buffer.commit") { }
     }
 
     override suspend fun cancelResponse() {
-        sendRawFrame("""{"type":"response.cancel"}""")
+        sendRawFrame("response.cancel") { }
     }
 
     override suspend fun injectAndRespond(text: String) {
-        sendRawFrame(buildJsonObject {
-            put("type", "conversation.item.create")
+        sendRawFrame("conversation.item.create") {
             put("item", buildJsonObject {
                 put("type", "message")
                 put("role", "assistant")
@@ -96,19 +149,26 @@ class VolcRealtimeSession(
                     put("text", text)
                 })
             })
-        }.toString())
-        sendRawFrame("""{"type":"response.create"}""")
-    }
-
-    private suspend fun sendRawFrame(text: String) {
-        writeLock.withLock {
-            wsRef.get()?.send(Frame.Text(text))
         }
+        sendRawFrame("response.create") { }
     }
 
     override fun close() {
         readJob?.cancel()
         wsRef.get()?.cancel()
         wsRef.set(null)
+    }
+
+    private fun nextEventId(): String = "event_${eventSeq.incrementAndGet()}"
+
+    private suspend fun sendRawFrame(type: String, body: JsonObjectBuilder.() -> Unit) {
+        val payload = buildJsonObject {
+            put("type", type)
+            put("event_id", nextEventId())
+            body()
+        }
+        writeLock.withLock {
+            wsRef.get()?.send(Frame.Text(payload.toString()))
+        }
     }
 }
