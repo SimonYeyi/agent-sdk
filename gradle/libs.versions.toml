@@ -10,6 +10,7 @@ compose-bom = "2025.04.00"
 compose-compiler = "1.5.15"
 activity-compose = "1.10.1"
 lifecycle = "2.9.0"
+androidx-annotation = "1.9.1"
 junit = "4.13.2"
 kotlin-test = "2.2.0"
 shadow = "8.3.11"
@@ -38,6 +39,7 @@ compose-foundation = { module = "androidx.compose.foundation:foundation" }
 activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activity-compose" }
 lifecycle-viewmodel-compose = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
 lifecycle-runtime-compose = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-annotation = { module = "androidx.annotation:annotation", version.ref = "androidx-annotation" }
 
 junit = { module = "junit:junit", version.ref = "junit" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin-test" }
