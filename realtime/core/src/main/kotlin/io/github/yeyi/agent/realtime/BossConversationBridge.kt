@@ -37,14 +37,14 @@ class BossConversationBridge internal constructor(
         session.close()
     }
 
-    private fun handleEvent(event: RealtimeEvent) {
+    private suspend fun handleEvent(event: RealtimeEvent) {
         when (event) {
             is RealtimeEvent.UserTranscriptCompleted ->
                 gate.onUserTranscriptCompleted(event.text)
             is RealtimeEvent.AssistantTextDelta ->
-                scope.launch { gate.onTextDelta(event.text) }
+                gate.onTextDelta(event.text)
             is RealtimeEvent.AssistantAudioDelta ->
-                scope.launch { gate.onAudioDelta(event.pcm) }
+                gate.onAudioDelta(event.pcm)
             is RealtimeEvent.AssistantAudioDone,
             is RealtimeEvent.ResponseDone ->
                 gate.onTurnEnd()

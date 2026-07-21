@@ -24,6 +24,7 @@ import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 class BossConversationBridgeTest {
 
@@ -113,6 +114,43 @@ class BossConversationBridgeTest {
         assertEquals(1, speaker.played.size)
         assertEquals(0, session.cancelledCount)
         assertEquals(0, session.injectCount)
+
+        bridge.close()
+        boss.shutdown()
+        scope.cancel()
+    }
+
+    @Test
+    fun `delegate path cancels S2S and runs Boss`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = CoroutineScope(dispatcher + SupervisorJob())
+        val session = FakeSession()
+        val mic = FakeMicrophone()
+        val speaker = FakeSpeaker()
+        val boss = stubBoss()
+
+        val bridge = BossConversationBridge(
+            session = session,
+            mic = mic,
+            speaker = speaker,
+            boss = boss,
+            config = BridgeConfig(),
+            scope = scope,
+        )
+
+        bridge.start()
+        // Let the collector register before emitting; otherwise the test
+        // SharedFlow (replay=0) drops events sent before subscription.
+        advanceUntilIdle()
+
+        session.eventsEmitter.emit(RealtimeEvent.UserTranscriptCompleted("帮我把客厅灯调暗到 30%"))
+        session.eventsEmitter.emit(RealtimeEvent.AssistantTextDelta("<|DELEGATE_TO_BOSS|>"))
+        session.eventsEmitter.emit(RealtimeEvent.ResponseDone("r1", ResponseStatus.CANCELED))
+
+        advanceUntilIdle()
+
+        assertTrue(session.cancelledCount >= 1)
+        // Boss 完成后应 injectAndRespond（Task 9 校验）
 
         bridge.close()
         boss.shutdown()
