@@ -6,8 +6,10 @@ import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
 import io.github.yeyi.agent.team.BossAgent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 class BossConversationBridge(
     private val session: RealtimeSession,
@@ -71,7 +73,12 @@ class BossConversationBridge(
             }
         }
 
-        s2sResponseDone.receive()
+        try {
+            withTimeout(config.audioGateResetTimeoutMs) { s2sResponseDone.receive() }
+        } catch (_: TimeoutCancellationException) {
+            session.injectAndRespond("抱歉, 这边网络有点延迟, 稍后再试一次。")
+            return
+        }
 
         val text = bossResultText?.let { "Boss 任务完成, 结果: $it" }
             ?: bossFailed?.let { "抱歉, 任务执行失败: ${it.message ?: "未知错误"}" }
