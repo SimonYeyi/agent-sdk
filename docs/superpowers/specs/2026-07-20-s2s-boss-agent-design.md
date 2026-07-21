@@ -222,7 +222,6 @@ public sealed interface RealtimeEvent {
     public data class AssistantAudioDone(val itemId: String) : RealtimeEvent
 
     // Response 边界
-    public data class ResponseStarted(val responseId: String) : RealtimeEvent
     public data class ResponseDone(val responseId: String, val status: ResponseStatus) : RealtimeEvent
 
     // 连接状态
@@ -250,7 +249,6 @@ public enum class ResponseStatus { COMPLETED, CANCELED, FAILED, INCOMPLETE }
 | `AssistantAudioStarted`      | `response.output_audio.started`                               |
 | `AssistantAudioDelta`        | `response.output_audio.delta`（base64 → ByteArray）            |
 | `AssistantAudioDone`         | `response.output_audio.done`                                  |
-| `ResponseStarted`            | `response.created`                                            |
 | `ResponseDone`               | `response.done`                                               |
 | `Disconnected`               | WS close 帧 / `error` 致命事件                                 |
 | `Error`                      | `error` 事件（非致命）                                         |

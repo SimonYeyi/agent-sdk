@@ -323,7 +323,6 @@ sealed interface RealtimeEvent {
     data class AssistantAudioDelta(val itemId: String, val pcm: ByteArray) : RealtimeEvent
     data class AssistantAudioDone(val itemId: String) : RealtimeEvent
 
-    data class ResponseStarted(val responseId: String) : RealtimeEvent
     data class ResponseDone(val responseId: String, val status: ResponseStatus) : RealtimeEvent
 
     data class Connected(val sessionId: String) : RealtimeEvent
