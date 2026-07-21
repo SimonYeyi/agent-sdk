@@ -3,6 +3,7 @@ package io.github.yeyi.agent.realtime.volc
 import io.github.yeyi.agent.realtime.RealtimeEvent
 import io.github.yeyi.agent.realtime.RealtimeSession
 import io.github.yeyi.agent.realtime.SessionConfig
+import io.github.yeyi.agent.realtime.audio.AudioFormat
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.webSocketSession
 import io.ktor.client.request.header
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
@@ -64,16 +66,10 @@ class VolcRealtimeSession(
                 put("instructions", config.instructions)
                 put("audio", buildJsonObject {
                     put("input", buildJsonObject {
-                        put("format", buildJsonObject {
-                            put("type", "pcm_s16le")
-                            put("rate", 16000)
-                        })
+                        put("format", config.inputFormat.toVolcFormat())
                     })
                     put("output", buildJsonObject {
-                        put("format", buildJsonObject {
-                            put("type", "pcm_s16le")
-                            put("rate", 24000)
-                        })
+                        put("format", config.outputFormat.toVolcFormat())
                         put("voice", config.voice)
                     })
                 })
@@ -95,6 +91,16 @@ class VolcRealtimeSession(
                 })
             })
         }
+    }
+
+    private fun AudioFormat.toVolcFormat(): JsonObject = buildJsonObject {
+        val type = if (encoding == AudioFormat.Encoding.PCM_SIGNED_LE && sampleBits == 16) {
+            "pcm_s16le"
+        } else {
+            "pcm"
+        }
+        put("type", type)
+        put("rate", sampleRateHz)
     }
 
     private suspend fun waitForSessionCreated(session: WebSocketSession) {
