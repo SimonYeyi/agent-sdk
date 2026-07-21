@@ -1,7 +1,6 @@
 package io.github.yeyi.agent.realtime.audio.android
 
 import android.Manifest
-import android.annotation.SuppressLint
 import android.media.AudioFormat as AndroidAudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -9,14 +8,18 @@ import androidx.annotation.RequiresPermission
 import io.github.yeyi.agent.realtime.audio.AudioFormat
 import io.github.yeyi.agent.realtime.audio.MicrophoneAdapter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-@SuppressLint("MissingPermission")
 class AndroidMicrophoneAdapter(
     private val sampleRateHz: Int = 16_000,
 ) : MicrophoneAdapter {
@@ -28,47 +31,62 @@ class AndroidMicrophoneAdapter(
         encoding = AudioFormat.Encoding.PCM_SIGNED_LE,
     )
 
-    @Volatile private var recording: AudioRecord? = null
+    private val mutex = Mutex()
+    private var record: AudioRecord? = null
+    private var captureJob: Job? = null
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
+    override suspend fun start() {
+        mutex.withLock {
+            if (record != null) return
+            val minBuffer = AudioRecord.getMinBufferSize(
+                sampleRateHz,
+                AndroidAudioFormat.CHANNEL_IN_MONO,
+                AndroidAudioFormat.ENCODING_PCM_16BIT,
+            )
+            record = AudioRecord(
+                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                sampleRateHz,
+                AndroidAudioFormat.CHANNEL_IN_MONO,
+                AndroidAudioFormat.ENCODING_PCM_16BIT,
+                minBuffer * 4,
+            ).also { it.startRecording() }
+        }
+    }
+
     override fun capture(): Flow<ByteArray> = callbackFlow {
-        val minBuffer = AudioRecord.getMinBufferSize(
-            sampleRateHz,
-            AndroidAudioFormat.CHANNEL_IN_MONO,
-            AndroidAudioFormat.ENCODING_PCM_16BIT,
+        val rec: AudioRecord
+        mutex.withLock {
+            rec = record ?: error("MicrophoneAdapter not started; call start() first")
+            captureJob = currentCoroutineContext()[Job]
+        }
+        val buffer = ByteArray(
+            AudioRecord.getMinBufferSize(
+                sampleRateHz,
+                AndroidAudioFormat.CHANNEL_IN_MONO,
+                AndroidAudioFormat.ENCODING_PCM_16BIT,
+            )
         )
-        val record = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            sampleRateHz,
-            AndroidAudioFormat.CHANNEL_IN_MONO,
-            AndroidAudioFormat.ENCODING_PCM_16BIT,
-            minBuffer * 2,
-        )
-        recording = record
-        record.startRecording()
-        val buffer = ByteArray(minBuffer)
         try {
             while (isActive) {
-                val read = withContext(Dispatchers.IO) { record.read(buffer, 0, buffer.size) }
-                if (read > 0) {
-                    trySend(buffer.copyOf(read))
+                val read = withContext(Dispatchers.IO) { rec.read(buffer, 0, buffer.size) }
+                when {
+                    read > 0 -> trySend(buffer.copyOf(read))
+                    read < 0 -> break
                 }
             }
         } finally {
-            record.stop()
-            record.release()
-            recording = null
+            // record lifecycle owned by start()/close()
         }
-        awaitClose { }
+        awaitClose { /* nothing to clean; close() handles release */ }
     }.flowOn(Dispatchers.IO)
 
-    override suspend fun start() { /* capture() 启动时即开始录音 */ }
-
     override suspend fun close() {
-        recording?.let {
-            it.stop()
-            it.release()
+        mutex.withLock {
+            captureJob?.cancelAndJoin()
+            captureJob = null
+            record?.release()
+            record = null
         }
-        recording = null
     }
 }
