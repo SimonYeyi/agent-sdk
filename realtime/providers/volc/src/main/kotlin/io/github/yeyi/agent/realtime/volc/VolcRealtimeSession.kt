@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.JsonObjectBuilder
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -127,7 +128,7 @@ class VolcRealtimeSession(
     override suspend fun sendAudio(pcm: ByteArray) {
         val encoded = java.util.Base64.getEncoder().encodeToString(pcm)
         sendRawFrame("input_audio_buffer.append") {
-            put("delta", encoded)
+            put("audio", encoded)
         }
     }
 
@@ -141,12 +142,16 @@ class VolcRealtimeSession(
 
     override suspend fun injectAndRespond(text: String) {
         sendRawFrame("conversation.item.create") {
-            put("item", buildJsonObject {
-                put("type", "message")
-                put("role", "assistant")
-                put("content", buildJsonObject {
-                    put("type", "text")
-                    put("text", text)
+            put("items", buildJsonArray {
+                add(buildJsonObject {
+                    put("type", "message")
+                    put("role", "user")
+                    put("content", buildJsonArray {
+                        add(buildJsonObject {
+                            put("type", "input_text")
+                            put("text", text)
+                        })
+                    })
                 })
             })
         }
