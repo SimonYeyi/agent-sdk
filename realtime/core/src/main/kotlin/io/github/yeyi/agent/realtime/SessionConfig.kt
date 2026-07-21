@@ -18,11 +18,13 @@ data class SessionConfig(
     val inputFormat: AudioFormat,
     val outputFormat: AudioFormat,
     val tools: List<ToolDefinition> = emptyList(),
-    val turnDetection: TurnDetection = TurnDetection.Silence(),
+    val turnDetection: TurnDetection = TurnDetection.ServerVad(),
 )
 
 sealed interface TurnDetection {
-    data class Silence(val thresholdMs: Int = 600) : TurnDetection
-    data class ServerVad(val threshold: Float = 0.5f) : TurnDetection
+    /** 服务端 VAD 判定说话结束; endSmoothWindowMs 为静音判定窗口(毫秒)。 */
+    data class ServerVad(val endSmoothWindowMs: Int = 1500) : TurnDetection
+
+    /** 屏蔽服务端 VAD, 由调用方 commitInput() 告知说话结束。 */
     data object Manual : TurnDetection
 }

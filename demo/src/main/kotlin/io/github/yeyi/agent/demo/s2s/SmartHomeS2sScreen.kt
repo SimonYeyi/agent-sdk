@@ -68,7 +68,7 @@ fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Mod
                             endpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
                             model = "1.2.6.0",
                             instructions = buildInstructions(),
-                            voice = "zh_female_xiaohe_jupiter_bigtts",
+                            voice = "saturn_zh_female_wumeiyujie_tob",
                             inputFormat = mic.inputFormat,
                             outputFormat = speaker.outputFormat,
                         )

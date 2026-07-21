@@ -3,6 +3,7 @@ package io.github.yeyi.agent.realtime.volc
 import io.github.yeyi.agent.realtime.RealtimeEvent
 import io.github.yeyi.agent.realtime.RealtimeSession
 import io.github.yeyi.agent.realtime.SessionConfig
+import io.github.yeyi.agent.realtime.TurnDetection
 import io.github.yeyi.agent.realtime.audio.AudioFormat
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.websocket.webSocketSession
@@ -74,13 +75,22 @@ class VolcRealtimeSession(
             ),
             tools = emptyList(),
         )
+        val asrExtra = buildJsonObject {
+            (config.turnDetection as? TurnDetection.ServerVad)?.endSmoothWindowMs?.let {
+                put("enable_custom_vad", true)
+                put("end_smooth_window_ms", it)
+            }
+        }
         val dialogExtra = buildJsonObject {
             put("audit_response", "抱歉，这个问题我无法回答，你可以换个其他话题，我会尽力为你提供帮助。")
             put("enable_loudness_norm", true)
             put("enable_music", false)
+            if (config.turnDetection is TurnDetection.Manual) {
+                put("input_mod", "push_to_talk")
+            }
         }
         val extensionConfig = VolcExtensionConfig(
-            asr = VolcExtensionSide(extra = buildJsonObject { }),
+            asr = VolcExtensionSide(extra = asrExtra),
             tts = VolcExtensionSide(extra = buildJsonObject { }),
             dialog = VolcExtensionDialog(
                 location = buildJsonObject { },
