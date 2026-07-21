@@ -172,12 +172,6 @@ public interface SpeakerAdapter : AutoCloseable {
 ```kotlin
 package io.github.yeyi.agent.realtime
 
-public data class ToolDefinition(
-    val name: String,
-    val description: String,
-    val parameters: kotlinx.serialization.json.JsonElement,
-)
-
 public data class SessionConfig(
     val apiKey: String,
     val endpoint: String,                    // 例："wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue"
@@ -186,8 +180,8 @@ public data class SessionConfig(
     val voice: String,                       // TTS 音色
     val inputFormat: AudioFormat,
     val outputFormat: AudioFormat,
-    val tools: List<ToolDefinition> = emptyList(),  // 标记协议下基本 empty，保留扩展
-    val turnDetection: TurnDetection = TurnDetection.Silence(),
+    val tools: List<io.github.yeyi.agent.tool.Tool> = emptyList(),  // :agent 的 Tool 接口; 各 provider 内部转 FC schema
+    val turnDetection: TurnDetection = TurnDetection.ServerVad(),
 )
 
 public sealed interface TurnDetection {

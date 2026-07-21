@@ -296,12 +296,11 @@ data class SessionConfig(
     val inputFormat: AudioFormat,
     val outputFormat: AudioFormat,
     val tools: List<ToolDefinition> = emptyList(),
-    val turnDetection: TurnDetection = TurnDetection.Silence(),
+    val turnDetection: TurnDetection = TurnDetection.ServerVad(),
 )
 
 sealed interface TurnDetection {
-    data class Silence(val thresholdMs: Int = 600) : TurnDetection
-    data class ServerVad(val threshold: Float = 0.5f) : TurnDetection
+    data class ServerVad(val endSmoothWindowMs: Int = 1500) : TurnDetection
     data object Manual : TurnDetection
 }
 ```

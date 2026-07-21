@@ -3,6 +3,7 @@ package io.github.yeyi.agent.realtime.volc
 import io.github.yeyi.agent.realtime.RealtimeEvent
 import io.github.yeyi.agent.realtime.RealtimeSession
 import io.github.yeyi.agent.realtime.SessionConfig
+import io.github.yeyi.agent.realtime.Tool
 import io.github.yeyi.agent.realtime.TurnDetection
 import io.github.yeyi.agent.realtime.audio.AudioFormat
 import io.ktor.client.HttpClient
@@ -11,6 +12,7 @@ import io.ktor.client.request.header
 import io.ktor.websocket.Frame
 import io.ktor.websocket.WebSocketSession
 import io.ktor.websocket.readText
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -24,6 +26,8 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -44,6 +48,7 @@ class VolcRealtimeSession(
     private var readJob: Job? = null
     private var readScope: CoroutineScope? = null
     private val eventSeq = AtomicInteger(0)
+    private val toolsByName: MutableMap<String, Tool> = mutableMapOf()
 
     override val events: Flow<RealtimeEvent> get() = emitter.asSharedFlow()
 
@@ -53,6 +58,8 @@ class VolcRealtimeSession(
             block = { header("X-Api-Key", config.apiKey) },
         )
         wsRef.set(session)
+        toolsByName.clear()
+        config.tools.forEach { toolsByName[it.name] = it }
         sendSessionCreate(config)
         waitForSessionCreated(session)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -73,16 +80,26 @@ class VolcRealtimeSession(
                     voice = config.voice,
                 ),
             ),
-            tools = emptyList(),
+            tools = config.tools.map { tool ->
+                buildJsonObject {
+                    put("type", "function")
+                    put("name", tool.name)
+                    put("description", tool.description)
+                    put("parameters", tool.parametersSchema)
+                }
+            },
         )
         val asrExtra = buildJsonObject {
-            (config.turnDetection as? TurnDetection.ServerVad)?.endSmoothWindowMs?.let {
+            (config.turnDetection as? TurnDetection.ServerVad)?.thresholdMs?.let {
                 put("enable_custom_vad", true)
                 put("end_smooth_window_ms", it)
             }
         }
         val dialogExtra = buildJsonObject {
-            put("audit_response", "抱歉，这个问题我无法回答，你可以换个其他话题，我会尽力为你提供帮助。")
+            put(
+                "audit_response",
+                "抱歉，这个问题我无法回答，你可以换个其他话题，我会尽力为你提供帮助。"
+            )
             put("enable_loudness_norm", true)
             put("enable_music", false)
             if (config.turnDetection is TurnDetection.Manual) {
@@ -99,7 +116,10 @@ class VolcRealtimeSession(
         )
         sendRawFrame("session.create") {
             put("session", json.encodeToJsonElement(VolcSessionConfig.serializer(), sessionConfig))
-            put("extension", json.encodeToJsonElement(VolcExtensionConfig.serializer(), extensionConfig))
+            put(
+                "extension",
+                json.encodeToJsonElement(VolcExtensionConfig.serializer(), extensionConfig)
+            )
         }
     }
 
@@ -138,12 +158,65 @@ class VolcRealtimeSession(
 
     private suspend fun readLoop(session: WebSocketSession) {
         for (frame in session.incoming) {
-            if (frame is Frame.Text) {
-                val text = frame.readText()
-                VolcStreamDecoder.decode(text).forEach { emitter.emit(it) }
-            }
+            if (frame !is Frame.Text) continue
+            val text = frame.readText()
+            if (tryHandleToolCall(text)) continue
+            VolcStreamDecoder.decode(text).forEach { emitter.emit(it) }
         }
         emitter.emit(RealtimeEvent.Disconnected(null))
+    }
+
+    /**
+     * 拦截 response.function_call_arguments.done 帧 — 找本地 tool 执行, 然后通过
+     * conversation.item.create 回传结果. 返回 true 表示该帧已被 FC 路径消费.
+     */
+    private suspend fun tryHandleToolCall(text: String): Boolean {
+        val evt = try {
+            json.decodeFromString(VolcEvent.serializer(), text)
+        } catch (_: Throwable) {
+            return false
+        }
+        if (evt.type != "response.function_call_arguments.done") return false
+        val call = evt.functionCall
+        val callId = call?.callId ?: "function_call.call_id is missing"
+        val arguments: JsonElement = call?.arguments
+            ?.takeIf { it.isNotBlank() }
+            ?.let { json.parseToJsonElement(it) }
+            ?: JsonObject(emptyMap())
+        val output = try {
+            if (call?.name == null) error("function_call.name missing")
+            val tool = toolsByName[call.name] ?: error("tool not registered: ${call.name}")
+            tool.execute(arguments)
+        } catch (t: CancellationException) {
+            throw t
+        } catch (t: Throwable) {
+            "工具调用失败: $call : ${t.message ?: t.toString()}"
+        }
+        sendToolResult(callId, output)
+        return true
+    }
+
+    private suspend fun sendToolResult(callId: String, output: String) {
+        val item = VolcConversationItem(
+            type = "message",
+            role = "tool",
+            callId = callId,
+            content = buildJsonArray {
+                add(buildJsonObject {
+                    put("type", "input_text")
+                    put("text", output)
+                })
+            },
+        )
+        sendRawFrame("conversation.item.create") {
+            put(
+                "items",
+                json.encodeToJsonElement(
+                    ListSerializer(VolcConversationItem.serializer()),
+                    listOf(item)
+                ),
+            )
+        }
     }
 
     override suspend fun sendAudio(pcm: ByteArray) {
@@ -175,7 +248,10 @@ class VolcRealtimeSession(
         sendRawFrame("conversation.item.create") {
             put(
                 "items",
-                json.encodeToJsonElement(ListSerializer(VolcConversationItem.serializer()), listOf(item)),
+                json.encodeToJsonElement(
+                    ListSerializer(VolcConversationItem.serializer()),
+                    listOf(item)
+                ),
             )
         }
         sendRawFrame("response.create") { }
