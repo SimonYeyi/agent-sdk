@@ -12,6 +12,7 @@ import io.ktor.websocket.readText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -36,6 +37,7 @@ class VolcRealtimeSession(
     private val wsRef = AtomicReference<WebSocketSession?>(null)
     private val writeLock = Mutex()
     private var readJob: Job? = null
+    private var readScope: CoroutineScope? = null
     private val eventSeq = AtomicInteger(0)
 
     override val events: Flow<RealtimeEvent> get() = emitter.asSharedFlow()
@@ -48,7 +50,9 @@ class VolcRealtimeSession(
         wsRef.set(session)
         sendSessionCreate(config)
         waitForSessionCreated(session)
-        readJob = CoroutineScope(Dispatchers.Default).launch { readLoop(session) }
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        readScope = scope
+        readJob = scope.launch { readLoop(session) }
     }
 
     private suspend fun sendSessionCreate(config: SessionConfig) {
@@ -160,6 +164,8 @@ class VolcRealtimeSession(
 
     override fun close() {
         readJob?.cancel()
+        readScope?.cancel()
+        readScope = null
         wsRef.get()?.cancel()
         wsRef.set(null)
     }
