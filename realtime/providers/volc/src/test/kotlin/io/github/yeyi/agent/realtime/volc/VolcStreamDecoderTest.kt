@@ -56,7 +56,7 @@ class VolcStreamDecoderTest {
 
     @Test
     fun `session created maps to Connected with session id`() {
-        val events = VolcStreamDecoder.decode("""{"type":"session.created","session_id":"s1"}""")
+        val events = VolcStreamDecoder.decode("""{"type":"session.created","session":{"id":"s1"}}""")
         assertEquals(1, events.size)
         assertEquals(RealtimeEvent.Connected("s1"), events[0])
     }

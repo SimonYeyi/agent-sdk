@@ -41,7 +41,7 @@ internal object VolcStreamDecoder {
                 } ?: emptyList()
 
             "session.created" ->
-                evt.sessionId?.let { listOf(RealtimeEvent.Connected(it)) } ?: emptyList()
+                evt.session?.id?.let { listOf(RealtimeEvent.Connected(it)) } ?: emptyList()
 
             "error" -> listOf(
                 RealtimeEvent.Error(
