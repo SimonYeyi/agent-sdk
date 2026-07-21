@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.realtime
 
 sealed interface RealtimeEvent {
+    data class UserTranscriptStarted(val itemId: String) : RealtimeEvent
     data class UserTranscriptDelta(val text: String) : RealtimeEvent
     data class UserTranscriptCompleted(val text: String) : RealtimeEvent
 
