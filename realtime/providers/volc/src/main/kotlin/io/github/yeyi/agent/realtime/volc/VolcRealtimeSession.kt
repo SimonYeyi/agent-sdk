@@ -21,13 +21,13 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
-import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
@@ -61,49 +61,46 @@ class VolcRealtimeSession(
 
     private suspend fun sendSessionCreate(config: SessionConfig) {
         val sessionId = UUID.randomUUID().toString()
+        val sessionConfig = VolcSessionConfig(
+            id = sessionId,
+            model = config.model,
+            instructions = config.instructions,
+            audio = VolcAudioConfig(
+                input = VolcAudioSideConfig(format = config.inputFormat.toVolcFormatConfig()),
+                output = VolcAudioSideConfig(
+                    format = config.outputFormat.toVolcFormatConfig(),
+                    voice = config.voice,
+                ),
+            ),
+            tools = emptyList(),
+        )
+        val dialogExtra = buildJsonObject {
+            put("audit_response", "抱歉，这个问题我无法回答，你可以换个其他话题，我会尽力为你提供帮助。")
+            put("enable_loudness_norm", true)
+            put("enable_music", false)
+        }
+        val extensionConfig = VolcExtensionConfig(
+            asr = VolcExtensionSide(extra = buildJsonObject { }),
+            tts = VolcExtensionSide(extra = buildJsonObject { }),
+            dialog = VolcExtensionDialog(
+                location = buildJsonObject { },
+                extra = dialogExtra,
+            ),
+        )
         sendRawFrame("session.create") {
-            put("session", buildJsonObject {
-                put("id", sessionId)
-                put("model", config.model)
-                put("instructions", config.instructions)
-                put("audio", buildJsonObject {
-                    put("input", buildJsonObject {
-                        put("format", config.inputFormat.toVolcFormat())
-                    })
-                    put("output", buildJsonObject {
-                        put("format", config.outputFormat.toVolcFormat())
-                        put("voice", config.voice)
-                    })
-                })
-                put("tools", buildJsonArray { })
-            })
-            put("extension", buildJsonObject {
-                put("asr", buildJsonObject { put("extra", buildJsonObject { }) })
-                put("tts", buildJsonObject { put("extra", buildJsonObject { }) })
-                put("dialog", buildJsonObject {
-                    put("location", buildJsonObject { })
-                    put("extra", buildJsonObject {
-                        put(
-                            "audit_response",
-                            "抱歉，这个问题我无法回答，你可以换个其他话题，我会尽力为你提供帮助。",
-                        )
-                        put("enable_loudness_norm", true)
-                        put("enable_music", false)
-                    })
-                })
-            })
+            put("session", json.encodeToJsonElement(VolcSessionConfig.serializer(), sessionConfig))
+            put("extension", json.encodeToJsonElement(VolcExtensionConfig.serializer(), extensionConfig))
         }
     }
 
-    private fun AudioFormat.toVolcFormat(): JsonObject = buildJsonObject {
-        val type = if (encoding == AudioFormat.Encoding.PCM_SIGNED_LE && sampleBits == 16) {
+    private fun AudioFormat.toVolcFormatConfig(): VolcFormatConfig = VolcFormatConfig(
+        type = if (encoding == AudioFormat.Encoding.PCM_SIGNED_LE && sampleBits == 16) {
             "pcm_s16le"
         } else {
             "pcm"
-        }
-        put("type", type)
-        put("rate", sampleRateHz)
-    }
+        },
+        rate = sampleRateHz,
+    )
 
     private suspend fun waitForSessionCreated(session: WebSocketSession) {
         for (frame in session.incoming) {
@@ -116,10 +113,12 @@ class VolcRealtimeSession(
                         emitter.emit(evt)
                         return
                     }
+
                     is RealtimeEvent.Error -> {
                         emitter.emit(evt)
                         if (evt.isFatal) return
                     }
+
                     else -> emitter.emit(evt)
                 }
             }
@@ -138,7 +137,7 @@ class VolcRealtimeSession(
     }
 
     override suspend fun sendAudio(pcm: ByteArray) {
-        val encoded = java.util.Base64.getEncoder().encodeToString(pcm)
+        val encoded = Base64.getEncoder().encodeToString(pcm)
         sendRawFrame("input_audio_buffer.append") {
             put("audio", encoded)
         }
@@ -153,19 +152,21 @@ class VolcRealtimeSession(
     }
 
     override suspend fun injectAndRespond(text: String) {
-        sendRawFrame("conversation.item.create") {
-            put("items", buildJsonArray {
+        val item = VolcConversationItem(
+            type = "message",
+            role = "user",
+            content = buildJsonArray {
                 add(buildJsonObject {
-                    put("type", "message")
-                    put("role", "user")
-                    put("content", buildJsonArray {
-                        add(buildJsonObject {
-                            put("type", "input_text")
-                            put("text", text)
-                        })
-                    })
+                    put("type", "input_text")
+                    put("text", text)
                 })
-            })
+            },
+        )
+        sendRawFrame("conversation.item.create") {
+            put(
+                "items",
+                json.encodeToJsonElement(ListSerializer(VolcConversationItem.serializer()), listOf(item)),
+            )
         }
         sendRawFrame("response.create") { }
     }
@@ -173,11 +174,17 @@ class VolcRealtimeSession(
     /**
      * session.update — 更新会话参数 (不重建连接)。session.id 若为 null，服务端会保留原会话 id。
      */
-    internal suspend fun sessionUpdate(session: VolcSessionConfig, extension: VolcExtensionConfig? = null) {
+    internal suspend fun sessionUpdate(
+        session: VolcSessionConfig,
+        extension: VolcExtensionConfig? = null
+    ) {
         sendRawFrame("session.update") {
             put("session", json.encodeToJsonElement(VolcSessionConfig.serializer(), session))
             if (extension != null) {
-                put("extension", json.encodeToJsonElement(VolcExtensionConfig.serializer(), extension))
+                put(
+                    "extension",
+                    json.encodeToJsonElement(VolcExtensionConfig.serializer(), extension)
+                )
             }
         }
     }
@@ -222,40 +229,48 @@ class VolcRealtimeSession(
     /** conversation.item.create — 注入多条历史 item. */
     internal suspend fun conversationItemCreate(items: List<VolcConversationItem>) {
         sendRawFrame("conversation.item.create") {
-            put("items", json.encodeToJsonElement(
-                kotlinx.serialization.builtins.ListSerializer(VolcConversationItem.serializer()),
-                items,
-            ))
+            put(
+                "items", json.encodeToJsonElement(
+                    ListSerializer(VolcConversationItem.serializer()),
+                    items,
+                )
+            )
         }
     }
 
     /** conversation.item.update — 更新已存在 item. */
     internal suspend fun conversationItemUpdate(items: List<VolcConversationItem>) {
         sendRawFrame("conversation.item.update") {
-            put("items", json.encodeToJsonElement(
-                kotlinx.serialization.builtins.ListSerializer(VolcConversationItem.serializer()),
-                items,
-            ))
+            put(
+                "items", json.encodeToJsonElement(
+                    ListSerializer(VolcConversationItem.serializer()),
+                    items,
+                )
+            )
         }
     }
 
     /** conversation.item.retrieve — 拉取 item (空 items 表示拉取全部). */
     internal suspend fun conversationItemRetrieve(items: List<VolcConversationItem> = emptyList()) {
         sendRawFrame("conversation.item.retrieve") {
-            put("items", json.encodeToJsonElement(
-                kotlinx.serialization.builtins.ListSerializer(VolcConversationItem.serializer()),
-                items,
-            ))
+            put(
+                "items", json.encodeToJsonElement(
+                    ListSerializer(VolcConversationItem.serializer()),
+                    items,
+                )
+            )
         }
     }
 
     /** conversation.item.delete — 删除 item. */
     internal suspend fun conversationItemDelete(items: List<VolcConversationItem>) {
         sendRawFrame("conversation.item.delete") {
-            put("items", json.encodeToJsonElement(
-                kotlinx.serialization.builtins.ListSerializer(VolcConversationItem.serializer()),
-                items,
-            ))
+            put(
+                "items", json.encodeToJsonElement(
+                    ListSerializer(VolcConversationItem.serializer()),
+                    items,
+                )
+            )
         }
     }
 
