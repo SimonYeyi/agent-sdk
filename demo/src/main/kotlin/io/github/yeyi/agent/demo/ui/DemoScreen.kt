@@ -55,96 +55,110 @@ fun DemoScreen(
     scenarioName: String,
     currentScenario: String,
     onScenarioSwitch: () -> Unit,
+    voiceMode: Boolean = false,
+    onVoiceToggle: () -> Unit = {},
+    s2sContent: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var isDrawerOpen by remember { mutableStateOf(false) }
     val focusManager = LocalFocusManager.current
 
     Box(modifier = modifier.fillMaxSize()) {
-        // Full screen chat interface
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp)
-        ) {
-            // Top bar with scenario name
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
+        if (voiceMode && s2sContent != null) {
+            s2sContent()
+        } else {
+            // Full screen chat interface
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(16.dp)
             ) {
-                Text(
-                    text = scenarioName,
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable { onScenarioSwitch() }
-                )
-                Text(
-                    text = "→ 滑动查看任务",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(end = 8.dp)
-                )
-            }
+                // Top bar with scenario name
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = scenarioName,
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onScenarioSwitch() }
+                    )
+                    Text(
+                        text = "🎙",
+                        style = MaterialTheme.typography.titleLarge,
+                        modifier = Modifier
+                            .clickable { onVoiceToggle() }
+                            .padding(end = 8.dp)
+                    )
+                    Text(
+                        text = "→ 滑动查看任务",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                }
 
             // Chat messages
-            val listState = rememberLazyListState()
-            LaunchedEffect(messages.size) {
-                if (messages.isNotEmpty()) {
-                    listState.animateScrollToItem(messages.size - 1)
-                }
-            }
-
-            Card(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth(),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                )
-            ) {
-                LazyColumn(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(12.dp),
-                    state = listState
-                ) {
-                    items(messages) { message ->
-                        ChatBubble(message = message)
+                val listState = rememberLazyListState()
+                LaunchedEffect(messages.size) {
+                    if (messages.isNotEmpty()) {
+                        listState.animateScrollToItem(messages.size - 1)
                     }
                 }
-            }
 
-            // Input area
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedTextField(
-                    value = inputText,
-                    onValueChange = onInputChange,
-                    modifier = Modifier.weight(1f),
-                    placeholder = { Text("输入指令...") },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = {
-                        focusManager.clearFocus()
-                        onSend()
-                    }),
-                    singleLine = true,
-                    shape = RoundedCornerShape(24.dp)
-                )
-                Button(
-                    onClick = {
-                        focusManager.clearFocus()
-                        onSend()
-                    },
-                    modifier = Modifier.padding(start = 8.dp)
+                Card(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                    )
                 ) {
-                    Text("发送")
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(12.dp),
+                        state = listState
+                    ) {
+                        items(messages) { message ->
+                            ChatBubble(message = message)
+                        }
+                    }
+                }
+
+                // Input area
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = inputText,
+                        onValueChange = onInputChange,
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("输入指令...") },
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = {
+                            focusManager.clearFocus()
+                            onSend()
+                        }),
+                        singleLine = true,
+                        shape = RoundedCornerShape(24.dp)
+                    )
+                    Button(
+                        onClick = {
+                            focusManager.clearFocus()
+                            onSend()
+                        },
+                        modifier = Modifier.padding(start = 8.dp)
+                    ) {
+                        Text("发送")
+                    }
                 }
             }
         }

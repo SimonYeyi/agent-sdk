@@ -8,8 +8,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
+import io.github.yeyi.agent.demo.s2s.SmartHomeS2sScreen
+import io.github.yeyi.agent.demo.smartHome.SmartHomeAgent
 import io.github.yeyi.agent.demo.ui.DemoScreen
 import io.github.yeyi.agent.demo.vm.DemoViewModel
 import io.github.yeyi.agent.demo.vm.Scenario
@@ -37,6 +42,9 @@ class MainActivity : ComponentActivity() {
                     val inputText by viewModel.inputText.collectAsState()
                     val currentScenario by viewModel.currentScenario.collectAsState()
 
+                    var voiceMode by remember { mutableStateOf(false) }
+                    val smartHomeBoss = remember { SmartHomeAgent.create(llmProvider) }
+
                     DemoScreen(
                         taskGroups = taskGroups,
                         messages = messages,
@@ -48,7 +56,17 @@ class MainActivity : ComponentActivity() {
                             Scenario.SMART_COCKPIT -> "智能座舱"
                         },
                         currentScenario = currentScenario.name,
-                        onScenarioSwitch = viewModel::switchScenario
+                        onScenarioSwitch = viewModel::switchScenario,
+                        voiceMode = voiceMode,
+                        onVoiceToggle = { voiceMode = !voiceMode },
+                        s2sContent = if (voiceMode) {
+                            {
+                                SmartHomeS2sScreen(
+                                    apiKey = BuildConfig.VOLC_API_KEY,
+                                    boss = smartHomeBoss,
+                                )
+                            }
+                        } else null,
                     )
                 }
             }

@@ -9,7 +9,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 
-class BossConversationBridge internal constructor(
+class BossConversationBridge(
     private val session: RealtimeSession,
     private val mic: MicrophoneAdapter,
     private val speaker: SpeakerAdapter,

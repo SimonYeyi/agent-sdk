@@ -27,6 +27,7 @@ android {
         buildConfigField("String", "MODEL_BASE_URL", "\"${raw("MODEL_BASE_URL")}\"")
         buildConfigField("String", "MODEL_API_KEY", "\"${raw("MODEL_API_KEY")}\"")
         buildConfigField("String", "MODEL_NAME", "\"${raw("MODEL_NAME")}\"")
+        buildConfigField("String", "VOLC_API_KEY", "\"${raw("VOLC_API_KEY")}\"")
     }
 
     buildTypes {
@@ -59,6 +60,9 @@ dependencies {
     implementation(project(":subagent"))
     implementation(project(":providers:openai"))
     implementation(project(":providers:anthropic"))
+    implementation(project(":realtime:core"))
+    implementation(project(":realtime:audio:android"))
+    implementation(project(":realtime:providers:volc"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -72,6 +76,8 @@ dependencies {
     implementation(libs.lifecycle.runtime.compose)
 
     implementation(libs.ktor.client.logging)
+    implementation(libs.ktor.client.cio)
+    implementation(libs.ktor.client.websockets)
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlin.test.junit)
