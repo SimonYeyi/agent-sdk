@@ -69,19 +69,41 @@ class VolcRealtimeSession(
     }
 
     override suspend fun sendAudio(pcm: ByteArray) {
-        // Task 13
+        val encoded = java.util.Base64.getEncoder().encodeToString(pcm)
+        val payload = buildJsonObject {
+            put("type", "input_audio_buffer.append")
+            put("delta", encoded)
+        }
+        sendRawFrame(payload.toString())
     }
 
     override suspend fun commitInput() {
-        // Task 13
+        sendRawFrame("""{"type":"input_audio_buffer.commit"}""")
     }
 
     override suspend fun cancelResponse() {
-        // Task 13
+        sendRawFrame("""{"type":"response.cancel"}""")
     }
 
     override suspend fun injectAndRespond(text: String) {
-        // Task 13
+        sendRawFrame(buildJsonObject {
+            put("type", "conversation.item.create")
+            put("item", buildJsonObject {
+                put("type", "message")
+                put("role", "assistant")
+                put("content", buildJsonObject {
+                    put("type", "text")
+                    put("text", text)
+                })
+            })
+        }.toString())
+        sendRawFrame("""{"type":"response.create"}""")
+    }
+
+    private suspend fun sendRawFrame(text: String) {
+        writeLock.withLock {
+            wsRef.get()?.send(Frame.Text(text))
+        }
     }
 
     override fun close() {
