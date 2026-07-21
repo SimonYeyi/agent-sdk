@@ -1,10 +1,12 @@
 package io.github.yeyi.agent.realtime
 
+import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.realtime.audio.MicrophoneAdapter
 import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
 import io.github.yeyi.agent.team.BossAgent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 
 class BossConversationBridge internal constructor(
@@ -15,6 +17,8 @@ class BossConversationBridge internal constructor(
     private val config: BridgeConfig = BridgeConfig(),
     private val scope: CoroutineScope,
 ) : AutoCloseable {
+
+    private val s2sResponseDone = Channel<Unit>(capacity = Channel.CONFLATED)
 
     private val gate = AssistantAudioGate(
         speaker = speaker,
@@ -46,14 +50,32 @@ class BossConversationBridge internal constructor(
             is RealtimeEvent.AssistantAudioDelta ->
                 gate.onAudioDelta(event.pcm)
             is RealtimeEvent.AssistantAudioDone,
-            is RealtimeEvent.ResponseDone ->
+            is RealtimeEvent.ResponseDone -> {
                 gate.onTurnEnd()
+                if (event is RealtimeEvent.ResponseDone) s2sResponseDone.trySend(Unit)
+            }
             else -> Unit
         }
     }
 
     private suspend fun runDelegation(asrText: String) {
         session.cancelResponse()
-        // 委派路径实现见 Task 8
+
+        var bossResultText: String? = null
+        var bossFailed: Throwable? = null
+        boss.run(asrText).collect { event ->
+            when (event) {
+                is AgentEvent.Final -> bossResultText = event.result.message.content
+                is AgentEvent.Failed -> bossFailed = event.cause
+                else -> Unit
+            }
+        }
+
+        s2sResponseDone.receive()
+
+        val text = bossResultText?.let { "Boss 任务完成, 结果: $it" }
+            ?: bossFailed?.let { "抱歉, 任务执行失败: ${it.message ?: "未知错误"}" }
+            ?: "抱歉, 任务未返回结果"
+        session.injectAndRespond(text)
     }
 }
