@@ -39,4 +39,62 @@ class AssistantAudioGateTest {
         assertEquals(byteArrayOf(4, 5, 6).toList(), speaker.played[1].toList())
         assertTrue(!delegateCalled)
     }
+
+    @Test
+    fun `marker text drops audio and invokes onDelegate with ASR text`() = runTest {
+        val speaker = FakeSpeaker()
+        var delegatedText: String? = null
+        val gate = AssistantAudioGate(onDelegate = { delegatedText = it }, speaker = speaker)
+
+        gate.onUserTranscriptCompleted("open the door")
+        gate.onAudioDelta(byteArrayOf(7, 8, 9))
+        gate.onTextDelta("<|DELEGATE_TO_BOSS|>")
+
+        assertEquals("open the door", delegatedText)
+        assertTrue(speaker.played.isEmpty())
+    }
+
+    @Test
+    fun `subsequent audio after marker is dropped`() = runTest {
+        val speaker = FakeSpeaker()
+        val gate = AssistantAudioGate(onDelegate = {}, speaker = speaker)
+
+        gate.onUserTranscriptCompleted("hi")
+        gate.onTextDelta("<|DELEGATE_TO_BOSS|>")
+        gate.onAudioDelta(byteArrayOf(10, 11))
+        gate.onTextDelta("more text")
+
+        assertTrue(speaker.played.isEmpty())
+    }
+
+    @Test
+    fun `onTurnEnd resets state for next turn`() = runTest {
+        val speaker = FakeSpeaker()
+        val gate = AssistantAudioGate(onDelegate = {}, speaker = speaker)
+
+        gate.onUserTranscriptCompleted("first")
+        gate.onAudioDelta(byteArrayOf(1))
+        gate.onTextDelta("reply")
+        gate.onTurnEnd()
+
+        gate.onUserTranscriptCompleted("second")
+        gate.onAudioDelta(byteArrayOf(2))
+        gate.onTextDelta("second reply")
+
+        assertEquals(2, speaker.played.size)
+    }
+
+    @Test
+    fun `onTextDelta throws if marker but no pending ASR text`() = runTest {
+        val speaker = FakeSpeaker()
+        val gate = AssistantAudioGate(onDelegate = {}, speaker = speaker)
+
+        var threw = false
+        try {
+            gate.onTextDelta("<|DELEGATE_TO_BOSS|>")
+        } catch (e: IllegalStateException) {
+            threw = true
+        }
+        assertTrue(threw)
+    }
 }
