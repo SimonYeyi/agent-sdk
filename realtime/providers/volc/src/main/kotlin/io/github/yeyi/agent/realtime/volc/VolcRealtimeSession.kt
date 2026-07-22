@@ -280,8 +280,14 @@ class VolcRealtimeSession(
         sendRawFrame("session.close") { }
     }
 
+    /**
+     * speech_text_buffer.* 协议族 — push-to-talk 文本流场景的备用 API, 当前未接入调用方.
+     * speech_id 与 event_id 正交: event_id 标识单帧 (由 nextEventId 自增生成), speech_id 标识一轮用户发言
+     * (同一轮内多帧共享, 由调用方生成并管理, 用于服务端把多个 append/commit/replacement 关联到一次发言).
+     */
+
     /** speech_text_buffer.append — 流式推送用户文本输入 (用于 TTS 直接播放 + ASR 模拟). */
-    internal suspend fun speechTextAppend(speechId: String, text: String) {
+    private suspend fun speechTextAppend(speechId: String, text: String) {
         sendRawFrame("speech_text_buffer.append") {
             put("speech_id", speechId)
             put("text", text)
@@ -289,7 +295,7 @@ class VolcRealtimeSession(
     }
 
     /** speech_text_buffer.commit — 提交完整 speech buffer. */
-    internal suspend fun speechTextCommit(speechId: String, text: String) {
+    private suspend fun speechTextCommit(speechId: String, text: String) {
         sendRawFrame("speech_text_buffer.commit") {
             put("speech_id", speechId)
             put("text", text)
@@ -297,7 +303,7 @@ class VolcRealtimeSession(
     }
 
     /** speech_text_buffer.replacement.append — 流式打断替换输入. */
-    internal suspend fun speechTextReplacementAppend(speechId: String, text: String) {
+    private suspend fun speechTextReplacementAppend(speechId: String, text: String) {
         sendRawFrame("speech_text_buffer.replacement.append") {
             put("speech_id", speechId)
             put("text", text)
@@ -305,7 +311,7 @@ class VolcRealtimeSession(
     }
 
     /** speech_text_buffer.replacement.commit — 提交打断替换. */
-    internal suspend fun speechTextReplacementCommit(speechId: String, text: String) {
+    private suspend fun speechTextReplacementCommit(speechId: String, text: String) {
         sendRawFrame("speech_text_buffer.replacement.commit") {
             put("speech_id", speechId)
             put("text", text)
@@ -313,7 +319,7 @@ class VolcRealtimeSession(
     }
 
     /** conversation.item.create — 注入多条历史 item. */
-    internal suspend fun conversationItemCreate(items: List<VolcConversationItem>) {
+    private suspend fun conversationItemCreate(items: List<VolcConversationItem>) {
         sendRawFrame("conversation.item.create") {
             put(
                 "items", json.encodeToJsonElement(
@@ -325,7 +331,7 @@ class VolcRealtimeSession(
     }
 
     /** conversation.item.update — 更新已存在 item. */
-    internal suspend fun conversationItemUpdate(items: List<VolcConversationItem>) {
+    private suspend fun conversationItemUpdate(items: List<VolcConversationItem>) {
         sendRawFrame("conversation.item.update") {
             put(
                 "items", json.encodeToJsonElement(
@@ -337,7 +343,7 @@ class VolcRealtimeSession(
     }
 
     /** conversation.item.retrieve — 拉取 item (空 items 表示拉取全部). */
-    internal suspend fun conversationItemRetrieve(items: List<VolcConversationItem> = emptyList()) {
+    private suspend fun conversationItemRetrieve(items: List<VolcConversationItem> = emptyList()) {
         sendRawFrame("conversation.item.retrieve") {
             put(
                 "items", json.encodeToJsonElement(
@@ -349,7 +355,7 @@ class VolcRealtimeSession(
     }
 
     /** conversation.item.delete — 删除 item. */
-    internal suspend fun conversationItemDelete(items: List<VolcConversationItem>) {
+    private suspend fun conversationItemDelete(items: List<VolcConversationItem>) {
         sendRawFrame("conversation.item.delete") {
             put(
                 "items", json.encodeToJsonElement(
