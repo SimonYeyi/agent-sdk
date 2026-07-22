@@ -86,6 +86,15 @@ class RealtimeApplianceTest {
             mic = mic,
             speaker = speaker,
             delegation = delegation,
+            sessionConfig = SessionConfig(
+                apiKey = "k",
+                endpoint = "wss://test",
+                model = "m",
+                instructions = "你是助手",
+                voice = "v",
+                inputFormat = mic.inputFormat,
+                outputFormat = speaker.outputFormat,
+            ),
             scope = scope,
         )
         appliance.start()
@@ -123,6 +132,15 @@ class RealtimeApplianceTest {
             mic = mic,
             speaker = speaker,
             delegation = delegation,
+            sessionConfig = SessionConfig(
+                apiKey = "k",
+                endpoint = "wss://test",
+                model = "m",
+                instructions = "你是助手",
+                voice = "v",
+                inputFormat = mic.inputFormat,
+                outputFormat = speaker.outputFormat,
+            ),
             scope = scope,
         )
 
@@ -156,6 +174,15 @@ class RealtimeApplianceTest {
             mic = mic,
             speaker = speaker,
             delegation = delegation,
+            sessionConfig = SessionConfig(
+                apiKey = "k",
+                endpoint = "wss://test",
+                model = "m",
+                instructions = "你是助手",
+                voice = "v",
+                inputFormat = mic.inputFormat,
+                outputFormat = speaker.outputFormat,
+            ),
             scope = scope,
         )
 

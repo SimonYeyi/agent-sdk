@@ -56,23 +56,19 @@ fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Mod
                     mic = mic,
                     speaker = speaker,
                     delegation = BossDelegation(boss),
+                    sessionConfig = SessionConfig(
+                        apiKey = apiKey,
+                        endpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
+                        model = "1.2.6.0",
+                        instructions = buildInstructions(),
+                        voice = "saturn_zh_female_wumeiyujie_tob",
+                        inputFormat = mic.inputFormat,
+                        outputFormat = speaker.outputFormat,
+                    ),
                     scope = scope,
                 )
                 httpClient = client
-                scope.launch {
-                    session.connect(
-                        SessionConfig(
-                            apiKey = apiKey,
-                            endpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
-                            model = "1.2.6.0",
-                            instructions = buildInstructions(),
-                            voice = "saturn_zh_female_wumeiyujie_tob",
-                            inputFormat = mic.inputFormat,
-                            outputFormat = speaker.outputFormat,
-                        )
-                    )
-                    b.start()
-                }
+                scope.launch { b.start() }
                 bridge = b
                 status = "Listening"
             } else {
@@ -89,10 +85,6 @@ fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Mod
 }
 
 private fun buildInstructions(): String = """
-    你是一个智能助手. 区分以下两种情况:
-    1. 闲聊（问候 / 聊天 / 知识问答 / 一般咨询）: 直接用自然口语回答.
-    2. 需要执行任务（操作设备 / 调用服务 / 多步执行）:
-       在 assistant 文本的第一句**必须**以 <|TASK|> 开头,
-       后接空行再接你对用户的简短确认.
-       这个标记是内部路由信号, **绝对不能**在 TTS 中读出来.
+    你是一个智能家居助手. 用自然、口语化的中文回答用户.
+    不要提及"作为 AI"或"我没有物理设备"等限制 — 你就是这个家庭里的助手.
 """.trimIndent()

@@ -3,7 +3,7 @@ package io.github.yeyi.agent.realtime
 import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
 
 internal class AssistantAudioGate(
-    private val delegationMarker: String = DEFAULT_DELEGATION_MARKER,
+    private val delegationMarker: String,
     private val speaker: SpeakerAdapter,
     private val onDelegate: (asrText: String) -> Unit,
 ) {
@@ -42,9 +42,5 @@ internal class AssistantAudioGate(
         mode = Mode.BUFFERING
         buffer.clear()
         pendingAsrText = null
-    }
-
-    internal companion object {
-        const val DEFAULT_DELEGATION_MARKER = "<|TASK|>"
     }
 }

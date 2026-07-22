@@ -27,7 +27,8 @@ class AssistantAudioGateTest {
     fun `non-marker text flushes buffered audio and passes through`() = runTest {
         val speaker = FakeSpeaker()
         var delegateCalled = false
-        val gate = AssistantAudioGate(onDelegate = { delegateCalled = true }, speaker = speaker)
+        val gate = AssistantAudioGate(
+            delegationMarker = RealtimeAppliance.DELEGATION_MARKER,onDelegate = { delegateCalled = true }, speaker = speaker)
 
         gate.onUserTranscriptCompleted("hello")
         gate.onAudioDelta(byteArrayOf(1, 2, 3))
@@ -44,7 +45,8 @@ class AssistantAudioGateTest {
     fun `marker text drops audio and invokes onDelegate with ASR text`() = runTest {
         val speaker = FakeSpeaker()
         var delegatedText: String? = null
-        val gate = AssistantAudioGate(onDelegate = { delegatedText = it }, speaker = speaker)
+        val gate = AssistantAudioGate(
+            delegationMarker = RealtimeAppliance.DELEGATION_MARKER,onDelegate = { delegatedText = it }, speaker = speaker)
 
         gate.onUserTranscriptCompleted("open the door")
         gate.onAudioDelta(byteArrayOf(7, 8, 9))
@@ -57,7 +59,8 @@ class AssistantAudioGateTest {
     @Test
     fun `subsequent audio after marker is dropped`() = runTest {
         val speaker = FakeSpeaker()
-        val gate = AssistantAudioGate(onDelegate = {}, speaker = speaker)
+        val gate = AssistantAudioGate(
+            delegationMarker = RealtimeAppliance.DELEGATION_MARKER,onDelegate = {}, speaker = speaker)
 
         gate.onUserTranscriptCompleted("hi")
         gate.onTextDelta("<|TASK|>")
@@ -70,7 +73,8 @@ class AssistantAudioGateTest {
     @Test
     fun `onTurnEnd resets state for next turn`() = runTest {
         val speaker = FakeSpeaker()
-        val gate = AssistantAudioGate(onDelegate = {}, speaker = speaker)
+        val gate = AssistantAudioGate(
+            delegationMarker = RealtimeAppliance.DELEGATION_MARKER,onDelegate = {}, speaker = speaker)
 
         gate.onUserTranscriptCompleted("first")
         gate.onAudioDelta(byteArrayOf(1))
@@ -87,7 +91,8 @@ class AssistantAudioGateTest {
     @Test
     fun `onTextDelta throws if marker but no pending ASR text`() = runTest {
         val speaker = FakeSpeaker()
-        val gate = AssistantAudioGate(onDelegate = {}, speaker = speaker)
+        val gate = AssistantAudioGate(
+            delegationMarker = RealtimeAppliance.DELEGATION_MARKER,onDelegate = {}, speaker = speaker)
 
         var threw = false
         try {
