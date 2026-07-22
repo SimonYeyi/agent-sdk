@@ -5,16 +5,15 @@ package io.github.yeyi.agent.realtime
 import io.github.yeyi.agent.realtime.audio.AudioFormat
 import io.github.yeyi.agent.realtime.audio.MicrophoneAdapter
 import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.cancel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.flow.onStart
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -36,49 +35,82 @@ class RealtimeApplianceTest {
     }
 
     private class FakeSpeaker : SpeakerAdapter {
-        val played = mutableListOf<ByteArray>()
+        val played = Channel<ByteArray>(Channel.UNLIMITED)
         override val outputFormat = AudioFormat(
             sampleRateHz = 24_000,
             channels = 1,
             sampleBits = 16,
             encoding = AudioFormat.Encoding.PCM_SIGNED_LE,
         )
-        override suspend fun play(pcm: ByteArray) { played += pcm }
+        override suspend fun play(pcm: ByteArray) { played.send(pcm) }
         override suspend fun stopPlayback() {}
         override suspend fun start() {}
         override suspend fun close() {}
     }
 
     private class FakeSession : RealtimeSession {
-        val eventsEmitter = MutableSharedFlow<RealtimeEvent>(extraBufferCapacity = 64)
+        private val eventsChannel = Channel<RealtimeEvent>(Channel.UNLIMITED)
+        val subscribedSignal = Channel<Unit>(Channel.CONFLATED)
         val sentAudio = mutableListOf<ByteArray>()
+        val sentAudioSignal = Channel<ByteArray>(Channel.UNLIMITED)
+        val injectedSignal = Channel<String>(Channel.UNLIMITED)
         var cancelledCount = 0
         var injectCount = 0
-        override val events: Flow<RealtimeEvent> get() = eventsEmitter.asSharedFlow()
+        override val events: Flow<RealtimeEvent>
+            get() = eventsChannel.receiveAsFlow().onStart { subscribedSignal.trySend(Unit) }
         override suspend fun connect(config: SessionConfig) {}
-        override fun close() {}
-        override suspend fun sendAudio(pcm: ByteArray) { sentAudio += pcm }
+        override fun close() { eventsChannel.close() }
+        override suspend fun sendAudio(pcm: ByteArray) {
+            sentAudio += pcm
+            sentAudioSignal.send(pcm)
+        }
         override suspend fun commitInput() {}
         override suspend fun cancelResponse() { cancelledCount++ }
-        override suspend fun injectAndRespond(text: String) { injectCount++ }
+        override suspend fun injectAndRespond(text: String) {
+            injectCount++
+            injectedSignal.send(text)
+        }
+
+        fun emit(event: RealtimeEvent) {
+            eventsChannel.trySend(event)
+        }
     }
 
     private class FakeDelegation(
         private val result: DelegationResult = DelegationResult.Success("stub"),
     ) : RealtimeDelegation {
+        val calledSignal = Channel<String>(Channel.UNLIMITED)
         var lastInput: String? = null
         var callCount = 0
         override suspend fun run(asrText: String): DelegationResult {
             lastInput = asrText
             callCount++
+            calledSignal.send(asrText)
             return result
         }
     }
 
+    private fun sessionConfigFor(mic: FakeMicrophone, speaker: FakeSpeaker) = SessionConfig(
+        apiKey = "k",
+        endpoint = "wss://test",
+        model = "m",
+        instructions = "你是助手",
+        voice = "v",
+        inputFormat = mic.inputFormat,
+        outputFormat = speaker.outputFormat,
+    )
+
+    private suspend fun awaitSubscribed(session: FakeSession) {
+        realAwait { session.subscribedSignal.receive() }
+    }
+
+    private suspend fun <T> realAwait(block: suspend () -> T): T =
+        withContext(Dispatchers.Default.limitedParallelism(1)) {
+            withTimeout(5_000) { block() }
+        }
+
     @Test
     fun `chitchat path lets S2S audio through without invoking delegation`() = runTest {
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val scope = CoroutineScope(dispatcher + SupervisorJob())
         val session = FakeSession()
         val mic = FakeMicrophone()
         val speaker = FakeSpeaker()
@@ -89,42 +121,28 @@ class RealtimeApplianceTest {
             mic = mic,
             speaker = speaker,
             delegation = delegation,
-            sessionConfig = SessionConfig(
-                apiKey = "k",
-                endpoint = "wss://test",
-                model = "m",
-                instructions = "你是助手",
-                voice = "v",
-                inputFormat = mic.inputFormat,
-                outputFormat = speaker.outputFormat,
-            ),
-            scope = scope,
+            sessionConfig = sessionConfigFor(mic, speaker),
         )
         appliance.start()
-        // Let the collector register before emitting; otherwise the test
-        // SharedFlow (replay=0) drops events sent before subscription.
-        advanceUntilIdle()
+        awaitSubscribed(session)
 
-        session.eventsEmitter.emit(RealtimeEvent.UserTranscriptCompleted("今天天气真好"))
-        session.eventsEmitter.emit(RealtimeEvent.AssistantTextDelta("是的, 阳光明媚"))
-        session.eventsEmitter.emit(RealtimeEvent.AssistantAudioDelta("i1", byteArrayOf(9, 9)))
-        session.eventsEmitter.emit(RealtimeEvent.ResponseDone("r1", ResponseStatus.COMPLETED))
+        session.emit(RealtimeEvent.UserTranscriptCompleted("今天天气真好"))
+        session.emit(RealtimeEvent.AssistantTextDelta("是的, 阳光明媚"))
+        session.emit(RealtimeEvent.AssistantAudioDelta("i1", byteArrayOf(9, 9)))
+        session.emit(RealtimeEvent.ResponseDone("r1", ResponseStatus.COMPLETED))
 
-        advanceUntilIdle()
+        val first = realAwait { speaker.played.receive() }
+        assertEquals(byteArrayOf(9, 9).toList(), first.toList())
 
-        assertEquals(1, speaker.played.size)
+        appliance.close()
+
         assertEquals(0, delegation.callCount)
         assertEquals(0, session.cancelledCount)
         assertEquals(0, session.injectCount)
-
-        appliance.close()
-        scope.cancel()
     }
 
     @Test
     fun `delegate path cancels S2S and runs delegation`() = runTest {
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val scope = CoroutineScope(dispatcher + SupervisorJob())
         val session = FakeSession()
         val mic = FakeMicrophone()
         val speaker = FakeSpeaker()
@@ -135,38 +153,26 @@ class RealtimeApplianceTest {
             mic = mic,
             speaker = speaker,
             delegation = delegation,
-            sessionConfig = SessionConfig(
-                apiKey = "k",
-                endpoint = "wss://test",
-                model = "m",
-                instructions = "你是助手",
-                voice = "v",
-                inputFormat = mic.inputFormat,
-                outputFormat = speaker.outputFormat,
-            ),
-            scope = scope,
+            sessionConfig = sessionConfigFor(mic, speaker),
         )
 
         appliance.start()
-        advanceUntilIdle()
+        awaitSubscribed(session)
 
-        session.eventsEmitter.emit(RealtimeEvent.UserTranscriptCompleted("帮我把客厅灯调暗到 30%"))
-        session.eventsEmitter.emit(RealtimeEvent.AssistantTextDelta("<|TASK|>"))
-        session.eventsEmitter.emit(RealtimeEvent.ResponseDone("r1", ResponseStatus.CANCELED))
+        session.emit(RealtimeEvent.UserTranscriptCompleted("帮我把客厅灯调暗到 30%"))
+        session.emit(RealtimeEvent.AssistantTextDelta("<|TASK|>"))
+        session.emit(RealtimeEvent.ResponseDone("r1", ResponseStatus.CANCELED))
 
-        advanceUntilIdle()
-
-        assertTrue(session.cancelledCount >= 1)
-        assertEquals("帮我把客厅灯调暗到 30%", delegation.lastInput)
+        val called = realAwait { delegation.calledSignal.receive() }
+        assertEquals("帮我把客厅灯调暗到 30%", called)
 
         appliance.close()
-        scope.cancel()
+
+        assertTrue(session.cancelledCount >= 1)
     }
 
     @Test
     fun `delegation Success triggers injectAndRespond after S2S idle`() = runTest {
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val scope = CoroutineScope(dispatcher + SupervisorJob())
         val session = FakeSession()
         val mic = FakeMicrophone()
         val speaker = FakeSpeaker()
@@ -177,37 +183,27 @@ class RealtimeApplianceTest {
             mic = mic,
             speaker = speaker,
             delegation = delegation,
-            sessionConfig = SessionConfig(
-                apiKey = "k",
-                endpoint = "wss://test",
-                model = "m",
-                instructions = "你是助手",
-                voice = "v",
-                inputFormat = mic.inputFormat,
-                outputFormat = speaker.outputFormat,
-            ),
-            scope = scope,
+            sessionConfig = sessionConfigFor(mic, speaker),
         )
 
         appliance.start()
-        advanceUntilIdle()
+        awaitSubscribed(session)
 
-        session.eventsEmitter.emit(RealtimeEvent.UserTranscriptCompleted("帮我把灯调暗"))
-        session.eventsEmitter.emit(RealtimeEvent.AssistantTextDelta("<|TASK|>"))
-        session.eventsEmitter.emit(RealtimeEvent.ResponseDone("r1", ResponseStatus.CANCELED))
+        session.emit(RealtimeEvent.UserTranscriptCompleted("帮我把灯调暗"))
+        session.emit(RealtimeEvent.AssistantTextDelta("<|TASK|>"))
+        session.emit(RealtimeEvent.ResponseDone("r1", ResponseStatus.CANCELED))
 
-        advanceUntilIdle()
-
-        assertTrue(session.injectCount >= 1)
+        realAwait { delegation.calledSignal.receive() }
+        val injected = realAwait { session.injectedSignal.receive() }
 
         appliance.close()
-        scope.cancel()
+
+        assertEquals("Boss 任务完成, 结果: stub", injected)
+        assertTrue(session.injectCount >= 1)
     }
 
     @Test
     fun `mic capture forwards PCM to session sendAudio`() = runTest {
-        val dispatcher = StandardTestDispatcher(testScheduler)
-        val scope = CoroutineScope(dispatcher + SupervisorJob())
         val pcm1 = byteArrayOf(1, 2, 3)
         val pcm2 = byteArrayOf(4, 5)
         val session = FakeSession()
@@ -220,26 +216,18 @@ class RealtimeApplianceTest {
             mic = mic,
             speaker = speaker,
             delegation = delegation,
-            sessionConfig = SessionConfig(
-                apiKey = "k",
-                endpoint = "wss://test",
-                model = "m",
-                instructions = "你是助手",
-                voice = "v",
-                inputFormat = mic.inputFormat,
-                outputFormat = speaker.outputFormat,
-            ),
-            scope = scope,
+            sessionConfig = sessionConfigFor(mic, speaker),
         )
 
         appliance.start()
-        advanceUntilIdle()
 
-        assertEquals(2, session.sentAudio.size)
-        assertEquals(pcm1.toList(), session.sentAudio[0].toList())
-        assertEquals(pcm2.toList(), session.sentAudio[1].toList())
+        val first = realAwait { session.sentAudioSignal.receive() }
+        val second = realAwait { session.sentAudioSignal.receive() }
 
         appliance.close()
-        scope.cancel()
+
+        assertEquals(pcm1.toList(), first.toList())
+        assertEquals(pcm2.toList(), second.toList())
+        assertEquals(2, session.sentAudio.size)
     }
 }

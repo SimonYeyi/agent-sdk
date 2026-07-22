@@ -65,15 +65,15 @@ fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Mod
                         inputFormat = mic.inputFormat,
                         outputFormat = speaker.outputFormat,
                     ),
-                    scope = scope,
                 )
                 httpClient = client
                 scope.launch { b.start() }
                 bridge = b
                 status = "Listening"
             } else {
-                bridge?.close()
+                val old = bridge
                 bridge = null
+                scope.launch { old?.close() }
                 httpClient?.close()
                 httpClient = null
                 status = "Idle"

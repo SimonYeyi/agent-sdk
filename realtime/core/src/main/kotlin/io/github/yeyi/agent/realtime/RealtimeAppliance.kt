@@ -3,7 +3,10 @@ package io.github.yeyi.agent.realtime
 import io.github.yeyi.agent.realtime.audio.MicrophoneAdapter
 import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
 
 class RealtimeAppliance(
@@ -12,16 +15,14 @@ class RealtimeAppliance(
     private val mic: MicrophoneAdapter,
     private val speaker: SpeakerAdapter,
     private val delegation: RealtimeDelegation,
-    private val scope: CoroutineScope,
-) : AutoCloseable {
+) {
 
     private val gate = AssistantAudioGate(
         delegationMarker = DELEGATION_MARKER,
         speaker = speaker,
         onDelegate = { asrText -> scope.launch { runDelegation(asrText) } },
     )
-    private var eventsJob: Job? = null
-    private var micJob: Job? = null
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     suspend fun start() {
         session.connect(
@@ -31,21 +32,18 @@ class RealtimeAppliance(
         )
         mic.start()
         speaker.start()
-        eventsJob = scope.launch {
+        scope.launch {
             session.events.collect { event -> handleEvent(event) }
         }
-        micJob = scope.launch {
-            mic.capture().collect { pcm ->
-                session.sendAudio(pcm)
-            }
+        scope.launch {
+            mic.capture().collect { pcm -> session.sendAudio(pcm) }
         }
     }
 
-    override fun close() {
-        eventsJob?.cancel()
-        micJob?.cancel()
-        scope.launch { mic.close() }
-        scope.launch { speaker.close() }
+    suspend fun close() {
+        scope.coroutineContext[Job]?.cancelAndJoin()
+        mic.close()
+        speaker.close()
         session.close()
     }
 
