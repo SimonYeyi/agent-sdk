@@ -235,26 +235,7 @@ class VolcRealtimeSession(
     }
 
     override suspend fun injectAndRespond(text: String) {
-        val item = VolcConversationItem(
-            type = "message",
-            role = "user",
-            content = buildJsonArray {
-                add(buildJsonObject {
-                    put("type", "input_text")
-                    put("text", text)
-                })
-            },
-        )
-        sendRawFrame("conversation.item.create") {
-            put(
-                "items",
-                json.encodeToJsonElement(
-                    ListSerializer(VolcConversationItem.serializer()),
-                    listOf(item)
-                ),
-            )
-        }
-        sendRawFrame("response.create") { }
+        speechTextCommit(text)
     }
 
     /**
@@ -281,12 +262,12 @@ class VolcRealtimeSession(
     }
 
     /**
-     * speech_text_buffer.* 协议族 — push-to-talk 文本流场景的备用 API, 当前未接入调用方.
-     * speech_id 与 event_id 正交: event_id 标识单帧 (由 nextEventId 自增生成), speech_id 标识一轮用户发言
-     * (同一轮内多帧共享, 由调用方生成并管理, 用于服务端把多个 append/commit/replacement 关联到一次发言).
+     * speech_text_buffer.* 协议族 — 仅 speech_text_buffer.commit 在 Volc 协议文档中有定义
+     * (字段: type/event_id/text), 用于客户端向服务端注入文本发言, 服务端按"用户说了一句话"处理,
+     * 自动触发 ASR + 模型回复 + TTS 播报. 其余三个 (append / replacement.*) 协议未定义, 暂作 private 备用.
      */
 
-    /** speech_text_buffer.append — 流式推送用户文本输入 (用于 TTS 直接播放 + ASR 模拟). */
+    /** speech_text_buffer.append — 流式推送用户文本输入 (协议未定义, 仅作备用). */
     private suspend fun speechTextAppend(speechId: String, text: String) {
         sendRawFrame("speech_text_buffer.append") {
             put("speech_id", speechId)
@@ -294,10 +275,9 @@ class VolcRealtimeSession(
         }
     }
 
-    /** speech_text_buffer.commit — 提交完整 speech buffer. */
-    private suspend fun speechTextCommit(speechId: String, text: String) {
+    /** speech_text_buffer.commit — 注入文本发言, 服务端按"用户说了一句话"处理, 触发 ASR + 模型回复 + TTS. */
+    private suspend fun speechTextCommit(text: String) {
         sendRawFrame("speech_text_buffer.commit") {
-            put("speech_id", speechId)
             put("text", text)
         }
     }
