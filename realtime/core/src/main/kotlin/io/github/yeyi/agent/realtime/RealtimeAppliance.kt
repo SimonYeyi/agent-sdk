@@ -21,6 +21,7 @@ class RealtimeAppliance(
         onDelegate = { asrText -> scope.launch { runDelegation(asrText) } },
     )
     private var eventsJob: Job? = null
+    private var micJob: Job? = null
 
     suspend fun start() {
         session.connect(
@@ -33,10 +34,16 @@ class RealtimeAppliance(
         eventsJob = scope.launch {
             session.events.collect { event -> handleEvent(event) }
         }
+        micJob = scope.launch {
+            mic.capture().collect { pcm ->
+                session.sendAudio(pcm)
+            }
+        }
     }
 
     override fun close() {
         eventsJob?.cancel()
+        micJob?.cancel()
         scope.launch { mic.close() }
         scope.launch { speaker.close() }
         session.close()

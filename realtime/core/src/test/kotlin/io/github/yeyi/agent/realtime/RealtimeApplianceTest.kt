@@ -21,14 +21,16 @@ import kotlin.test.assertTrue
 
 class RealtimeApplianceTest {
 
-    private class FakeMicrophone : MicrophoneAdapter {
+    private class FakeMicrophone(
+        private val captureFlow: Flow<ByteArray> = flowOf(ByteArray(0)),
+    ) : MicrophoneAdapter {
         override val inputFormat = AudioFormat(
             sampleRateHz = 16_000,
             channels = 1,
             sampleBits = 16,
             encoding = AudioFormat.Encoding.PCM_SIGNED_LE,
         )
-        override fun capture() = flowOf(ByteArray(0))
+        override fun capture() = captureFlow
         override suspend fun start() {}
         override suspend fun close() {}
     }
@@ -49,12 +51,13 @@ class RealtimeApplianceTest {
 
     private class FakeSession : RealtimeSession {
         val eventsEmitter = MutableSharedFlow<RealtimeEvent>(extraBufferCapacity = 64)
+        val sentAudio = mutableListOf<ByteArray>()
         var cancelledCount = 0
         var injectCount = 0
         override val events: Flow<RealtimeEvent> get() = eventsEmitter.asSharedFlow()
         override suspend fun connect(config: SessionConfig) {}
         override fun close() {}
-        override suspend fun sendAudio(pcm: ByteArray) {}
+        override suspend fun sendAudio(pcm: ByteArray) { sentAudio += pcm }
         override suspend fun commitInput() {}
         override suspend fun cancelResponse() { cancelledCount++ }
         override suspend fun injectAndRespond(text: String) { injectCount++ }
@@ -196,6 +199,45 @@ class RealtimeApplianceTest {
         advanceUntilIdle()
 
         assertTrue(session.injectCount >= 1)
+
+        appliance.close()
+        scope.cancel()
+    }
+
+    @Test
+    fun `mic capture forwards PCM to session sendAudio`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        val scope = CoroutineScope(dispatcher + SupervisorJob())
+        val pcm1 = byteArrayOf(1, 2, 3)
+        val pcm2 = byteArrayOf(4, 5)
+        val session = FakeSession()
+        val mic = FakeMicrophone(flowOf(pcm1, pcm2))
+        val speaker = FakeSpeaker()
+        val delegation = FakeDelegation()
+
+        val appliance = RealtimeAppliance(
+            session = session,
+            mic = mic,
+            speaker = speaker,
+            delegation = delegation,
+            sessionConfig = SessionConfig(
+                apiKey = "k",
+                endpoint = "wss://test",
+                model = "m",
+                instructions = "你是助手",
+                voice = "v",
+                inputFormat = mic.inputFormat,
+                outputFormat = speaker.outputFormat,
+            ),
+            scope = scope,
+        )
+
+        appliance.start()
+        advanceUntilIdle()
+
+        assertEquals(2, session.sentAudio.size)
+        assertEquals(pcm1.toList(), session.sentAudio[0].toList())
+        assertEquals(pcm2.toList(), session.sentAudio[1].toList())
 
         appliance.close()
         scope.cancel()
