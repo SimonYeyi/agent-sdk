@@ -2,16 +2,9 @@
 
 package io.github.yeyi.agent.realtime
 
-import io.github.yeyi.agent.fakes.FakeLlmProvider
-import io.github.yeyi.agent.llm.ChatMessage
-import io.github.yeyi.agent.llm.ChatResponse
-import io.github.yeyi.agent.llm.FinishReason
-import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.realtime.audio.AudioFormat
 import io.github.yeyi.agent.realtime.audio.MicrophoneAdapter
 import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
-import io.github.yeyi.agent.team.BossAgent
-import io.github.yeyi.agent.team.bossAgent
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -26,7 +19,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class BossConversationBridgeTest {
+class RealtimeApplianceTest {
 
     private class FakeMicrophone : MicrophoneAdapter {
         override val inputFormat = AudioFormat(
@@ -67,39 +60,35 @@ class BossConversationBridgeTest {
         override suspend fun injectAndRespond(text: String) { injectCount++ }
     }
 
-    private fun stubBoss(): BossAgent = bossAgent {
-        llmProvider(
-            FakeLlmProvider(
-                nonStreamResponses = listOf(
-                    ChatResponse(
-                        message = ChatMessage.Assistant(content = "stub"),
-                        finishReason = FinishReason.Stop,
-                    )
-                )
-            )
-        )
-        memory(InMemoryMemory(), 20)
-        maxIterations(1)
+    private class FakeDelegation(
+        private val result: DelegationResult = DelegationResult.Success("stub"),
+    ) : RealtimeDelegation {
+        var lastInput: String? = null
+        var callCount = 0
+        override suspend fun run(asrText: String): DelegationResult {
+            lastInput = asrText
+            callCount++
+            return result
+        }
     }
 
     @Test
-    fun `chitchat path lets S2S audio through without invoking Boss`() = runTest {
+    fun `chitchat path lets S2S audio through without invoking delegation`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val scope = CoroutineScope(dispatcher + SupervisorJob())
         val session = FakeSession()
         val mic = FakeMicrophone()
         val speaker = FakeSpeaker()
-        val boss = stubBoss()
+        val delegation = FakeDelegation()
 
-        val bridge = BossConversationBridge(
+        val appliance = RealtimeAppliance(
             session = session,
             mic = mic,
             speaker = speaker,
-            boss = boss,
-            config = BridgeConfig(),
+            delegation = delegation,
             scope = scope,
         )
-        bridge.start()
+        appliance.start()
         // Let the collector register before emitting; otherwise the test
         // SharedFlow (replay=0) drops events sent before subscription.
         advanceUntilIdle()
@@ -112,91 +101,76 @@ class BossConversationBridgeTest {
         advanceUntilIdle()
 
         assertEquals(1, speaker.played.size)
+        assertEquals(0, delegation.callCount)
         assertEquals(0, session.cancelledCount)
         assertEquals(0, session.injectCount)
 
-        bridge.close()
-        boss.shutdown()
+        appliance.close()
         scope.cancel()
     }
 
     @Test
-    fun `delegate path cancels S2S and runs Boss`() = runTest {
+    fun `delegate path cancels S2S and runs delegation`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val scope = CoroutineScope(dispatcher + SupervisorJob())
         val session = FakeSession()
         val mic = FakeMicrophone()
         val speaker = FakeSpeaker()
-        val boss = stubBoss()
+        val delegation = FakeDelegation()
 
-        val bridge = BossConversationBridge(
+        val appliance = RealtimeAppliance(
             session = session,
             mic = mic,
             speaker = speaker,
-            boss = boss,
-            config = BridgeConfig(),
+            delegation = delegation,
             scope = scope,
         )
 
-        bridge.start()
-        // Let the collector register before emitting; otherwise the test
-        // SharedFlow (replay=0) drops events sent before subscription.
+        appliance.start()
         advanceUntilIdle()
 
         session.eventsEmitter.emit(RealtimeEvent.UserTranscriptCompleted("帮我把客厅灯调暗到 30%"))
-        session.eventsEmitter.emit(RealtimeEvent.AssistantTextDelta("<|DELEGATE_TO_BOSS|>"))
+        session.eventsEmitter.emit(RealtimeEvent.AssistantTextDelta("<|TASK|>"))
         session.eventsEmitter.emit(RealtimeEvent.ResponseDone("r1", ResponseStatus.CANCELED))
 
         advanceUntilIdle()
 
         assertTrue(session.cancelledCount >= 1)
-        // Boss 完成后应 injectAndRespond（Task 9 校验）
+        assertEquals("帮我把客厅灯调暗到 30%", delegation.lastInput)
 
-        bridge.close()
-        boss.shutdown()
+        appliance.close()
         scope.cancel()
     }
 
     @Test
-    fun `Boss Final triggers injectAndRespond after S2S idle`() = runTest {
+    fun `delegation Success triggers injectAndRespond after S2S idle`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         val scope = CoroutineScope(dispatcher + SupervisorJob())
         val session = FakeSession()
         val mic = FakeMicrophone()
         val speaker = FakeSpeaker()
-        val boss = stubBoss()
+        val delegation = FakeDelegation(DelegationResult.Success("Boss 任务完成, 结果: stub"))
 
-        val bridge = BossConversationBridge(
+        val appliance = RealtimeAppliance(
             session = session,
             mic = mic,
             speaker = speaker,
-            boss = boss,
-            config = BridgeConfig(),
+            delegation = delegation,
             scope = scope,
         )
 
-        bridge.start()
-        advanceUntilIdle() // subscribe before emit (test convention)
+        appliance.start()
+        advanceUntilIdle()
 
         session.eventsEmitter.emit(RealtimeEvent.UserTranscriptCompleted("帮我把灯调暗"))
-        session.eventsEmitter.emit(RealtimeEvent.AssistantTextDelta("<|DELEGATE_TO_BOSS|>"))
+        session.eventsEmitter.emit(RealtimeEvent.AssistantTextDelta("<|TASK|>"))
         session.eventsEmitter.emit(RealtimeEvent.ResponseDone("r1", ResponseStatus.CANCELED))
 
         advanceUntilIdle()
 
-        // Boss runs on a real dispatcher (Dispatchers.Default inside stubBoss), so its
-        // Final/Failed flow completion is not synchronized by advanceUntilIdle alone.
-        // Re-tick the scheduler alongside a bounded Thread.sleep wait until injection fires.
-        val deadline = System.currentTimeMillis() + 2000
-        while (session.injectCount < 1 && System.currentTimeMillis() < deadline) {
-            Thread.sleep(10)
-            advanceUntilIdle()
-        }
-
         assertTrue(session.injectCount >= 1)
 
-        bridge.close()
-        boss.shutdown()
+        appliance.close()
         scope.cancel()
     }
 }

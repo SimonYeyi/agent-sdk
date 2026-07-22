@@ -12,9 +12,6 @@ kotlin {
 }
 
 dependencies {
-    api(project(":agent"))
-    api(project(":team"))
-
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.ktor.client.websockets)
@@ -24,5 +21,4 @@ dependencies {
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.ktor.client.mock)
-    testImplementation(testFixtures(project(":agent")))
 }

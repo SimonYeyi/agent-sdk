@@ -20,10 +20,10 @@ class VolcStreamDecoderTest {
 
     @Test
     fun `output_text delta maps to AssistantTextDelta`() {
-        val json = """{"type":"response.output_text.delta","delta":"<|DELEGATE_TO_BOSS|>"}"""
+        val json = """{"type":"response.output_text.delta","delta":"<|TASK|>"}"""
         val events = VolcStreamDecoder.decode(json)
         assertEquals(1, events.size)
-        assertEquals(RealtimeEvent.AssistantTextDelta("<|DELEGATE_TO_BOSS|>"), events[0])
+        assertEquals(RealtimeEvent.AssistantTextDelta("<|TASK|>"), events[0])
     }
 
     @Test

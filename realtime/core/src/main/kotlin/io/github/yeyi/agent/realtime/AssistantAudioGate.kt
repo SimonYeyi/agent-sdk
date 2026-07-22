@@ -3,6 +3,7 @@ package io.github.yeyi.agent.realtime
 import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
 
 internal class AssistantAudioGate(
+    private val delegationMarker: String = DEFAULT_DELEGATION_MARKER,
     private val speaker: SpeakerAdapter,
     private val onDelegate: (asrText: String) -> Unit,
 ) {
@@ -18,7 +19,7 @@ internal class AssistantAudioGate(
 
     suspend fun onTextDelta(text: String) {
         if (mode == Mode.DROPPING) return
-        if (text.startsWith(MARKER_PREFIX)) {
+        if (text.startsWith(delegationMarker)) {
             mode = Mode.DROPPING
             val asr = pendingAsrText ?: error("ASR text missing")
             onDelegate(asr)
@@ -43,7 +44,7 @@ internal class AssistantAudioGate(
         pendingAsrText = null
     }
 
-    companion object {
-        const val MARKER_PREFIX = "<|DELEGATE_TO_BOSS|>"
+    internal companion object {
+        const val DEFAULT_DELEGATION_MARKER = "<|TASK|>"
     }
 }

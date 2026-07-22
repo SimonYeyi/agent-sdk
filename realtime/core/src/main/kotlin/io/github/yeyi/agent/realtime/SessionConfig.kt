@@ -19,9 +19,6 @@ data class SessionConfig(
 /**
  * S2S 实时会话里的工具声明. 由调用方在 [SessionConfig.tools] 里传给 provider; FC 路径下
  * RealtimeSession 内部用此接口执行 tool 并回传结果给 S2S 模型.
- *
- * 与 :agent 模块的 Tool 接口解耦 — realtime core 不依赖 :agent 的 Tool 类型/上下文, FC 工具
- * 用更简单的 (args) -> String 形态, 避免 AgentContext 依赖.
  */
 interface Tool {
     val name: String

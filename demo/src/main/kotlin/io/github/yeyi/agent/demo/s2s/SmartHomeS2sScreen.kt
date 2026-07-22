@@ -14,8 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import io.github.yeyi.agent.realtime.BossConversationBridge
-import io.github.yeyi.agent.realtime.BridgeConfig
+import io.github.yeyi.agent.realtime.RealtimeAppliance
 import io.github.yeyi.agent.realtime.RealtimeSession
 import io.github.yeyi.agent.realtime.SessionConfig
 import io.github.yeyi.agent.realtime.audio.android.AndroidMicrophoneAdapter
@@ -35,7 +34,7 @@ fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Mod
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main) }
     var status by remember { mutableStateOf("Idle") }
     var transcript by remember { mutableStateOf("") }
-    var bridge by remember { mutableStateOf<BossConversationBridge?>(null) }
+    var bridge by remember { mutableStateOf<RealtimeAppliance?>(null) }
     var httpClient by remember { mutableStateOf<HttpClient?>(null) }
 
     Column(modifier.padding(16.dp)) {
@@ -52,12 +51,11 @@ fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Mod
                 val session: RealtimeSession = VolcRealtimeSession(client)
                 val mic = AndroidMicrophoneAdapter()
                 val speaker = AndroidSpeakerAdapter()
-                val b = BossConversationBridge(
+                val b = RealtimeAppliance(
                     session = session,
                     mic = mic,
                     speaker = speaker,
-                    boss = boss,
-                    config = BridgeConfig(),
+                    delegation = BossDelegation(boss),
                     scope = scope,
                 )
                 httpClient = client
@@ -94,7 +92,7 @@ private fun buildInstructions(): String = """
     你是一个智能助手. 区分以下两种情况:
     1. 闲聊（问候 / 聊天 / 知识问答 / 一般咨询）: 直接用自然口语回答.
     2. 需要执行任务（操作设备 / 调用服务 / 多步执行）:
-       在 assistant 文本的第一句**必须**以 <|DELEGATE_TO_BOSS|> 开头,
+       在 assistant 文本的第一句**必须**以 <|TASK|> 开头,
        后接空行再接你对用户的简短确认.
        这个标记是内部路由信号, **绝对不能**在 TTS 中读出来.
 """.trimIndent()

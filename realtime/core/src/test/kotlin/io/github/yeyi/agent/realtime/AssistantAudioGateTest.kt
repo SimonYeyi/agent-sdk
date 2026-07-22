@@ -48,7 +48,7 @@ class AssistantAudioGateTest {
 
         gate.onUserTranscriptCompleted("open the door")
         gate.onAudioDelta(byteArrayOf(7, 8, 9))
-        gate.onTextDelta("<|DELEGATE_TO_BOSS|>")
+        gate.onTextDelta("<|TASK|>")
 
         assertEquals("open the door", delegatedText)
         assertTrue(speaker.played.isEmpty())
@@ -60,7 +60,7 @@ class AssistantAudioGateTest {
         val gate = AssistantAudioGate(onDelegate = {}, speaker = speaker)
 
         gate.onUserTranscriptCompleted("hi")
-        gate.onTextDelta("<|DELEGATE_TO_BOSS|>")
+        gate.onTextDelta("<|TASK|>")
         gate.onAudioDelta(byteArrayOf(10, 11))
         gate.onTextDelta("more text")
 
@@ -91,7 +91,7 @@ class AssistantAudioGateTest {
 
         var threw = false
         try {
-            gate.onTextDelta("<|DELEGATE_TO_BOSS|>")
+            gate.onTextDelta("<|TASK|>")
         } catch (e: IllegalStateException) {
             threw = true
         }
