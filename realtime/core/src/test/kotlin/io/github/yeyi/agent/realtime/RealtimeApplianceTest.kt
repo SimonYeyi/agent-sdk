@@ -49,17 +49,24 @@ class RealtimeApplianceTest {
     }
 
     private class FakeSession : RealtimeSession {
-        private val eventsChannel = Channel<RealtimeEvent>(Channel.UNLIMITED)
-        val subscribedSignal = Channel<Unit>(Channel.CONFLATED)
+        private var eventsChannel = Channel<RealtimeEvent>(Channel.UNLIMITED)
+        var subscribedSignal = Channel<Unit>(Channel.CONFLATED)
         val sentAudio = mutableListOf<ByteArray>()
         val sentAudioSignal = Channel<ByteArray>(Channel.UNLIMITED)
         val injectedSignal = Channel<String>(Channel.UNLIMITED)
         var cancelledCount = 0
         var injectCount = 0
+        var connectCount = 0
+        var closeCount = 0
         override val events: Flow<RealtimeEvent>
             get() = eventsChannel.receiveAsFlow().onStart { subscribedSignal.trySend(Unit) }
-        override suspend fun connect(config: SessionConfig) {}
-        override fun close() { eventsChannel.close() }
+        override suspend fun connect(config: SessionConfig) {
+            connectCount++
+        }
+        override fun close() {
+            closeCount++
+            eventsChannel.close()
+        }
         override suspend fun sendAudio(pcm: ByteArray) {
             sentAudio += pcm
             sentAudioSignal.send(pcm)
@@ -69,6 +76,11 @@ class RealtimeApplianceTest {
         override suspend fun injectAndRespond(text: String) {
             injectCount++
             injectedSignal.send(text)
+        }
+
+        fun resetChannelForReconnect() {
+            eventsChannel = Channel(Channel.UNLIMITED)
+            subscribedSignal = Channel(Channel.CONFLATED)
         }
 
         fun emit(event: RealtimeEvent) {
@@ -229,5 +241,89 @@ class RealtimeApplianceTest {
         assertEquals(pcm1.toList(), first.toList())
         assertEquals(pcm2.toList(), second.toList())
         assertEquals(2, session.sentAudio.size)
+    }
+
+    @Test
+    fun `start is idempotent and second call is no-op`() = runTest {
+        val session = FakeSession()
+        val mic = FakeMicrophone()
+        val speaker = FakeSpeaker()
+        val delegation = FakeDelegation()
+
+        val appliance = RealtimeAppliance(
+            session = session,
+            mic = mic,
+            speaker = speaker,
+            delegation = delegation,
+            sessionConfig = sessionConfigFor(mic, speaker),
+        )
+
+        appliance.start()
+        appliance.start()
+
+        assertEquals(1, session.connectCount)
+        appliance.close()
+    }
+
+    @Test
+    fun `close then start reconnects and processes events from the new session`() = kotlinx.coroutines.runBlocking {
+        val session = FakeSession()
+        val mic = FakeMicrophone()
+        val speaker = FakeSpeaker()
+        val delegation = FakeDelegation()
+
+        val appliance = RealtimeAppliance(
+            session = session,
+            mic = mic,
+            speaker = speaker,
+            delegation = delegation,
+            sessionConfig = sessionConfigFor(mic, speaker),
+        )
+
+        appliance.start()
+        awaitSubscribed(session)
+
+        session.emit(RealtimeEvent.UserTranscriptCompleted("第一次"))
+        appliance.close()
+
+        assertEquals(1, session.connectCount)
+        assertEquals(1, session.closeCount)
+
+        session.resetChannelForReconnect()
+        appliance.start()
+        awaitSubscribed(session)
+
+        assertEquals(2, session.connectCount)
+        assertEquals(1, session.closeCount)
+
+        session.emit(RealtimeEvent.AssistantTextDelta("hi"))
+        session.emit(RealtimeEvent.AssistantAudioDelta("i2", byteArrayOf(7, 7, 7)))
+        val played = realAwait { speaker.played.receive() }
+        assertEquals(byteArrayOf(7, 7, 7).toList(), played.toList())
+
+        appliance.close()
+        assertEquals(2, session.closeCount)
+    }
+
+    @Test
+    fun `double close does not throw`() = runTest {
+        val session = FakeSession()
+        val mic = FakeMicrophone()
+        val speaker = FakeSpeaker()
+        val delegation = FakeDelegation()
+
+        val appliance = RealtimeAppliance(
+            session = session,
+            mic = mic,
+            speaker = speaker,
+            delegation = delegation,
+            sessionConfig = sessionConfigFor(mic, speaker),
+        )
+
+        appliance.start()
+        appliance.close()
+        appliance.close()
+
+        assertEquals(2, session.closeCount)
     }
 }

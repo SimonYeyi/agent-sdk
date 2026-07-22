@@ -16,7 +16,7 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
                 else -> Unit
             }
         }
-        return resultText?.let { DelegationResult.Success("Boss 任务完成, 结果: $it") }
+        return resultText?.let { DelegationResult.Success("任务完成, 结果: $it") }
             ?: DelegationResult.Failure(failure?.message ?: "任务未返回结果")
     }
 }

@@ -63,7 +63,7 @@ internal data class VolcFormatConfig(
 )
 
 @Serializable
-internal data class VolcExtensionConfig(
+internal data class VolcSessionExtensionConfig(
     val asr: VolcExtensionSide? = null,
     val tts: VolcExtensionSide? = null,
     val dialog: VolcExtensionDialog? = null,

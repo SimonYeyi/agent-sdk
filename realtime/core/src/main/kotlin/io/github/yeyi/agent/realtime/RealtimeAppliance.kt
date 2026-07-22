@@ -16,32 +16,39 @@ class RealtimeAppliance(
     private val speaker: SpeakerAdapter,
     private val delegation: RealtimeDelegation,
 ) {
-
+    private var scope: CoroutineScope? = null
     private val gate = AssistantAudioGate(
         delegationMarker = DELEGATION_MARKER,
         speaker = speaker,
-        onDelegate = { asrText -> scope.launch { runDelegation(asrText) } },
+        onDelegate = { asrText -> scope?.launch { runDelegation(asrText) } },
     )
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     suspend fun start() {
-        session.connect(
-            sessionConfig.copy(
-                instructions = sessionConfig.instructions + "\n\n" + DELEGATION_PROTOCOL,
+        if (scope != null) return
+        scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        try {
+            session.connect(
+                sessionConfig.copy(
+                    instructions = sessionConfig.instructions + "\n\n" + DELEGATION_PROTOCOL,
+                )
             )
-        )
-        mic.start()
-        speaker.start()
-        scope.launch {
-            session.events.collect { event -> handleEvent(event) }
-        }
-        scope.launch {
-            mic.capture().collect { pcm -> session.sendAudio(pcm) }
+            mic.start()
+            speaker.start()
+            scope?.launch {
+                session.events.collect { event -> handleEvent(event) }
+            }
+            scope?.launch {
+                mic.capture().collect { pcm -> session.sendAudio(pcm) }
+            }
+        } catch (e: Throwable) {
+            runCatching { close() }
+            throw e
         }
     }
 
     suspend fun close() {
-        scope.coroutineContext[Job]?.cancelAndJoin()
+        scope?.coroutineContext[Job]?.cancelAndJoin()
+        scope = null
         mic.close()
         speaker.close()
         session.close()
