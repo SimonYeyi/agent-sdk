@@ -8,14 +8,10 @@ class AudioFormatTest {
     fun `AudioFormat stores its properties`() {
         val f = AudioFormat(
             sampleRateHz = 16000,
-            channels = 1,
-            sampleBits = 16,
-            encoding = AudioFormat.Encoding.PCM_SIGNED_LE,
+            encoding = AudioFormat.Encoding.PCM_16BIT,
         )
         assertEquals(16000, f.sampleRateHz)
-        assertEquals(1, f.channels)
-        assertEquals(16, f.sampleBits)
-        assertEquals(AudioFormat.Encoding.PCM_SIGNED_LE, f.encoding)
+        assertEquals(AudioFormat.Encoding.PCM_16BIT, f.encoding)
     }
 
     @Test
@@ -23,9 +19,9 @@ class AudioFormatTest {
         val values = AudioFormat.Encoding.entries.toSet()
         assertEquals(
             setOf(
-                AudioFormat.Encoding.PCM_SIGNED_LE,
+                AudioFormat.Encoding.PCM_16BIT,
                 AudioFormat.Encoding.PCM_OPUS,
-                AudioFormat.Encoding.PCM_FLOAT_LE,
+                AudioFormat.Encoding.PCM_32BIT_FLOAT,
             ),
             values,
         )

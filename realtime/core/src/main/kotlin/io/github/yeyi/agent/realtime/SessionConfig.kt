@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.realtime
 
-import io.github.yeyi.agent.realtime.audio.AudioFormat
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 
@@ -10,8 +9,6 @@ public data class SessionConfig(
     val model: String,
     val instructions: String,
     val voice: String,
-    val inputFormat: AudioFormat,
-    val outputFormat: AudioFormat,
     val tools: List<Tool> = emptyList(),
     val turnDetection: TurnDetection = TurnDetection.ServerVad(),
 )

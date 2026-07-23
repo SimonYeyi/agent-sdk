@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.realtime
 
-import io.github.yeyi.agent.realtime.audio.AudioFormat
 import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -11,12 +10,6 @@ class AssistantAudioGateTest {
     private class FakeSpeaker : SpeakerAdapter {
         val played = mutableListOf<ByteArray>()
         var stopped = 0
-        override val outputFormat = AudioFormat(
-            sampleRateHz = 24_000,
-            channels = 1,
-            sampleBits = 16,
-            encoding = AudioFormat.Encoding.PCM_SIGNED_LE,
-        )
         override suspend fun play(pcm: ByteArray) { played += pcm }
         override suspend fun stopPlayback() { stopped++ }
         override suspend fun start() {}
@@ -28,7 +21,7 @@ class AssistantAudioGateTest {
         val speaker = FakeSpeaker()
         var delegateCalled = false
         val gate = AssistantAudioGate(
-            delegationMarker = DelegationHandler.DELEGATION_MARKER,onDelegate = { delegateCalled = true }, speaker = speaker)
+            delegationMarker = DelegationHandler.DELEGATION_MARKER, onDelegate = { delegateCalled = true }, speaker = speaker)
 
         gate.onUserTranscriptCompleted("hello")
         gate.onAudioDelta(byteArrayOf(1, 2, 3))
@@ -46,7 +39,7 @@ class AssistantAudioGateTest {
         val speaker = FakeSpeaker()
         var delegatedText: String? = null
         val gate = AssistantAudioGate(
-            delegationMarker = DelegationHandler.DELEGATION_MARKER,onDelegate = { delegatedText = it }, speaker = speaker)
+            delegationMarker = DelegationHandler.DELEGATION_MARKER, onDelegate = { delegatedText = it }, speaker = speaker)
 
         gate.onUserTranscriptCompleted("open the door")
         gate.onAudioDelta(byteArrayOf(7, 8, 9))
@@ -60,7 +53,7 @@ class AssistantAudioGateTest {
     fun `subsequent audio after marker is dropped`() = runTest {
         val speaker = FakeSpeaker()
         val gate = AssistantAudioGate(
-            delegationMarker = DelegationHandler.DELEGATION_MARKER,onDelegate = {}, speaker = speaker)
+            delegationMarker = DelegationHandler.DELEGATION_MARKER, onDelegate = {}, speaker = speaker)
 
         gate.onUserTranscriptCompleted("hi")
         gate.onTextDelta("<|TASK|>")
@@ -74,7 +67,7 @@ class AssistantAudioGateTest {
     fun `onTurnEnd resets state for next turn`() = runTest {
         val speaker = FakeSpeaker()
         val gate = AssistantAudioGate(
-            delegationMarker = DelegationHandler.DELEGATION_MARKER,onDelegate = {}, speaker = speaker)
+            delegationMarker = DelegationHandler.DELEGATION_MARKER, onDelegate = {}, speaker = speaker)
 
         gate.onUserTranscriptCompleted("first")
         gate.onAudioDelta(byteArrayOf(1))
@@ -92,7 +85,7 @@ class AssistantAudioGateTest {
     fun `onTextDelta throws if marker but no pending ASR text`() = runTest {
         val speaker = FakeSpeaker()
         val gate = AssistantAudioGate(
-            delegationMarker = DelegationHandler.DELEGATION_MARKER,onDelegate = {}, speaker = speaker)
+            delegationMarker = DelegationHandler.DELEGATION_MARKER, onDelegate = {}, speaker = speaker)
 
         var threw = false
         try {

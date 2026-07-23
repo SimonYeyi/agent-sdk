@@ -20,15 +20,19 @@ import kotlin.test.assertTrue
 
 class RealtimeApplianceTest {
 
+    private val fakeInputFormat = AudioFormat(
+        sampleRateHz = 16_000,
+        encoding = AudioFormat.Encoding.PCM_16BIT,
+    )
+
+    private val fakeOutputFormat = AudioFormat(
+        sampleRateHz = 24_000,
+        encoding = AudioFormat.Encoding.PCM_16BIT,
+    )
+
     private class FakeMicrophone(
         private val captureFlow: Flow<ByteArray> = flowOf(ByteArray(0)),
     ) : MicrophoneAdapter {
-        override val inputFormat = AudioFormat(
-            sampleRateHz = 16_000,
-            channels = 1,
-            sampleBits = 16,
-            encoding = AudioFormat.Encoding.PCM_SIGNED_LE,
-        )
         override fun capture() = captureFlow
         override suspend fun start() {}
         override suspend fun close() {}
@@ -36,19 +40,16 @@ class RealtimeApplianceTest {
 
     private class FakeSpeaker : SpeakerAdapter {
         val played = Channel<ByteArray>(Channel.UNLIMITED)
-        override val outputFormat = AudioFormat(
-            sampleRateHz = 24_000,
-            channels = 1,
-            sampleBits = 16,
-            encoding = AudioFormat.Encoding.PCM_SIGNED_LE,
-        )
         override suspend fun play(pcm: ByteArray) { played.send(pcm) }
         override suspend fun stopPlayback() {}
         override suspend fun start() {}
         override suspend fun close() {}
     }
 
-    private class FakeSession : RealtimeSession {
+    private class FakeSession(
+        private val inputFormat: AudioFormat,
+        private val outputFormat: AudioFormat,
+    ) : RealtimeSession {
         private var eventsChannel = Channel<RealtimeEvent>(Channel.UNLIMITED)
         var subscribedSignal = Channel<Unit>(Channel.CONFLATED)
         val sentAudio = mutableListOf<ByteArray>()
@@ -61,6 +62,8 @@ class RealtimeApplianceTest {
         var connectInstructions: String? = null
         override val events: Flow<RealtimeEvent>
             get() = eventsChannel.receiveAsFlow().onStart { subscribedSignal.trySend(Unit) }
+        override val inputAudioFormat: AudioFormat = inputFormat
+        override val outputAudioFormat: AudioFormat = outputFormat
         override suspend fun connect(config: SessionConfig) {
             connectCount++
             connectInstructions = config.instructions
@@ -104,14 +107,12 @@ class RealtimeApplianceTest {
         }
     }
 
-    private fun sessionConfigFor(mic: FakeMicrophone, speaker: FakeSpeaker) = SessionConfig(
+    private fun makeSessionConfig() = SessionConfig(
         apiKey = "k",
         endpoint = "wss://test",
         model = "m",
         instructions = "你是助手",
         voice = "v",
-        inputFormat = mic.inputFormat,
-        outputFormat = speaker.outputFormat,
     )
 
     private suspend fun awaitSubscribed(session: FakeSession) {
@@ -125,17 +126,16 @@ class RealtimeApplianceTest {
 
     @Test
     fun `chitchat path lets S2S audio through without invoking delegation`() = runTest {
-        val session = FakeSession()
-        val mic = FakeMicrophone()
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
         val speaker = FakeSpeaker()
         val delegation = FakeDelegation()
 
         val appliance = RealtimeAppliance(
             session = session,
-            mic = mic,
-            speaker = speaker,
+            sessionConfig = makeSessionConfig(),
+            microphone = { FakeMicrophone() },
+            speaker = { speaker },
             delegation = delegation,
-            sessionConfig = sessionConfigFor(mic, speaker),
         )
         appliance.start()
         awaitSubscribed(session)
@@ -157,17 +157,15 @@ class RealtimeApplianceTest {
 
     @Test
     fun `delegate path cancels S2S and runs delegation`() = runTest {
-        val session = FakeSession()
-        val mic = FakeMicrophone()
-        val speaker = FakeSpeaker()
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
         val delegation = FakeDelegation()
 
         val appliance = RealtimeAppliance(
             session = session,
-            mic = mic,
-            speaker = speaker,
+            sessionConfig = makeSessionConfig(),
+            microphone = { FakeMicrophone() },
+            speaker = { FakeSpeaker() },
             delegation = delegation,
-            sessionConfig = sessionConfigFor(mic, speaker),
         )
 
         appliance.start()
@@ -187,17 +185,15 @@ class RealtimeApplianceTest {
 
     @Test
     fun `delegation Success triggers injectAndRespond after S2S idle`() = runTest {
-        val session = FakeSession()
-        val mic = FakeMicrophone()
-        val speaker = FakeSpeaker()
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
         val delegation = FakeDelegation(DelegationResult.Success("Boss 任务完成, 结果: stub"))
 
         val appliance = RealtimeAppliance(
             session = session,
-            mic = mic,
-            speaker = speaker,
+            sessionConfig = makeSessionConfig(),
+            microphone = { FakeMicrophone() },
+            speaker = { FakeSpeaker() },
             delegation = delegation,
-            sessionConfig = sessionConfigFor(mic, speaker),
         )
 
         appliance.start()
@@ -220,17 +216,14 @@ class RealtimeApplianceTest {
     fun `mic capture forwards PCM to session sendAudio`() = runTest {
         val pcm1 = byteArrayOf(1, 2, 3)
         val pcm2 = byteArrayOf(4, 5)
-        val session = FakeSession()
-        val mic = FakeMicrophone(flowOf(pcm1, pcm2))
-        val speaker = FakeSpeaker()
-        val delegation = FakeDelegation()
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
 
         val appliance = RealtimeAppliance(
             session = session,
-            mic = mic,
-            speaker = speaker,
-            delegation = delegation,
-            sessionConfig = sessionConfigFor(mic, speaker),
+            sessionConfig = makeSessionConfig(),
+            microphone = { FakeMicrophone(flowOf(pcm1, pcm2)) },
+            speaker = { FakeSpeaker() },
+            delegation = null,
         )
 
         appliance.start()
@@ -247,17 +240,14 @@ class RealtimeApplianceTest {
 
     @Test
     fun `start is idempotent and second call is no-op`() = runTest {
-        val session = FakeSession()
-        val mic = FakeMicrophone()
-        val speaker = FakeSpeaker()
-        val delegation = FakeDelegation()
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
 
         val appliance = RealtimeAppliance(
             session = session,
-            mic = mic,
-            speaker = speaker,
-            delegation = delegation,
-            sessionConfig = sessionConfigFor(mic, speaker),
+            sessionConfig = makeSessionConfig(),
+            microphone = { FakeMicrophone() },
+            speaker = { FakeSpeaker() },
+            delegation = null,
         )
 
         appliance.start()
@@ -269,17 +259,15 @@ class RealtimeApplianceTest {
 
     @Test
     fun `close then start reconnects and processes events from the new session`() = kotlinx.coroutines.runBlocking {
-        val session = FakeSession()
-        val mic = FakeMicrophone()
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
         val speaker = FakeSpeaker()
-        val delegation = FakeDelegation()
 
         val appliance = RealtimeAppliance(
             session = session,
-            mic = mic,
-            speaker = speaker,
-            delegation = delegation,
-            sessionConfig = sessionConfigFor(mic, speaker),
+            sessionConfig = makeSessionConfig(),
+            microphone = { FakeMicrophone() },
+            speaker = { speaker },
+            delegation = null,
         )
 
         appliance.start()
@@ -309,17 +297,14 @@ class RealtimeApplianceTest {
 
     @Test
     fun `double close does not throw`() = runTest {
-        val session = FakeSession()
-        val mic = FakeMicrophone()
-        val speaker = FakeSpeaker()
-        val delegation = FakeDelegation()
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
 
         val appliance = RealtimeAppliance(
             session = session,
-            mic = mic,
-            speaker = speaker,
-            delegation = delegation,
-            sessionConfig = sessionConfigFor(mic, speaker),
+            sessionConfig = makeSessionConfig(),
+            microphone = { FakeMicrophone() },
+            speaker = { FakeSpeaker() },
+            delegation = null,
         )
 
         appliance.start()
@@ -331,25 +316,22 @@ class RealtimeApplianceTest {
 
     @Test
     fun `null delegation keeps instructions untouched and audio passes through`() = runTest {
-        val session = FakeSession()
-        val mic = FakeMicrophone()
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
         val speaker = FakeSpeaker()
         val baseInstructions = "你是助手"
 
         val appliance = RealtimeAppliance(
             session = session,
-            mic = mic,
-            speaker = speaker,
-            // delegation 留空，默认 null —— S2S 自主完成所有交互
             sessionConfig = SessionConfig(
                 apiKey = "k",
                 endpoint = "wss://test",
                 model = "m",
                 instructions = baseInstructions,
                 voice = "v",
-                inputFormat = mic.inputFormat,
-                outputFormat = speaker.outputFormat,
             ),
+            microphone = { FakeMicrophone() },
+            speaker = { speaker },
+            delegation = null,
         )
 
         appliance.start()

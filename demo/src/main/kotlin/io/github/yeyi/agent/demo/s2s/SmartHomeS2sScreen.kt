@@ -71,22 +71,18 @@ fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Mod
     fun startBridge() {
         val client = HttpClient(CIO) { install(WebSockets) }
         val session: RealtimeSession = VolcRealtimeSession(client)
-        val mic = AndroidMicrophoneAdapter()
-        val speaker = AndroidSpeakerAdapter()
         val b = RealtimeAppliance(
             session = session,
-            mic = mic,
-            speaker = speaker,
-            delegation = BossDelegation(boss),
             sessionConfig = SessionConfig(
                 apiKey = apiKey,
                 endpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
                 model = "1.2.6.0",
                 instructions = buildInstructions(),
                 voice = "saturn_zh_female_wumeiyujie_tob",
-                inputFormat = mic.inputFormat,
-                outputFormat = speaker.outputFormat,
             ),
+            microphone = { format -> AndroidMicrophoneAdapter(format) },
+            speaker = { format -> AndroidSpeakerAdapter(format) },
+            delegation = BossDelegation(boss),
         )
         httpClient = client
         scope.launch { b.start() }

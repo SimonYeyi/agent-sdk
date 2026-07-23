@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.realtime
 
+import io.github.yeyi.agent.realtime.audio.AudioFormat
 import io.github.yeyi.agent.realtime.audio.MicrophoneAdapter
 import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
 import kotlinx.coroutines.CoroutineScope
@@ -13,22 +14,24 @@ import kotlinx.coroutines.launch
 public class RealtimeAppliance(
     private val session: RealtimeSession,
     private val sessionConfig: SessionConfig,
-    private val mic: MicrophoneAdapter,
-    private val speaker: SpeakerAdapter,
+    microphone: (AudioFormat) -> MicrophoneAdapter,
+    speaker: (AudioFormat) -> SpeakerAdapter,
     private val delegation: RealtimeDelegation? = null,
 ) {
-    public val events: Flow<RealtimeEvent> get() = session.events
-
     private var scope: CoroutineScope? = null
 
+    private var mic: MicrophoneAdapter = microphone(session.inputAudioFormat)
+    private val speaker: SpeakerAdapter = speaker(session.outputAudioFormat)
     private val delegationHandler: DelegationHandler? = delegation?.let { delegation ->
         DelegationHandler(
             session = session,
-            speaker = speaker,
+            speaker = this.speaker,
             delegation = delegation,
             scopeProvider = { scope },
         )
     }
+
+    public val events: Flow<RealtimeEvent> get() = session.events
 
     public suspend fun start() {
         if (scope != null) return

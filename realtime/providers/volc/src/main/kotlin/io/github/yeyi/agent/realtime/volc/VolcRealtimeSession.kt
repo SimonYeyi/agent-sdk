@@ -52,6 +52,16 @@ public class VolcRealtimeSession(private val client: HttpClient) : RealtimeSessi
     private var scope: CoroutineScope? = null
     private val toolsByName: MutableMap<String, Tool> = mutableMapOf()
 
+    override val inputAudioFormat: AudioFormat = AudioFormat(
+        sampleRateHz = 16_000,
+        encoding = AudioFormat.Encoding.PCM_16BIT,
+    )
+
+    override val outputAudioFormat: AudioFormat = AudioFormat(
+        sampleRateHz = 24_000,
+        encoding = AudioFormat.Encoding.PCM_16BIT,
+    )
+
     override val events: Flow<RealtimeEvent> get() = eventEmitter.asSharedFlow()
 
     override suspend fun connect(config: SessionConfig) {
@@ -110,9 +120,9 @@ public class VolcRealtimeSession(private val client: HttpClient) : RealtimeSessi
             model = config.model,
             instructions = config.instructions,
             audio = VolcAudioConfig(
-                input = VolcAudioSideConfig(format = config.inputFormat.toVolcFormatConfig()),
+                input = VolcAudioSideConfig(format = inputAudioFormat.toVolcFormatConfig()),
                 output = VolcAudioSideConfig(
-                    format = config.outputFormat.toVolcFormatConfig(),
+                    format = outputAudioFormat.toVolcFormatConfig(),
                     voice = config.voice,
                 ),
             ),
@@ -154,14 +164,14 @@ public class VolcRealtimeSession(private val client: HttpClient) : RealtimeSessi
         )
     }
 
-    private fun AudioFormat.toVolcFormatConfig(): VolcFormatConfig = VolcFormatConfig(
-        type = if (encoding == AudioFormat.Encoding.PCM_SIGNED_LE && sampleBits == 16) {
-            "pcm_s16le"
-        } else {
-            "pcm"
-        },
-        rate = sampleRateHz,
-    )
+    private fun AudioFormat.toVolcFormatConfig(): VolcFormatConfig {
+        val type = when (encoding) {
+            AudioFormat.Encoding.PCM_16BIT -> "pcm_s16le"
+            AudioFormat.Encoding.PCM_OPUS -> "pcm_opus"
+            AudioFormat.Encoding.PCM_32BIT_FLOAT -> "pcm_float"
+        }
+        return VolcFormatConfig(type = type, rate = sampleRateHz)
+    }
 
     // ---- 接收循环 + adaptor ----
 

@@ -10,14 +10,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-public class AndroidSpeakerAdapter(private val sampleRateHz: Int = 24_000) : SpeakerAdapter {
-
-    override val outputFormat: AudioFormat = AudioFormat(
-        sampleRateHz = sampleRateHz,
-        channels = 1,
-        sampleBits = 16,
-        encoding = AudioFormat.Encoding.PCM_SIGNED_LE,
-    )
+public class AndroidSpeakerAdapter(private val format: AudioFormat) : SpeakerAdapter {
 
     private val mutex = Mutex()
 
@@ -27,7 +20,7 @@ public class AndroidSpeakerAdapter(private val sampleRateHz: Int = 24_000) : Spe
         mutex.withLock {
             if (track != null) return
             val minBuffer = AudioTrack.getMinBufferSize(
-                sampleRateHz,
+                format.sampleRateHz,
                 AndroidAudioFormat.CHANNEL_OUT_MONO,
                 AndroidAudioFormat.ENCODING_PCM_16BIT,
             )
@@ -41,7 +34,7 @@ public class AndroidSpeakerAdapter(private val sampleRateHz: Int = 24_000) : Spe
                 .setAudioFormat(
                     AndroidAudioFormat.Builder()
                         .setEncoding(AndroidAudioFormat.ENCODING_PCM_16BIT)
-                        .setSampleRate(sampleRateHz)
+                        .setSampleRate(format.sampleRateHz)
                         .setChannelMask(AndroidAudioFormat.CHANNEL_OUT_MONO)
                         .build()
                 )
