@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.realtime
 
-import io.github.yeyi.agent.realtime.audio.AudioFormat
 import io.github.yeyi.agent.realtime.audio.MicrophoneAdapter
 import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
 import kotlinx.coroutines.CoroutineScope
@@ -14,18 +13,15 @@ import kotlinx.coroutines.launch
 public class RealtimeAppliance(
     private val session: RealtimeSession,
     private val sessionConfig: SessionConfig,
-    microphone: (AudioFormat) -> MicrophoneAdapter,
-    speaker: (AudioFormat) -> SpeakerAdapter,
+    private val microphone: MicrophoneAdapter,
+    private val speaker: SpeakerAdapter,
     private val delegation: RealtimeDelegation? = null,
 ) {
     private var scope: CoroutineScope? = null
-
-    private var mic: MicrophoneAdapter = microphone(session.inputAudioFormat)
-    private val speaker: SpeakerAdapter = speaker(session.outputAudioFormat)
     private val delegationHandler: DelegationHandler? = delegation?.let { delegation ->
         DelegationHandler(
             session = session,
-            speaker = this.speaker,
+            speaker = speaker,
             delegation = delegation,
             scopeProvider = { scope },
         )
@@ -41,13 +37,13 @@ public class RealtimeAppliance(
                 ?.appendInstructions(sessionConfig.instructions)
                 ?: sessionConfig.instructions
             session.connect(sessionConfig.copy(instructions = instructions))
-            mic.start()
-            speaker.start()
+            microphone.start(session.inputAudioFormat)
+            speaker.start(session.outputAudioFormat)
             scope?.launch {
                 session.events.collect { event -> handleEvent(event) }
             }
             scope?.launch {
-                mic.capture().collect { pcm -> session.sendAudio(pcm) }
+                microphone.capture().collect { pcm -> session.sendAudio(pcm) }
             }
         } catch (e: Throwable) {
             runCatching { close() }
@@ -58,7 +54,7 @@ public class RealtimeAppliance(
     public suspend fun close() {
         scope?.coroutineContext[Job]?.cancelAndJoin()
         scope = null
-        mic.close()
+        microphone.close()
         speaker.close()
         session.close()
     }

@@ -34,15 +34,15 @@ class RealtimeApplianceTest {
         private val captureFlow: Flow<ByteArray> = flowOf(ByteArray(0)),
     ) : MicrophoneAdapter {
         override fun capture() = captureFlow
-        override suspend fun start() {}
+        override suspend fun start(format: AudioFormat) {}
         override suspend fun close() {}
     }
 
     private class FakeSpeaker : SpeakerAdapter {
         val played = Channel<ByteArray>(Channel.UNLIMITED)
+        override suspend fun start(format: AudioFormat) {}
         override suspend fun play(pcm: ByteArray) { played.send(pcm) }
         override suspend fun stopPlayback() {}
-        override suspend fun start() {}
         override suspend fun close() {}
     }
 
@@ -133,8 +133,8 @@ class RealtimeApplianceTest {
         val appliance = RealtimeAppliance(
             session = session,
             sessionConfig = makeSessionConfig(),
-            microphone = { FakeMicrophone() },
-            speaker = { speaker },
+            microphone = FakeMicrophone(),
+            speaker = speaker,
             delegation = delegation,
         )
         appliance.start()
@@ -163,8 +163,8 @@ class RealtimeApplianceTest {
         val appliance = RealtimeAppliance(
             session = session,
             sessionConfig = makeSessionConfig(),
-            microphone = { FakeMicrophone() },
-            speaker = { FakeSpeaker() },
+            microphone = FakeMicrophone(),
+            speaker = FakeSpeaker(),
             delegation = delegation,
         )
 
@@ -191,8 +191,8 @@ class RealtimeApplianceTest {
         val appliance = RealtimeAppliance(
             session = session,
             sessionConfig = makeSessionConfig(),
-            microphone = { FakeMicrophone() },
-            speaker = { FakeSpeaker() },
+            microphone = FakeMicrophone(),
+            speaker = FakeSpeaker(),
             delegation = delegation,
         )
 
@@ -221,8 +221,8 @@ class RealtimeApplianceTest {
         val appliance = RealtimeAppliance(
             session = session,
             sessionConfig = makeSessionConfig(),
-            microphone = { FakeMicrophone(flowOf(pcm1, pcm2)) },
-            speaker = { FakeSpeaker() },
+            microphone = FakeMicrophone(flowOf(pcm1, pcm2)),
+            speaker = FakeSpeaker(),
             delegation = null,
         )
 
@@ -245,8 +245,8 @@ class RealtimeApplianceTest {
         val appliance = RealtimeAppliance(
             session = session,
             sessionConfig = makeSessionConfig(),
-            microphone = { FakeMicrophone() },
-            speaker = { FakeSpeaker() },
+            microphone = FakeMicrophone(),
+            speaker = FakeSpeaker(),
             delegation = null,
         )
 
@@ -265,8 +265,8 @@ class RealtimeApplianceTest {
         val appliance = RealtimeAppliance(
             session = session,
             sessionConfig = makeSessionConfig(),
-            microphone = { FakeMicrophone() },
-            speaker = { speaker },
+            microphone = FakeMicrophone(),
+            speaker = speaker,
             delegation = null,
         )
 
@@ -302,8 +302,8 @@ class RealtimeApplianceTest {
         val appliance = RealtimeAppliance(
             session = session,
             sessionConfig = makeSessionConfig(),
-            microphone = { FakeMicrophone() },
-            speaker = { FakeSpeaker() },
+            microphone = FakeMicrophone(),
+            speaker = FakeSpeaker(),
             delegation = null,
         )
 
@@ -329,8 +329,8 @@ class RealtimeApplianceTest {
                 instructions = baseInstructions,
                 voice = "v",
             ),
-            microphone = { FakeMicrophone() },
-            speaker = { speaker },
+            microphone = FakeMicrophone(),
+            speaker = speaker,
             delegation = null,
         )
 

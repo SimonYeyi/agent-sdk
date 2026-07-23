@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.realtime
 
+import io.github.yeyi.agent.realtime.audio.AudioFormat
 import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
@@ -10,9 +11,9 @@ class AssistantAudioGateTest {
     private class FakeSpeaker : SpeakerAdapter {
         val played = mutableListOf<ByteArray>()
         var stopped = 0
+        override suspend fun start(format: AudioFormat) {}
         override suspend fun play(pcm: ByteArray) { played += pcm }
         override suspend fun stopPlayback() { stopped++ }
-        override suspend fun start() {}
         override suspend fun close() {}
     }
 

@@ -52,17 +52,20 @@ fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Mod
         b.events.collect { event ->
             when (event) {
                 is RealtimeEvent.UserTranscriptDelta -> {
-                    transcript = if (pendingDelta.isNotEmpty() && transcript.endsWith(pendingDelta)) {
-                        transcript.dropLast(pendingDelta.length) + event.text
-                    } else {
-                        transcript + event.text
-                    }
+                    transcript =
+                        if (pendingDelta.isNotEmpty() && transcript.endsWith(pendingDelta)) {
+                            transcript.dropLast(pendingDelta.length) + event.text
+                        } else {
+                            transcript + event.text
+                        }
                     pendingDelta = event.text
                 }
+
                 is RealtimeEvent.UserTranscriptCompleted -> {
                     transcript += "\n"
                     pendingDelta = ""
                 }
+
                 else -> Unit
             }
         }
@@ -80,8 +83,8 @@ fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Mod
                 instructions = buildInstructions(),
                 voice = "saturn_zh_female_wumeiyujie_tob",
             ),
-            microphone = { format -> AndroidMicrophoneAdapter(format) },
-            speaker = { format -> AndroidSpeakerAdapter(format) },
+            microphone = AndroidMicrophoneAdapter(),
+            speaker = AndroidSpeakerAdapter(),
             delegation = BossDelegation(boss),
         )
         httpClient = client

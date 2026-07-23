@@ -20,16 +20,17 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-public class AndroidMicrophoneAdapter(private val format: AudioFormat) : MicrophoneAdapter {
-
+public class AndroidMicrophoneAdapter : MicrophoneAdapter {
     private val mutex = Mutex()
     private var record: AudioRecord? = null
     private var captureJob: Job? = null
+    private lateinit var audioFormat: AudioFormat
 
     @RequiresPermission(Manifest.permission.RECORD_AUDIO)
-    override suspend fun start() {
+    override suspend fun start(format: AudioFormat) {
         mutex.withLock {
             if (record != null) return
+            audioFormat = format
             val minBuffer = AudioRecord.getMinBufferSize(
                 format.sampleRateHz,
                 AndroidAudioFormat.CHANNEL_IN_MONO,
@@ -53,7 +54,7 @@ public class AndroidMicrophoneAdapter(private val format: AudioFormat) : Microph
         }
         val buffer = ByteArray(
             AudioRecord.getMinBufferSize(
-                format.sampleRateHz,
+                audioFormat.sampleRateHz,
                 AndroidAudioFormat.CHANNEL_IN_MONO,
                 AndroidAudioFormat.ENCODING_PCM_16BIT,
             )

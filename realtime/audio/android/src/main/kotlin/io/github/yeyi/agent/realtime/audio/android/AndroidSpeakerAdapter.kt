@@ -10,13 +10,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-public class AndroidSpeakerAdapter(private val format: AudioFormat) : SpeakerAdapter {
-
+public class AndroidSpeakerAdapter : SpeakerAdapter {
     private val mutex = Mutex()
-
     private var track: AudioTrack? = null
 
-    override suspend fun start() {
+    override suspend fun start(format: AudioFormat) {
         mutex.withLock {
             if (track != null) return
             val minBuffer = AudioTrack.getMinBufferSize(
