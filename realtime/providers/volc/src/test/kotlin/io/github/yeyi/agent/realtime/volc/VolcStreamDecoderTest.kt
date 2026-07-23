@@ -1,7 +1,6 @@
 package io.github.yeyi.agent.realtime.volc
 
 import io.github.yeyi.agent.realtime.RealtimeEvent
-import io.github.yeyi.agent.realtime.ResponseStatus
 import kotlinx.serialization.json.Json
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -16,7 +15,7 @@ class VolcStreamDecoderTest {
     @Test
     fun `transcription completed maps to UserTranscriptCompleted`() {
         val json = """
-            {"type":"conversation.item.input_audio_transcription.completed","transcript":"你好"}
+            {"type":"conversation.item.input_audio_transcription.completed","text":"你好"}
         """.trimIndent()
         val events = decode(json)
         assertEquals(1, events.size)
@@ -38,7 +37,6 @@ class VolcStreamDecoderTest {
         val events = decode(json)
         assertEquals(1, events.size)
         val e = events[0] as RealtimeEvent.AssistantAudioDelta
-        assertEquals("i1", e.itemId)
         assertEquals(byteArrayOf(1, 2).toList(), e.pcm.toList())
     }
 
@@ -49,7 +47,7 @@ class VolcStreamDecoderTest {
         """.trimIndent()
         val events = decode(json)
         assertEquals(1, events.size)
-        assertEquals(RealtimeEvent.ResponseDone("r1", ResponseStatus.CANCELED), events[0])
+        assertEquals(RealtimeEvent.ResponseDone, events[0])
     }
 
     @Test
@@ -119,7 +117,7 @@ class VolcStreamDecoderTest {
     fun `response canceled maps to ResponseDone with empty id and CANCELED`() {
         val events = decode("""{"type":"response.canceled"}""")
         assertEquals(1, events.size)
-        assertEquals(RealtimeEvent.ResponseDone("", ResponseStatus.CANCELED), events[0])
+        assertEquals(RealtimeEvent.ResponseCanceled, events[0])
     }
 
     @Test
