@@ -1,5 +1,9 @@
 package io.github.yeyi.agent.demo.s2s
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
@@ -13,7 +17,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import io.github.yeyi.agent.realtime.RealtimeAppliance
 import io.github.yeyi.agent.realtime.RealtimeSession
 import io.github.yeyi.agent.realtime.SessionConfig
@@ -32,10 +38,47 @@ import kotlinx.coroutines.launch
 @Composable
 fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Modifier) {
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main) }
+    val context = LocalContext.current
     var status by remember { mutableStateOf("Idle") }
     var transcript by remember { mutableStateOf("") }
     var bridge by remember { mutableStateOf<RealtimeAppliance?>(null) }
     var httpClient by remember { mutableStateOf<HttpClient?>(null) }
+
+    fun startBridge() {
+        val client = HttpClient(CIO) { install(WebSockets) }
+        val session: RealtimeSession = VolcRealtimeSession(client)
+        val mic = AndroidMicrophoneAdapter()
+        val speaker = AndroidSpeakerAdapter()
+        val b = RealtimeAppliance(
+            session = session,
+            mic = mic,
+            speaker = speaker,
+            delegation = BossDelegation(boss),
+            sessionConfig = SessionConfig(
+                apiKey = apiKey,
+                endpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
+                model = "1.2.6.0",
+                instructions = buildInstructions(),
+                voice = "saturn_zh_female_wumeiyujie_tob",
+                inputFormat = mic.inputFormat,
+                outputFormat = speaker.outputFormat,
+            ),
+        )
+        httpClient = client
+        scope.launch { b.start() }
+        bridge = b
+        status = "Listening"
+    }
+
+    val recordAudioLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            startBridge()
+        } else {
+            status = "需要麦克风权限"
+        }
+    }
 
     Column(modifier.padding(16.dp)) {
         Text("S2S 语音模式（手动开启）", style = MaterialTheme.typography.titleLarge)
@@ -47,29 +90,13 @@ fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Mod
 
         Button(onClick = {
             if (bridge == null) {
-                val client = HttpClient(CIO) { install(WebSockets) }
-                val session: RealtimeSession = VolcRealtimeSession(client)
-                val mic = AndroidMicrophoneAdapter()
-                val speaker = AndroidSpeakerAdapter()
-                val b = RealtimeAppliance(
-                    session = session,
-                    mic = mic,
-                    speaker = speaker,
-                    delegation = BossDelegation(boss),
-                    sessionConfig = SessionConfig(
-                        apiKey = apiKey,
-                        endpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
-                        model = "1.2.6.0",
-                        instructions = buildInstructions(),
-                        voice = "saturn_zh_female_wumeiyujie_tob",
-                        inputFormat = mic.inputFormat,
-                        outputFormat = speaker.outputFormat,
-                    ),
-                )
-                httpClient = client
-                scope.launch { b.start() }
-                bridge = b
-                status = "Listening"
+                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+                    == PackageManager.PERMISSION_GRANTED
+                ) {
+                    startBridge()
+                } else {
+                    recordAudioLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                }
             } else {
                 val old = bridge
                 bridge = null
