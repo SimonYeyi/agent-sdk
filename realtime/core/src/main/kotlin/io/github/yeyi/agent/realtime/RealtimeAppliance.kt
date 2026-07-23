@@ -116,7 +116,7 @@ internal class DelegationHandler(
     }
 
     companion object {
-        const val DELEGATION_MARKER = "<|TASK|>"
+        const val DELEGATION_MARKER = "|"
         val DELEGATION_PROTOCOL = """
             委派协议:
             1. 闲聊 (问候/聊天/知识问答/一般咨询): 直接自然口语回答.

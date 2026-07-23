@@ -113,9 +113,8 @@ internal class VolcWireProtocol(private val session: WebSocketSession) {
     }
 
     /** `speech_text_buffer.append` — 流式追加文本输入片段. */
-    internal suspend fun speechTextBufferAppend(speechId: String, text: String) {
+    internal suspend fun speechTextBufferAppend(text: String) {
         sendRawFrame("speech_text_buffer.append") {
-            put("speech_id", speechId)
             put("text", text)
         }
     }
@@ -131,17 +130,15 @@ internal class VolcWireProtocol(private val session: WebSocketSession) {
     }
 
     /** `speech_text_buffer.replacement.append` — 流式追加打断替换文本片段. */
-    internal suspend fun speechTextBufferReplacementAppend(speechId: String, text: String) {
+    internal suspend fun speechTextBufferReplacementAppend(text: String) {
         sendRawFrame("speech_text_buffer.replacement.append") {
-            put("speech_id", speechId)
             put("text", text)
         }
     }
 
     /** `speech_text_buffer.replacement.commit` — 提交打断替换. */
-    internal suspend fun speechTextBufferReplacementCommit(speechId: String, text: String) {
+    internal suspend fun speechTextBufferReplacementCommit(text: String) {
         sendRawFrame("speech_text_buffer.replacement.commit") {
-            put("speech_id", speechId)
             put("text", text)
         }
     }
