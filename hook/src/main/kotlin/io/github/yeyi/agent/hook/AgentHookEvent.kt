@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.hook
 
-import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -64,8 +63,8 @@ public sealed interface AgentHookEvent : HookEvent {
         val result: AgentResult
     ) : AgentHookEvent
 
-    /** Agent 执行失败时触发，error 为领域异常。 */
+    /** Agent 执行失败时触发，error 为触发失败的原始异常。 */
     public data class RunFailed(
-        val error: AgentException
+        val error: Throwable
     ) : AgentHookEvent
 }

@@ -3,9 +3,9 @@ package io.github.yeyi.agent
 /**
  * Agent 领域异常体系，所有公开异常均继承自此 sealed class。
  *
- * 保留作为 hook 契约（[io.github.yeyi.agent.AgentHook.onRunFailed] 的 `cause: AgentException`）
- * 与 ReActAgent 边界的抬升目标；事件层 [AgentEvent.Failed] 不再要求 [AgentException]，
- * 可以携带任意 [Throwable]。
+ * 仅用于 SDK 主动抛出的领域错误（如 [MaxIterations]、[LlmError]）；
+ * 失败路径的 hook 回调 [io.github.yeyi.agent.AgentHook.onRunFailed] 与事件层
+ * [AgentEvent.Failed] 均携带原始 [Throwable]，不再由边界统一抬升为 [AgentException]。
  */
 public sealed class AgentException(message: String, cause: Throwable? = null) :
     RuntimeException(message, cause) {
@@ -28,19 +28,11 @@ public sealed class AgentException(message: String, cause: Throwable? = null) :
     public class ToolNotFound(name: String, available: Iterable<String>) :
         AgentException("Tool '$name' not found. Available: $available") {}
 
-    /** 未知异常兜底。 */
-    public class Unknown(cause: Throwable) :
-        AgentException(cause.message ?: cause::class.simpleName ?: "Unknown", cause)
-
     /** LLM context 超限。 */
     public class ContextOverflow(
         public val reason: String,
         cause: Throwable? = null
     ) : AgentException("Context overflow: $reason", cause)
-}
-
-internal fun Throwable.toAgentException(): AgentException {
-    return this as? AgentException ?: AgentException.Unknown(this)
 }
 
 internal fun Throwable.isContextOverflow(): Boolean {

@@ -112,10 +112,8 @@ public class ReActAgent internal constructor(
             throw AgentException.MaxIterations(maxIterations)
         } catch (t: Throwable) {
             if (t is kotlinx.coroutines.CancellationException) throw t
-            // Hook 契约仍要求 AgentException,边界处统一抬升一次(对已是 AgentException 的返回同实例)。
-            // Failed 事件携带原始 Throwable,不再强制包成 AgentException —— 让上层自由判型。
-            val lifted = t.toAgentException()
-            hook.safeInvoke { onRunFailed(buildContext(iterations), lifted) }
+            // 失败路径携带原始 Throwable,不再包成 AgentException —— 让上层自由判型。
+            hook.safeInvoke { onRunFailed(buildContext(iterations), t) }
             emit(AgentEvent.Failed(t))
         }
     }

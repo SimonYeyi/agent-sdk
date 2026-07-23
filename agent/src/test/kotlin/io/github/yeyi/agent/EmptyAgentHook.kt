@@ -49,6 +49,6 @@ internal open class EmptyAgentHook : AgentHook {
     override suspend fun onRunCompleted(context: AgentContext, result: AgentResult) {
     }
 
-    override suspend fun onRunFailed(context: AgentContext, cause: AgentException) {
+    override suspend fun onRunFailed(context: AgentContext, cause: Throwable) {
     }
 }

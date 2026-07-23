@@ -2,11 +2,9 @@ package io.github.yeyi.agent.error
 
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.isContextOverflow
-import io.github.yeyi.agent.toAgentException
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AgentExceptionTest {
@@ -36,21 +34,6 @@ class AgentExceptionTest {
         assertTrue(ex.message!!.contains("foo"))
         assertTrue(ex.message!!.contains("bar"))
         assertTrue(ex.message!!.contains("baz"))
-    }
-
-    @Test
-    fun `toAgentException returns same instance when cause is already AgentException`() {
-        val original = AgentException.MaxIterations(5)
-        val wrapped = original.toAgentException()
-        assertSame(original, wrapped)
-    }
-
-    @Test
-    fun `toAgentException lifts non-AgentException throwable into AgentException family`() {
-        val cause = IllegalStateException("boom")
-        val wrapped = cause.toAgentException()
-        assertEquals(cause, wrapped.cause)
-        assertTrue(wrapped.message!!.contains("boom"))
     }
 
     @Test

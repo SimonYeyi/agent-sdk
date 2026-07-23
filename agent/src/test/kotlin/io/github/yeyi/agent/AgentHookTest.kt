@@ -185,8 +185,8 @@ class AgentHookTest {
     @Test
     fun `onRunFailed fires when agent throws`() = runTest {
         val errorHook = object : EmptyAgentHook() {
-            val errors: MutableList<AgentException> = mutableListOf()
-            override suspend fun onRunFailed(context: AgentContext, cause: AgentException) {
+            val errors: MutableList<Throwable> = mutableListOf()
+            override suspend fun onRunFailed(context: AgentContext, cause: Throwable) {
                 errors += cause
             }
         }
@@ -263,8 +263,8 @@ class AgentHookTest {
     fun `onRunFailed fires for LLM provider throw (not just MaxIterations)`() = runTest {
         val boom = AgentException.LlmError(RuntimeException("llm unavailable"))
         val errorHook = object : EmptyAgentHook() {
-            val errors: MutableList<AgentException> = mutableListOf()
-            override suspend fun onRunFailed(context: AgentContext, cause: AgentException) {
+            val errors: MutableList<Throwable> = mutableListOf()
+            override suspend fun onRunFailed(context: AgentContext, cause: Throwable) {
                 errors += cause
             }
         }
@@ -285,8 +285,8 @@ class AgentHookTest {
     @Test
     fun `CancellationException does not trigger onRunFailed`() = runTest {
         val errorHook = object : EmptyAgentHook() {
-            val errors: MutableList<AgentException> = mutableListOf()
-            override suspend fun onRunFailed(context: AgentContext, cause: AgentException) {
+            val errors: MutableList<Throwable> = mutableListOf()
+            override suspend fun onRunFailed(context: AgentContext, cause: Throwable) {
                 errors += cause
             }
         }

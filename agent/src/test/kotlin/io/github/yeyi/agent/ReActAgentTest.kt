@@ -324,8 +324,7 @@ class ReActAgentTest {
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
         val events = agent.runStream("hi").toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
-        // Failed 现在直接携带原始 Throwable,不再包成 AgentException.Unknown;
-        // 因此 cause 即 boom 本体。
+        // Failed 直接携带原始 Throwable,不做任何包装,因此 cause 即 boom 本体。
         assertSame(boom, failed.cause)
     }
 

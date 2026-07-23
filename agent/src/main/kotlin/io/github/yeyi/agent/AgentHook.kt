@@ -26,8 +26,8 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  *   支持逐 hook 链式改写。短路场景下 `synthetic` 为 true,`durationMs` 反映的是真实耗时，可能接近 0。
  *
  * 错误语义:
- * - onRunFailed 在主流程 emit `Failed` 事件前调用;cause 一定为 [AgentException] 家族成员
- *   (非 AgentException 已被 Agent 边界通过 [toAgentException] 抬升)
+ * - onRunFailed 在主流程 emit `Failed` 事件前调用;cause 为触发失败的原始 [Throwable]
+ *   (可能是 [AgentException] 家族成员,也可能是任意其他异常,由调用方自行判型)
  * - onRunFailed 不接收 CancellationException(由结构化并发保证)
  * - 工具执行错误若被 SDK 转换为 ToolExecutionResult(isError=true)不会触发 onRunFailed;只有真正
  *   抛出的异常才会触发
@@ -76,7 +76,7 @@ public interface AgentHook {
 
     public suspend fun onRunCompleted(context: AgentContext, result: AgentResult)
 
-    public suspend fun onRunFailed(context: AgentContext, cause: AgentException)
+    public suspend fun onRunFailed(context: AgentContext, cause: Throwable)
 }
 
 /**
@@ -127,7 +127,7 @@ internal object NoOpAgentHook : AgentHook {
 
     override suspend fun onRunFailed(
         context: AgentContext,
-        cause: AgentException
+        cause: Throwable
     ) {
     }
 }

@@ -1,7 +1,6 @@
 package io.github.yeyi.agent.hook
 
 import io.github.yeyi.agent.AgentContext
-import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.llm.ChatResponse
@@ -151,7 +150,7 @@ internal class DefaultHookPipeline(
         run(AgentHookEvent.RunCompleted(result), HookContext(context))
     }
 
-    override suspend fun onRunFailed(context: AgentContext, cause: AgentException) {
+    override suspend fun onRunFailed(context: AgentContext, cause: Throwable) {
         run(AgentHookEvent.RunFailed(cause), HookContext(context))
     }
 }
