@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
 class RealtimeAppliance(
@@ -16,6 +17,8 @@ class RealtimeAppliance(
     private val speaker: SpeakerAdapter,
     private val delegation: RealtimeDelegation? = null,
 ) {
+    val events: Flow<RealtimeEvent> get() = session.events
+
     private var scope: CoroutineScope? = null
 
     private val delegationHandler: DelegationHandler? = delegation?.let { delegation ->
