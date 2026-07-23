@@ -1,7 +1,6 @@
 package io.github.yeyi.agent.realtime.volc
 
 import io.github.yeyi.agent.realtime.RealtimeEvent
-import io.github.yeyi.agent.realtime.ResponseStatus
 import java.util.Base64
 
 /**
@@ -31,7 +30,7 @@ internal object VolcStreamDecoder {
             evt.delta?.let { listOf(RealtimeEvent.UserTranscriptDelta(it)) } ?: emptyList()
 
         "conversation.item.input_audio_transcription.completed" ->
-            evt.transcript?.let { listOf(RealtimeEvent.UserTranscriptCompleted(it)) } ?: emptyList()
+            evt.text?.let { listOf(RealtimeEvent.UserTranscriptCompleted(it)) } ?: emptyList()
 
         "conversation.item.input_audio_transcription.failed" ->
             listOf(
@@ -48,30 +47,22 @@ internal object VolcStreamDecoder {
         "response.output_text.done" -> emptyList()
 
         "response.output_audio.started" ->
-            evt.itemId?.let { listOf(RealtimeEvent.AssistantAudioStarted(it)) } ?: emptyList()
+            listOf(RealtimeEvent.AssistantAudioStarted)
 
         "response.output_audio.delta" -> {
-            val id = evt.itemId ?: return emptyList()
             val pcm = evt.delta?.let { Base64.getDecoder().decode(it) } ?: return emptyList()
-            listOf(RealtimeEvent.AssistantAudioDelta(id, pcm))
+            listOf(RealtimeEvent.AssistantAudioDelta(pcm))
         }
 
         "response.output_audio.done" ->
-            evt.itemId?.let { listOf(RealtimeEvent.AssistantAudioDone(it)) } ?: emptyList()
+            listOf(RealtimeEvent.AssistantAudioDone)
 
         "response.canceled" ->
-            listOf(RealtimeEvent.ResponseDone("", ResponseStatus.CANCELED))
+            listOf(RealtimeEvent.ResponseCanceled)
 
-        "response.done" ->
-            evt.responseId?.let { id ->
-                val status = when (evt.status) {
-                    "completed" -> ResponseStatus.COMPLETED
-                    "canceled" -> ResponseStatus.CANCELED
-                    "failed" -> ResponseStatus.FAILED
-                    else -> ResponseStatus.INCOMPLETE
-                }
-                listOf(RealtimeEvent.ResponseDone(id, status))
-            } ?: emptyList()
+        "response.done" -> {
+            listOf(RealtimeEvent.ResponseDone)
+        }
 
         "response.function_call_arguments.done" -> emptyList()
 
@@ -83,7 +74,7 @@ internal object VolcStreamDecoder {
         "error" -> listOf(
             RealtimeEvent.Error(
                 code = evt.error?.code ?: "unknown",
-                message = evt.error?.message ?: "",
+                message = evt.error?.message ?: "unknown",
                 isFatal = false,
             )
         )

@@ -174,8 +174,8 @@ class VolcRealtimeSession(private val client: HttpClient) : RealtimeSession {
     private suspend fun waitForSessionCreated(session: WebSocketSession, wire: VolcWireProtocol) {
         for (frame in session.incoming) {
             if (frame !is Frame.Text) continue
-            val volcEvt = wire.handleIncoming(frame.readText())
-            when (volcEvt.type) {
+            val evt = wire.handleIncoming(frame.readText())
+            when (evt.type) {
                 "session.created" -> return
             }
         }
