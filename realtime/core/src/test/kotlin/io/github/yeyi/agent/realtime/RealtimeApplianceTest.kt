@@ -58,10 +58,12 @@ class RealtimeApplianceTest {
         var injectCount = 0
         var connectCount = 0
         var closeCount = 0
+        var connectInstructions: String? = null
         override val events: Flow<RealtimeEvent>
             get() = eventsChannel.receiveAsFlow().onStart { subscribedSignal.trySend(Unit) }
         override suspend fun connect(config: SessionConfig) {
             connectCount++
+            connectInstructions = config.instructions
         }
         override fun close() {
             closeCount++
@@ -325,5 +327,49 @@ class RealtimeApplianceTest {
         appliance.close()
 
         assertEquals(2, session.closeCount)
+    }
+
+    @Test
+    fun `null delegation keeps instructions untouched and audio passes through`() = runTest {
+        val session = FakeSession()
+        val mic = FakeMicrophone()
+        val speaker = FakeSpeaker()
+        val baseInstructions = "你是助手"
+
+        val appliance = RealtimeAppliance(
+            session = session,
+            mic = mic,
+            speaker = speaker,
+            // delegation 留空，默认 null —— S2S 自主完成所有交互
+            sessionConfig = SessionConfig(
+                apiKey = "k",
+                endpoint = "wss://test",
+                model = "m",
+                instructions = baseInstructions,
+                voice = "v",
+                inputFormat = mic.inputFormat,
+                outputFormat = speaker.outputFormat,
+            ),
+        )
+
+        appliance.start()
+        awaitSubscribed(session)
+
+        // 即使带了 marker 文本，因 gate 不存在，音频也应直通，无拦截
+        session.emit(RealtimeEvent.UserTranscriptCompleted("查一下明天北京天气"))
+        session.emit(RealtimeEvent.AssistantTextDelta("${DelegationHandler.DELEGATION_MARKER}好的"))
+        session.emit(RealtimeEvent.AssistantAudioDelta("i1", byteArrayOf(11, 12, 13)))
+        session.emit(RealtimeEvent.ResponseDone("r1", ResponseStatus.COMPLETED))
+
+        val first = realAwait { speaker.played.receive() }
+        assertEquals(byteArrayOf(11, 12, 13).toList(), first.toList())
+
+        appliance.close()
+
+        // 协议没被注入到 instructions
+        assertEquals(baseInstructions, session.connectInstructions)
+        // 委托链完全没触发
+        assertEquals(0, session.cancelledCount)
+        assertEquals(0, session.injectCount)
     }
 }
