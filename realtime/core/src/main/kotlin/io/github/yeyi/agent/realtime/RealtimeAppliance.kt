@@ -10,14 +10,14 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
-class RealtimeAppliance(
+public class RealtimeAppliance(
     private val session: RealtimeSession,
     private val sessionConfig: SessionConfig,
     private val mic: MicrophoneAdapter,
     private val speaker: SpeakerAdapter,
     private val delegation: RealtimeDelegation? = null,
 ) {
-    val events: Flow<RealtimeEvent> get() = session.events
+    public val events: Flow<RealtimeEvent> get() = session.events
 
     private var scope: CoroutineScope? = null
 
@@ -30,7 +30,7 @@ class RealtimeAppliance(
         )
     }
 
-    suspend fun start() {
+    public suspend fun start() {
         if (scope != null) return
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
@@ -52,7 +52,7 @@ class RealtimeAppliance(
         }
     }
 
-    suspend fun close() {
+    public suspend fun close() {
         scope?.coroutineContext[Job]?.cancelAndJoin()
         scope = null
         mic.close()
@@ -71,13 +71,13 @@ class RealtimeAppliance(
     }
 }
 
-interface RealtimeDelegation {
-    suspend fun run(asrText: String): DelegationResult
+public interface RealtimeDelegation {
+    public suspend fun run(asrText: String): DelegationResult
 }
 
-sealed interface DelegationResult {
-    data class Success(val text: String) : DelegationResult
-    data class Failure(val message: String) : DelegationResult
+public sealed interface DelegationResult {
+    public data class Success(val text: String) : DelegationResult
+    public data class Failure(val message: String) : DelegationResult
 }
 
 internal class DelegationHandler(

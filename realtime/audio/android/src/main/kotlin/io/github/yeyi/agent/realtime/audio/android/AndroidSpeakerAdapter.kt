@@ -10,11 +10,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-class AndroidSpeakerAdapter(
-    private val sampleRateHz: Int = 24_000,
-) : SpeakerAdapter {
+public class AndroidSpeakerAdapter(private val sampleRateHz: Int = 24_000) : SpeakerAdapter {
 
-    override val outputFormat = AudioFormat(
+    override val outputFormat: AudioFormat = AudioFormat(
         sampleRateHz = sampleRateHz,
         channels = 1,
         sampleBits = 16,

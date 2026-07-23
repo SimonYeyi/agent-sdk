@@ -20,11 +20,9 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
-class AndroidMicrophoneAdapter(
-    private val sampleRateHz: Int = 16_000,
-) : MicrophoneAdapter {
+public class AndroidMicrophoneAdapter(private val sampleRateHz: Int = 16_000) : MicrophoneAdapter {
 
-    override val inputFormat = AudioFormat(
+    override val inputFormat: AudioFormat = AudioFormat(
         sampleRateHz = sampleRateHz,
         channels = 1,
         sampleBits = 16,

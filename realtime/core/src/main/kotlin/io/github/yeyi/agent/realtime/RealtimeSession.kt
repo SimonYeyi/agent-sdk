@@ -2,14 +2,14 @@ package io.github.yeyi.agent.realtime
 
 import kotlinx.coroutines.flow.Flow
 
-interface RealtimeSession : AutoCloseable {
-    suspend fun connect(config: SessionConfig)
-    override fun close()
+public interface RealtimeSession : AutoCloseable {
+    public suspend fun connect(config: SessionConfig)
+    public override fun close()
 
-    suspend fun sendAudio(pcm: ByteArray)
-    suspend fun commitInput()
-    suspend fun cancelResponse()
-    suspend fun injectAndRespond(text: String)
+    public suspend fun sendAudio(pcm: ByteArray)
+    public suspend fun commitInput()
+    public suspend fun cancelResponse()
+    public suspend fun injectAndRespond(text: String)
 
-    val events: Flow<RealtimeEvent>
+    public val events: Flow<RealtimeEvent>
 }

@@ -44,7 +44,7 @@ import java.util.concurrent.atomic.AtomicReference
  *
  * [VolcWireProtocol] 不接触 [RealtimeEvent]; 每个公共方法对应一个 Volc C->S type.
  */
-class VolcRealtimeSession(private val client: HttpClient) : RealtimeSession {
+public class VolcRealtimeSession(private val client: HttpClient) : RealtimeSession {
     private val json = Json { ignoreUnknownKeys = true }
     private val eventEmitter = MutableSharedFlow<RealtimeEvent>(extraBufferCapacity = 64)
     private val wsRef = AtomicReference<WebSocketSession?>(null)

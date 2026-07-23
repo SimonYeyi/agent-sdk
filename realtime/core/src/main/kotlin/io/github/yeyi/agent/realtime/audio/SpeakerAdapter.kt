@@ -1,9 +1,9 @@
 package io.github.yeyi.agent.realtime.audio
 
-interface SpeakerAdapter {
-    val outputFormat: AudioFormat
-    suspend fun play(pcm: ByteArray)
-    suspend fun stopPlayback()
-    suspend fun start()
-    suspend fun close()
+public interface SpeakerAdapter {
+    public val outputFormat: AudioFormat
+    public suspend fun play(pcm: ByteArray)
+    public suspend fun stopPlayback()
+    public suspend fun start()
+    public suspend fun close()
 }

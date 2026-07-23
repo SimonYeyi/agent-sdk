@@ -26,7 +26,9 @@ import java.util.concurrent.atomic.AtomicInteger
  *   供 [VolcRealtimeSession] 的读循环在收到下行消息时委派调用.
  * - 14 个 Volc C->S type 映射: [sessionCreate] / [sessionUpdate] / [sessionClose] /
  *   [inputAudioBufferAppend] / [inputAudioBufferCommit] / [responseCancel] /
- *   [speechTextBufferCommit] / [conversationItemCreate] / [conversationItemUpdate] /
+ *   [speechTextBufferAppend] / [speechTextBufferCommit] /
+ *   [speechTextBufferReplacementAppend] / [speechTextBufferReplacementCommit] /
+ *   [conversationItemCreate] / [conversationItemUpdate] /
  *   [conversationItemRetrieve] / [conversationItemDelete]
  *
  * 构造时接收已建联的 [WebSocketSession]; wire 内部持有 [VolcEvent] emitter,

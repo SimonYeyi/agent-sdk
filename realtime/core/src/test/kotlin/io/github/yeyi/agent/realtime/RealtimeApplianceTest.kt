@@ -142,8 +142,8 @@ class RealtimeApplianceTest {
 
         session.emit(RealtimeEvent.UserTranscriptCompleted("今天天气真好"))
         session.emit(RealtimeEvent.AssistantTextDelta("是的, 阳光明媚"))
-        session.emit(RealtimeEvent.AssistantAudioDelta("i1", byteArrayOf(9, 9)))
-        session.emit(RealtimeEvent.ResponseDone("r1", ResponseStatus.COMPLETED))
+        session.emit(RealtimeEvent.AssistantAudioDelta(byteArrayOf(9, 9)))
+        session.emit(RealtimeEvent.ResponseDone)
 
         val first = realAwait { speaker.played.receive() }
         assertEquals(byteArrayOf(9, 9).toList(), first.toList())
@@ -175,7 +175,7 @@ class RealtimeApplianceTest {
 
         session.emit(RealtimeEvent.UserTranscriptCompleted("帮我把客厅灯调暗到 30%"))
         session.emit(RealtimeEvent.AssistantTextDelta("<|TASK|>"))
-        session.emit(RealtimeEvent.ResponseDone("r1", ResponseStatus.CANCELED))
+        session.emit(RealtimeEvent.ResponseDone)
 
         val called = realAwait { delegation.calledSignal.receive() }
         assertEquals("帮我把客厅灯调暗到 30%", called)
@@ -205,7 +205,7 @@ class RealtimeApplianceTest {
 
         session.emit(RealtimeEvent.UserTranscriptCompleted("帮我把灯调暗"))
         session.emit(RealtimeEvent.AssistantTextDelta("<|TASK|>"))
-        session.emit(RealtimeEvent.ResponseDone("r1", ResponseStatus.CANCELED))
+        session.emit(RealtimeEvent.ResponseDone)
 
         realAwait { delegation.calledSignal.receive() }
         val injected = realAwait { session.injectedSignal.receive() }
@@ -299,7 +299,7 @@ class RealtimeApplianceTest {
         assertEquals(1, session.closeCount)
 
         session.emit(RealtimeEvent.AssistantTextDelta("hi"))
-        session.emit(RealtimeEvent.AssistantAudioDelta("i2", byteArrayOf(7, 7, 7)))
+        session.emit(RealtimeEvent.AssistantAudioDelta(byteArrayOf(7, 7, 7)))
         val played = realAwait { speaker.played.receive() }
         assertEquals(byteArrayOf(7, 7, 7).toList(), played.toList())
 
@@ -358,8 +358,8 @@ class RealtimeApplianceTest {
         // 即使带了 marker 文本，因 gate 不存在，音频也应直通，无拦截
         session.emit(RealtimeEvent.UserTranscriptCompleted("查一下明天北京天气"))
         session.emit(RealtimeEvent.AssistantTextDelta("${DelegationHandler.DELEGATION_MARKER}好的"))
-        session.emit(RealtimeEvent.AssistantAudioDelta("i1", byteArrayOf(11, 12, 13)))
-        session.emit(RealtimeEvent.ResponseDone("r1", ResponseStatus.COMPLETED))
+        session.emit(RealtimeEvent.AssistantAudioDelta(byteArrayOf(11, 12, 13)))
+        session.emit(RealtimeEvent.ResponseDone)
 
         val first = realAwait { speaker.played.receive() }
         assertEquals(byteArrayOf(11, 12, 13).toList(), first.toList())

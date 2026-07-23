@@ -2,9 +2,9 @@ package io.github.yeyi.agent.realtime.audio
 
 import kotlinx.coroutines.flow.Flow
 
-interface MicrophoneAdapter {
-    val inputFormat: AudioFormat
-    fun capture(): Flow<ByteArray>
-    suspend fun start()
-    suspend fun close()
+public interface MicrophoneAdapter {
+    public val inputFormat: AudioFormat
+    public fun capture(): Flow<ByteArray>
+    public suspend fun start()
+    public suspend fun close()
 }
