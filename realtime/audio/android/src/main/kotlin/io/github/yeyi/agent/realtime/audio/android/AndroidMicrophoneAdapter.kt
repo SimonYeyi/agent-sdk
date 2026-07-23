@@ -31,16 +31,17 @@ public class AndroidMicrophoneAdapter : MicrophoneAdapter {
         mutex.withLock {
             if (record != null) return
             audioFormat = format
+            val androidEncoding = format.encoding.toAndroidEncoding()
             val minBuffer = AudioRecord.getMinBufferSize(
                 format.sampleRateHz,
                 AndroidAudioFormat.CHANNEL_IN_MONO,
-                AndroidAudioFormat.ENCODING_PCM_16BIT,
+                androidEncoding,
             )
             record = AudioRecord(
                 MediaRecorder.AudioSource.VOICE_RECOGNITION,
                 format.sampleRateHz,
                 AndroidAudioFormat.CHANNEL_IN_MONO,
-                AndroidAudioFormat.ENCODING_PCM_16BIT,
+                androidEncoding,
                 minBuffer * 4,
             ).also { it.startRecording() }
         }
@@ -56,7 +57,7 @@ public class AndroidMicrophoneAdapter : MicrophoneAdapter {
             AudioRecord.getMinBufferSize(
                 audioFormat.sampleRateHz,
                 AndroidAudioFormat.CHANNEL_IN_MONO,
-                AndroidAudioFormat.ENCODING_PCM_16BIT,
+                audioFormat.encoding.toAndroidEncoding(),
             )
         )
         try {

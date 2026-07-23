@@ -17,10 +17,11 @@ public class AndroidSpeakerAdapter : SpeakerAdapter {
     override suspend fun start(format: AudioFormat) {
         mutex.withLock {
             if (track != null) return
+            val androidEncoding = format.encoding.toAndroidEncoding()
             val minBuffer = AudioTrack.getMinBufferSize(
                 format.sampleRateHz,
                 AndroidAudioFormat.CHANNEL_OUT_MONO,
-                AndroidAudioFormat.ENCODING_PCM_16BIT,
+                androidEncoding,
             )
             track = AudioTrack.Builder()
                 .setAudioAttributes(
@@ -31,7 +32,7 @@ public class AndroidSpeakerAdapter : SpeakerAdapter {
                 )
                 .setAudioFormat(
                     AndroidAudioFormat.Builder()
-                        .setEncoding(AndroidAudioFormat.ENCODING_PCM_16BIT)
+                        .setEncoding(androidEncoding)
                         .setSampleRate(format.sampleRateHz)
                         .setChannelMask(AndroidAudioFormat.CHANNEL_OUT_MONO)
                         .build()
