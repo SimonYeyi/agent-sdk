@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.demo.smartHome
 
+import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.skill.SkillRegistry
@@ -57,6 +58,7 @@ object SmartHomeAgent {
             toolsets(toolsetRegistry)
             skills(skillRegistry)
             subagents(subagentRegistry)
+            hook(HookPipeline(logging = true))
         }
     }
 }

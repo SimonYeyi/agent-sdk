@@ -58,6 +58,7 @@ dependencies {
     implementation(project(":toolset"))
     implementation(project(":skill"))
     implementation(project(":subagent"))
+    implementation(project(":hook"))
     implementation(project(":providers:openai"))
     implementation(project(":providers:anthropic"))
     implementation(project(":realtime:core"))

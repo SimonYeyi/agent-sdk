@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.demo.s2s
 
 import io.github.yeyi.agent.AgentEvent
+import io.github.yeyi.agent.demo.log
 import io.github.yeyi.agent.realtime.DelegationResult
 import io.github.yeyi.agent.realtime.RealtimeDelegation
 import io.github.yeyi.agent.team.BossAgent
@@ -20,6 +21,7 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
                 else -> Unit
             }
         }
+        log.info(resultText ?: failure?.message ?: "任务未返回结果")
         return resultText?.let { DelegationResult.Success("任务完成, 结果: $it") }
             ?: DelegationResult.Failure(failure?.message ?: "任务未返回结果")
     }

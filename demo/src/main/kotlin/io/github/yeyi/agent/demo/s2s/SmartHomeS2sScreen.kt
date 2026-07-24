@@ -80,7 +80,7 @@ fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Mod
                 apiKey = apiKey,
                 endpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
                 model = "1.2.6.0",
-                instructions = buildInstructions(),
+                instructions = "你是一个智能家居助手. 用自然、口语化的中文回答用户",
                 voice = "zh_female_vv_jupiter_bigtts",
                 tools = listOf(MusicControlTool()),
             ),
@@ -134,7 +134,3 @@ fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Mod
         }
     }
 }
-
-private fun buildInstructions(): String = """
-    你是一个智能家居助手. 用自然、口语化的中文回答用户
-""".trimIndent()
