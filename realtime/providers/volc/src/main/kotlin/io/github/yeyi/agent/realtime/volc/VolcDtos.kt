@@ -18,7 +18,6 @@ internal data class VolcEvent(
     @SerialName("status_code") val statusCode: String? = null,
     val status: String? = null,
     val items: JsonElement? = null,
-    @SerialName("function_call") val functionCall: VolcFunctionCall? = null,
     val error: VolcError? = null,
 )
 

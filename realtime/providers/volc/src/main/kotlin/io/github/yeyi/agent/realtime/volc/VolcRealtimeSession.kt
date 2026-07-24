@@ -22,6 +22,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -223,22 +224,25 @@ public class VolcRealtimeSession(private val client: HttpClient) : RealtimeSessi
      * [CancellationException] 透传. 调用方须保证 `evt.type == "response.function_call_arguments.done"`.
      */
     private suspend fun handleFunctionCall(evt: VolcEvent) {
-        val call = evt.functionCall
-        val callId = call?.callId ?: "function_call.call_id is missing"
-        val arguments: JsonElement = call?.arguments
-            ?.takeIf { it.isNotBlank() }
-            ?.let { json.parseToJsonElement(it) }
-            ?: JsonObject(emptyMap())
-        val output = try {
-            if (call?.name == null) error("function_call.name missing")
-            val tool = toolsByName[call.name] ?: error("tool not registered: ${call.name}")
-            tool.execute(arguments)
-        } catch (t: CancellationException) {
-            throw t
-        } catch (t: Throwable) {
-            "工具调用失败: $call : ${t.message ?: t.toString()}"
+        val calls =
+            Json.decodeFromJsonElement(ListSerializer(VolcFunctionCall.serializer()), evt.items!!)
+        calls.forEach { call ->
+            val callId = call.callId ?: "function_call.call_id is missing"
+            val arguments: JsonElement = call.arguments
+                ?.takeIf { it.isNotBlank() }
+                ?.let { json.parseToJsonElement(it) }
+                ?: JsonObject(emptyMap())
+            val output = try {
+                if (call.name == null) error("function_call.name missing")
+                val tool = toolsByName[call.name] ?: error("tool not registered: ${call.name}")
+                tool.execute(arguments)
+            } catch (t: CancellationException) {
+                throw t
+            } catch (t: Throwable) {
+                "工具调用失败: $call : ${t.message ?: t.toString()}"
+            }
+            sendToolResult(callId, output)
         }
-        sendToolResult(callId, output)
     }
 
     private suspend fun sendToolResult(callId: String, output: String) {

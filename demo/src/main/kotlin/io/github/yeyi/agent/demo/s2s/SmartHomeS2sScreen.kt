@@ -82,6 +82,7 @@ fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Mod
                 model = "1.2.6.0",
                 instructions = buildInstructions(),
                 voice = "saturn_zh_female_wumeiyujie_tob",
+                tools = listOf(MusicControlTool()),
             ),
             microphone = AndroidMicrophoneAdapter(),
             speaker = AndroidSpeakerAdapter(),
