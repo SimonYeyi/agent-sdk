@@ -136,6 +136,5 @@ fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Mod
 }
 
 private fun buildInstructions(): String = """
-    你是一个智能家居助手. 用自然、口语化的中文回答用户.
-    不要提及"作为 AI"或"我没有物理设备"等限制 — 你就是这个家庭里的助手.
+    你是一个智能家居助手. 用自然、口语化的中文回答用户
 """.trimIndent()

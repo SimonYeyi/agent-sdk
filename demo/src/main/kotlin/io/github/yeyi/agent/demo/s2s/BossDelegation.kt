@@ -6,6 +6,10 @@ import io.github.yeyi.agent.realtime.RealtimeDelegation
 import io.github.yeyi.agent.team.BossAgent
 
 class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
+    override val capabilities: List<String> by lazy {
+        listOf("空调控制", "窗帘控制")
+    }
+
     override suspend fun run(asrText: String): DelegationResult {
         var resultText: String? = null
         var failure: Throwable? = null
