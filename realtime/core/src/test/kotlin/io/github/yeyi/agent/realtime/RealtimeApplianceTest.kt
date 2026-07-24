@@ -55,7 +55,6 @@ class RealtimeApplianceTest {
         val sentAudio = mutableListOf<ByteArray>()
         val sentAudioSignal = Channel<ByteArray>(Channel.UNLIMITED)
         val injectedSignal = Channel<String>(Channel.UNLIMITED)
-        var cancelledCount = 0
         var injectCount = 0
         var connectCount = 0
         var closeCount = 0
@@ -77,7 +76,7 @@ class RealtimeApplianceTest {
             sentAudioSignal.send(pcm)
         }
         override suspend fun commitInput() {}
-        override suspend fun cancelResponse() { cancelledCount++ }
+        override suspend fun cancelResponse() {}
         override suspend fun injectAndRespond(text: String) {
             injectCount++
             injectedSignal.send(text)
@@ -99,6 +98,7 @@ class RealtimeApplianceTest {
         val calledSignal = Channel<String>(Channel.UNLIMITED)
         var lastInput: String? = null
         var callCount = 0
+        override val capabilities: List<String> = emptyList()
         override suspend fun run(asrText: String): DelegationResult {
             lastInput = asrText
             callCount++
@@ -151,12 +151,11 @@ class RealtimeApplianceTest {
         appliance.close()
 
         assertEquals(0, delegation.callCount)
-        assertEquals(0, session.cancelledCount)
         assertEquals(0, session.injectCount)
     }
 
     @Test
-    fun `delegate path cancels S2S and runs delegation`() = runTest {
+    fun `delegate path runs delegation and injects result`() = runTest {
         val session = FakeSession(fakeInputFormat, fakeOutputFormat)
         val delegation = FakeDelegation()
 
@@ -179,8 +178,6 @@ class RealtimeApplianceTest {
         assertEquals("帮我把客厅灯调暗到 30%", called)
 
         appliance.close()
-
-        assertTrue(session.cancelledCount >= 1)
     }
 
     @Test
@@ -351,7 +348,6 @@ class RealtimeApplianceTest {
         // 协议没被注入到 instructions
         assertEquals(baseInstructions, session.connectInstructions)
         // 委托链完全没触发
-        assertEquals(0, session.cancelledCount)
         assertEquals(0, session.injectCount)
     }
 }

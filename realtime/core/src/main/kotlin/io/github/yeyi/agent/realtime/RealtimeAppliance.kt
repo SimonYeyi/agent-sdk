@@ -67,6 +67,7 @@ public class RealtimeAppliance(
 }
 
 public interface RealtimeDelegation {
+    public val capabilities: List<String>
     public suspend fun run(asrText: String): DelegationResult
 }
 
@@ -82,8 +83,10 @@ internal class DelegationHandler(
 ) {
     private var pendingAsr: String? = null
 
-    fun appendInstructions(base: String): String =
-        "$base\n\n$DELEGATION_PROTOCOL"
+    fun appendInstructions(base: String): String {
+        val capabilityList = delegation.capabilities.joinToString("\n") { "- $it" }
+        return "$base\n\n$DELEGATION_PROTOCOL\n\n可执行能力:\n$capabilityList"
+    }
 
     fun handle(event: RealtimeEvent) {
         when (event) {
@@ -123,7 +126,8 @@ internal class DelegationHandler(
                    $DELEGATION_MARKER 好的，正在为您调暗客厅灯，请稍等
 
                要求:
-               - 简短确认**必须用进行时** (表达"正在处理")， 不能用完成时承诺结果。
+               - 简短确认**必须用进行时** (表达“正在处理”), 不能用完成时承诺结果。
+               - 只有用户请求落在下面“可执行能力”列表范围内时才走任务委派;其他请求一律按上面的“闲聊”处理,直接回答即可。
         """.trimIndent()
     }
 }
