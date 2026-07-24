@@ -174,8 +174,6 @@ public class VolcRealtimeSession(private val client: HttpClient) : RealtimeSessi
         return VolcFormatConfig(type = type, rate = sampleRateHz)
     }
 
-    // ---- 接收循环 + adaptor ----
-
     /**
      * 握手阶段: 读 `session.incoming` 直到 `session.created`/`session.updated` 出现.
      * 帧解析走 [VolcWireProtocol.handleIncoming]; RealtimeEvent 的发射与 FC 拦截由
@@ -183,15 +181,21 @@ public class VolcRealtimeSession(private val client: HttpClient) : RealtimeSessi
      * 此处不直接 emit RealtimeEvent 避免双发.
      */
     private suspend fun waitForSessionCreated(session: WebSocketSession, wire: VolcWireProtocol) {
+        var error: VolcError? = null
         for (frame in session.incoming) {
             if (frame !is Frame.Text) continue
             val evt = wire.handleIncoming(frame.readText())
             when (evt.type) {
                 "session.created" -> return
+                "error" -> {
+                    error = evt.error; break
+                }
             }
         }
-        error("Session create error.")
+        error("Session create failed: ${error ?: session}")
     }
+
+    // ---- 接收循环 + adaptor ----
 
     private fun startReadLoop(session: WebSocketSession, wire: VolcWireProtocol) {
         scope?.launch {
