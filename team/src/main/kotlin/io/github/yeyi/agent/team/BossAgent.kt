@@ -72,7 +72,8 @@ public data class TasksState(
 
 public class BossAgent internal constructor(
     private val innerAgent: Agent,
-    private val scope: CoroutineScope
+    private val beastReportMarker: String,
+    private val scope: CoroutineScope,
 ) : Agent {
 
     private val state = MutableStateFlow(BossState.WAITING)
@@ -295,7 +296,7 @@ public class BossAgent internal constructor(
     private suspend fun formatTasksResultSummary(roundId: String): String = tasksLock.withLock {
         val roundTasks = tasks.entries.filter { it.value.roundId == roundId }
         buildString {
-            append("Tasks finished:\n")
+            append("$beastReportMarker\n")
             for ((taskId, task) in roundTasks) {
                 val lastEvent = task.events.last()
                 append("- $taskId: $lastEvent\n")

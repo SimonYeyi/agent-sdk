@@ -133,7 +133,7 @@ class BossAgentDagIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent, scope)
+        val boss = BossAgent(innerAgent, BossAgentBuilder.SYSTEM_REPORT_MARKER, scope)
         runBlocking { boss.attach(bb) }
 
         return boss to bb
@@ -391,7 +391,7 @@ class BossAgentDagIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent, scope)
+        val boss = BossAgent(innerAgent, BossAgentBuilder.SYSTEM_REPORT_MARKER, scope)
         runBlocking { boss.attach(bb) }
 
         val continuations = mutableListOf<AgentEvent>()
@@ -414,7 +414,7 @@ class BossAgentDagIntegrationTest {
 
         assertTrue(recordedInputs.isNotEmpty(), "should have recorded at least one LLM input")
         val summaryInput = recordedInputs.lastOrNull()
-        assertTrue(summaryInput?.contains("Tasks finished:") == true,
-            "LLM input should contain 'Tasks finished:' summary, got: $summaryInput")
+        assertTrue(summaryInput?.contains("[系统汇报]") == true,
+            "LLM input should contain '[系统汇报]' summary, got: $summaryInput")
     }
 }

@@ -16,6 +16,12 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 
 public class BossAgentBuilder internal constructor() {
+
+    public companion object {
+        /** 系统汇报标记 — 任务完成后由 worker 汇报结果时使用，放在用户消息格式中 */
+        public const val SYSTEM_REPORT_MARKER: String = "[系统汇报]"
+    }
+
     private var bossPersona0: Persona? = null
     private var memory0: Memory? = null
     private var maxRounds0: Int = 20
@@ -41,6 +47,10 @@ public class BossAgentBuilder internal constructor() {
           - ❌ "已为您调暗客厅灯" (perfect tense — wrong, the task is still running)
           - ❌ "已取消客厅灯调节任务" (perfect tense — wrong, the cancellation is still in progress)
         This applies whenever a task is published or cancelled: describe what is happening NOW, not what has finished..
+
+        **About $SYSTEM_REPORT_MARKER**: When you see "$SYSTEM_REPORT_MARKER" at the beginning of a user message,
+        it is NOT a real user input — it is a system report from a worker about finished task results.
+        Treat it as an internal status update, not as if the user said something.
     """.trimIndent()
 
     public fun persona(persona: Persona) {
@@ -180,7 +190,7 @@ public class BossAgentBuilder internal constructor() {
             quickToolRegistry0?.let { tools(it) }
         }
 
-        return BossAgent(innerAgent, scope)
+        return BossAgent(innerAgent, SYSTEM_REPORT_MARKER, scope)
     }
 
     private fun buildPersona(): Persona {
