@@ -7,6 +7,7 @@ import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
@@ -26,7 +27,7 @@ class BossAgentBuilderTest {
 
         override suspend fun beforeMemoryCompress(context: AgentContext, summaries: List<Summary>) = Unit
         override suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>) = Unit
-        override suspend fun beforeLlmCall(context: AgentContext) { llmCalls++ }
+        override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest) { llmCalls++ }
         override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) = Unit
         override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? = null
         override suspend fun afterToolCall(

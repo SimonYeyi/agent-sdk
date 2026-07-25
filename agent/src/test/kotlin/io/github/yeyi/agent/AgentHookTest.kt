@@ -28,7 +28,7 @@ class AgentHookTest {
 
     private class RecordingHook : EmptyAgentHook() {
         val events: MutableList<String> = mutableListOf()
-        override suspend fun beforeLlmCall(context: AgentContext) {
+        override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest) {
             events += "beforeLlmCall(${context.currentIteration})"
         }
         override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
@@ -166,7 +166,7 @@ class AgentHookTest {
     @Test
     fun `exception in hook does not crash agent`() = runTest {
         val throwingHook = object : EmptyAgentHook() {
-            override suspend fun beforeLlmCall(context: AgentContext) {
+            override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest) {
                 throw RuntimeException("hook fail")
             }
         }
@@ -458,7 +458,7 @@ class AgentHookTest {
     fun `metadata is shared between hooks`() = runTest {
         var capturedMetadata: Map<String, String>? = null
         val hook = object : EmptyAgentHook() {
-            override suspend fun beforeLlmCall(context: AgentContext) {
+            override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest) {
                 context.metadata["key"] = "value"
             }
             override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {

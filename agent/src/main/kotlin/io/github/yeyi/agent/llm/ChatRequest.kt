@@ -15,4 +15,6 @@ public data class ChatRequest(
     public val temperature: Double? = null,
     public val maxTokens: Int? = null,
     public val stopSequences: List<String> = emptyList()
-)
+) {
+    override fun toString(): String = "ChatRequest(message=${messages.lastOrNull() ?: "empty"})"
+}

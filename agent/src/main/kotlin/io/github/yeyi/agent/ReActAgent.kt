@@ -127,7 +127,7 @@ public class ReActAgent internal constructor(
         val context = buildContext(iterations)
         val request = buildRequest()
 
-        hook.safeInvoke { beforeLlmCall(context) }
+        hook.safeInvoke { beforeLlmCall(context, request) }
         val response = llmCallWithContextOverflowHandle(request, llmCall)
         hook.safeInvoke { afterLlmResponse(context, response) }
 

@@ -1,5 +1,6 @@
 package io.github.yeyi.agent
 
+import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.log.log
@@ -47,7 +48,7 @@ public interface AgentHook {
     public suspend fun beforeMemoryCompress(context: AgentContext, summaries: List<Summary>)
     public suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>)
 
-    public suspend fun beforeLlmCall(context: AgentContext)
+    public suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest)
     public suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse)
 
     /**
@@ -97,7 +98,7 @@ internal object NoOpAgentHook : AgentHook {
     ) {
     }
 
-    override suspend fun beforeLlmCall(context: AgentContext) {
+    override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest) {
     }
 
     override suspend fun afterLlmResponse(

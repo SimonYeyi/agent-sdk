@@ -3,6 +3,7 @@ package io.github.yeyi.agent.hook
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.AgentHook
+import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.memory.Summary
@@ -114,8 +115,8 @@ internal class DefaultHookPipeline(
         run(AgentHookEvent.AfterMemoryCompress(summaries), HookContext(context))
     }
 
-    override suspend fun beforeLlmCall(context: AgentContext) {
-        run(AgentHookEvent.BeforeLlmCall, HookContext(context))
+    override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest) {
+        run(AgentHookEvent.BeforeLlmCall(request), HookContext(context))
     }
 
     override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {

@@ -6,6 +6,7 @@ import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
@@ -34,6 +35,8 @@ class DefaultHookPipelineTest {
         tools = emptyList<Tool>(),
         maxRounds = 20,
     )
+
+    private val request = ChatRequest(messages = listOf(ChatMessage.User("")))
 
     private val allEvents = setOf(
         AgentHookEvent.BeforeMemoryCompress::class,
@@ -123,7 +126,7 @@ class DefaultHookPipelineTest {
         val b = RecordingHook("b")
         val composite = DefaultHookPipeline(listOf(a, b))
         val r = emptyResponse()
-        composite.beforeLlmCall(context(1))
+        composite.beforeLlmCall(context(1), request)
         composite.afterLlmResponse(context(1), r)
         composite.onRunFailed(context(1), AgentException.LlmError(RuntimeException("x")))
         composite.onRunCompleted(context(1), AgentResult(r.message, 1, emptyList(), null))
@@ -226,7 +229,7 @@ class DefaultHookPipelineTest {
         }
         val b = RecordingHook("b")
         val composite = DefaultHookPipeline(listOf(throwing, b))
-        composite.beforeLlmCall(context(1))
+        composite.beforeLlmCall(context(1), request)
         assertEquals(listOf("b:beforeLlmCall(1)"), b.recordedEvents)
     }
 
@@ -321,7 +324,7 @@ class DefaultHookPipelineTest {
         val composite = DefaultHookPipeline(listOf(throwing, b))
         var caught: Throwable? = null
         try {
-            composite.beforeLlmCall(context(1))
+            composite.beforeLlmCall(context(1), request)
         } catch (t: Throwable) {
             caught = t
         }
@@ -377,7 +380,7 @@ class DefaultHookPipelineTest {
     fun `register order is preserved across 5 hooks`() = runTest {
         val hooks = (0 until 5).map { RecordingHook("h$it") }
         val composite = DefaultHookPipeline(hooks.toList())
-        composite.beforeLlmCall(context(1))
+        composite.beforeLlmCall(context(1), request)
         for ((i, h) in hooks.withIndex()) {
             assertEquals(listOf("h$i:beforeLlmCall(1)"), h.recordedEvents, "hook $i should be called in order")
         }
@@ -418,7 +421,7 @@ class DefaultHookPipelineTest {
             }
         }
         val composite = DefaultHookPipeline(listOf(universal))
-        composite.beforeLlmCall(context(1))
+        composite.beforeLlmCall(context(1), request)
         composite.afterLlmResponse(context(1), emptyResponse())
         composite.beforeToolCall(context(), toolCall())
         assertEquals(
@@ -439,7 +442,7 @@ class DefaultHookPipelineTest {
             }
         }
         val composite = DefaultHookPipeline(listOf(parentHook))
-        composite.beforeLlmCall(context(1))
+        composite.beforeLlmCall(context(1), request)
         composite.afterLlmResponse(context(1), emptyResponse())
         composite.beforeMemoryCompress(context(1), emptyList())
         assertEquals(
@@ -460,7 +463,7 @@ class DefaultHookPipelineTest {
             }
         }
         val composite = DefaultHookPipeline(listOf(specificHook))
-        composite.beforeLlmCall(context(1))
+        composite.beforeLlmCall(context(1), request)
         composite.afterLlmResponse(context(1), emptyResponse())
         assertEquals(listOf("BeforeLlmCall"), specificHook.recorded)
     }
@@ -503,7 +506,7 @@ class DefaultHookPipelineTest {
         val high = RecordingHook("high").apply { priorityOverride = 100 }
         val mid = RecordingHook("mid").apply { priorityOverride = 50 }
         val composite = DefaultHookPipeline(listOf(low, high, mid))
-        composite.beforeLlmCall(context(1))
+        composite.beforeLlmCall(context(1), request)
 
         assertEquals(
             listOf("high:beforeLlmCall(1)", "mid:beforeLlmCall(1)", "low:beforeLlmCall(1)"),
@@ -518,7 +521,7 @@ class DefaultHookPipelineTest {
         val high = RecordingHook("high").apply { priorityOverride = 100 }
         composite.register(high)
 
-        composite.beforeLlmCall(context(1))
+        composite.beforeLlmCall(context(1), request)
         assertEquals(
             listOf("high:beforeLlmCall(1)", "low:beforeLlmCall(1)"),
             listOf(high, low).flatMap { it.recordedEvents }
@@ -532,7 +535,7 @@ class DefaultHookPipelineTest {
         val composite = DefaultHookPipeline(listOf(a, b))
         composite.unregister("a")
 
-        composite.beforeLlmCall(context(1))
+        composite.beforeLlmCall(context(1), request)
         assertTrue(a.recordedEvents.isEmpty())
         assertEquals(listOf("b:beforeLlmCall(1)"), b.recordedEvents)
     }
@@ -543,7 +546,7 @@ class DefaultHookPipelineTest {
         val composite = DefaultHookPipeline(listOf(a))
         composite.unregister("nonexistent")
 
-        composite.beforeLlmCall(context(1))
+        composite.beforeLlmCall(context(1), request)
         assertEquals(listOf("a:beforeLlmCall(1)"), a.recordedEvents)
     }
 

@@ -6,6 +6,7 @@ import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
@@ -41,6 +42,8 @@ class LoggingHookTest {
         maxRounds = 20,
     )
 
+    private val request = ChatRequest(messages = listOf(ChatMessage.User("")))
+
     @BeforeTest
     fun captureStderr() {
         originalErr = System.err
@@ -69,7 +72,7 @@ class LoggingHookTest {
     @Test
     fun `beforeLlmCall writes a debug line with iter`() = runTest {
         val pipeline = DefaultHookPipeline(listOf(LoggingHook()))
-        pipeline.beforeLlmCall(context(3))
+        pipeline.beforeLlmCall(context(3), request)
         val out = stderr()
         assertTrue(out.contains("hook"), "should tag with hook")
         assertTrue(out.contains("iter=3"))
@@ -149,7 +152,7 @@ class LoggingHookTest {
     @Test
     fun `all LoggingHook callbacks produce at least one log line per call`() = runTest {
         val pipeline = DefaultHookPipeline(listOf(LoggingHook()))
-        pipeline.beforeLlmCall(context())
+        pipeline.beforeLlmCall(context(), request)
         pipeline.afterLlmResponse(context(), emptyResponse())
         pipeline.beforeToolCall(context(), toolCall())
         pipeline.afterToolCall(context(), toolCall(), ToolExecutionResult("x"), false, 1)

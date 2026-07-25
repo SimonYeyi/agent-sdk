@@ -1,5 +1,6 @@
 package io.github.yeyi.agent
 
+import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.memory.Summary
@@ -24,7 +25,7 @@ internal open class EmptyAgentHook : AgentHook {
     ) {
     }
 
-    override suspend fun beforeLlmCall(context: AgentContext) {
+    override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest) {
     }
 
     override suspend fun afterLlmResponse(

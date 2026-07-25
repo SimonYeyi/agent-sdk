@@ -1,10 +1,11 @@
 package io.github.yeyi.agent.hook
 
 import io.github.yeyi.agent.AgentResult
-import io.github.yeyi.agent.memory.Summary
-import io.github.yeyi.agent.tool.ToolExecutionResult
+import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ToolCall
+import io.github.yeyi.agent.memory.Summary
+import io.github.yeyi.agent.tool.ToolExecutionResult
 
 /**
  * Agent 生命周期事件。
@@ -21,9 +22,9 @@ public sealed interface AgentHookEvent : HookEvent {
     ) : AgentHookEvent
 
     /** 每次 LLM 调用前触发。 */
-    public object BeforeLlmCall : AgentHookEvent {
-        override fun toString(): String = "BeforeLlmCall"
-    }
+    public data class BeforeLlmCall(
+        val request: ChatRequest
+    ) : AgentHookEvent
 
     /** 每次 LLM 响应后触发，response 含 LLM 本次回复内容。 */
     public data class AfterLlmResponse(
