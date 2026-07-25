@@ -3,6 +3,7 @@ package io.github.yeyi.agent.demo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -45,6 +46,9 @@ class MainActivity : ComponentActivity() {
                     var voiceMode by remember { mutableStateOf(false) }
                     val smartHomeBoss = remember { SmartHomeAgent.create(llmProvider) }
 
+                    // S2S 语音模式拦截返回键，先关闭语音模式
+                    val onBack: () -> Unit = { voiceMode = false }
+
                     DemoScreen(
                         taskGroups = taskGroups,
                         messages = messages,
@@ -64,6 +68,7 @@ class MainActivity : ComponentActivity() {
                                 SmartHomeS2sScreen(
                                     apiKey = BuildConfig.VOLC_API_KEY,
                                     boss = smartHomeBoss,
+                                    onBack = onBack,
                                 )
                             }
                         } else null,

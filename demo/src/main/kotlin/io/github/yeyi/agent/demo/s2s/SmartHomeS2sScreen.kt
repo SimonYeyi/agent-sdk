@@ -2,6 +2,7 @@ package io.github.yeyi.agent.demo.s2s
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
@@ -38,7 +39,13 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
 @Composable
-fun SmartHomeS2sScreen(apiKey: String, boss: BossAgent, modifier: Modifier = Modifier) {
+fun SmartHomeS2sScreen(
+    apiKey: String,
+    boss: BossAgent,
+    onBack: () -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
+    BackHandler { onBack() }
     val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main) }
     val context = LocalContext.current
     var status by remember { mutableStateOf("Idle") }
