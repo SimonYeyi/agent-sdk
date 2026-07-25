@@ -27,8 +27,7 @@ internal class PublishTaskTool(
         val typeList = Selection.FACTORIES.keys.joinToString(" | ") { "'$it'" }
         append("""
             Publish an array of tasks to the bulletin board. Each task declares a `ref` (your short symbolic name, unique within this call)
-            and optionally lists references in `depends_on` to form a DAG. Publishing a task does NOT wait for its
-            execution — it is queued and dispatched asynchronously. References in `depends_on` rules:
+            and optionally lists references in `depends_on` to form a DAG. References in `depends_on` rules:
               - Same publish_task call: use `ref` (your symbolic name from another task in this same call).
                 This is the ONLY option within one call because task_id is assigned AFTER publish.
               - Different publish_task call (cross-round): MUST use `task_id` (UUID). Refs are NOT stable
@@ -134,7 +133,7 @@ internal class PublishTaskTool(
             }
             "- ${task.taskId} → $selStr"
         }
-        return ToolExecutionResult("${resolved.size} task(s) accepted; dispatching asynchronously:\n${summary.joinToString("\n")}")
+        return ToolExecutionResult("${resolved.size} task(s) published:\n${summary.joinToString("\n")}")
     }
 
     private fun JsonObject.str(field: String): String? =

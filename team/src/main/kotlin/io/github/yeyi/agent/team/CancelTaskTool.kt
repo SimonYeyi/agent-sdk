@@ -13,11 +13,9 @@ internal class CancelTaskTool(
 ) : Tool {
     override val name: String = "cancel_task"
     override val description: String = """
-        Cancels a running task. Cancelling does NOT block until the task stops — a
-        cancellation request is published and dispatched asynchronously.
-        Cancellation propagates to all tasks that depends_on it (directly or
-        transitively). Upstream tasks (the cancelled task's own dependencies) continue
-        running.
+        Cancels a running task. Cancellation propagates to all tasks that depends_on it
+        (directly or transitively). Upstream tasks (the cancelled task's own dependencies)
+        continue running.
 
         - You only need to cancel the ROOT of a dependency chain. Cascade handles the rest.
         - Cancelling an already-completed task is a safe no-op for that task, but cascade
@@ -25,7 +23,6 @@ internal class CancelTaskTool(
         - Cascade propagates DOWNSTREAM ONLY. Cancelling B in A→B→C stops B and C; A continues.
 
         Call: cancel_task(task_id: str)
-        Result: Cancellation for task <task_id> accepted; dispatching asynchronously.
     """.trimIndent()
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema("""
         {
@@ -44,6 +41,6 @@ internal class CancelTaskTool(
         val taskId = arguments.jsonObject["task_id"]?.jsonPrimitive?.content
             ?: return ToolExecutionResult.error("Missing 'task_id'")
         bulletinBoard.publishEvent(Cancellation(taskId))
-        return ToolExecutionResult("Cancellation for task $taskId accepted; dispatching asynchronously")
+        return ToolExecutionResult("Cancellation request for task $taskId sent")
     }
 }

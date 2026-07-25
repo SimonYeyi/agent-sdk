@@ -76,7 +76,7 @@ class PublishTaskToolDagTest {
         runCurrent()
         job.cancel()
 
-        assertTrue(result.content.contains("2 task(s) accepted"), "summary: ${result.content}")
+        assertTrue(result.content.contains("2 task(s) published"), "summary: ${result.content}")
         assertEquals(1, collected.size)
         val assignments = collected[0]
         assertEquals(2, assignments.tasks.size)
@@ -290,7 +290,7 @@ class PublishTaskToolDagTest {
 
         val result = tool.execute(args, ctx())
         assertTrue(!result.isError, "expected success, got: ${result.content}")
-        assertTrue(result.content.contains("2 task(s) accepted"))
+        assertTrue(result.content.contains("2 task(s) published"))
     }
 
     @Test
@@ -333,7 +333,7 @@ class PublishTaskToolDagTest {
 
         val result = tool.execute(args, ctx())
         val lines = result.content.lines()
-        assertTrue(lines[0].startsWith("1 task(s) accepted"))
+        assertTrue(lines[0].startsWith("1 task(s) published"))
 
         val taskLine = lines[1]
         val taskId = extractTaskId(taskLine)
