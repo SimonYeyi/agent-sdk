@@ -3,6 +3,7 @@ package io.github.yeyi.agent.demo.s2s
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import io.github.yeyi.agent.realtime.DelegationReply
 import io.github.yeyi.agent.realtime.RealtimeAppliance
 import io.github.yeyi.agent.realtime.RealtimeEvent
 import io.github.yeyi.agent.realtime.SessionConfig
@@ -28,6 +29,7 @@ class S2sViewModel(
 
     private var bridge: RealtimeAppliance? = null
     private var httpClient: HttpClient? = null
+    private val delegation = BossDelegation(boss)
 
     fun startBridge() {
         val client = HttpClient(CIO) { install(WebSockets) }
@@ -44,7 +46,7 @@ class S2sViewModel(
             ),
             microphone = AndroidMicrophoneAdapter(),
             speaker = AndroidSpeakerAdapter(),
-            delegation = BossDelegation(boss),
+            delegation = delegation,
         )
         _state.value = _state.value.copy(
             connected = true,
@@ -54,7 +56,8 @@ class S2sViewModel(
             shouldExit = false,
         )
         viewModelScope.launch { bridge?.start() }
-        collectEvents()
+        collectSessionEvents()
+        collectDelegationReplies()
     }
 
     fun closeBridge() {
@@ -71,12 +74,11 @@ class S2sViewModel(
         viewModelScope.launch { b?.close() }
     }
 
-    private fun collectEvents() {
+    private fun collectSessionEvents() {
         viewModelScope.launch {
             bridge?.events?.collect { event ->
                 when (event) {
                     is RealtimeEvent.UserTranscriptDelta -> {
-                        // ASR delta 是"到目前为止的完整文本"，直接替换
                         _state.value = _state.value.copy(pendingUser = event.text)
                     }
 
@@ -91,7 +93,6 @@ class S2sViewModel(
                     }
 
                     is RealtimeEvent.AssistantTextDelta -> {
-                        // TTS delta 是增量片段，累加
                         _state.value = _state.value.copy(
                             pendingAssistant = _state.value.pendingAssistant + event.text
                         )
@@ -129,6 +130,23 @@ class S2sViewModel(
                     }
 
                     else -> Unit
+                }
+            }
+        }
+    }
+
+    private fun collectDelegationReplies() {
+        viewModelScope.launch {
+            delegation.replies.collect { reply ->
+                val text = when (reply) {
+                    is DelegationReply.Confirmation -> reply.text
+                    is DelegationReply.Success -> reply.text
+                    is DelegationReply.Failure -> reply.message
+                }
+                if (text.isNotBlank()) {
+                    _state.value = _state.value.copy(
+                        messages = _state.value.messages + UiMessage("assistant", text),
+                    )
                 }
             }
         }
