@@ -93,9 +93,18 @@ class S2sViewModel(
                     }
 
                     is RealtimeEvent.AssistantTextDelta -> {
-                        _state.value = _state.value.copy(
-                            pendingAssistant = _state.value.pendingAssistant + event.text
-                        )
+                        if (_state.value.skipNextDelegationTts || event.text.startsWith("|")) {
+                            // 标记为跳过，且不显示任何 TTS delta
+                            _state.value = _state.value.copy(skipNextDelegationTts = true)
+                        } else {
+                            _state.value = _state.value.copy(
+                                pendingAssistant = _state.value.pendingAssistant + event.text,
+                            )
+                        }
+                    }
+
+                    is RealtimeEvent.AssistantAudioStarted -> {
+                        _state.value = _state.value.copy(skipNextDelegationTts = false)
                     }
 
                     is RealtimeEvent.AssistantAudioDone -> {
@@ -179,4 +188,5 @@ data class UiState(
     val pendingUser: String = "",
     val pendingAssistant: String = "",
     val shouldExit: Boolean = false,
+    val skipNextDelegationTts: Boolean = false,
 )
