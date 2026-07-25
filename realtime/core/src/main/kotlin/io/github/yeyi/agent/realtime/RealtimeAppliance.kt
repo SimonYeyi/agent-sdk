@@ -44,16 +44,7 @@ public class RealtimeAppliance(
             scope?.launch {
                 microphone.capture().collect { pcm -> session.sendAudio(pcm) }
             }
-            scope?.launch {
-                delegation?.replies?.collect { update ->
-                    val text = when (update) {
-                        is DelegationReply.Confirmation -> update.text
-                        is DelegationReply.Success -> update.text
-                        is DelegationReply.Failure -> update.message
-                    }
-                    session.injectAndRespond(text)
-                }
-            }
+            delegationHandler?.start()
         } catch (e: Throwable) {
             runCatching { close() }
             throw e
@@ -98,6 +89,19 @@ internal class DelegationHandler(
     fun appendInstructions(base: String): String {
         val capabilityList = delegation.capabilities.joinToString("\n") { "- $it" }
         return "$base\n\n$DELEGATION_PROTOCOL\n\n可执行能力:\n$capabilityList"
+    }
+
+    fun start() {
+        scopeProvider()?.launch {
+            delegation.replies.collect { update ->
+                val text = when (update) {
+                    is DelegationReply.Confirmation -> update.text
+                    is DelegationReply.Success -> update.text
+                    is DelegationReply.Failure -> update.message
+                }
+                session.injectAndRespond(text)
+            }
+        }
     }
 
     fun handle(event: RealtimeEvent) {
