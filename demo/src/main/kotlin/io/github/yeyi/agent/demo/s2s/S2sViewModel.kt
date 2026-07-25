@@ -30,8 +30,13 @@ class S2sViewModel(
     private var bridge: RealtimeAppliance? = null
     private var httpClient: HttpClient? = null
     private val delegation = BossDelegation(boss)
+    private var sessionEventsJob: kotlinx.coroutines.Job? = null
+    private var delegationRepliesJob: kotlinx.coroutines.Job? = null
 
     fun startBridge() {
+        sessionEventsJob?.cancel()
+        delegationRepliesJob?.cancel()
+
         val client = HttpClient(CIO) { install(WebSockets) }
         httpClient = client
         bridge = RealtimeAppliance(
@@ -55,7 +60,7 @@ class S2sViewModel(
             pendingAssistant = "",
             shouldExit = false,
         )
-        viewModelScope.launch { bridge?.start() }
+        sessionEventsJob = viewModelScope.launch { bridge?.start() }
         collectSessionEvents()
         collectDelegationReplies()
     }
@@ -65,6 +70,10 @@ class S2sViewModel(
         bridge = null
         httpClient?.close()
         httpClient = null
+        sessionEventsJob?.cancel()
+        delegationRepliesJob?.cancel()
+        sessionEventsJob = null
+        delegationRepliesJob = null
         _state.value = _state.value.copy(
             connected = false,
             messages = emptyList(),
@@ -145,7 +154,7 @@ class S2sViewModel(
     }
 
     private fun collectDelegationReplies() {
-        viewModelScope.launch {
+        delegationRepliesJob = viewModelScope.launch {
             delegation.replies.collect { reply ->
                 val text = when (reply) {
                     is DelegationReply.Confirmation -> reply.text
