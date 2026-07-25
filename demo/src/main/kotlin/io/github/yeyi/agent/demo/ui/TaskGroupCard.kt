@@ -15,7 +15,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import io.github.yeyi.agent.team.TaskGroupState
+import io.github.yeyi.agent.team.TasksState
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -25,7 +25,7 @@ import java.util.Locale
  */
 @Composable
 fun TaskGroupCard(
-    groupState: TaskGroupState,
+    groupState: TasksState,
     modifier: Modifier = Modifier
 ) {
     val timeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
@@ -51,7 +51,7 @@ fun TaskGroupCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = "Round: ${groupState.id.take(8)}",
+                    text = "Round: ${groupState.roundId.take(8)}",
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -86,7 +86,7 @@ fun TaskGroupCard(
 
             // Task list - show task text once, then events
             Column(modifier = Modifier.padding(top = 8.dp)) {
-                for (taskState in groupState.task) {
+                for (taskState in groupState.tasks) {
                     Text(
                         text = taskState.task,
                         style = MaterialTheme.typography.labelMedium,

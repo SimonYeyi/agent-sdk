@@ -9,7 +9,7 @@ import io.github.yeyi.agent.demo.smartHome.SmartHomeAgent
 import io.github.yeyi.agent.demo.ui.ChatMessageUi
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.team.BossAgent
-import io.github.yeyi.agent.team.TaskGroupState
+import io.github.yeyi.agent.team.TasksState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,8 +25,8 @@ class DemoViewModel(
     private var tasksStatesJob: Job? = null
     private var continuationsJob: Job? = null
 
-    private val _taskGroups = MutableStateFlow<List<TaskGroupState>>(emptyList())
-    val taskGroups: StateFlow<List<TaskGroupState>> = _taskGroups.asStateFlow()
+    private val _taskGroups = MutableStateFlow<List<TasksState>>(emptyList())
+    val taskGroups: StateFlow<List<TasksState>> = _taskGroups.asStateFlow()
 
     private val _messages = MutableStateFlow<List<ChatMessageUi>>(emptyList())
     val messages: StateFlow<List<ChatMessageUi>> = _messages.asStateFlow()
@@ -49,9 +49,9 @@ class DemoViewModel(
 
         // Collect task states
         tasksStatesJob = viewModelScope.launch {
-            bossAgent?.tasksStates?.collect { taskGroupState ->
+            bossAgent?.tasksState?.collect { taskGroupState ->
                 val currentList = _taskGroups.value.toMutableList()
-                val existingIndex = currentList.indexOfFirst { it.id == taskGroupState.id }
+                val existingIndex = currentList.indexOfFirst { it.roundId == taskGroupState.roundId }
                 if (existingIndex >= 0) {
                     currentList[existingIndex] = taskGroupState
                 } else {

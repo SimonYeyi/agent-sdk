@@ -16,7 +16,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import io.github.yeyi.agent.team.TaskGroupState
+import io.github.yeyi.agent.team.TasksState
 
 /**
  * Task dashboard - displays all task groups in real-time.
@@ -24,7 +24,7 @@ import io.github.yeyi.agent.team.TaskGroupState
  */
 @Composable
 fun TaskDashboard(
-    taskGroups: List<TaskGroupState>,
+    taskGroups: List<TasksState>,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -64,7 +64,7 @@ fun TaskDashboard(
                 ) {
                     items(
                         items = sortedGroups,
-                        key = { it.id }
+                        key = { it.roundId }
                     ) { groupState ->
                         TaskGroupCard(groupState = groupState)
                     }

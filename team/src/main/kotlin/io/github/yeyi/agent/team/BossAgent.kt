@@ -51,21 +51,21 @@ public data class TaskState(
 }
 
 /**
- * 一个 round 内所有任务的状态快照，作为 [BossAgent.tasksStates] Flow 的推送单元.
+ * 一个 round 内所有任务的状态快照，作为 [BossAgent.tasksState] Flow 的推送单元.
  *
- * @property id round ID
+ * @property roundId round ID
  * @property input 该 round 的用户输入
  * @property createdAt 任务组创建时间，用于 UI 排序
- * @property task 该 round 内所有任务的 [TaskState] 列表
+ * @property tasks 该 round 内所有任务的 [TaskState] 列表
  * @property terminal 是否所有任务都处于终态
  */
-public data class TaskGroupState(
-    public val id: String,
+public data class TasksState(
+    public val roundId: String,
     public val input: String,
     public val createdAt: Long,
-    public val task: List<TaskState>
+    public val tasks: List<TaskState>
 ) {
-    public val terminal: Boolean get() = task.all { it.terminal }
+    public val terminal: Boolean get() = tasks.all { it.terminal }
 }
 
 // ===== BossAgent =====
@@ -104,7 +104,7 @@ public class BossAgent internal constructor(
     private val pendingResultEvents: Channel<String> = Channel(capacity = Channel.UNLIMITED)
 
     // ===== 任务组状态推送 =====
-    private val tasksStateEmitter = MutableSharedFlow<TaskGroupState>(
+    private val tasksStateEmitter = MutableSharedFlow<TasksState>(
         replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
 
@@ -112,7 +112,7 @@ public class BossAgent internal constructor(
      * 任务组状态流 — 每次 TaskUpdate 时推送当前 round 的完整状态.
      * 调用方订阅此 Flow 即可实时获取所有任务的更新状态.
      */
-    public val tasksStates: Flow<TaskGroupState> = tasksStateEmitter.asSharedFlow()
+    public val tasksState: Flow<TasksState> = tasksStateEmitter.asSharedFlow()
 
     // ===== 并发控制 =====
     // decisionLock 锁内 atomically: 读 state + scope.launch.
@@ -216,7 +216,7 @@ public class BossAgent internal constructor(
         // 每次 TaskUpdate 都推送当前 round 状态
         roundTasks
             .map { ts -> ts.copy(events = ts.events.toMutableList()) }
-            .let { TaskGroupState(state.roundId, state.userInput, state.createdAt, it) }
+            .let { TasksState(state.roundId, state.userInput, state.createdAt, it) }
             .run { tasksStateEmitter.tryEmit(this) }
 
         if (isTerminal.not()) return

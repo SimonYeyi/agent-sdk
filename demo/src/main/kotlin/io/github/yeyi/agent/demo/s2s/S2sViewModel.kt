@@ -11,7 +11,7 @@ import io.github.yeyi.agent.realtime.audio.android.AndroidMicrophoneAdapter
 import io.github.yeyi.agent.realtime.audio.android.AndroidSpeakerAdapter
 import io.github.yeyi.agent.realtime.volc.VolcRealtimeSession
 import io.github.yeyi.agent.team.BossAgent
-import io.github.yeyi.agent.team.TaskGroupState
+import io.github.yeyi.agent.team.TasksState
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.websocket.WebSockets
@@ -28,8 +28,8 @@ class S2sViewModel(
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
-    private val _taskGroups = MutableStateFlow<List<TaskGroupState>>(emptyList())
-    val taskGroups: StateFlow<List<TaskGroupState>> = _taskGroups.asStateFlow()
+    private val _taskGroups = MutableStateFlow<List<TasksState>>(emptyList())
+    val taskGroups: StateFlow<List<TasksState>> = _taskGroups.asStateFlow()
 
     init {
         // 确保 ViewModel 创建时就清空，防止前一个页面的数据残留
@@ -188,9 +188,9 @@ class S2sViewModel(
 
     private fun collectTaskGroups() {
         taskGroupsJob = viewModelScope.launch {
-            boss.tasksStates.collect { taskGroupState ->
+            boss.tasksState.collect { taskGroupState ->
                 val currentList = _taskGroups.value.toMutableList()
-                val existingIndex = currentList.indexOfFirst { it.id == taskGroupState.id }
+                val existingIndex = currentList.indexOfFirst { it.roundId == taskGroupState.roundId }
                 if (existingIndex >= 0) {
                     currentList[existingIndex] = taskGroupState
                 } else {
