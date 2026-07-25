@@ -133,7 +133,7 @@ class BossAgentDagIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent, BossAgentBuilder.SYSTEM_REPORT_MARKER, scope)
+        val boss = BossAgent(innerAgent, "[系统汇报]", scope)
         runBlocking { boss.attach(bb) }
 
         return boss to bb
@@ -391,7 +391,7 @@ class BossAgentDagIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent, BossAgentBuilder.SYSTEM_REPORT_MARKER, scope)
+        val boss = BossAgent(innerAgent, "[系统汇报]", scope)
         runBlocking { boss.attach(bb) }
 
         val continuations = mutableListOf<AgentEvent>()

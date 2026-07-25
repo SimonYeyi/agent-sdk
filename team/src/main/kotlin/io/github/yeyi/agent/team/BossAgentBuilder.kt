@@ -16,10 +16,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 
 public class BossAgentBuilder internal constructor() {
-
-    public companion object {
+    private companion object {
         /** 系统汇报标记 — 任务完成后由 worker 汇报结果时使用，放在用户消息格式中 */
-        public const val SYSTEM_REPORT_MARKER: String = "[系统汇报]"
+        const val SYSTEM_REPORT_MARKER: String = "[系统汇报]"
     }
 
     private var bossPersona0: Persona? = null
