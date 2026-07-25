@@ -54,10 +54,11 @@ fun SmartHomeS2sScreen(
 
     val listState = rememberLazyListState()
 
-    // Auto-scroll when messages change
-    LaunchedEffect(state.messages.size) {
-        if (state.messages.isNotEmpty()) {
-            listState.animateScrollToItem(state.messages.size - 1)
+    // Auto-scroll when messages or pending text changes
+    LaunchedEffect(state.messages.size, state.pendingUser, state.pendingAssistant) {
+        if (state.messages.isNotEmpty() || state.pendingUser.isNotEmpty() || state.pendingAssistant.isNotEmpty()) {
+            val lastIndex = (state.messages.size - 1).coerceAtLeast(0)
+            listState.animateScrollToItem(lastIndex)
         }
     }
 
