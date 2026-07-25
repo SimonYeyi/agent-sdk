@@ -125,6 +125,7 @@ internal class VolcWireProtocol(private val session: WebSocketSession) {
      */
     internal suspend fun speechTextBufferCommit(text: String) {
         sendRawFrame("speech_text_buffer.commit") {
+            put("tts_prompt", "原文播报")
             put("text", text)
         }
     }
