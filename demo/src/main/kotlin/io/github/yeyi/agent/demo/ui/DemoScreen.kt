@@ -163,47 +163,50 @@ fun DemoScreen(
             }
         }
 
-        // Task Dashboard drawer from left - full height left strip for dragging
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .width(60.dp)
-                .align(Alignment.CenterStart)
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {
-                            // Open drawer on swipe right
-                        },
-                        onHorizontalDrag = { _, dragAmount ->
-                            if (dragAmount > 20) {
-                                isDrawerOpen = true
-                            }
-                        }
-                    )
-                }
-        )
-
-        // Task Dashboard drawer overlay
-        if (isDrawerOpen) {
+        // Task Dashboard drawer from left - only show when NOT in voice mode
+        if (!voiceMode) {
+            // Task Dashboard swipe strip from left
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
-                    .padding(8.dp)
+                    .fillMaxHeight()
+                    .width(60.dp)
+                    .align(Alignment.CenterStart)
                     .pointerInput(Unit) {
                         detectHorizontalDragGestures(
                             onDragEnd = {
-                                isDrawerOpen = false
+                                // Open drawer on swipe right
                             },
                             onHorizontalDrag = { _, dragAmount ->
-                                if (dragAmount < -10) {
-                                    isDrawerOpen = false
+                                if (dragAmount > 20) {
+                                    isDrawerOpen = true
                                 }
                             }
                         )
                     }
-            ) {
-                TaskDashboard(taskGroups = taskGroups)
+            )
+
+            // Task Dashboard drawer overlay
+            if (isDrawerOpen) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
+                        .padding(8.dp)
+                        .pointerInput(Unit) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    isDrawerOpen = false
+                                },
+                                onHorizontalDrag = { _, dragAmount ->
+                                    if (dragAmount < -10) {
+                                        isDrawerOpen = false
+                                    }
+                                }
+                            )
+                        }
+                ) {
+                    TaskDashboard(taskGroups = taskGroups)
+                }
             }
         }
     }

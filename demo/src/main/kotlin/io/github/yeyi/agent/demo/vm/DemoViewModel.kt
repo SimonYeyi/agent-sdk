@@ -11,6 +11,7 @@ import io.github.yeyi.agent.demo.ui.ChatMessageUi
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.team.BossAgent
 import io.github.yeyi.agent.team.TaskGroupState
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -26,6 +27,8 @@ class DemoViewModel(
 
     private var bossAgent: BossAgent? = null
     private val toolCallNames = mutableMapOf<String, String>()
+    private var tasksStatesJob: Job? = null
+    private var continuationsJob: Job? = null
 
     private val _taskGroups = MutableStateFlow<List<TaskGroupState>>(emptyList())
     val taskGroups: StateFlow<List<TaskGroupState>> = _taskGroups.asStateFlow()
@@ -47,13 +50,16 @@ class DemoViewModel(
     }
 
     private fun initializeAgent() {
+        tasksStatesJob?.cancel()
+        continuationsJob?.cancel()
+
         bossAgent = when (_currentScenario.value) {
             Scenario.SMART_HOME -> SmartHomeAgent.create(llmProvider)
             Scenario.SMART_COCKPIT -> CockpitAgent.create(llmProvider)
         }
 
         // Collect task states
-        viewModelScope.launch {
+        tasksStatesJob = viewModelScope.launch {
             bossAgent?.tasksStates?.collect { taskGroupState ->
                 val currentList = _taskGroups.value.toMutableList()
                 val existingIndex = currentList.indexOfFirst { it.id == taskGroupState.id }
@@ -67,7 +73,7 @@ class DemoViewModel(
         }
 
         // Collect continuation events
-        viewModelScope.launch {
+        continuationsJob = viewModelScope.launch {
             bossAgent?.continuations?.collect { event ->
                 when (event) {
                     is AgentEvent.ToolCallStart -> {

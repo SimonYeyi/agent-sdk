@@ -11,6 +11,7 @@ import io.github.yeyi.agent.realtime.audio.android.AndroidMicrophoneAdapter
 import io.github.yeyi.agent.realtime.audio.android.AndroidSpeakerAdapter
 import io.github.yeyi.agent.realtime.volc.VolcRealtimeSession
 import io.github.yeyi.agent.team.BossAgent
+import io.github.yeyi.agent.team.TaskGroupState
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.websocket.WebSockets
@@ -27,15 +28,25 @@ class S2sViewModel(
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
 
+    private val _taskGroups = MutableStateFlow<List<TaskGroupState>>(emptyList())
+    val taskGroups: StateFlow<List<TaskGroupState>> = _taskGroups.asStateFlow()
+
+    init {
+        // 确保 ViewModel 创建时就清空，防止前一个页面的数据残留
+        _taskGroups.value = emptyList()
+    }
+
     private var bridge: RealtimeAppliance? = null
     private var httpClient: HttpClient? = null
     private val delegation = BossDelegation(boss)
     private var sessionEventsJob: kotlinx.coroutines.Job? = null
     private var delegationRepliesJob: kotlinx.coroutines.Job? = null
+    private var taskGroupsJob: kotlinx.coroutines.Job? = null
 
     fun startBridge() {
         sessionEventsJob?.cancel()
         delegationRepliesJob?.cancel()
+        taskGroupsJob?.cancel()
 
         val client = HttpClient(CIO) { install(WebSockets) }
         httpClient = client
@@ -60,9 +71,11 @@ class S2sViewModel(
             pendingAssistant = "",
             shouldExit = false,
         )
+        _taskGroups.value = emptyList()
         sessionEventsJob = viewModelScope.launch { bridge?.start() }
         collectSessionEvents()
         collectDelegationReplies()
+        collectTaskGroups()
     }
 
     fun closeBridge() {
@@ -72,8 +85,11 @@ class S2sViewModel(
         httpClient = null
         sessionEventsJob?.cancel()
         delegationRepliesJob?.cancel()
+        taskGroupsJob?.cancel()
         sessionEventsJob = null
         delegationRepliesJob = null
+        taskGroupsJob = null
+        _taskGroups.value = emptyList()
         _state.value = _state.value.copy(
             connected = false,
             messages = emptyList(),
@@ -166,6 +182,21 @@ class S2sViewModel(
                         messages = _state.value.messages + UiMessage("assistant", text),
                     )
                 }
+            }
+        }
+    }
+
+    private fun collectTaskGroups() {
+        taskGroupsJob = viewModelScope.launch {
+            boss.tasksStates.collect { taskGroupState ->
+                val currentList = _taskGroups.value.toMutableList()
+                val existingIndex = currentList.indexOfFirst { it.id == taskGroupState.id }
+                if (existingIndex >= 0) {
+                    currentList[existingIndex] = taskGroupState
+                } else {
+                    currentList.add(taskGroupState)
+                }
+                _taskGroups.value = currentList.toList()
             }
         }
     }
