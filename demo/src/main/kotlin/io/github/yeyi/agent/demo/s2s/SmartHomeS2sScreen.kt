@@ -5,38 +5,33 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import io.github.yeyi.agent.realtime.RealtimeAppliance
-import io.github.yeyi.agent.realtime.RealtimeEvent
-import io.github.yeyi.agent.realtime.RealtimeSession
-import io.github.yeyi.agent.realtime.SessionConfig
-import io.github.yeyi.agent.realtime.audio.android.AndroidMicrophoneAdapter
-import io.github.yeyi.agent.realtime.audio.android.AndroidSpeakerAdapter
-import io.github.yeyi.agent.realtime.volc.VolcRealtimeSession
+import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.yeyi.agent.team.BossAgent
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
-import io.ktor.client.plugins.websocket.WebSockets
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 
 @Composable
 fun SmartHomeS2sScreen(
@@ -45,99 +40,177 @@ fun SmartHomeS2sScreen(
     onBack: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    BackHandler { onBack() }
-    val scope = remember { CoroutineScope(SupervisorJob() + Dispatchers.Main) }
     val context = LocalContext.current
-    var status by remember { mutableStateOf("Idle") }
-    var transcript by remember { mutableStateOf("") }
-    var bridge by remember { mutableStateOf<RealtimeAppliance?>(null) }
-    var httpClient by remember { mutableStateOf<HttpClient?>(null) }
-    var pendingDelta by remember { mutableStateOf("") }
 
-    LaunchedEffect(bridge) {
-        val b = bridge ?: return@LaunchedEffect
-        b.events.collect { event ->
-            when (event) {
-                is RealtimeEvent.UserTranscriptDelta -> {
-                    transcript =
-                        if (pendingDelta.isNotEmpty() && transcript.endsWith(pendingDelta)) {
-                            transcript.dropLast(pendingDelta.length) + event.text
-                        } else {
-                            transcript + event.text
-                        }
-                    pendingDelta = event.text
-                }
+    val viewModel: S2sViewModel = viewModel(
+        factory = S2sViewModel.Factory(apiKey, boss)
+    )
+    val state by viewModel.state.collectAsState()
 
-                is RealtimeEvent.UserTranscriptCompleted -> {
-                    transcript += "\n"
-                    pendingDelta = ""
-                }
+    BackHandler {
+        viewModel.closeBridge()
+        onBack()
+    }
 
-                else -> Unit
-            }
+    val listState = rememberLazyListState()
+
+    // Auto-scroll when messages change
+    LaunchedEffect(state.messages.size) {
+        if (state.messages.isNotEmpty()) {
+            listState.animateScrollToItem(state.messages.size - 1)
         }
     }
 
-    fun startBridge() {
-        val client = HttpClient(CIO) { install(WebSockets) }
-        val session: RealtimeSession = VolcRealtimeSession(client)
-        val b = RealtimeAppliance(
-            session = session,
-            sessionConfig = SessionConfig(
-                apiKey = apiKey,
-                endpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
-                model = "1.2.6.0",
-                instructions = "你是一个智能家居助手. 用自然、口语化的中文回答用户",
-                voice = "zh_female_vv_jupiter_bigtts",
-                tools = listOf(MusicControlTool()),
-            ),
-            microphone = AndroidMicrophoneAdapter(),
-            speaker = AndroidSpeakerAdapter(),
-            delegation = BossDelegation(boss),
-        )
-        httpClient = client
-        scope.launch { b.start() }
-        bridge = b
-        status = "Listening"
+    // Exit when requested
+    LaunchedEffect(state.shouldExit) {
+        if (state.shouldExit) {
+            viewModel.closeBridge()
+            onBack()
+        }
     }
 
-    val recordAudioLauncher = rememberLauncherForActivityResult(
+    // Permission launcher
+    val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
-            startBridge()
+            viewModel.startBridge()
         } else {
-            status = "需要麦克风权限"
+            viewModel.closeBridge()
+            onBack()
         }
     }
 
-    Column(modifier.padding(16.dp)) {
-        Text("S2S 语音模式（手动开启）", style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(8.dp))
-        Text(status)
-        Spacer(Modifier.height(8.dp))
-        Text("转写: $transcript", style = MaterialTheme.typography.bodyMedium)
-        Spacer(Modifier.height(16.dp))
+    // Auto-connect on mount
+    LaunchedEffect(Unit) {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+        } else {
+            viewModel.startBridge()
+        }
+    }
 
-        Button(onClick = {
-            if (bridge == null) {
-                if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
-                    == PackageManager.PERMISSION_GRANTED
-                ) {
-                    startBridge()
-                } else {
-                    recordAudioLauncher.launch(Manifest.permission.RECORD_AUDIO)
+    Box(modifier = modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp)
+        ) {
+            // Header
+            Text(
+                text = "语音助手",
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = if (state.connected) "● 聆听中" else "● 连接中...",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (state.connected) MaterialTheme.colorScheme.primary
+                else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            Spacer(Modifier.height(12.dp))
+
+            // Messages list
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                state = listState,
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(state.messages) { msg ->
+                    val isUser = msg.role == "user"
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .widthIn(max = 280.dp)
+                                .background(
+                                    color = if (isUser)
+                                        MaterialTheme.colorScheme.primaryContainer
+                                    else
+                                        MaterialTheme.colorScheme.secondaryContainer,
+                                    shape = RoundedCornerShape(
+                                        topStart = 16.dp,
+                                        topEnd = 16.dp,
+                                        bottomStart = if (isUser) 16.dp else 4.dp,
+                                        bottomEnd = if (isUser) 4.dp else 16.dp,
+                                    )
+                                )
+                                .padding(12.dp)
+                        ) {
+                            Text(
+                                text = msg.content,
+                                style = MaterialTheme.typography.bodyMedium,
+                            )
+                        }
+                    }
                 }
-            } else {
-                val old = bridge
-                bridge = null
-                scope.launch { old?.close() }
-                httpClient?.close()
-                httpClient = null
-                status = "Idle"
+
+                // Pending user text
+                if (state.pendingUser.isNotEmpty()) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .widthIn(max = 280.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                        shape = RoundedCornerShape(
+                                            topStart = 16.dp,
+                                            topEnd = 16.dp,
+                                            bottomStart = 16.dp,
+                                            bottomEnd = 4.dp,
+                                        )
+                                    )
+                                    .padding(12.dp)
+                            ) {
+                                Text(
+                                    text = state.pendingUser,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Pending assistant text
+                if (state.pendingAssistant.isNotEmpty()) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.Start
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .widthIn(max = 280.dp)
+                                    .background(
+                                        color = MaterialTheme.colorScheme.secondaryContainer,
+                                        shape = RoundedCornerShape(
+                                            topStart = 16.dp,
+                                            topEnd = 16.dp,
+                                            bottomStart = 4.dp,
+                                            bottomEnd = 16.dp,
+                                        )
+                                    )
+                                    .padding(12.dp)
+                            ) {
+                                Text(
+                                    text = state.pendingAssistant,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                            }
+                        }
+                    }
+                }
             }
-        }) {
-            Text(if (bridge == null) "开启全双工" else "关闭全双工")
         }
     }
 }
