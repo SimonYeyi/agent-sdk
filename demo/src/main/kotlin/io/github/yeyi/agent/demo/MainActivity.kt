@@ -15,10 +15,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.yeyi.agent.demo.s2s.SmartHomeS2sScreen
-import io.github.yeyi.agent.demo.smartHome.SmartHomeAgent
+import io.github.yeyi.agent.demo.smartCockpit.CockpitAgent
 import io.github.yeyi.agent.demo.ui.DemoScreen
 import io.github.yeyi.agent.demo.vm.DemoViewModel
-import io.github.yeyi.agent.demo.vm.Scenario
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,10 +40,9 @@ class MainActivity : ComponentActivity() {
                     val taskGroups by viewModel.taskGroups.collectAsState()
                     val messages by viewModel.messages.collectAsState()
                     val inputText by viewModel.inputText.collectAsState()
-                    val currentScenario by viewModel.currentScenario.collectAsState()
 
                     var voiceMode by remember { mutableStateOf(false) }
-                    val smartHomeBoss = remember { SmartHomeAgent.create(llmProvider) }
+                    val cockpitBoss = remember { CockpitAgent.create(llmProvider) }
 
                     // S2S 语音模式拦截返回键，先关闭语音模式
                     val onBack: () -> Unit = { voiceMode = false }
@@ -55,19 +53,14 @@ class MainActivity : ComponentActivity() {
                         inputText = inputText,
                         onInputChange = viewModel::onInputChange,
                         onSend = viewModel::onSend,
-                        scenarioName = when (currentScenario) {
-                            Scenario.SMART_HOME -> "智能家居"
-                            Scenario.SMART_COCKPIT -> "智能座舱"
-                        },
-                        currentScenario = currentScenario.name,
-                        onScenarioSwitch = viewModel::switchScenario,
+                        scenarioName = "智能家居",
                         voiceMode = voiceMode,
                         onVoiceToggle = { voiceMode = !voiceMode },
                         s2sContent = if (voiceMode) {
                             {
                                 SmartHomeS2sScreen(
                                     apiKey = BuildConfig.VOLC_API_KEY,
-                                    boss = smartHomeBoss,
+                                    boss = cockpitBoss,
                                     onBack = onBack,
                                 )
                             }

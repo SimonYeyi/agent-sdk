@@ -53,8 +53,6 @@ fun DemoScreen(
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
     scenarioName: String,
-    currentScenario: String,
-    onScenarioSwitch: () -> Unit,
     voiceMode: Boolean = false,
     onVoiceToggle: () -> Unit = {},
     s2sContent: (@Composable () -> Unit)? = null,
@@ -83,9 +81,7 @@ fun DemoScreen(
                         style = MaterialTheme.typography.headlineSmall,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable { onScenarioSwitch() }
+                        modifier = Modifier.weight(1f)
                     )
                     Text(
                         text = "🎙",

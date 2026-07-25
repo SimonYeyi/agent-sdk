@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentResult
-import io.github.yeyi.agent.demo.smartCockpit.CockpitAgent
 import io.github.yeyi.agent.demo.smartHome.SmartHomeAgent
 import io.github.yeyi.agent.demo.ui.ChatMessageUi
 import io.github.yeyi.agent.llm.LlmProvider
@@ -16,10 +15,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-
-enum class Scenario {
-    SMART_HOME, SMART_COCKPIT
-}
 
 class DemoViewModel(
     private val llmProvider: LlmProvider
@@ -39,9 +34,6 @@ class DemoViewModel(
     private val _inputText = MutableStateFlow("")
     val inputText: StateFlow<String> = _inputText.asStateFlow()
 
-    private val _currentScenario = MutableStateFlow(Scenario.SMART_HOME)
-    val currentScenario: StateFlow<Scenario> = _currentScenario.asStateFlow()
-
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -53,10 +45,7 @@ class DemoViewModel(
         tasksStatesJob?.cancel()
         continuationsJob?.cancel()
 
-        bossAgent = when (_currentScenario.value) {
-            Scenario.SMART_HOME -> SmartHomeAgent.create(llmProvider)
-            Scenario.SMART_COCKPIT -> CockpitAgent.create(llmProvider)
-        }
+        bossAgent = SmartHomeAgent.create(llmProvider)
 
         // Collect task states
         tasksStatesJob = viewModelScope.launch {
@@ -112,20 +101,6 @@ class DemoViewModel(
                     }
                 }
             }
-        }
-    }
-
-    fun switchScenario() {
-        val newScenario = when (_currentScenario.value) {
-            Scenario.SMART_HOME -> Scenario.SMART_COCKPIT
-            Scenario.SMART_COCKPIT -> Scenario.SMART_HOME
-        }
-        if (_currentScenario.value != newScenario) {
-            _currentScenario.value = newScenario
-            _taskGroups.value = emptyList()
-            _messages.value = emptyList()
-            bossAgent?.shutdown()
-            initializeAgent()
         }
     }
 

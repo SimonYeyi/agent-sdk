@@ -14,7 +14,7 @@ import kotlinx.coroutines.flow.merge
 
 class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
     override val capabilities: List<String> by lazy {
-        listOf("空调控制", "窗帘控制")
+        listOf("空调/座椅控制", "车窗/氛围灯控制", "导航/驾驶辅助")
     }
 
     private val runEvents = MutableSharedFlow<DelegationReply>(extraBufferCapacity = 64)
