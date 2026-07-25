@@ -8,6 +8,8 @@ import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -92,18 +94,18 @@ class RealtimeApplianceTest {
         }
     }
 
-    private class FakeDelegation(
-        private val result: DelegationResult = DelegationResult.Success("stub"),
-    ) : RealtimeDelegation {
-        val calledSignal = Channel<String>(Channel.UNLIMITED)
-        var lastInput: String? = null
-        var callCount = 0
+    private class FakeDelegation : RealtimeDelegation {
         override val capabilities: List<String> = emptyList()
-        override suspend fun run(asrText: String): DelegationResult {
-            lastInput = asrText
-            callCount++
-            calledSignal.send(asrText)
-            return result
+        private val updateEmitter = MutableSharedFlow<DelegationReply>(extraBufferCapacity = 16)
+        override val replies: Flow<DelegationReply> = updateEmitter.asSharedFlow()
+        val dispatched = Channel<String>(Channel.UNLIMITED)
+
+        override suspend fun run(asrText: String) {
+            dispatched.send(asrText)
+        }
+
+        fun emit(update: DelegationReply) {
+            check(updateEmitter.tryEmit(update))
         }
     }
 
@@ -150,12 +152,11 @@ class RealtimeApplianceTest {
 
         appliance.close()
 
-        assertEquals(0, delegation.callCount)
         assertEquals(0, session.injectCount)
     }
 
     @Test
-    fun `delegate path runs delegation and injects result`() = runTest {
+    fun `delegate path runs delegation`() = runTest {
         val session = FakeSession(fakeInputFormat, fakeOutputFormat)
         val delegation = FakeDelegation()
 
@@ -171,19 +172,19 @@ class RealtimeApplianceTest {
         awaitSubscribed(session)
 
         session.emit(RealtimeEvent.UserTranscriptCompleted("帮我把客厅灯调暗到 30%"))
-        session.emit(RealtimeEvent.AssistantTextDelta("<|TASK|>"))
+        session.emit(RealtimeEvent.AssistantTextDelta("|好的"))
         session.emit(RealtimeEvent.ResponseDone)
 
-        val called = realAwait { delegation.calledSignal.receive() }
+        val called = realAwait { delegation.dispatched.receive() }
         assertEquals("帮我把客厅灯调暗到 30%", called)
 
         appliance.close()
     }
 
     @Test
-    fun `delegation Success triggers injectAndRespond after S2S idle`() = runTest {
+    fun `delegation updates are injected in stream order`() = runTest {
         val session = FakeSession(fakeInputFormat, fakeOutputFormat)
-        val delegation = FakeDelegation(DelegationResult.Success("Boss 任务完成, 结果: stub"))
+        val delegation = FakeDelegation()
 
         val appliance = RealtimeAppliance(
             session = session,
@@ -196,17 +197,19 @@ class RealtimeApplianceTest {
         appliance.start()
         awaitSubscribed(session)
 
-        session.emit(RealtimeEvent.UserTranscriptCompleted("帮我把灯调暗"))
-        session.emit(RealtimeEvent.AssistantTextDelta("<|TASK|>"))
-        session.emit(RealtimeEvent.ResponseDone)
+        delegation.emit(DelegationReply.Confirmation("正在处理"))
+        delegation.emit(DelegationReply.Success("空调已打开"))
+        delegation.emit(DelegationReply.Failure("缺少房间参数"))
 
-        realAwait { delegation.calledSignal.receive() }
-        val injected = realAwait { session.injectedSignal.receive() }
+        val injected = listOf(
+            realAwait { session.injectedSignal.receive() },
+            realAwait { session.injectedSignal.receive() },
+            realAwait { session.injectedSignal.receive() },
+        )
 
         appliance.close()
 
-        assertEquals("Boss 任务完成, 结果: stub", injected)
-        assertTrue(session.injectCount >= 1)
+        assertEquals(listOf("正在处理", "空调已打开", "缺少房间参数"), injected)
     }
 
     @Test
@@ -336,7 +339,7 @@ class RealtimeApplianceTest {
 
         // 即使带了 marker 文本，因 gate 不存在，音频也应直通，无拦截
         session.emit(RealtimeEvent.UserTranscriptCompleted("查一下明天北京天气"))
-        session.emit(RealtimeEvent.AssistantTextDelta("${DelegationHandler.DELEGATION_MARKER}好的"))
+        session.emit(RealtimeEvent.AssistantTextDelta("|好的"))
         session.emit(RealtimeEvent.AssistantAudioDelta(byteArrayOf(11, 12, 13)))
         session.emit(RealtimeEvent.ResponseDone)
 

@@ -44,6 +44,16 @@ public class RealtimeAppliance(
             scope?.launch {
                 microphone.capture().collect { pcm -> session.sendAudio(pcm) }
             }
+            scope?.launch {
+                delegation?.replies?.collect { update ->
+                    val text = when (update) {
+                        is DelegationReply.Confirmation -> update.text
+                        is DelegationReply.Success -> update.text
+                        is DelegationReply.Failure -> update.message
+                    }
+                    session.injectAndRespond(text)
+                }
+            }
         } catch (e: Throwable) {
             runCatching { close() }
             throw e
@@ -68,12 +78,14 @@ public class RealtimeAppliance(
 
 public interface RealtimeDelegation {
     public val capabilities: List<String>
-    public suspend fun run(asrText: String): DelegationResult
+    public val replies: Flow<DelegationReply>
+    public suspend fun run(asrText: String)
 }
 
-public sealed interface DelegationResult {
-    public data class Success(val text: String) : DelegationResult
-    public data class Failure(val message: String) : DelegationResult
+public sealed interface DelegationReply {
+    public data class Confirmation(val text: String) : DelegationReply
+    public data class Success(val text: String) : DelegationReply
+    public data class Failure(val message: String) : DelegationReply
 }
 
 internal class DelegationHandler(
@@ -106,11 +118,8 @@ internal class DelegationHandler(
     }
 
     private suspend fun runDelegation(asrText: String) {
-        val text = when (val result = delegation.run(asrText)) {
-            is DelegationResult.Success -> result.text
-            is DelegationResult.Failure -> result.message
-        }
-        session.injectAndRespond(text)
+        session.cancelResponse()
+        delegation.run(asrText)
     }
 
     companion object {
