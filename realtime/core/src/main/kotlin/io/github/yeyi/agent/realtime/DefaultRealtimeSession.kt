@@ -12,8 +12,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -29,10 +32,15 @@ private class DefaultRealtimeSession(
     private var scope: CoroutineScope? = null
     private val json = Json { ignoreUnknownKeys = true }
     private val writeLock = Mutex()
+    private val disconnectedEvent = MutableSharedFlow<RealtimeEvent>(extraBufferCapacity = 1)
 
     override val inputAudioFormat: AudioFormat get() = adapter.inputAudioFormat
     override val outputAudioFormat: AudioFormat get() = adapter.outputAudioFormat
-    override val events: Flow<RealtimeEvent> get() = adapter.events
+    override val events: Flow<RealtimeEvent>
+        get() = merge(
+            disconnectedEvent,
+            adapter.events.filter { it !is RealtimeEvent.Disconnected }
+        )
 
     override suspend fun connect(config: SessionConfig) {
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -50,10 +58,10 @@ private class DefaultRealtimeSession(
     }
 
     override fun close() {
-        scope?.cancel()
-        scope = null
         ws?.cancel()
         ws = null
+        scope?.cancel()
+        scope = null
     }
 
     override suspend fun sendAudio(pcm: ByteArray) {
@@ -78,31 +86,31 @@ private class DefaultRealtimeSession(
 
     private suspend fun sendFrame(frame: ProtocolFrame) {
         writeLock.withLock {
-            ws?.send(Frame.Text(json.encodeToString(JsonObject.serializer(), frame.payload)))
+            ws!!.send(Frame.Text(json.encodeToString(JsonObject.serializer(), frame.payload)))
         }
     }
 
     private fun startReadLoop() {
-        val wsLocal = ws ?: return
         scope?.launch {
-            for (frame in wsLocal.incoming) {
-                if (frame !is Frame.Text) continue
-                val payload = json.decodeFromString(JsonObject.serializer(), frame.readText())
-                val replyFrames = adapter.handleIncomingFrame(ProtocolFrame(payload))
-                replyFrames.forEach { scope?.launch { sendFrame(it) } }
+            try {
+                for (frame in ws!!.incoming) {
+                    if (frame !is Frame.Text) continue
+                    val payload = json.decodeFromString(JsonObject.serializer(), frame.readText())
+                    val replyFrames = adapter.handleIncomingFrame(ProtocolFrame(payload))
+                    replyFrames.forEach { scope?.launch { sendFrame(it) } }
+                }
+            } finally {
+                disconnectedEvent.emit(RealtimeEvent.Disconnected("connection closed"))
             }
         }
     }
 
     private suspend fun waitConnected() {
-        adapter.events
-            .onEach { event ->
-                if (event is RealtimeEvent.Error) {
-                    error("Session create failed: ${event.code} - ${event.message}")
-                }
+        adapter.events.onEach { event ->
+            if (event is RealtimeEvent.Error) {
+                error("Session create failed: ${event.code} - ${event.message}")
             }
-            .filterIsInstance<RealtimeEvent.Connected>()
-            .first()
+        }.filterIsInstance<RealtimeEvent.Connected>().first()
     }
 }
 

@@ -97,24 +97,58 @@ private class DefaultRealtimeSession(
 ) : RealtimeSession {
     private var ws: WebSocketSession? = null
     private var scope: CoroutineScope? = null
+    private val json = Json { ignoreUnknownKeys = true }
     private val writeLock = Mutex()
+    private val disconnectedEvent = MutableSharedFlow<RealtimeEvent>(extraBufferCapacity = 1)
+
+    override val inputAudioFormat: AudioFormat get() = adapter.inputAudioFormat
+    override val outputAudioFormat: AudioFormat get() = adapter.outputAudioFormat
+    override val events: Flow<RealtimeEvent>
+        get() = merge(
+            disconnectedEvent,
+            adapter.events.filter { it !is RealtimeEvent.Disconnected }
+        )
 
     override suspend fun connect(config: SessionConfig) {
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         ws = client.webSocketSession(urlString = config.endpoint) {
             adapter.getAuthHeaders(config).forEach { (k, v) -> header(k, v) }
         }
+
         adapter.registerTools(config.tools)
+
         sendFrame(adapter.connectFrame(config))
+
         startReadLoop()
+
         waitConnected()
     }
 
     override fun close() {
-        scope?.cancel()
-        scope = null
         ws?.cancel()
         ws = null
+        scope?.cancel()
+        scope = null
+    }
+
+    override suspend fun sendAudio(pcm: ByteArray) {
+        val frame = adapter.sendAudioFrame(pcm)
+        sendFrame(frame)
+    }
+
+    override suspend fun commitInput() {
+        val frame = adapter.commitInputFrame()
+        sendFrame(frame)
+    }
+
+    override suspend fun cancelResponse() {
+        val frame = adapter.cancelResponseFrame()
+        sendFrame(frame)
+    }
+
+    override suspend fun injectAndRespond(text: String) {
+        val frame = adapter.injectAndRespondFrame(text)
+        sendFrame(frame)
     }
 
     private suspend fun sendFrame(frame: ProtocolFrame) {
@@ -124,21 +158,27 @@ private class DefaultRealtimeSession(
     }
 
     private fun startReadLoop() {
+        val wsLocal = ws ?: return
         scope?.launch {
-            for (frame in wsLocal.incoming) {
-                if (frame !is Frame.Text) continue
-                val payload = json.decodeFromString(JsonObject.serializer(), frame.readText())
-                val replyFrames = adapter.handleIncomingFrame(ProtocolFrame(payload))
-                replyFrames.forEach { scope?.launch { sendFrame(it) } }
+            try {
+                for (frame in wsLocal.incoming) {
+                    if (frame !is Frame.Text) continue
+                    val payload = json.decodeFromString(JsonObject.serializer(), frame.readText())
+                    val replyFrames = adapter.handleIncomingFrame(ProtocolFrame(payload))
+                    replyFrames.forEach { scope?.launch { sendFrame(it) } }
+                }
+            } finally {
+                disconnectedEvent.emit(RealtimeEvent.Disconnected("connection closed"))
             }
         }
     }
 
     private suspend fun waitConnected() {
-        adapter.events
-            .onEach { if (it is RealtimeEvent.Error) error("...") }
-            .filterIsInstance<RealtimeEvent.Connected>()
-            .first()
+        adapter.events.onEach { event ->
+            if (event is RealtimeEvent.Error) {
+                error("Session create failed: ${event.code} - ${event.message}")
+            }
+        }.filterIsInstance<RealtimeEvent.Connected>().first()
     }
 }
 
@@ -151,6 +191,8 @@ public fun RealtimeSession(client: HttpClient, adapter: RealtimeAdapter): Realti
 - **`JsonObject.serializer()`** 直连序列化 payload，不走 `ProtocolFrame.serializer()`。
 - **回复帧机制**：adapter 通过返回值返回回复帧，session 在 read loop 中 launch 发送。
 - **`waitConnected()`** 等待 `Connected` 事件，期间若出现 `Error` 则抛出异常。
+- **Disconnected 事件来源**：WebSocket 连接关闭时（for-loop 正常结束或网络错误），由 session 本身通过 `disconnectedEvent` 发射；adapter 的 Disconnected 事件在 `events` 流中被过滤掉，避免重复。
+- **`try-finally` 保证 Disconnected 发送**：即使 `CancellationException` 触发，finally 块仍会执行。
 
 ---
 
