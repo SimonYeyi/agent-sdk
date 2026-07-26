@@ -133,7 +133,7 @@ internal class DelegationHandler(
             委派协议：
             1. 闲聊 (问候/聊天/知识问答/一般咨询)：直接自然口语回答。
             2. 命中已注册的 function_call 工具：直接发起函数调用，无需标记委派（跳过第3点）。
-            3. 超出 FC 工具能力范围，且落在下面“${AVAILABLE_CAPABILITIES_LABEL}”列表中：
+            3. 落在下面“${AVAILABLE_CAPABILITIES_LABEL}”列表中（不在能力范围内，一律按闲聊处理）：
                assistant 输出**必须**以 $DELEGATION_MARKER 开头标记委派，紧接对用户的简短确认。
 
                完整示例（用户说“帮我调暗客厅灯”）：
