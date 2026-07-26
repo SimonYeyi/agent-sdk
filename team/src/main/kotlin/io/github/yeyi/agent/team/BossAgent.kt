@@ -84,16 +84,14 @@ public class BossAgent internal constructor(
     private val tasksLock: Mutex = Mutex()
 
     // ===== 续轮事件流 (hot SharedFlow) =====
-    private val continuationsEmitter = MutableSharedFlow<AgentEvent>(
-        replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
-
     /**
      * 续轮事件流 (hot SharedFlow) — 任务结果触发的 round 事件都流到这里.
      * 与 [run] 互补: `run` 是用户驱动的单次 round 流, `continuations` 是任务驱动的多 round 流.
      * 调用方订阅一次即可收所有续轮 (UI + logger 多消费者支持).
      */
-    public val continuations: Flow<AgentEvent> = continuationsEmitter.asSharedFlow()
+    public val continuations: Flow<AgentEvent> = MutableSharedFlow(
+        replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
 
     private lateinit var currentRound: UserRound
 
@@ -280,7 +278,7 @@ public class BossAgent internal constructor(
 
     private suspend fun runResultRound(result: String) {
         innerAgent.run(result).collect { e ->
-            continuationsEmitter.emit(e)
+            (continuations as MutableSharedFlow).emit(e)
         }
         handlePending(postRound = true)
     }
