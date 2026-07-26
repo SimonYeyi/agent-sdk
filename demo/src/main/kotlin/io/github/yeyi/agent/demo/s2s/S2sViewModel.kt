@@ -16,6 +16,7 @@ import io.github.yeyi.agent.team.TasksState
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.websocket.WebSockets
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -33,21 +34,22 @@ class S2sViewModel(
     val taskGroups: StateFlow<List<TasksState>> = _taskGroups.asStateFlow()
 
     init {
-        // 确保 ViewModel 创建时就清空，防止前一个页面的数据残留
         _taskGroups.value = emptyList()
     }
 
     private var bridge: RealtimeAppliance? = null
     private var httpClient: HttpClient? = null
     private val delegation = BossDelegation(boss)
-    private var sessionEventsJob: kotlinx.coroutines.Job? = null
-    private var delegationRepliesJob: kotlinx.coroutines.Job? = null
-    private var taskGroupsJob: kotlinx.coroutines.Job? = null
+    private var bridgeJob: Job? = null
+    private var sessionCollectJob: Job? = null
+    private var delegationCollectJob: Job? = null
+    private var taskGroupsCollectJob: Job? = null
 
     fun startBridge() {
-        sessionEventsJob?.cancel()
-        delegationRepliesJob?.cancel()
-        taskGroupsJob?.cancel()
+        bridgeJob?.cancel()
+        sessionCollectJob?.cancel()
+        delegationCollectJob?.cancel()
+        taskGroupsCollectJob?.cancel()
 
         val client = HttpClient(CIO) { install(WebSockets) }
         httpClient = client
@@ -65,147 +67,132 @@ class S2sViewModel(
             speaker = AndroidSpeakerAdapter(),
             delegation = delegation,
         )
-        _state.value = _state.value.copy(
-            connected = true,
-            messages = emptyList(),
-            pendingUser = "",
-            pendingAssistant = "",
-            shouldExit = false,
-        )
+        _state.value = UiState(connected = true)
         _taskGroups.value = emptyList()
-        sessionEventsJob = viewModelScope.launch { bridge?.start() }
-        collectSessionEvents()
-        collectDelegationReplies()
-        collectTaskGroups()
+        bridgeJob = viewModelScope.launch { bridge?.start() }
+        sessionCollectJob = launchCollectSessionEvents()
+        delegationCollectJob = launchCollectDelegationReplies()
+        taskGroupsCollectJob = launchCollectTaskGroups()
     }
 
     fun closeBridge() {
+        bridgeJob?.cancel()
+        bridgeJob = null
+        sessionCollectJob?.cancel()
+        sessionCollectJob = null
+        delegationCollectJob?.cancel()
+        delegationCollectJob = null
+        taskGroupsCollectJob?.cancel()
+        taskGroupsCollectJob = null
+
         val b = bridge
         bridge = null
         httpClient?.close()
         httpClient = null
-        sessionEventsJob?.cancel()
-        delegationRepliesJob?.cancel()
-        taskGroupsJob?.cancel()
-        sessionEventsJob = null
-        delegationRepliesJob = null
-        taskGroupsJob = null
+
         _taskGroups.value = emptyList()
-        _state.value = _state.value.copy(
-            connected = false,
-            messages = emptyList(),
-            pendingUser = "",
-            pendingAssistant = "",
-        )
+        _state.value = UiState(connected = false)
         viewModelScope.launch { b?.close() }
     }
 
-    private fun collectSessionEvents() {
-        viewModelScope.launch {
-            bridge?.events?.collect { event ->
-                when (event) {
-                    is RealtimeEvent.UserTranscriptDelta -> {
-                        _state.value = _state.value.copy(pendingUser = event.text)
-                    }
+    private fun launchCollectSessionEvents(): Job = viewModelScope.launch {
+        bridge?.events?.collect { event ->
+            when (event) {
+                is RealtimeEvent.UserTranscriptDelta -> {
+                    _state.value = _state.value.copy(pendingUser = event.text)
+                }
 
-                    is RealtimeEvent.UserTranscriptCompleted -> {
-                        val text = event.text.ifBlank { _state.value.pendingUser }
-                        if (text.isNotBlank()) {
-                            _state.value = _state.value.copy(
-                                messages = _state.value.messages + UiMessage("user", text),
-                                pendingUser = "",
-                            )
-                        }
-                    }
-
-                    is RealtimeEvent.AssistantTextDelta -> {
-                        if (_state.value.skipNextDelegationTts || event.text.startsWith("|")) {
-                            // 标记为跳过，且不显示任何 TTS delta
-                            _state.value = _state.value.copy(skipNextDelegationTts = true)
-                        } else {
-                            _state.value = _state.value.copy(
-                                pendingAssistant = _state.value.pendingAssistant + event.text,
-                            )
-                        }
-                    }
-
-                    is RealtimeEvent.AssistantAudioStarted -> {
-                        _state.value = _state.value.copy(skipNextDelegationTts = false)
-                    }
-
-                    is RealtimeEvent.AssistantAudioDone -> {
-                        if (_state.value.pendingAssistant.isNotBlank()) {
-                            _state.value = _state.value.copy(
-                                messages = _state.value.messages + UiMessage(
-                                    "assistant",
-                                    _state.value.pendingAssistant.trim()
-                                ),
-                                pendingAssistant = "",
-                            )
-                        }
-                    }
-
-                    is RealtimeEvent.ResponseDone -> {
-                        if (_state.value.pendingAssistant.isNotBlank()) {
-                            _state.value = _state.value.copy(
-                                messages = _state.value.messages + UiMessage(
-                                    "assistant",
-                                    _state.value.pendingAssistant.trim()
-                                ),
-                                pendingAssistant = "",
-                            )
-                        }
-                    }
-
-                    is RealtimeEvent.Disconnected -> {
-                        closeBridge()
-                        _state.value = _state.value.copy(shouldExit = true)
-                    }
-
-                    is RealtimeEvent.Error -> {
+                is RealtimeEvent.UserTranscriptCompleted -> {
+                    val text = event.text.ifBlank { _state.value.pendingUser }
+                    if (text.isNotBlank()) {
                         _state.value = _state.value.copy(
-                            pendingAssistant = "",
+                            messages = _state.value.messages + UiMessage("user", text),
                             pendingUser = "",
-                            shouldExit = true,
                         )
                     }
-
-                    else -> Unit
                 }
-            }
-        }
-    }
 
-    private fun collectDelegationReplies() {
-        delegationRepliesJob = viewModelScope.launch {
-            delegation.replies.collect { reply ->
-                val text = when (reply) {
-                    is DelegationReply.Confirmation -> reply.text
-                    is DelegationReply.Success -> reply.text
-                    is DelegationReply.Failure -> reply.message
+                is RealtimeEvent.AssistantTextDelta -> {
+                    if (_state.value.skipNextDelegationTts || event.text.startsWith("|")) {
+                        _state.value = _state.value.copy(skipNextDelegationTts = true)
+                    } else {
+                        _state.value = _state.value.copy(
+                            pendingAssistant = _state.value.pendingAssistant + event.text,
+                        )
+                    }
                 }
-                if (text.isNotBlank()) {
+
+                is RealtimeEvent.AssistantAudioStarted -> {
+                    _state.value = _state.value.copy(skipNextDelegationTts = false)
+                }
+
+                is RealtimeEvent.AssistantAudioDone -> {
+                    if (_state.value.pendingAssistant.isNotBlank()) {
+                        _state.value = _state.value.copy(
+                            messages = _state.value.messages + UiMessage(
+                                "assistant",
+                                _state.value.pendingAssistant.trim()
+                            ),
+                            pendingAssistant = "",
+                        )
+                    }
+                }
+
+                is RealtimeEvent.ResponseDone -> {
+                    if (_state.value.pendingAssistant.isNotBlank()) {
+                        _state.value = _state.value.copy(
+                            messages = _state.value.messages + UiMessage(
+                                "assistant",
+                                _state.value.pendingAssistant.trim()
+                            ),
+                            pendingAssistant = "",
+                        )
+                    }
+                }
+
+                is RealtimeEvent.Disconnected -> {
+                    _state.value = _state.value.copy(shouldExit = true)
+                }
+
+                is RealtimeEvent.Error -> {
                     _state.value = _state.value.copy(
-                        messages = _state.value.messages + UiMessage("assistant", text),
+                        pendingAssistant = "",
+                        pendingUser = "",
+                        shouldExit = true,
                     )
                 }
+
+                else -> Unit
             }
         }
     }
 
-    private fun collectTaskGroups() {
-        taskGroupsJob = viewModelScope.launch {
-            boss.tasksState.collect { taskGroupState ->
-                val currentList = _taskGroups.value.toMutableList()
-                val existingIndex =
-                    currentList.indexOfFirst { it.roundId == taskGroupState.roundId }
-                if (existingIndex >= 0) {
-                    currentList[existingIndex] = taskGroupState
-                } else {
-                    currentList.add(taskGroupState)
-                }
-                _taskGroups.value = currentList.toList()
+    private fun launchCollectDelegationReplies(): Job = viewModelScope.launch {
+        delegation.replies.collect { reply ->
+            val text = when (reply) {
+                is DelegationReply.Confirmation -> reply.text
+                is DelegationReply.Success -> reply.text
+                is DelegationReply.Failure -> reply.message
             }
+            if (text.isNotBlank()) {
+                _state.value = _state.value.copy(
+                    messages = _state.value.messages + UiMessage("assistant", text),
+                )
+            }
+        }
+    }
+
+    private fun launchCollectTaskGroups(): Job = viewModelScope.launch {
+        boss.tasksState.collect { taskGroupState ->
+            val currentList = _taskGroups.value.toMutableList()
+            val existingIndex =
+                currentList.indexOfFirst { it.roundId == taskGroupState.roundId }
+            if (existingIndex >= 0) {
+                currentList[existingIndex] = taskGroupState
+            } else {
+                currentList.add(taskGroupState)
+            }
+            _taskGroups.value = currentList.toList()
         }
     }
 
