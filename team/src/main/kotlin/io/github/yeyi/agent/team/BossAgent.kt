@@ -10,7 +10,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.isActive
@@ -103,16 +102,13 @@ public class BossAgent internal constructor(
     // 结果完成时由 formatTasksResultSummary 格式化后压入,runPendingRound 消费.
     private val pendingResultEvents: Channel<String> = Channel(capacity = Channel.UNLIMITED)
 
-    // ===== 任务组状态推送 =====
-    private val tasksStateEmitter = MutableSharedFlow<TasksState>(
-        replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
-
     /**
      * 任务组状态流 — 每次 TaskUpdate 时推送当前 round 的完整状态.
      * 调用方订阅此 Flow 即可实时获取所有任务的更新状态.
      */
-    public val tasksState: Flow<TasksState> = tasksStateEmitter.asSharedFlow()
+    public val tasksState: Flow<TasksState> = MutableSharedFlow(
+        replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
 
     // ===== 并发控制 =====
     // decisionLock 锁内 atomically: 读 state + scope.launch.
@@ -217,7 +213,7 @@ public class BossAgent internal constructor(
         roundTasks
             .map { ts -> ts.copy(events = ts.events.toMutableList()) }
             .let { TasksState(state.roundId, state.userInput, state.createdAt, it, state.taskId) }
-            .run { tasksStateEmitter.tryEmit(this) }
+            .run { (tasksState as MutableSharedFlow).tryEmit(this) }
 
         if (isTerminal.not()) return
 
