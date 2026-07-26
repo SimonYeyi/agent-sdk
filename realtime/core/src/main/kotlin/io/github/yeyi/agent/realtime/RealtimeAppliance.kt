@@ -88,7 +88,7 @@ internal class DelegationHandler(
 
     fun appendInstructions(base: String): String {
         val capabilityList = delegation.capabilities.joinToString("\n") { "- $it" }
-        return "$base\n\n$DELEGATION_PROTOCOL\n\n可执行能力:\n$capabilityList"
+        return "$base\n\n$DELEGATION_PROTOCOL\n$capabilityList"
     }
 
     fun start() {
@@ -128,19 +128,22 @@ internal class DelegationHandler(
 
     companion object {
         private const val DELEGATION_MARKER = "|"
+        private const val AVAILABLE_CAPABILITIES_LABEL = "可用能力"
         private val DELEGATION_PROTOCOL = """
             委派协议：
             1. 闲聊 (问候/聊天/知识问答/一般咨询)：直接自然口语回答。
-            2. 需要执行任务（操作设备/调用服务/多步执行）：
-               assistant 输出**必须**以 $DELEGATION_MARKER 开头，紧接对用户的简短确认。
+            2. 命中已注册的 function_call 工具：直接发起函数调用，无需标记委派（跳过第3点）。
+            3. 超出 FC 工具能力范围，且落在下面“${AVAILABLE_CAPABILITIES_LABEL}”列表中：
+               assistant 输出**必须**以 $DELEGATION_MARKER 开头标记委派，紧接对用户的简短确认。
 
                完整示例（用户说“帮我调暗客厅灯”）：
 
-                   $DELEGATION_MARKER 好的，正在为您调暗客厅灯，请稍等
+                   ${DELEGATION_MARKER}好的，正在为您调暗客厅灯，请稍等
 
                要求:
                - 简短确认**必须用进行时** (表达“正在处理”), 不能用完成时承诺结果。
-               - 只有用户请求落在下面“可执行能力”列表范围内时才走任务委派;其他请求一律按上面的“闲聊”处理,直接回答即可。
+               
+               ${AVAILABLE_CAPABILITIES_LABEL}：
         """.trimIndent()
     }
 }

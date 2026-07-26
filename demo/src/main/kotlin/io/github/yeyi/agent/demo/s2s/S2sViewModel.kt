@@ -6,10 +6,11 @@ import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.realtime.DelegationReply
 import io.github.yeyi.agent.realtime.RealtimeAppliance
 import io.github.yeyi.agent.realtime.RealtimeEvent
+import io.github.yeyi.agent.realtime.RealtimeSession
 import io.github.yeyi.agent.realtime.SessionConfig
 import io.github.yeyi.agent.realtime.audio.android.AndroidMicrophoneAdapter
 import io.github.yeyi.agent.realtime.audio.android.AndroidSpeakerAdapter
-import io.github.yeyi.agent.realtime.volc.VolcRealtimeSession
+import io.github.yeyi.agent.realtime.volc.VolcRealtimeAdapter
 import io.github.yeyi.agent.team.BossAgent
 import io.github.yeyi.agent.team.TasksState
 import io.ktor.client.HttpClient
@@ -51,7 +52,7 @@ class S2sViewModel(
         val client = HttpClient(CIO) { install(WebSockets) }
         httpClient = client
         bridge = RealtimeAppliance(
-            session = VolcRealtimeSession(client),
+            session = RealtimeSession(client, VolcRealtimeAdapter()),
             sessionConfig = SessionConfig(
                 apiKey = apiKey,
                 endpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
@@ -135,7 +136,10 @@ class S2sViewModel(
                     is RealtimeEvent.AssistantAudioDone -> {
                         if (_state.value.pendingAssistant.isNotBlank()) {
                             _state.value = _state.value.copy(
-                                messages = _state.value.messages + UiMessage("assistant", _state.value.pendingAssistant.trim()),
+                                messages = _state.value.messages + UiMessage(
+                                    "assistant",
+                                    _state.value.pendingAssistant.trim()
+                                ),
                                 pendingAssistant = "",
                             )
                         }
@@ -144,7 +148,10 @@ class S2sViewModel(
                     is RealtimeEvent.ResponseDone -> {
                         if (_state.value.pendingAssistant.isNotBlank()) {
                             _state.value = _state.value.copy(
-                                messages = _state.value.messages + UiMessage("assistant", _state.value.pendingAssistant.trim()),
+                                messages = _state.value.messages + UiMessage(
+                                    "assistant",
+                                    _state.value.pendingAssistant.trim()
+                                ),
                                 pendingAssistant = "",
                             )
                         }
@@ -190,7 +197,8 @@ class S2sViewModel(
         taskGroupsJob = viewModelScope.launch {
             boss.tasksState.collect { taskGroupState ->
                 val currentList = _taskGroups.value.toMutableList()
-                val existingIndex = currentList.indexOfFirst { it.roundId == taskGroupState.roundId }
+                val existingIndex =
+                    currentList.indexOfFirst { it.roundId == taskGroupState.roundId }
                 if (existingIndex >= 0) {
                     currentList[existingIndex] = taskGroupState
                 } else {
