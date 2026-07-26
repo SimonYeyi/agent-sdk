@@ -63,7 +63,8 @@ public data class TasksState(
     public val roundId: String,
     public val input: String,
     public val createdAt: Long,
-    public val tasks: List<TaskState>
+    public val tasks: List<TaskState>,
+    public val updated: String
 ) {
     public val terminal: Boolean get() = tasks.all { it.terminal }
 }
@@ -217,7 +218,7 @@ public class BossAgent internal constructor(
         // 每次 TaskUpdate 都推送当前 round 状态
         roundTasks
             .map { ts -> ts.copy(events = ts.events.toMutableList()) }
-            .let { TasksState(state.roundId, state.userInput, state.createdAt, it) }
+            .let { TasksState(state.roundId, state.userInput, state.createdAt, it, state.taskId) }
             .run { tasksStateEmitter.tryEmit(this) }
 
         if (isTerminal.not()) return
