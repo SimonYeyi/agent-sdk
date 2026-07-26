@@ -65,7 +65,7 @@ fun TaskGroupCard(
 
             // User input
             Text(
-                text = "用户: ${groupState.input}",
+                text = "用户: ${groupState.userInput}",
                 style = MaterialTheme.typography.bodySmall,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

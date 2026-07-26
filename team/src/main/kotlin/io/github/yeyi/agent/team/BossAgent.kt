@@ -53,19 +53,22 @@ public data class TaskState(
  * 一个 round 内所有任务的状态快照，作为 [BossAgent.tasksState] Flow 的推送单元.
  *
  * @property roundId round ID
- * @property input 该 round 的用户输入
+ * @property userInput 该 round 的用户输入
  * @property createdAt 任务组创建时间，用于 UI 排序
  * @property tasks 该 round 内所有任务的 [TaskState] 列表
  * @property terminal 是否所有任务都处于终态
+ * @property latestChangedTask 最新有状态变化的任务
  */
 public data class TasksState(
     public val roundId: String,
-    public val input: String,
+    public val userInput: String,
     public val createdAt: Long,
     public val tasks: List<TaskState>,
-    public val updated: String
+    private val latestChanged: String
 ) {
     public val terminal: Boolean get() = tasks.all { it.terminal }
+
+    public val latestChangedTask: TaskState get() = tasks.first { it.taskId == latestChanged }
 }
 
 // ===== BossAgent =====
