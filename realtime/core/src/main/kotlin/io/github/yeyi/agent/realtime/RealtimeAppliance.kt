@@ -37,7 +37,6 @@ public class RealtimeAppliance(
         if (scope != null) return
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         userQuerying = false
-        audioChannel = Channel(capacity = Channel.UNLIMITED)
         try {
             val instructions = delegationHandler
                 ?.appendInstructions(sessionConfig.instructions)
@@ -48,19 +47,22 @@ public class RealtimeAppliance(
             scope?.launch {
                 session.events.collect { event ->
                     handleEvent(event)
-                    (events as MutableSharedFlow).emit(
-                        delegationHandler?.transformEvent(event) ?: event
-                    )
+                    val handled = delegationHandler?.handle(event)
+                    (events as MutableSharedFlow).emit(handled ?: event)
                 }
             }
             scope?.launch {
                 microphone.capture().collect { pcm -> session.sendAudio(pcm) }
             }
-            scope?.launch {
-                for (pcm in audioChannel!!) {
-                    speaker.play(pcm)
+
+            audioChannel = Channel<ByteArray>(capacity = Channel.UNLIMITED).also { channel ->
+                scope?.launch {
+                    for (pcm in channel) {
+                        speaker.play(pcm)
+                    }
                 }
             }
+
             delegationHandler?.start()
         } catch (e: Throwable) {
             runCatching { close() }
@@ -143,31 +145,22 @@ internal class DelegationHandler(
         }
     }
 
-    private fun handle(event: RealtimeEvent) {
+    /**
+     * 处理 delegation 逻辑并清除委派标记，返回干净的事件.
+     */
+    fun handle(event: RealtimeEvent): RealtimeEvent {
         when (event) {
             is RealtimeEvent.UserTranscriptCompleted -> pendingAsr = event.text
             is RealtimeEvent.AssistantTextDelta -> {
-                if (event.text.startsWith(DELEGATION_MARKER).not()) return
-                pendingAsr?.let { scopeProvider()?.launch { runDelegation(it) } }
+                if (event.text.startsWith(DELEGATION_MARKER)) {
+                    pendingAsr?.let { scopeProvider()?.launch { runDelegation(it) } }
+                    return event.copy(text = event.text.removePrefix(DELEGATION_MARKER))
+                }
             }
 
             else -> Unit
         }
-    }
-
-    /**
-     * 清除事件中的委派标记，返回干净的事件.
-     */
-    fun transformEvent(event: RealtimeEvent): RealtimeEvent {
-        handle(event)
-        return when (event) {
-            is RealtimeEvent.AssistantTextDelta if (event.text.startsWith(DELEGATION_MARKER)) -> {
-                val cleaned = event.text.removePrefix(DELEGATION_MARKER)
-                event.copy(text = cleaned)
-            }
-
-            else -> event
-        }
+        return event
     }
 
     private suspend fun runDelegation(asrText: String) {
