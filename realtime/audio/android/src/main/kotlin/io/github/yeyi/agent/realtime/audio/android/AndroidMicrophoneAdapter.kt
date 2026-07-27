@@ -4,6 +4,7 @@ import android.Manifest
 import android.media.AudioFormat as AndroidAudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.audiofx.AcousticEchoCanceler
 import androidx.annotation.RequiresPermission
 import io.github.yeyi.agent.realtime.audio.AudioFormat
 import io.github.yeyi.agent.realtime.audio.MicrophoneAdapter
@@ -23,6 +24,7 @@ import kotlinx.coroutines.withContext
 public class AndroidMicrophoneAdapter : MicrophoneAdapter {
     private val mutex = Mutex()
     private var record: AudioRecord? = null
+    private var echoCanceler: AcousticEchoCanceler? = null
     private var captureJob: Job? = null
     private lateinit var audioFormat: AudioFormat
 
@@ -38,12 +40,17 @@ public class AndroidMicrophoneAdapter : MicrophoneAdapter {
                 androidEncoding,
             )
             record = AudioRecord(
-                MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
                 format.sampleRateHz,
                 AndroidAudioFormat.CHANNEL_IN_MONO,
                 androidEncoding,
                 minBuffer * 4,
             ).also { it.startRecording() }
+
+            if (AcousticEchoCanceler.isAvailable()) {
+                echoCanceler =
+                    AcousticEchoCanceler.create(record!!.audioSessionId).apply { setEnabled(true) }
+            }
         }
     }
 
@@ -76,6 +83,8 @@ public class AndroidMicrophoneAdapter : MicrophoneAdapter {
 
     override suspend fun close() {
         mutex.withLock {
+            echoCanceler?.release()
+            echoCanceler = null
             captureJob?.cancelAndJoin()
             captureJob = null
             record?.release()
