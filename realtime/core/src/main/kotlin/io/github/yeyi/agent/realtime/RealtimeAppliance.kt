@@ -152,11 +152,6 @@ internal class DelegationHandler(
                 pendingAsr?.let { scopeProvider()?.launch { runDelegation(it) } }
             }
 
-            is RealtimeEvent.AssistantAudioDone,
-            is RealtimeEvent.ResponseCanceled,
-            is RealtimeEvent.Error,
-            is RealtimeEvent.ResponseDone -> pendingAsr = null
-
             else -> Unit
         }
     }
