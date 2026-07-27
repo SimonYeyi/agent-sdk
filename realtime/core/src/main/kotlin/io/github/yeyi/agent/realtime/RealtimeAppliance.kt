@@ -21,7 +21,7 @@ public class RealtimeAppliance(
 ) {
     private var scope: CoroutineScope? = null
     private var userQuerying: Boolean = false
-    private val audioChannel = Channel<ByteArray>(capacity = Channel.UNLIMITED)
+    private var audioChannel: Channel<ByteArray>? = null
 
     private val delegationHandler: DelegationHandler? = delegation?.let { delegation ->
         DelegationHandler(
@@ -37,6 +37,7 @@ public class RealtimeAppliance(
         if (scope != null) return
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         userQuerying = false
+        audioChannel = Channel(capacity = Channel.UNLIMITED)
         try {
             val instructions = delegationHandler
                 ?.appendInstructions(sessionConfig.instructions)
@@ -56,7 +57,7 @@ public class RealtimeAppliance(
                 microphone.capture().collect { pcm -> session.sendAudio(pcm) }
             }
             scope?.launch {
-                for (pcm in audioChannel) {
+                for (pcm in audioChannel!!) {
                     speaker.play(pcm)
                 }
             }
@@ -69,6 +70,8 @@ public class RealtimeAppliance(
 
     public suspend fun close() {
         userQuerying = false
+        audioChannel?.close()
+        audioChannel = null
         scope?.coroutineContext[Job]?.cancelAndJoin()
         scope = null
         microphone.close()
@@ -90,7 +93,7 @@ public class RealtimeAppliance(
             }
 
             is RealtimeEvent.AssistantAudioDelta if !userQuerying -> {
-                audioChannel.send(event.pcm)
+                audioChannel?.send(event.pcm)
             }
 
             else -> {}
@@ -98,7 +101,7 @@ public class RealtimeAppliance(
     }
 
     private fun drainAudioChannel() {
-        while (audioChannel.tryReceive().isSuccess) {
+        while (audioChannel?.tryReceive()?.isSuccess == true) {
             // drop pending audio to discard the tail of the previous round's TTS
         }
     }
