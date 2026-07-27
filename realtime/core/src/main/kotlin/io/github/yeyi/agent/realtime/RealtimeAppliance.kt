@@ -9,6 +9,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 
 public class RealtimeAppliance(
@@ -30,7 +31,7 @@ public class RealtimeAppliance(
         )
     }
 
-    public val events: Flow<RealtimeEvent> get() = session.events
+    public val events: Flow<RealtimeEvent> = MutableSharedFlow(extraBufferCapacity = 64)
 
     public suspend fun start() {
         if (scope != null) return
@@ -44,7 +45,12 @@ public class RealtimeAppliance(
             microphone.start(session.inputAudioFormat)
             speaker.start(session.outputAudioFormat)
             scope?.launch {
-                session.events.collect { event -> handleEvent(event) }
+                session.events.collect { event ->
+                    handleEvent(event)
+                    (events as MutableSharedFlow).emit(
+                        delegationHandler?.transformEvent(event) ?: event
+                    )
+                }
             }
             scope?.launch {
                 microphone.capture().collect { pcm -> session.sendAudio(pcm) }
@@ -149,6 +155,20 @@ internal class DelegationHandler(
             is RealtimeEvent.ResponseDone -> pendingAsr = null
 
             else -> Unit
+        }
+    }
+
+    /**
+     * 清除事件中的委派标记，返回干净的事件.
+     */
+    fun transformEvent(event: RealtimeEvent): RealtimeEvent {
+        return when (event) {
+            is RealtimeEvent.AssistantTextDelta if (event.text.startsWith(DELEGATION_MARKER)) -> {
+                val cleaned = event.text.removePrefix(DELEGATION_MARKER)
+                event.copy(text = cleaned)
+            }
+
+            else -> event
         }
     }
 
