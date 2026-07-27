@@ -13,11 +13,14 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.flow.receiveAsFlow
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class RealtimeApplianceTest {
@@ -42,9 +45,10 @@ class RealtimeApplianceTest {
 
     private class FakeSpeaker : SpeakerAdapter {
         val played = Channel<ByteArray>(Channel.UNLIMITED)
+        var stopPlaybackCount = 0
         override suspend fun start(format: AudioFormat) {}
         override suspend fun play(pcm: ByteArray) { played.send(pcm) }
-        override suspend fun stopPlayback() {}
+        override suspend fun stopPlayback() { stopPlaybackCount++ }
         override suspend fun close() {}
     }
 
@@ -57,7 +61,9 @@ class RealtimeApplianceTest {
         val sentAudio = mutableListOf<ByteArray>()
         val sentAudioSignal = Channel<ByteArray>(Channel.UNLIMITED)
         val injectedSignal = Channel<String>(Channel.UNLIMITED)
+        val cancelResponseSignal = Channel<Unit>(Channel.UNLIMITED)
         var injectCount = 0
+        var cancelResponseCount = 0
         var connectCount = 0
         var closeCount = 0
         var connectInstructions: String? = null
@@ -78,7 +84,10 @@ class RealtimeApplianceTest {
             sentAudioSignal.send(pcm)
         }
         override suspend fun commitInput() {}
-        override suspend fun cancelResponse() {}
+        override suspend fun cancelResponse() {
+            cancelResponseCount++
+            cancelResponseSignal.send(Unit)
+        }
         override suspend fun injectAndRespond(text: String) {
             injectCount++
             injectedSignal.send(text)
@@ -153,6 +162,71 @@ class RealtimeApplianceTest {
         appliance.close()
 
         assertEquals(0, session.injectCount)
+    }
+
+    @Test
+    fun `user transcript start stops playback`() = kotlinx.coroutines.runBlocking {
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
+        val speaker = FakeSpeaker()
+
+        val appliance = RealtimeAppliance(
+            session = session,
+            sessionConfig = makeSessionConfig(),
+            microphone = FakeMicrophone(),
+            speaker = speaker,
+            delegation = null,
+        )
+        appliance.start()
+        awaitSubscribed(session)
+
+        session.emit(RealtimeEvent.UserTranscriptStarted("item-1"))
+
+        appliance.close()
+
+        assertEquals(1, speaker.stopPlaybackCount)
+    }
+
+    @Test
+    fun `barge in during tts drops audio deltas until response is canceled`() = runTest {
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
+        val speaker = FakeSpeaker()
+
+        val appliance = RealtimeAppliance(
+            session = session,
+            sessionConfig = makeSessionConfig(),
+            microphone = FakeMicrophone(),
+            speaker = speaker,
+            delegation = null,
+        )
+        appliance.start()
+        awaitSubscribed(session)
+
+        // 旧 TTS 正在播放
+        session.emit(RealtimeEvent.AssistantAudioStarted)
+        session.emit(RealtimeEvent.AssistantAudioDelta(byteArrayOf(10)))
+        val firstPlayed = realAwait { speaker.played.receive() }
+        assertEquals(byteArrayOf(10).toList(), firstPlayed.toList())
+
+        // 用户插话
+        session.emit(RealtimeEvent.UserTranscriptStarted("item-1"))
+        runCurrent()
+
+        // 飞行中的尾巴 delta 应被丢弃
+        session.emit(RealtimeEvent.AssistantAudioDelta(byteArrayOf(20)))
+        runCurrent()
+        assertNull(withTimeoutOrNull(200) { speaker.played.receive() })
+
+        // 服务端确认 cancel
+        session.emit(RealtimeEvent.ResponseCanceled)
+        runCurrent()
+
+        // 新一轮 TTS 应正常播放
+        session.emit(RealtimeEvent.AssistantAudioStarted)
+        session.emit(RealtimeEvent.AssistantAudioDelta(byteArrayOf(30)))
+        val played = realAwait { speaker.played.receive() }
+        assertEquals(byteArrayOf(30).toList(), played.toList())
+
+        appliance.close()
     }
 
     @Test

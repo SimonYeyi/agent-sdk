@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
@@ -18,6 +19,9 @@ public class RealtimeAppliance(
     private val delegation: RealtimeDelegation? = null,
 ) {
     private var scope: CoroutineScope? = null
+    private var userQuerying: Boolean = false
+    private val audioChannel = Channel<ByteArray>(capacity = Channel.UNLIMITED)
+
     private val delegationHandler: DelegationHandler? = delegation?.let { delegation ->
         DelegationHandler(
             session = session,
@@ -31,6 +35,7 @@ public class RealtimeAppliance(
     public suspend fun start() {
         if (scope != null) return
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        userQuerying = false
         try {
             val instructions = delegationHandler
                 ?.appendInstructions(sessionConfig.instructions)
@@ -44,6 +49,11 @@ public class RealtimeAppliance(
             scope?.launch {
                 microphone.capture().collect { pcm -> session.sendAudio(pcm) }
             }
+            scope?.launch {
+                for (pcm in audioChannel) {
+                    speaker.play(pcm)
+                }
+            }
             delegationHandler?.start()
         } catch (e: Throwable) {
             runCatching { close() }
@@ -52,6 +62,7 @@ public class RealtimeAppliance(
     }
 
     public suspend fun close() {
+        userQuerying = false
         scope?.coroutineContext[Job]?.cancelAndJoin()
         scope = null
         microphone.close()
@@ -61,8 +72,28 @@ public class RealtimeAppliance(
 
     private suspend fun handleEvent(event: RealtimeEvent) {
         delegationHandler?.handle(event)
-        if (event is RealtimeEvent.AssistantAudioDelta) {
-            speaker.play(event.pcm)
+        when (event) {
+            is RealtimeEvent.UserTranscriptStarted -> {
+                userQuerying = true
+                drainAudioChannel()
+                speaker.stopPlayback()
+            }
+
+            is RealtimeEvent.AssistantAudioStarted -> {
+                userQuerying = false
+            }
+
+            is RealtimeEvent.AssistantAudioDelta if !userQuerying -> {
+                audioChannel.send(event.pcm)
+            }
+
+            else -> {}
+        }
+    }
+
+    private fun drainAudioChannel() {
+        while (audioChannel.tryReceive().isSuccess) {
+            // drop pending audio to discard the tail of the previous round's TTS
         }
     }
 }
