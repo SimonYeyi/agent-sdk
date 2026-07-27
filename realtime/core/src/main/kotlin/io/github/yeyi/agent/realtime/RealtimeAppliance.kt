@@ -80,7 +80,6 @@ public class RealtimeAppliance(
     }
 
     private suspend fun handleEvent(event: RealtimeEvent) {
-        delegationHandler?.handle(event)
         when (event) {
             is RealtimeEvent.UserTranscriptStarted -> {
                 userQuerying = true
@@ -144,7 +143,7 @@ internal class DelegationHandler(
         }
     }
 
-    fun handle(event: RealtimeEvent) {
+    private fun handle(event: RealtimeEvent) {
         when (event) {
             is RealtimeEvent.UserTranscriptCompleted -> pendingAsr = event.text
             is RealtimeEvent.AssistantTextDelta -> {
@@ -160,6 +159,7 @@ internal class DelegationHandler(
      * 清除事件中的委派标记，返回干净的事件.
      */
     fun transformEvent(event: RealtimeEvent): RealtimeEvent {
+        handle(event)
         return when (event) {
             is RealtimeEvent.AssistantTextDelta if (event.text.startsWith(DELEGATION_MARKER)) -> {
                 val cleaned = event.text.removePrefix(DELEGATION_MARKER)
