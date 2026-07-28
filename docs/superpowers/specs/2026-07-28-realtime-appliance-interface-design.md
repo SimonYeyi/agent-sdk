@@ -151,7 +151,12 @@ private val delegationHandler: DelegationHandler? = delegation?.let {
     DelegationHandler(
         delegation = it,
         scopeProvider = { scope },
-        onReply = { text -> engine?.sayHello(text) },  // SDK 原生方法
+        onReply = { text ->
+            val frames = protocolAdapter.commitSpeechTextFrame(text)
+            frames.forEach { frame ->
+                engine?.sendDirective(DIRECTIVE_SEND_UPLINK_EVENT, frame.payload.toString())
+            }
+        },
     )
 }
 ```
@@ -192,7 +197,7 @@ android {
 
 dependencies {
     api(project(":realtime:core"))
-    api(project(":realtime:providers:volc"))  // 复用 VolcSessionConfig / VolcSessionExtensionConfig DTO
+    api(project(":realtime:providers:volc"))
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.speechengine.tob)
     implementation(libs.androidx.annotation)
@@ -214,6 +219,7 @@ public class VolcRealtimeAppliance(
     private val sessionConfig: SessionConfig,
     override val delegation: RealtimeDelegation? = null,
 ) : RealtimeAppliance {
+    private val protocolAdapter = VolcRealtimeAdapter()
     private var engine: SpeechEngine? = null
     private var scope: CoroutineScope? = null
     private val eventEmitter = MutableSharedFlow<RealtimeEvent>(extraBufferCapacity = 64)
@@ -222,7 +228,12 @@ public class VolcRealtimeAppliance(
         DelegationHandler(
             delegation = it,
             scopeProvider = { scope },
-            onReply = { text -> engine?.sendDirective(DIRECTIVE_SEND_UPLINK_EVENT, buildSpeechTextCommit(text)) },
+            onReply = { text ->
+                val frames = protocolAdapter.commitSpeechTextFrame(text)
+                frames.forEach { frame ->
+                    engine?.sendDirective(DIRECTIVE_SEND_UPLINK_EVENT, frame.payload.toString())
+                }
+            },
         )
     }
 
@@ -241,7 +252,10 @@ public class VolcRealtimeAppliance(
                 it.setListener(SpeechListenerImpl(::handleSdkMessage))
             }
             this.engine = engine
-            engine.sendDirective(DIRECTIVE_START_ENGINE, buildSessionCreate(sessionConfig.copy(instructions = instructions)))
+            val sessionFrame = protocolAdapter.createSessionFrame(
+                sessionConfig.copy(instructions = instructions)
+            )
+            engine.sendDirective(DIRECTIVE_START_ENGINE, sessionFrame.payload.toString())
             delegationHandler?.start()
         } catch (t: Throwable) {
             runCatching { close() }
@@ -250,7 +264,6 @@ public class VolcRealtimeAppliance(
     }
 
     override suspend fun close() {
-        engine?.sendDirective(DIRECTIVE_SYNC_STOP_ENGINE, buildSessionClose())
         engine?.destroyEngine()
         engine = null
         scope?.cancel()
@@ -259,12 +272,15 @@ public class VolcRealtimeAppliance(
 
     private fun handleSdkMessage(type: Int, data: ByteArray, len: Int) {
         val scope = scope ?: return  // 已 close,丢弃回调
-        val event = mapToRealtimeEvent(type, data, len) ?: return
-        val cleaned = delegationHandler?.handle(event) ?: event
-        scope.launch { eventEmitter.emit(cleaned) }
+        val frame = ProtocolFrame(Json.parseToJsonElement(String(data, 0, len)))
+        val events = protocolAdapter.handleIncomingFrame(frame)
+        events.forEach { event ->
+            val handled = delegationHandler?.handle(event) ?: event
+            scope.launch { eventEmitter.emit(handled) }
+        }
     }
 
-    // === 私有 helper(签名;实现按 SpeechDemoAndroid 移植) ===
+    // === 私有 helper ===
 
     private inner class SpeechListenerImpl(
         private val onMessage: (type: Int, data: ByteArray, len: Int) -> Unit,
@@ -276,27 +292,10 @@ public class VolcRealtimeAppliance(
     }
 
     private fun configInitParams(engine: SpeechEngine, config: SessionConfig) { ... }
-
-    // 复用 VolcRealtimeAdapter 公开的 VolcProtocolSupport
-    private fun buildSessionCreate(config: SessionConfig): String {
-        val session = VolcProtocolSupport.buildSessionConfig(config, audioInputFormat, audioOutputFormat)
-        val extension = VolcProtocolSupport.buildSessionExtensionConfig(config)
-        val payload = buildJsonObject {
-            put("type", "session.create")
-            put("event_id", "event_${UUID.randomUUID()}")
-            put("session", json.encodeToJsonElement(VolcSessionConfig.serializer(), session))
-            put("extension", json.encodeToJsonElement(VolcSessionExtensionConfig.serializer(), extension))
-        }
-        return payload.toString()
-    }
-
-    private fun buildSessionClose(): String { ... }
-    private fun buildSpeechTextCommit(text: String): String { ... }
-    private fun mapToRealtimeEvent(type: Int, data: ByteArray, len: Int): RealtimeEvent? { ... }
 }
 ```
 
-#### SDK 集成要点(基于 `SpeechDemoAndroid/DialogDuplexActivity.java`)
+#### SDK 集成要点(基于 `/realtime/providers/volc_android_sdk.md`)
 
 | 配置 / 操作 | SDK 调用 | 数据来源 |
 |---|---|---|
@@ -307,33 +306,14 @@ public class VolcRealtimeAppliance(
 | UID | `setOptionString(PARAMS_KEY_UID_STRING, ...)` | 写死(`agent-sdk`) |
 | 模型 | `session.model` JSON 字段 | `sessionConfig.model` |
 | Instructions | `session.instructions` JSON 字段 | 委托注入后 |
-| 启动 | `sendDirective(DIRECTIVE_START_ENGINE, session.create JSON)` | `buildSessionCreate()` |
-| 停止 | `sendDirective(DIRECTIVE_SYNC_STOP_ENGINE, session.close JSON)` | `buildSessionClose()` |
-| 文本注入 | `sendDirective(DIRECTIVE_SEND_UPLINK_EVENT, speech_text_buffer.commit JSON)` | `buildSpeechTextCommit(text)` |
-| 回调 | `setListener(this)` → `onSpeechMessage(int type, byte[] data, int len)` | 转 `RealtimeEvent` |
+| 启动 | `sendDirective(DIRECTIVE_START_ENGINE, session.create JSON)` | `VolcRealtimeAdapter.createSessionFrame()` |
+| 停止 | `engine.destroyEngine()` | 直接调用 SDK，无需构造帧 |
+| 文本注入 | `sendDirective(DIRECTIVE_SEND_UPLINK_EVENT, speech_text_buffer.commit JSON)` | `VolcRealtimeAdapter.commitSpeechTextFrame()` |
+| 回调 | `setListener(this)` → `onSpeechMessage(int type, byte[] data, int len)` | `VolcRealtimeAdapter.handleIncomingFrame()` |
 
-#### 事件映射(基于 `DialogDuplexActivity.handleDialogDownlinkEvent`)
+#### 事件映射
 
-| SDK Message | Volc 协议事件 | `RealtimeEvent` |
-|---|---|---|
-| `MESSAGE_TYPE_ENGINE_START` | — | `Connected(sessionId)` |
-| `MESSAGE_TYPE_ENGINE_STOP` | — | `Disconnected("engine stopped")` |
-| `MESSAGE_TYPE_ENGINE_ERROR` | — | `Error("engine_error", data, isFatal=true)` |
-| `MESSAGE_TYPE_DIALOG_DOWNLINK_EVENT` | `session.created` | `Connected(session.id)` |
-| | `session.closed` | `Disconnected("session closed")` |
-| | `conversation.item.input_audio_transcription.started` | `UserTranscriptStarted(itemId)` |
-| | `conversation.item.input_audio_transcription.delta` | `UserTranscriptDelta(delta)` |
-| | `conversation.item.input_audio_transcription.completed` | `UserTranscriptCompleted(text)` |
-| | `response.output_text.delta` | `AssistantTextDelta(delta)` |
-| | `response.output_text.done` | (空) |
-| | `response.output_audio.started` | `AssistantAudioStarted` |
-| | `response.output_audio.delta` | `AssistantAudioDelta(Base64.decode(delta))` |
-| | `response.output_audio.done` | `AssistantAudioDone` |
-| | `response.canceled` | `ResponseCanceled` |
-| | `response.done` | `ResponseDone` |
-| | `error` | `Error(code, message, isFatal=false)` |
-| | `response.function_call_arguments.done` | (V1 不接 FC,空;留待 V2) |
-| | 其他 `conversation.item.*` | (空) |
+下行事件解析全部委托给 `VolcRealtimeAdapter.handleIncomingFrame()`，返回 `List<RealtimeEvent>`。该方法内部处理 SDK `MESSAGE_TYPE_DIALOG_DOWNLINK_EVENT` 回调的 JSON 解析，映射关系与 `VolcRealtimeAdapter` 完全一致。
 
 #### `SessionConfig` 字段映射
 
@@ -347,8 +327,6 @@ public class VolcRealtimeAppliance(
 | `tools` | `session.tools` JSON 数组 | 协议(同 WebSocket) |
 | `turnDetection.ServerVad(thresholdMs)` | `extension.asr.extra.enable_custom_vad=true` + `end_smooth_window_ms=N` | 协议(同 WebSocket) |
 | `turnDetection.Manual` | `extension.dialog.extra.input_mod="push_to_talk"` | 协议(同 WebSocket) |
-
-`tools` / `turnDetection` 通过复用 `VolcRealtimeAdapter` 的 `VolcSessionConfig` / `VolcSessionExtensionConfig` DTO 装配。协议层是同一个后端,SDK demo 没演示不代表不支持。端到端验证在 `SpeechDemoAndroid` 真机跑通即确认。
 
 #### 限制(V1 范围外)
 
@@ -403,8 +381,8 @@ V1 范围内不引入对真实 SDK 的 mock(SDK 庞大、Java-only 接口,集成
 
 | 文件 | 动作 |
 |---|---|
-| `VolcDtos.kt` | DTO(`VolcSessionConfig` / `VolcSessionExtensionConfig` / `VolcAudioConfig` / `VolcAudioSideConfig` / `VolcFormatConfig` / `VolcExtensionSide` / `VolcExtensionDialog` / `VolcConversationItem` 等)从 `internal` 升 `public`,供 `VolcRealtimeAppliance` 复用 |
-| `VolcRealtimeAdapter.kt` | 抽出 `volcSessionConfig(config)` / `volcSessionExtensionConfig(config)` / `AudioFormat.toVolcFormatConfig()` 为 public top-level helper(或 `public object VolcProtocolSupport`),两处实现共用;`VolcRealtimeAdapter` 内部仍调同样的 helper(行为不变) |
+| `VolcDtos.kt` | DTO(`VolcSessionConfig` / `VolcSessionExtensionConfig` / `VolcAudioConfig` / `VolcAudioSideConfig` / `VolcFormatConfig` / `VolcExtensionSide` / `VolcExtensionDialog` / `VolcConversationItem` 等)从 `internal` 升 `public`，供 `VolcRealtimeAppliance` 复用 |
+| `VolcRealtimeAdapter.kt` | 无需改动；`VolcRealtimeAppliance` 直接实例化 `VolcRealtimeAdapter` 并调用其协议方法 |
 
 ### 6.3 `:realtime:audio:android` 模块
 
@@ -466,7 +444,7 @@ Ktor WebSocket 实现。需要外部注入 `MicrophoneAdapter` / `SpeakerAdapter
 ### 7.2 KDoc 注释
 
 - `RealtimeAppliance.delegation` — `/** 当前 appliance 绑定的委托(可空);空时跳过委托协议 */`
-- `DelegationHandler` 类 — `/** 委托协议处理器。由各 RealtimeAppliance 实现内部使用;构造器 internal 阻止外部直接实例化。 */`
+- `DelegationHandler` 类 — `/** 委托协议处理器。由各 RealtimeAppliance 实现内部使用。 */`
 
 ---
 
