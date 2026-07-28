@@ -200,15 +200,13 @@ git commit -m "refactor(core): extract RealtimeDelegation + DelegationHandler to
 - Modify: `realtime/core/src/main/kotlin/io/github/yeyi/agent/realtime/RealtimeAppliance.kt`
 - Create: `realtime/core/src/main/kotlin/io/github/yeyi/agent/realtime/DefaultRealtimeAppliance.kt`
 
-- [ ] **Step 1: 将 `RealtimeAppliance.kt` 缩成 interface + 工厂函数**
+- [ ] **Step 1: 将 `RealtimeAppliance.kt` 缩成 interface**
 
 替换整个文件内容为:
 
 ```kotlin
 package io.github.yeyi.agent.realtime
 
-import io.github.yeyi.agent.realtime.audio.MicrophoneAdapter
-import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
 import kotlinx.coroutines.flow.Flow
 
 public interface RealtimeAppliance {
@@ -217,20 +215,6 @@ public interface RealtimeAppliance {
     public suspend fun start()
     public suspend fun close()
 }
-
-public fun RealtimeAppliance(
-    session: RealtimeSession,
-    sessionConfig: SessionConfig,
-    microphone: MicrophoneAdapter,
-    speaker: SpeakerAdapter,
-    delegation: RealtimeDelegation? = null,
-): RealtimeAppliance = DefaultRealtimeAppliance(
-    session = session,
-    sessionConfig = sessionConfig,
-    microphone = microphone,
-    speaker = speaker,
-    delegation = delegation,
-)
 ```
 
 - [ ] **Step 2: 创建 `DefaultRealtimeAppliance.kt`**
@@ -347,6 +331,20 @@ internal class DefaultRealtimeAppliance(
         }
     }
 }
+
+public fun RealtimeAppliance(
+    session: RealtimeSession,
+    sessionConfig: SessionConfig,
+    microphone: MicrophoneAdapter,
+    speaker: SpeakerAdapter,
+    delegation: RealtimeDelegation? = null,
+): RealtimeAppliance = DefaultRealtimeAppliance(
+    session = session,
+    sessionConfig = sessionConfig,
+    microphone = microphone,
+    speaker = speaker,
+    delegation = delegation,
+)
 ```
 
 - [ ] **Step 3: 验证编译**
