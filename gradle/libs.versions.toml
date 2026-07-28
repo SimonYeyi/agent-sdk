@@ -14,6 +14,7 @@ androidx-annotation = "1.9.1"
 junit = "4.13.2"
 kotlin-test = "2.2.0"
 shadow = "8.3.11"
+speechengine-tob = "0.0.15.0"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -45,6 +46,7 @@ junit = { module = "junit:junit", version.ref = "junit" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin-test" }
 kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin-test" }
 oapi-sdk = { module = "com.larksuite.oapi:oapi-sdk", version.ref = "oapi-sdk" }
+speechengine-tob = { module = "com.bytedance.speechengine:speechengine_tob", version.ref = "speechengine-tob" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
