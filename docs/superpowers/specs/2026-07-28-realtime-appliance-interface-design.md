@@ -11,7 +11,7 @@
 1. 把 `RealtimeAppliance` 提升为接口,让 `DefaultRealtimeAppliance`(Ktor WebSocket + 注入式 `MicrophoneAdapter`/`SpeakerAdapter`)与 `VolcRealtimeAppliance`(原生 SDK,自带音频设备)共用同一份事件编排 + 委托协议逻辑。
 2. 抽出 `DelegationHandler` 为跨模块可复用的处理器,`Default` 与 `Volc` 两个实现都通过同一个类执行"委派 marker 协议"(`|` 前缀检测、`pendingAsr` 跟踪、`appendInstructions` 协议注入、`delegation.replies` 收集)。
 3. 在新 Android 模块 `:realtime:providers:volc-android` 中提供 `VolcRealtimeAppliance`,基于 `com.bytedance.speechengine:speechengine_tob:0.0.15.0` 实现。
-4. 不影响现有 demo 与 `DefaultRealtimeAppliance` 的使用方式(原有 demo 调用方只改类名)。
+4. 不影响现有 demo 与 `DefaultRealtimeAppliance` 的使用方式(工厂函数签名与原有构造器一致,调用方零改动)。
 
 ### 非目标
 
@@ -19,7 +19,7 @@
 2. 不为 `VolcRealtimeAppliance` 提供音频旁路/录音回调等 V2 能力;V1 SDK 自播自采,事件流只透传 `AssistantAudioDelta` 用于上层 UI 动效,不消费 PCM 字节。
 3. 不改动 `:realtime:providers:volc` 现有纯 JVM 模块(它继续承载 `VolcRealtimeAdapter`,供其他 WebSocket 场景复用)。
 4. 不动 `docs/realtime-architecture.md` 主文档;本 spec 作为补充章节,只新增"Volc 原生模式"小节。
-5. 不为 `RealtimeAppliance` 引入 DI/factory;业务方按需直接 `new DefaultRealtimeAppliance(...)` 或 `new VolcRealtimeAppliance(...)`。
+5. 不为 `RealtimeAppliance` 引入 DI/factory;业务方按需通过顶层工厂函数 `RealtimeAppliance(...)` 或 `new VolcRealtimeAppliance(...)`。
 
 ---
 
@@ -62,11 +62,11 @@ public interface RealtimeAppliance {
 - **`delegation` 作为只读属性暴露** — 消费方无需保留构造参数即可查询 appliance 是否绑定了委托。
 - **`start()`/`close()` 仍 suspend** — 与现有签名保持一致;`start()` 仍需幂等。
 
-### 3.2 `DefaultRealtimeAppliance`(新文件,沿用现有逻辑)
+### 3.2 `DefaultRealtimeAppliance`(新文件,`internal class` + 顶层工厂函数)
 
 ```kotlin
 // realtime/core/src/main/kotlin/io/github/yeyi/agent/realtime/DefaultRealtimeAppliance.kt
-public class DefaultRealtimeAppliance(
+internal class DefaultRealtimeAppliance(
     private val session: RealtimeSession,
     private val sessionConfig: SessionConfig,
     private val microphone: MicrophoneAdapter,
@@ -74,10 +74,25 @@ public class DefaultRealtimeAppliance(
     override val delegation: RealtimeDelegation? = null,
 ) : RealtimeAppliance {
     // 现有 RealtimeAppliance 类的全部逻辑原样迁移,只:
-    //   1) 改 class 为 class : RealtimeAppliance
+    //   1) 改 class 为 internal class : RealtimeAppliance
     //   2) 构造 delegationHandler 时把 session.injectAndRespond 包成 onReply 传进去
     //   3) 暴露 override val delegation
 }
+
+// 同一文件末尾 — 顶层工厂函数(签名与原有构造器一致,调用方零改动)
+public fun RealtimeAppliance(
+    session: RealtimeSession,
+    sessionConfig: SessionConfig,
+    microphone: MicrophoneAdapter,
+    speaker: SpeakerAdapter,
+    delegation: RealtimeDelegation? = null,
+): RealtimeAppliance = DefaultRealtimeAppliance(
+    session = session,
+    sessionConfig = sessionConfig,
+    microphone = microphone,
+    speaker = speaker,
+    delegation = delegation,
+)
 ```
 
 ### 3.3 `RealtimeDelegation.kt`(新文件,统一管理委托)
@@ -256,6 +271,12 @@ public class VolcRealtimeAppliance(
                 sessionConfig.copy(instructions = instructions)
             )
             engine.sendDirective(DIRECTIVE_START_ENGINE, sessionFrame.payload.toString())
+            scope?.launch {
+                protocolAdapter.events.collect { event ->
+                    val handled = delegationHandler?.handle(event) ?: event
+                    eventEmitter.emit(handled)
+                }
+            }
             delegationHandler?.start()
         } catch (t: Throwable) {
             runCatching { close() }
@@ -272,11 +293,17 @@ public class VolcRealtimeAppliance(
 
     private fun handleSdkMessage(type: Int, data: ByteArray, len: Int) {
         val scope = scope ?: return  // 已 close,丢弃回调
-        val frame = ProtocolFrame(Json.parseToJsonElement(String(data, 0, len)))
-        val events = protocolAdapter.handleIncomingFrame(frame)
-        events.forEach { event ->
-            val handled = delegationHandler?.handle(event) ?: event
-            scope.launch { eventEmitter.emit(handled) }
+        when (type) {
+            MESSAGE_TYPE_DIALOG_DOWNLINK_EVENT -> {
+                val payload = Json.parseToJsonElement(String(data, 0, len))
+                val frame = ProtocolFrame(payload)
+                scope.launch {
+                    val replyFrames = protocolAdapter.handleIncomingFrame(frame)
+                    replyFrames.forEach { rf ->
+                        engine?.sendDirective(DIRECTIVE_SEND_UPLINK_EVENT, rf.payload.toString())
+                    }
+                }
+            }
         }
     }
 
@@ -313,7 +340,7 @@ public class VolcRealtimeAppliance(
 
 #### 事件映射
 
-下行事件解析全部委托给 `VolcRealtimeAdapter.handleIncomingFrame()`，返回 `List<RealtimeEvent>`。该方法内部处理 SDK `MESSAGE_TYPE_DIALOG_DOWNLINK_EVENT` 回调的 JSON 解析，映射关系与 `VolcRealtimeAdapter` 完全一致。
+下行事件解析委托给 `VolcRealtimeAdapter`：`handleIncomingFrame()` 解析收到的帧并注入 `adapter.events` Flow；`VolcRealtimeAppliance` 在 `start()` 中单独订阅该 Flow 消费事件流。
 
 #### `SessionConfig` 字段映射
 
@@ -338,13 +365,12 @@ public class VolcRealtimeAppliance(
 
 ## 5. 测试策略
 
-### 5.1 `:realtime:core` 单测迁移
+### 5.1 `:realtime:core` 单测(无需迁移)
 
 `realtime/core/src/test/kotlin/io/github/yeyi/agent/realtime/RealtimeApplianceTest.kt`:
 
-- 文件改名为 `DefaultRealtimeApplianceTest.kt`(包不变)。
-- 全部 `RealtimeAppliance(...)` 构造改为 `DefaultRealtimeAppliance(...)`。
-- 其余 11 个测试逻辑不变。
+- 由于工厂函数签名与原有构造器完全一致,`RealtimeAppliance(...)` 调用自动解析为工厂函数,文件无需改名、代码无需改动。
+- 全部 11 个测试逻辑不变。
 - 行为覆盖范围(闲聊、打断、barge-in、委托触发、reply 顺序、mic 转发、start 幂等、重连、双 close、空委托)全部保持。
 
 ### 5.2 `DelegationHandler` 独立单测(新增)
@@ -381,8 +407,7 @@ V1 范围内不引入对真实 SDK 的 mock(SDK 庞大、Java-only 接口,集成
 
 | 文件 | 动作 |
 |---|---|
-| `VolcDtos.kt` | DTO(`VolcSessionConfig` / `VolcSessionExtensionConfig` / `VolcAudioConfig` / `VolcAudioSideConfig` / `VolcFormatConfig` / `VolcExtensionSide` / `VolcExtensionDialog` / `VolcConversationItem` 等)从 `internal` 升 `public`，供 `VolcRealtimeAppliance` 复用 |
-| `VolcRealtimeAdapter.kt` | 无需改动；`VolcRealtimeAppliance` 直接实例化 `VolcRealtimeAdapter` 并调用其协议方法 |
+| `VolcRealtimeAdapter.kt` | 无需改动；`VolcRealtimeAppliance` 直接实例化 `VolcRealtimeAdapter` 并调用其协议方法，通过 `adapter.events` Flow 消费事件 |
 
 ### 6.3 `:realtime:audio:android` 模块
 
@@ -392,7 +417,7 @@ V1 范围内不引入对真实 SDK 的 mock(SDK 庞大、Java-only 接口,集成
 
 | 文件 | 动作 |
 |---|---|
-| `S2sViewModel.kt:56` | `RealtimeAppliance(...)` → `DefaultRealtimeAppliance(...)`;字段类型 `RealtimeAppliance?` 不变 |
+| `S2sViewModel.kt:56` | 无需改动；工厂函数签名与原有 `RealtimeAppliance(...)` 构造器完全一致，调用方零改动 |
 
 ### 6.5 settings.gradle.kts
 
@@ -472,13 +497,13 @@ WebSocket 模式下 `cancelResponse()` 由 session 主动发送;SDK 模式下由
 
 ## 9. 验收标准
 
-- [ ] `:realtime:core` 编译通过,`RealtimeAppliance` 为 interface,`DefaultRealtimeAppliance` 实现。
-- [ ] `DelegationHandler` 提升至 `realtime/core` 独立文件,跨模块可访问(`public class` + `internal constructor`)。
-- [ ] `RealtimeApplianceTest.kt` 11 个测试全部迁移到 `DefaultRealtimeApplianceTest.kt` 并通过。
+- [ ] `:realtime:core` 编译通过,`RealtimeAppliance` 为 interface,`DefaultRealtimeAppliance` 为 internal class + 工厂函数。
+- [ ] `DelegationHandler` 提升至 `realtime/core` 独立文件,跨模块可访问(`public class` + `public constructor`)。
+- [ ] `RealtimeApplianceTest.kt` 11 个测试保持不动并通过(工厂函数兼容)。
 - [ ] `DelegationHandlerTest.kt` 新增 ≥4 个测试并通过。
 - [ ] `:realtime:providers:volc-android` 模块编译通过,`VolcRealtimeAppliance` 接线完整。
 - [ ] `settings.gradle.kts` 与 `gradle/libs.versions.toml` 同步更新。
-- [ ] `S2sViewModel.kt` 改用 `DefaultRealtimeAppliance` 构造,demo 编译通过。
+- [ ] `S2sViewModel.kt` 零改动,demo 编译通过。
 - [ ] `docs/realtime-architecture.md` 新增"RealtimeAppliance 实现"小节。
 
 ---
