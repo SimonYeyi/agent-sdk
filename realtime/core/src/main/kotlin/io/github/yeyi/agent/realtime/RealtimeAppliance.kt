@@ -153,7 +153,7 @@ internal class DelegationHandler(
             is RealtimeEvent.UserTranscriptCompleted -> pendingAsr = event.text
             is RealtimeEvent.AssistantTextDelta -> {
                 if (event.text.startsWith(DELEGATION_MARKER)) {
-                    pendingAsr?.let { scopeProvider()?.launch { runDelegation(it) } }
+                    pendingAsr?.let { runDelegation(it) }
                     return event.copy(text = event.text.removePrefix(DELEGATION_MARKER))
                 }
             }
@@ -163,9 +163,8 @@ internal class DelegationHandler(
         return event
     }
 
-    private suspend fun runDelegation(asrText: String) {
-        session.cancelResponse()
-        delegation.run(asrText)
+    private fun runDelegation(asrText: String) {
+        scopeProvider()?.launch { delegation.run(asrText) }
     }
 
     companion object {
