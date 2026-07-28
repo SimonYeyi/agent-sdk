@@ -192,6 +192,7 @@ android {
 
 dependencies {
     api(project(":realtime:core"))
+    api(project(":realtime:providers:volc"))  // 复用 VolcSessionConfig / VolcSessionExtensionConfig DTO
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.speechengine.tob)
     implementation(libs.androidx.annotation)
@@ -275,7 +276,20 @@ public class VolcRealtimeAppliance(
     }
 
     private fun configInitParams(engine: SpeechEngine, config: SessionConfig) { ... }
-    private fun buildSessionCreate(config: SessionConfig): String { ... }
+
+    // 复用 VolcRealtimeAdapter 公开的 VolcProtocolSupport
+    private fun buildSessionCreate(config: SessionConfig): String {
+        val session = VolcProtocolSupport.buildSessionConfig(config, audioInputFormat, audioOutputFormat)
+        val extension = VolcProtocolSupport.buildSessionExtensionConfig(config)
+        val payload = buildJsonObject {
+            put("type", "session.create")
+            put("event_id", "event_${UUID.randomUUID()}")
+            put("session", json.encodeToJsonElement(VolcSessionConfig.serializer(), session))
+            put("extension", json.encodeToJsonElement(VolcSessionExtensionConfig.serializer(), extension))
+        }
+        return payload.toString()
+    }
+
     private fun buildSessionClose(): String { ... }
     private fun buildSpeechTextCommit(text: String): String { ... }
     private fun mapToRealtimeEvent(type: Int, data: ByteArray, len: Int): RealtimeEvent? { ... }
@@ -323,20 +337,24 @@ public class VolcRealtimeAppliance(
 
 #### `SessionConfig` 字段映射
 
-| `SessionConfig` 字段 | SDK 用途 |
-|---|---|
-| `apiKey` | `PARAMS_KEY_APP_KEY_STRING` |
-| `endpoint` | **忽略** — SDK 内置服务地址 |
-| `model` | `session.model` JSON 字段 |
-| `instructions` | `session.instructions` JSON 字段(经委托协议增强) |
-| `voice` | `audio.output.voice` JSON 字段 |
-| `tools` | `session.tools` JSON 数组(V1 SDK 不消费,保留以备后用) |
-| `turnDetection` | **忽略** — SDK 使用其内置 VAD;`Manual` 模式由 SDK 内部 input_mod 表达,V1 不支持手动切换 |
+| `SessionConfig` 字段 | SDK 用途 | 来源 |
+|---|---|---|
+| `apiKey` | `PARAMS_KEY_APP_KEY_STRING` | SDK 选项 |
+| `endpoint` | **忽略** — SDK 内置服务地址(可接受) | — |
+| `model` | `session.model` JSON 字段 | 协议 |
+| `instructions` | `session.instructions` JSON 字段(经委托协议增强) | 协议 |
+| `voice` | `audio.output.voice` JSON 字段 | 协议 |
+| `tools` | `session.tools` JSON 数组 | 协议(同 WebSocket) |
+| `turnDetection.ServerVad(thresholdMs)` | `extension.asr.extra.enable_custom_vad=true` + `end_smooth_window_ms=N` | 协议(同 WebSocket) |
+| `turnDetection.Manual` | `extension.dialog.extra.input_mod="push_to_talk"` | 协议(同 WebSocket) |
+
+`tools` / `turnDetection` 通过复用 `VolcRealtimeAdapter` 的 `VolcSessionConfig` / `VolcSessionExtensionConfig` DTO 装配。协议层是同一个后端,SDK demo 没演示不代表不支持。端到端验证在 `SpeechDemoAndroid` 真机跑通即确认。
 
 #### 限制(V1 范围外)
 
-- `endpoint` / `turnDetection` / `tools` 不生效,字段保留仅为接口一致;V2 视 SDK 支持情况扩展。
+- `endpoint` 不生效(SDK 内置服务地址),字段保留仅为接口一致。
 - SDK 端不发 `response.output_audio.delta` 的 PCM 字节给 callback(默认 `ENABLE_PLAYER_AUDIO_CALLBACK=false`);若上层需要 PCM,需另外打开该开关,不在本 spec 范围。
+- 音频编码:SDK 模式固定为 opus(`speech_opus` / `ogg_opus`),与 WebSocket 模式的 PCM 不同;`SessionConfig` 不暴露该差异,`VolcRealtimeAppliance` 内部硬编码 opus 常量。
 
 ---
 
@@ -383,7 +401,10 @@ V1 范围内不引入对真实 SDK 的 mock(SDK 庞大、Java-only 接口,集成
 
 ### 6.2 `:realtime:providers:volc` 模块
 
-无改动。
+| 文件 | 动作 |
+|---|---|
+| `VolcDtos.kt` | DTO(`VolcSessionConfig` / `VolcSessionExtensionConfig` / `VolcAudioConfig` / `VolcAudioSideConfig` / `VolcFormatConfig` / `VolcExtensionSide` / `VolcExtensionDialog` / `VolcConversationItem` 等)从 `internal` 升 `public`,供 `VolcRealtimeAppliance` 复用 |
+| `VolcRealtimeAdapter.kt` | 抽出 `volcSessionConfig(config)` / `volcSessionExtensionConfig(config)` / `AudioFormat.toVolcFormatConfig()` 为 public top-level helper(或 `public object VolcProtocolSupport`),两处实现共用;`VolcRealtimeAdapter` 内部仍调同样的 helper(行为不变) |
 
 ### 6.3 `:realtime:audio:android` 模块
 
@@ -463,7 +484,7 @@ Ktor WebSocket 实现。需要外部注入 `MicrophoneAdapter` / `SpeakerAdapter
 
 ### 8.3 `SessionConfig` 与 SDK 配置的语义偏差
 
-`endpoint` / `turnDetection` / `tools` 在 `VolcRealtimeAppliance` 中被忽略,语义不匹配可能让用户误以为参数生效。在 KDoc 中显式标注"以下字段在 Volc SDK 模式下不生效"。
+仅 `endpoint` 在 `VolcRealtimeAppliance` 中被忽略(SDK 内置服务地址),其他字段均通过 `VolcSessionConfig` / `VolcSessionExtensionConfig` DTO 正确传递(同 WebSocket 协议)。`endpoint` 在 KDoc 中显式标注"Volc SDK 模式下不生效"。
 
 ### 8.4 与 `ResponseCanceled` 的对应事件
 
