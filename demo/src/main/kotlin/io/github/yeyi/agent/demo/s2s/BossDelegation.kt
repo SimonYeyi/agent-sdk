@@ -34,18 +34,10 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
         var toolCallExplanation: AgentEvent.ToolCallExplanation? = null
         boss.run(asrText).collect { event ->
             when (event) {
-                is AgentEvent.ToolCallExplanation -> {
-                    event.text?.let {
-                        runEvents.emit(Confirmation(it))
-                        toolCallExplanation = event
-                    }
-                }
+                is AgentEvent.ToolCallExplanation -> toolCallExplanation = event
 
-                is AgentEvent.Final -> {
-                    if (toolCallExplanation == null) {
-                        runEvents.emit(Confirmation(event.result.message.content ?: ""))
-                    }
-                }
+                is AgentEvent.Final if (toolCallExplanation == null) ->
+                    runEvents.emit(Confirmation(event.result.message.content ?: ""))
 
                 is AgentEvent.Failed -> runEvents.emit(
                     Failure(
