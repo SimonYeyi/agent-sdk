@@ -114,7 +114,7 @@ class VolcRealtimeAdapterTest {
 
         val commit = frames[1].payload
         assertEquals("speech_text_buffer.commit", (commit["type"] as JsonPrimitive).content)
-        assertEquals("原文播报", (commit["tts_prompt"] as JsonPrimitive).content)
+        assertEquals("查询任务结果", (commit["tts_prompt"] as JsonPrimitive).content)
     }
 
     // === 事件解析测试 ===
