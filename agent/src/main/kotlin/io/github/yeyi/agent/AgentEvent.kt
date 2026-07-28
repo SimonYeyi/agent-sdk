@@ -30,14 +30,24 @@ public sealed interface AgentEvent {
      * 工具调用说明事件。在 [ToolCallStart] 之前发出，是 LLM 决定调用工具前对用户的解释性说明。
      *
      * @param text 说明文本。可能为 null，表示 LLM 没有产出解释性文本
+     * @param toolNames 工具名称列表
      */
-    public data class ToolCallExplanation(public val text: String?) : AgentEvent
+    public data class ToolCallExplanation(
+        public val text: String?,
+        public val toolNames: List<String>
+    ) : AgentEvent
 
     /** 工具调用开始事件。在 [ToolCallExplanation] 之后发出，仅作信号，不提交消息。 */
-    public data class ToolCallStart(public val callId: String, public val toolName: String) : AgentEvent
+    public data class ToolCallStart(
+        public val callId: String,
+        public val toolName: String
+    ) : AgentEvent
 
     /** 工具调用结束事件。携带工具执行结果。 */
-    public data class ToolCallEnd(public val callId: String, public val result: ToolExecutionResult) : AgentEvent
+    public data class ToolCallEnd(
+        public val callId: String,
+        public val result: ToolExecutionResult
+    ) : AgentEvent
 
     /**
      * 最终结果事件。

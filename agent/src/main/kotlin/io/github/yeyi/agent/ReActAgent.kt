@@ -145,7 +145,11 @@ public class ReActAgent internal constructor(
             return result
         }
 
-        emit(AgentEvent.ToolCallExplanation(response.message.content?.takeIf { it != "" }))
+        emit(
+            AgentEvent.ToolCallExplanation(
+                response.message.content?.takeIf { it != "" },
+                response.message.toolCalls.map { it.name })
+        )
 
         for (call in response.message.toolCalls) {
             emit(AgentEvent.ToolCallStart(call.id, call.name))
