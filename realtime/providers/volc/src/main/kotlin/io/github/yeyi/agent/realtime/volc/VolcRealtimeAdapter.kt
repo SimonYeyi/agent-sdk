@@ -54,7 +54,7 @@ public class VolcRealtimeAdapter : RealtimeAdapter {
         tools.forEach { toolsByName[it.name] = it }
     }
 
-    override fun connectFrame(config: SessionConfig): ProtocolFrame {
+    override fun createSessionFrame(config: SessionConfig): ProtocolFrame {
         return sessionCreateFrame(
             volcSessionConfig(config),
             volcSessionExtensionConfig(config),
@@ -65,7 +65,7 @@ public class VolcRealtimeAdapter : RealtimeAdapter {
         return inputAudioBufferAppendFrame(Base64.getEncoder().encodeToString(pcm))
     }
 
-    override fun commitInputFrame(): ProtocolFrame {
+    override fun commitAudioFrame(): ProtocolFrame {
         return inputAudioBufferCommitFrame()
     }
 

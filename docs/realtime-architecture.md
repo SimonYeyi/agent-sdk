@@ -50,7 +50,7 @@ public interface RealtimeSession : AutoCloseable {
     public override fun close()
 
     public suspend fun sendAudio(pcm: ByteArray)
-    public suspend fun commitInput()
+    public suspend fun commitAudio()
     public suspend fun cancelResponse()
     public suspend fun injectAndRespond(text: String)
 }
@@ -71,9 +71,9 @@ public interface RealtimeAdapter {
     public fun getAuthHeaders(config: SessionConfig): Map<String, String>
     public fun registerTools(tools: List<Tool>)
 
-    public fun connectFrame(config: SessionConfig): ProtocolFrame
+    public fun createSssionFrame(config: SessionConfig): ProtocolFrame
     public fun sendAudioFrame(pcm: ByteArray): ProtocolFrame
-    public fun commitInputFrame(): ProtocolFrame
+    public fun commitAudioFrame(): ProtocolFrame
     public fun cancelResponseFrame(): ProtocolFrame
     public fun injectAndRespondFrame(text: String): ProtocolFrame
 
@@ -117,7 +117,7 @@ private class DefaultRealtimeSession(
 
         adapter.registerTools(config.tools)
 
-        sendFrame(adapter.connectFrame(config))
+        sendFrame(adapter.createSssionFrame(config))
 
         startReadLoop()
 
@@ -136,8 +136,8 @@ private class DefaultRealtimeSession(
         sendFrame(frame)
     }
 
-    override suspend fun commitInput() {
-        val frame = adapter.commitInputFrame()
+    override suspend fun commitAudio() {
+        val frame = adapter.commitAudioFrame()
         sendFrame(frame)
     }
 

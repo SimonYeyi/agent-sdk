@@ -13,9 +13,9 @@ public interface RealtimeAdapter {
 
     public fun registerTools(tools: List<Tool>)
 
-    public fun connectFrame(config: SessionConfig): ProtocolFrame
+    public fun createSessionFrame(config: SessionConfig): ProtocolFrame
     public fun sendAudioFrame(pcm: ByteArray): ProtocolFrame
-    public fun commitInputFrame(): ProtocolFrame
+    public fun commitAudioFrame(): ProtocolFrame
     public fun cancelResponseFrame(): ProtocolFrame
     public fun injectAndRespondFrame(text: String): ProtocolFrame
 

@@ -6,7 +6,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
-import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -38,10 +37,10 @@ class DefaultRealtimeSessionTest {
     // === FakeRealtimeAdapter behavior tests ===
 
     @Test
-    fun `FakeRealtimeAdapter connectFrame builds session_create payload`() {
+    fun `FakeRealtimeAdapter createSssionFrame builds session_create payload`() {
         val adapter = FakeRealtimeAdapter()
         val config = makeSessionConfig()
-        val frame = adapter.connectFrame(config)
+        val frame = adapter.createSessionFrame(config)
 
         assertEquals("session.create", (frame.payload["type"] as JsonPrimitive).content)
         val session = frame.payload["session"] as JsonObject
@@ -59,9 +58,9 @@ class DefaultRealtimeSessionTest {
     }
 
     @Test
-    fun `FakeRealtimeAdapter commitInputFrame builds input_audio_buffer_commit payload`() {
+    fun `FakeRealtimeAdapter commitAudioFrame builds input_audio_buffer_commit payload`() {
         val adapter = FakeRealtimeAdapter()
-        val frame = adapter.commitInputFrame()
+        val frame = adapter.commitAudioFrame()
 
         assertEquals("input_audio_buffer.commit", (frame.payload["type"] as JsonPrimitive).content)
     }
@@ -119,7 +118,7 @@ class DefaultRealtimeSessionTest {
         override fun getAuthHeaders(config: SessionConfig) = mapOf("X-Api-Key" to config.apiKey)
         override fun registerTools(tools: List<Tool>) {}
 
-        override fun connectFrame(config: SessionConfig): ProtocolFrame {
+        override fun createSessionFrame(config: SessionConfig): ProtocolFrame {
             return buildFrame("session.create") {
                 put("session", buildJsonObject {
                     put("model", config.model)
@@ -134,7 +133,7 @@ class DefaultRealtimeSessionTest {
             }
         }
 
-        override fun commitInputFrame(): ProtocolFrame = buildFrame("input_audio_buffer.commit") { }
+        override fun commitAudioFrame(): ProtocolFrame = buildFrame("input_audio_buffer.commit") { }
 
         override fun cancelResponseFrame(): ProtocolFrame = buildFrame("response.cancel") { }
 

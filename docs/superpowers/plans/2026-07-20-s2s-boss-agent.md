@@ -346,7 +346,7 @@ interface RealtimeSession : AutoCloseable {
     override fun close()
 
     suspend fun sendAudio(pcm: ByteArray)
-    suspend fun commitInput()
+    suspend fun commitAudio()
     suspend fun cancelResponse()
     suspend fun injectAndRespond(text: String)
 
@@ -701,7 +701,7 @@ class BossConversationBridgeTest {
         override suspend fun connect(config: SessionConfig) {}
         override fun close() {}
         override suspend fun sendAudio(pcm: ByteArray) {}
-        override suspend fun commitInput() {}
+        override suspend fun commitAudio() {}
         override suspend fun cancelResponse() { cancelledCount++ }
         override suspend fun injectAndRespond(text: String) { injectCount++ }
     }
@@ -1433,7 +1433,7 @@ class VolcRealtimeSession(
         // 实现见 Task 13
     }
 
-    override suspend fun commitInput() {}
+    override suspend fun commitAudio() {}
     override suspend fun cancelResponse() {}
     override suspend fun injectAndRespond(text: String) {}
 
@@ -1590,7 +1590,7 @@ writeLock.withLock {
         }
     }
 
-    override suspend fun commitInput() {
+    override suspend fun commitAudio() {
         sendRaw("""{"type":"input_audio_buffer.commit"}""")
     }
 

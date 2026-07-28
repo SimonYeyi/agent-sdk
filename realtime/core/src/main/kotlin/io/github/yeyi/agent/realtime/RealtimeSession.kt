@@ -11,7 +11,7 @@ public interface RealtimeSession : AutoCloseable {
     public override fun close()
 
     public suspend fun sendAudio(pcm: ByteArray)
-    public suspend fun commitInput()
+    public suspend fun commitAudio()
     public suspend fun cancelResponse()
     public suspend fun injectAndRespond(text: String)
 

@@ -7,9 +7,6 @@ import io.github.yeyi.agent.realtime.RealtimeEvent
 import io.github.yeyi.agent.realtime.SessionConfig
 import io.github.yeyi.agent.realtime.Tool
 import io.github.yeyi.agent.realtime.TurnDetection
-import io.github.yeyi.agent.realtime.audio.AudioFormat
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
@@ -45,10 +42,10 @@ class VolcRealtimeAdapterTest {
     // === 帧构造测试 ===
 
     @Test
-    fun `connectFrame has correct payload structure`() {
+    fun `createSssionFrame has correct payload structure`() {
         val adapter = newAdapter()
         val config = makeConfig()
-        val frame = adapter.connectFrame(config)
+        val frame = adapter.createSessionFrame(config)
         val payload = frame.payload
 
         assertEquals("session.create", (payload["type"] as JsonPrimitive).content)
@@ -69,10 +66,10 @@ class VolcRealtimeAdapterTest {
     }
 
     @Test
-    fun `connectFrame without tools has empty tools array`() {
+    fun `createSssionFrame without tools has empty tools array`() {
         val adapter = newAdapter()
         val config = makeConfig()
-        val frame = adapter.connectFrame(config)
+        val frame = adapter.createSessionFrame(config)
         val payload = frame.payload
         val session = payload["session"] as JsonObject
         val tools = session["tools"]
@@ -92,9 +89,9 @@ class VolcRealtimeAdapterTest {
     }
 
     @Test
-    fun `commitInputFrame has correct type`() {
+    fun `commitAudioFrame has correct type`() {
         val adapter = newAdapter()
-        val frame = adapter.commitInputFrame()
+        val frame = adapter.commitAudioFrame()
         assertEquals("input_audio_buffer.commit", (frame.payload["type"] as JsonPrimitive).content)
     }
 

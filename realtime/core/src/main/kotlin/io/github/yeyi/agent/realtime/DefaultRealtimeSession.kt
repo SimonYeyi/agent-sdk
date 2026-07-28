@@ -50,7 +50,7 @@ private class DefaultRealtimeSession(
 
         adapter.registerTools(config.tools)
 
-        sendFrame(adapter.connectFrame(config))
+        sendFrame(adapter.createSessionFrame(config))
 
         startReadLoop()
 
@@ -69,8 +69,8 @@ private class DefaultRealtimeSession(
         sendFrame(frame)
     }
 
-    override suspend fun commitInput() {
-        val frame = adapter.commitInputFrame()
+    override suspend fun commitAudio() {
+        val frame = adapter.commitAudioFrame()
         sendFrame(frame)
     }
 

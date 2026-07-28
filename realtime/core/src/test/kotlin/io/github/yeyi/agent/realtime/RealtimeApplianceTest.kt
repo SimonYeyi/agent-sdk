@@ -83,7 +83,7 @@ class RealtimeApplianceTest {
             sentAudio += pcm
             sentAudioSignal.send(pcm)
         }
-        override suspend fun commitInput() {}
+        override suspend fun commitAudio() {}
         override suspend fun cancelResponse() {
             cancelResponseCount++
             cancelResponseSignal.send(Unit)

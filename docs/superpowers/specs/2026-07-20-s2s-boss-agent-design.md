@@ -195,7 +195,7 @@ public interface RealtimeSession : AutoCloseable {
     public override fun close()
 
     public suspend fun sendAudio(pcm: ByteArray)
-    public suspend fun commitInput()         // 仅 Manual turn detection 有意义
+    public suspend fun commitAudio()         // 仅 Manual turn detection 有意义
     public suspend fun cancelResponse()      // VAD 误启动 / 委派检测时中断当前 turn
     public suspend fun injectAndRespond(text: String)  // Boss 结果回注
 
@@ -253,7 +253,7 @@ public enum class ResponseStatus { COMPLETED, CANCELED, FAILED, INCOMPLETE }
 |--------------------------|----------------------------------------------------------------|
 | `connect(config)`        | WS upgrade → `session.create` → `session.update`（按需）        |
 | `sendAudio(pcm)`         | `input_audio_buffer.append`（base64 编码）                     |
-| `commitInput()`          | `input_audio_buffer.commit`                                    |
+| `commitAudio()`          | `input_audio_buffer.commit`                                    |
 | `cancelResponse()`       | `response.cancel`                                              |
 | `injectAndRespond(text)` | `conversation.item.create`（role=assistant, text）→ `response.create` |
 | `close()`                | `session.close` → WS close                                     |
