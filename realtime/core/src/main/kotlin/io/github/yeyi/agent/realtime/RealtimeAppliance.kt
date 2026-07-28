@@ -12,28 +12,35 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
 
-public class RealtimeAppliance(
+public interface RealtimeAppliance {
+    public val delegation: RealtimeDelegation?
+    public val events: Flow<RealtimeEvent>
+    public suspend fun start()
+    public suspend fun close()
+}
+
+internal class DefaultRealtimeAppliance(
     private val session: RealtimeSession,
     private val sessionConfig: SessionConfig,
     private val microphone: MicrophoneAdapter,
     private val speaker: SpeakerAdapter,
-    private val delegation: RealtimeDelegation? = null,
-) {
+    override val delegation: RealtimeDelegation? = null,
+) : RealtimeAppliance {
     private var scope: CoroutineScope? = null
     private var userQuerying: Boolean = false
     private var audioChannel: Channel<ByteArray>? = null
 
     private val delegationHandler: DelegationHandler? = delegation?.let { delegation ->
         DelegationHandler(
-            session = session,
             delegation = delegation,
             scopeProvider = { scope },
+            onReply = { text -> session.injectAndRespond(text) },
         )
     }
 
-    public val events: Flow<RealtimeEvent> = MutableSharedFlow(extraBufferCapacity = 64)
+    override val events: Flow<RealtimeEvent> = MutableSharedFlow(extraBufferCapacity = 64)
 
-    public suspend fun start() {
+    override suspend fun start() {
         if (scope != null) return
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         userQuerying = false
@@ -70,7 +77,7 @@ public class RealtimeAppliance(
         }
     }
 
-    public suspend fun close() {
+    override suspend fun close() {
         userQuerying = false
         audioChannel?.close()
         audioChannel = null
@@ -88,15 +95,12 @@ public class RealtimeAppliance(
                 drainAudioChannel()
                 speaker.stopPlayback()
             }
-
             is RealtimeEvent.AssistantAudioStarted -> {
                 userQuerying = false
             }
-
             is RealtimeEvent.AssistantAudioDelta if !userQuerying -> {
                 audioChannel?.send(event.pcm)
             }
-
             else -> {}
         }
     }
@@ -108,83 +112,16 @@ public class RealtimeAppliance(
     }
 }
 
-public interface RealtimeDelegation {
-    public val capabilities: List<String>
-    public val replies: Flow<DelegationReply>
-    public suspend fun run(asrText: String)
-}
-
-public sealed interface DelegationReply {
-    public data class Confirmation(val text: String) : DelegationReply
-    public data class Success(val text: String) : DelegationReply
-    public data class Failure(val message: String) : DelegationReply
-}
-
-internal class DelegationHandler(
-    private val session: RealtimeSession,
-    private val delegation: RealtimeDelegation,
-    private val scopeProvider: () -> CoroutineScope?,
-) {
-    private var pendingAsr: String? = null
-
-    fun appendInstructions(base: String): String {
-        val capabilityList = delegation.capabilities.joinToString("\n") { "- $it" }
-        return "$base\n\n$DELEGATION_PROTOCOL\n$capabilityList"
-    }
-
-    fun start() {
-        scopeProvider()?.launch {
-            delegation.replies.collect { update ->
-                val text = when (update) {
-                    is DelegationReply.Confirmation -> update.text
-                    is DelegationReply.Success -> update.text
-                    is DelegationReply.Failure -> update.message
-                }
-                session.injectAndRespond(text)
-            }
-        }
-    }
-
-    /**
-     * 处理 delegation 逻辑并清除委派标记，返回干净的事件.
-     */
-    fun handle(event: RealtimeEvent): RealtimeEvent {
-        when (event) {
-            is RealtimeEvent.UserTranscriptCompleted -> pendingAsr = event.text
-            is RealtimeEvent.AssistantTextDelta -> {
-                if (event.text.startsWith(DELEGATION_MARKER)) {
-                    pendingAsr?.let { runDelegation(it) }
-                    return event.copy(text = event.text.removePrefix(DELEGATION_MARKER))
-                }
-            }
-
-            else -> Unit
-        }
-        return event
-    }
-
-    private fun runDelegation(asrText: String) {
-        scopeProvider()?.launch { delegation.run(asrText) }
-    }
-
-    companion object {
-        private const val DELEGATION_MARKER = "|"
-        private const val AVAILABLE_CAPABILITIES_LABEL = "可用能力"
-        private val DELEGATION_PROTOCOL = """
-            委派协议：
-            1. 闲聊 (问候/聊天/知识问答/一般咨询)：直接自然口语回答。
-            2. 命中已注册的 function_call 工具：直接发起函数调用，无需标记委派（跳过第3点）。
-            3. 落在下面“${AVAILABLE_CAPABILITIES_LABEL}”列表中（不在能力范围内，一律按闲聊处理）：
-               assistant 输出**必须**以 $DELEGATION_MARKER 开头标记委派，紧接对用户的简短确认。
-
-               完整示例（用户说“帮我调暗客厅灯”）：
-
-                   ${DELEGATION_MARKER}好的，正在为您调暗客厅灯，请稍等
-
-               要求:
-               - 简短确认**必须用进行时** (表达“正在处理”), 不能用完成时承诺结果。
-               
-               ${AVAILABLE_CAPABILITIES_LABEL}：
-        """.trimIndent()
-    }
-}
+public fun RealtimeAppliance(
+    session: RealtimeSession,
+    sessionConfig: SessionConfig,
+    microphone: MicrophoneAdapter,
+    speaker: SpeakerAdapter,
+    delegation: RealtimeDelegation? = null,
+): RealtimeAppliance = DefaultRealtimeAppliance(
+    session = session,
+    sessionConfig = sessionConfig,
+    microphone = microphone,
+    speaker = speaker,
+    delegation = delegation,
+)

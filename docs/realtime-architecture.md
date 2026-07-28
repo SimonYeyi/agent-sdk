@@ -10,7 +10,9 @@ realtime/
 │   ├── RealtimeAdapter.kt         # 内部协议适配接口 + ProtocolFrame
 │   ├── RealtimeEvent.kt           # 事件 sealed interface
 │   ├── SessionConfig.kt           # 会话配置 + Tool + TurnDetection
-│   ├── RealtimeAppliance.kt       # 高层编排器 + DelegationHandler
+│   ├── RealtimeAppliance.kt       # 高层编排器接口
+│   ├── DefaultRealtimeAppliance.kt # Ktor WebSocket 实现
+│   ├── RealtimeDelegation.kt      # 委托协议接口 + DelegationHandler
 │   └── audio/
 │       ├── AudioFormat.kt
 │       ├── MicrophoneAdapter.kt
@@ -18,6 +20,8 @@ realtime/
 ├── providers/volc/                # 火山引擎 provider
 │   ├── VolcRealtimeAdapter.kt     # Volc 协议适配器
 │   └── VolcDtos.kt                # Volc 协议 DTO
+├── providers/volc-android/        # 火山引擎 Android SDK 实现
+│   └── VolcRealtimeAppliance.kt  # Volc SDK 封装 (需 speechengine_tob SDK)
 └── audio/android/                 # Android 音频实现
     ├── AndroidMicrophoneAdapter.kt
     ├── AndroidSpeakerAdapter.kt
@@ -253,18 +257,20 @@ public sealed interface RealtimeEvent {
 组装 `RealtimeSession`、`MicrophoneAdapter`、`SpeakerAdapter` 和可选的 `RealtimeDelegation`。
 
 ```kotlin
-public class RealtimeAppliance(
-    private val session: RealtimeSession,
-    private val sessionConfig: SessionConfig,
-    private val microphone: MicrophoneAdapter,
-    private val speaker: SpeakerAdapter,
-    private val delegation: RealtimeDelegation? = null,
-) {
+public interface RealtimeAppliance {
+    public val delegation: RealtimeDelegation?
     public val events: Flow<RealtimeEvent>
-
     public suspend fun start()
     public suspend fun close()
 }
+
+public fun RealtimeAppliance(
+    session: RealtimeSession,
+    sessionConfig: SessionConfig,
+    microphone: MicrophoneAdapter,
+    speaker: SpeakerAdapter,
+    delegation: RealtimeDelegation? = null,
+): RealtimeAppliance = DefaultRealtimeAppliance(...)
 ```
 
 ### 设计要点
@@ -293,10 +299,10 @@ public sealed interface DelegationReply {
 ### DelegationHandler 内部类
 
 ```kotlin
-internal class DelegationHandler(
-    private val session: RealtimeSession,
+public class DelegationHandler(
     private val delegation: RealtimeDelegation,
     private val scopeProvider: () -> CoroutineScope?,
+    private val onReply: suspend (String) -> Unit,
 )
 ```
 
@@ -427,3 +433,38 @@ VolcConversationItem       — conversation.item.create 的 item 体
 | `VolcRealtimeSession.kt` | `DefaultRealtimeSession` + `VolcRealtimeAdapter` |
 | `VolcStreamDecoder.kt` | `VolcRealtimeAdapter.toRealtimeEvents()` |
 | `VolcStreamDecoderTest.kt` | `VolcRealtimeAdapterTest` |
+
+---
+
+## 12. RealtimeAppliance 实现
+
+`RealtimeAppliance` 是高层事件编排器接口，负责把 `RealtimeSession` 的事件流
+转成统一的 `RealtimeEvent` 流，并可选地挂载委托协议处理器。
+
+### 12.1 DefaultRealtimeAppliance
+
+Ktor WebSocket 实现(internal)，通过顶层工厂函数构造:
+
+```kotlin
+public fun RealtimeAppliance(
+    session: RealtimeSession,
+    sessionConfig: SessionConfig,
+    microphone: MicrophoneAdapter,
+    speaker: SpeakerAdapter,
+    delegation: RealtimeDelegation? = null,
+): RealtimeAppliance
+```
+
+需要外部注入 `MicrophoneAdapter` / `SpeakerAdapter`，音频完全由调用方控制。
+
+### 12.2 VolcRealtimeAppliance (Android 原生 SDK)
+
+模块路径: `:realtime:providers:volc-android`
+
+依赖: `com.bytedance.speechengine:speechengine_tob:0.0.15.0`
+
+构造器: `VolcRealtimeAppliance(sessionConfig, delegation = null)`
+
+音频由 SDK 自管，不暴露 `MicrophoneAdapter` / `SpeakerAdapter` 注入点。
+
+**注意**: `speechengine_tob` SDK 需要手动配置。参见 `realtime/providers/volc_android_sdk.md` 获取 SDK 设置说明。
