@@ -98,6 +98,18 @@ class S2sViewModel(
     private fun launchCollectSessionEvents(): Job = viewModelScope.launch {
         bridge?.events?.collect { event ->
             when (event) {
+                is RealtimeEvent.UserTranscriptStarted -> {
+                    if (_state.value.pendingAssistant.isNotBlank()) {
+                        _state.value = _state.value.copy(
+                            messages = _state.value.messages + UiMessage(
+                                "assistant",
+                                _state.value.pendingAssistant.trim()
+                            ),
+                            pendingAssistant = "",
+                        )
+                    }
+                }
+
                 is RealtimeEvent.UserTranscriptDelta -> {
                     _state.value = _state.value.copy(pendingUser = event.text)
                 }
