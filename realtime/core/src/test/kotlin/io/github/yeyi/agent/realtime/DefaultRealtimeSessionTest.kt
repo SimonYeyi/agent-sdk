@@ -37,7 +37,7 @@ class DefaultRealtimeSessionTest {
     // === FakeRealtimeAdapter behavior tests ===
 
     @Test
-    fun `FakeRealtimeAdapter createSssionFrame builds session_create payload`() {
+    fun `FakeRealtimeAdapter createSessionFrame builds session_create payload`() {
         val adapter = FakeRealtimeAdapter()
         val config = makeSessionConfig()
         val frame = adapter.createSessionFrame(config)
@@ -74,9 +74,9 @@ class DefaultRealtimeSessionTest {
     }
 
     @Test
-    fun `FakeRealtimeAdapter injectAndRespondFrame builds speech_text_buffer_commit payload`() {
+    fun `FakeRealtimeAdapter commitSpeechTextFrame builds speech_text_buffer_commit payload`() {
         val adapter = FakeRealtimeAdapter()
-        val frame = adapter.injectAndRespondFrame("你好")
+        val frame = adapter.commitSpeechTextFrame("你好").single()
 
         assertEquals("speech_text_buffer.commit", (frame.payload["type"] as JsonPrimitive).content)
         assertEquals("你好", (frame.payload["text"] as JsonPrimitive).content)
@@ -137,8 +137,8 @@ class DefaultRealtimeSessionTest {
 
         override fun cancelResponseFrame(): ProtocolFrame = buildFrame("response.cancel") { }
 
-        override fun injectAndRespondFrame(text: String): ProtocolFrame {
-            return buildFrame("speech_text_buffer.commit") { put("text", text) }
+        override fun commitSpeechTextFrame(text: String): List<ProtocolFrame> {
+            return listOf(buildFrame("speech_text_buffer.commit") { put("text", text) })
         }
 
         override suspend fun handleIncomingFrame(frame: ProtocolFrame): List<ProtocolFrame> {

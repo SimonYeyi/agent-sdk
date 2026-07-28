@@ -16,8 +16,8 @@ public interface RealtimeAdapter {
     public fun createSessionFrame(config: SessionConfig): ProtocolFrame
     public fun sendAudioFrame(pcm: ByteArray): ProtocolFrame
     public fun commitAudioFrame(): ProtocolFrame
+    public fun commitSpeechTextFrame(text: String): List<ProtocolFrame>
     public fun cancelResponseFrame(): ProtocolFrame
-    public fun injectAndRespondFrame(text: String): ProtocolFrame
 
     public suspend fun handleIncomingFrame(frame: ProtocolFrame): List<ProtocolFrame>
 }

@@ -42,7 +42,7 @@ class VolcRealtimeAdapterTest {
     // === 帧构造测试 ===
 
     @Test
-    fun `createSssionFrame has correct payload structure`() {
+    fun `createSessionFrame has correct payload structure`() {
         val adapter = newAdapter()
         val config = makeConfig()
         val frame = adapter.createSessionFrame(config)
@@ -66,7 +66,7 @@ class VolcRealtimeAdapterTest {
     }
 
     @Test
-    fun `createSssionFrame without tools has empty tools array`() {
+    fun `createSessionFrame without tools has empty tools array`() {
         val adapter = newAdapter()
         val config = makeConfig()
         val frame = adapter.createSessionFrame(config)
@@ -103,14 +103,18 @@ class VolcRealtimeAdapterTest {
     }
 
     @Test
-    fun `injectAndRespondFrame builds speech_text_buffer_commit with tts_prompt`() {
+    fun `commitSpeechTextFrame returns append and commit frames`() {
         val adapter = newAdapter()
-        val frame = adapter.injectAndRespondFrame("你好")
-        val payload = frame.payload
+        val frames = adapter.commitSpeechTextFrame("你好")
+        assertEquals(2, frames.size)
 
-        assertEquals("speech_text_buffer.commit", (payload["type"] as JsonPrimitive).content)
-        assertEquals("你好", (payload["text"] as JsonPrimitive).content)
-        assertEquals("原文播报", (payload["tts_prompt"] as JsonPrimitive).content)
+        val append = frames[0].payload
+        assertEquals("speech_text_buffer.append", (append["type"] as JsonPrimitive).content)
+        assertEquals("你好", (append["text"] as JsonPrimitive).content)
+
+        val commit = frames[1].payload
+        assertEquals("speech_text_buffer.commit", (commit["type"] as JsonPrimitive).content)
+        assertEquals("原文播报", (commit["tts_prompt"] as JsonPrimitive).content)
     }
 
     // === 事件解析测试 ===

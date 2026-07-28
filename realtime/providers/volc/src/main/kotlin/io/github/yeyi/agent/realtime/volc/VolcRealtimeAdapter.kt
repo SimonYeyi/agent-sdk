@@ -69,12 +69,15 @@ public class VolcRealtimeAdapter : RealtimeAdapter {
         return inputAudioBufferCommitFrame()
     }
 
-    override fun cancelResponseFrame(): ProtocolFrame {
-        return responseCancelFrame()
+    override fun commitSpeechTextFrame(text: String): List<ProtocolFrame> {
+        return listOf(
+            speechTextBufferAppendFrame(text),
+            speechTextBufferCommitFrame(prompt = "查询任务结果"),
+        )
     }
 
-    override fun injectAndRespondFrame(text: String): ProtocolFrame {
-        return speechTextBufferCommitFrame(text)
+    override fun cancelResponseFrame(): ProtocolFrame {
+        return responseCancelFrame()
     }
 
     override suspend fun handleIncomingFrame(frame: ProtocolFrame): List<ProtocolFrame> {
@@ -138,9 +141,12 @@ public class VolcRealtimeAdapter : RealtimeAdapter {
         }
     }
 
-    private fun speechTextBufferCommitFrame(text: String): ProtocolFrame {
+    private fun speechTextBufferCommitFrame(
+        prompt: String? = null,
+        text: String? = null
+    ): ProtocolFrame {
         return buildFrame("speech_text_buffer.commit") {
-            put("tts_prompt", "原文播报")
+            put("tts_prompt", prompt)
             put("text", text)
         }
     }

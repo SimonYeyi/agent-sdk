@@ -71,11 +71,11 @@ public interface RealtimeAdapter {
     public fun getAuthHeaders(config: SessionConfig): Map<String, String>
     public fun registerTools(tools: List<Tool>)
 
-    public fun createSssionFrame(config: SessionConfig): ProtocolFrame
+    public fun createSessionFrame(config: SessionConfig): ProtocolFrame
     public fun sendAudioFrame(pcm: ByteArray): ProtocolFrame
     public fun commitAudioFrame(): ProtocolFrame
+    public fun commitSpeechTextFrame(text: String): List<ProtocolFrame>
     public fun cancelResponseFrame(): ProtocolFrame
-    public fun injectAndRespondFrame(text: String): ProtocolFrame
 
     public suspend fun handleIncomingFrame(frame: ProtocolFrame): List<ProtocolFrame>
 }
@@ -117,7 +117,7 @@ private class DefaultRealtimeSession(
 
         adapter.registerTools(config.tools)
 
-        sendFrame(adapter.createSssionFrame(config))
+        sendFrame(adapter.createSessionFrame(config))
 
         startReadLoop()
 
@@ -147,8 +147,7 @@ private class DefaultRealtimeSession(
     }
 
     override suspend fun injectAndRespond(text: String) {
-        val frame = adapter.injectAndRespondFrame(text)
-        sendFrame(frame)
+        adapter.commitSpeechTextFrame(text).forEach { sendFrame(it) }
     }
 
     private suspend fun sendFrame(frame: ProtocolFrame) {

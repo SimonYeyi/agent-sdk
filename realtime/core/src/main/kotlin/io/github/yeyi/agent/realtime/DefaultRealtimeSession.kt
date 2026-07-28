@@ -80,8 +80,7 @@ private class DefaultRealtimeSession(
     }
 
     override suspend fun injectAndRespond(text: String) {
-        val frame = adapter.injectAndRespondFrame(text)
-        sendFrame(frame)
+        adapter.commitSpeechTextFrame(text).forEach { sendFrame(it) }
     }
 
     private suspend fun sendFrame(frame: ProtocolFrame) {
