@@ -24,7 +24,6 @@ public class VolcRealtimeAppliance(
     private val sessionConfig: SessionConfig,
     override val delegation: RealtimeDelegation? = null,
 ) : RealtimeAppliance {
-
     private val protocolAdapter = VolcRealtimeAdapter()
     private var engine: SpeechEngine? = null
     private var scope: CoroutineScope? = null
@@ -143,12 +142,23 @@ public class VolcRealtimeAppliance(
             SpeechEngineDefines.PARAMS_KEY_PROTOCOL_TYPE_INT,
             SpeechEngineDefines.PROTOCOL_TYPE_SEED_DUPLEX,
         )
+        val (address, uri) = parseEndpoint(config.endpoint)
+        engine.setOptionString(SpeechEngineDefines.PARAMS_KEY_DIALOG_ADDRESS_STRING, address)
+        engine.setOptionString(SpeechEngineDefines.PARAMS_KEY_DIALOG_URI_STRING, uri)
         engine.setOptionString(SpeechEngineDefines.PARAMS_KEY_API_KEY_STRING, config.apiKey)
         engine.setOptionString(
             SpeechEngineDefines.PARAMS_KEY_RESOURCE_ID_STRING,
             this::class.simpleName,
         )
         engine.setOptionString(SpeechEngineDefines.PARAMS_KEY_UID_STRING, this::class.simpleName)
+    }
+
+    private fun parseEndpoint(endpoint: String): Pair<String, String> {
+        val parsed = java.net.URI(endpoint)
+        val scheme = parsed.scheme ?: "wss"
+        val authority = parsed.authority ?: error("endpoint missing host: $endpoint")
+        val path = parsed.rawPath?.takeIf { it.isNotEmpty() } ?: "/"
+        return "$scheme://$authority" to path
     }
 
     private class EngineListener(
