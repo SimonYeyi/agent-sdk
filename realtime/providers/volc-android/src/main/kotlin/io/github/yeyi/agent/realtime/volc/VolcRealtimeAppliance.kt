@@ -145,7 +145,13 @@ public class VolcRealtimeAppliance(
         val (address, uri) = parseEndpoint(config.endpoint)
         engine.setOptionString(SpeechEngineDefines.PARAMS_KEY_DIALOG_ADDRESS_STRING, address)
         engine.setOptionString(SpeechEngineDefines.PARAMS_KEY_DIALOG_URI_STRING, uri)
-        engine.setOptionString(SpeechEngineDefines.PARAMS_KEY_API_KEY_STRING, config.apiKey)
+        val parts = config.apiKey.split(":")
+        if (parts.size == 1) {
+            engine.setOptionString(SpeechEngineDefines.PARAMS_KEY_API_KEY_STRING, parts[0])
+        } else {
+            engine.setOptionString(SpeechEngineDefines.PARAMS_KEY_APP_ID_STRING, parts[0])
+            engine.setOptionString(SpeechEngineDefines.PARAMS_KEY_APP_TOKEN_STRING, parts[1])
+        }
         engine.setOptionString(
             SpeechEngineDefines.PARAMS_KEY_RESOURCE_ID_STRING,
             this::class.simpleName,
