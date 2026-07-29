@@ -64,6 +64,8 @@ dependencies {
     implementation(project(":realtime:core"))
     implementation(project(":realtime:audio:android"))
     implementation(project(":realtime:providers:volc"))
+    implementation(project(":realtime:providers:volc-android"))
+    implementation(libs.ktor.client.okhttp)
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

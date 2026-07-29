@@ -52,7 +52,7 @@ fun SmartHomeS2sScreen(
     val context = LocalContext.current
 
     val viewModel: S2sViewModel = viewModel(
-        factory = S2sViewModel.Factory(apiKey, boss)
+        factory = S2sViewModel.Factory(context.applicationContext, apiKey, boss)
     )
     val state by viewModel.state.collectAsState()
     val taskGroups by viewModel.taskGroups.collectAsState()

@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.realtime.volc
 
+import android.content.Context
 import com.bytedance.speech.speechengine.SpeechEngine
 import com.bytedance.speech.speechengine.SpeechEngineDefines
 import com.bytedance.speech.speechengine.SpeechEngineGenerator
@@ -20,11 +21,14 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import java.io.File
 
 public class VolcRealtimeAppliance(
+    context: Context,
     private val sessionConfig: SessionConfig,
     override val delegation: RealtimeDelegation? = null,
 ) : RealtimeAppliance {
+    private val applicationContext: Context = context.applicationContext
     private val protocolAdapter = VolcRealtimeAdapter(AudioFormat.Encoding.PCM_OPUS)
     private var engine: SpeechEngine? = null
     private var scope: CoroutineScope? = null
@@ -59,6 +63,7 @@ public class VolcRealtimeAppliance(
             protocolAdapter.registerTools(sessionConfig.tools)
             val engine = SpeechEngineGenerator.getInstance().apply {
                 createEngine()
+                setContext(applicationContext)
             }
             configInitParams(engine, sessionConfig)
             val ret = engine.initEngine()
@@ -158,6 +163,23 @@ public class VolcRealtimeAppliance(
             this::class.simpleName,
         )
         engine.setOptionString(SpeechEngineDefines.PARAMS_KEY_UID_STRING, this::class.simpleName)
+
+        // AEC: 录音 + 播放双开时必启用;模型来自 assets/aec/aec.model,首次启动拷贝到 filesDir。
+        val aecModelPath = prepareAecModel()
+        engine.setOptionBoolean(SpeechEngineDefines.PARAMS_KEY_ENABLE_AEC_BOOL, true)
+        engine.setOptionString(SpeechEngineDefines.PARAMS_KEY_AEC_MODEL_PATH_STRING, aecModelPath)
+    }
+
+    private fun prepareAecModel(): String {
+        val target = File(applicationContext.filesDir, "aec")
+        val modelFile = File(target, "aec.model")
+        if (!modelFile.exists()) {
+            target.mkdirs()
+            applicationContext.assets.open("aec/aec.model").use { input ->
+                modelFile.outputStream().use { output -> input.copyTo(output) }
+            }
+        }
+        return modelFile.absolutePath
     }
 
     private fun parseEndpoint(endpoint: String): Pair<String, String> {

@@ -3,6 +3,7 @@ package io.github.yeyi.agent.demo.s2s
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import io.github.yeyi.agent.demo.log
 import io.github.yeyi.agent.realtime.DelegationReply
 import io.github.yeyi.agent.realtime.RealtimeAppliance
 import io.github.yeyi.agent.realtime.RealtimeEvent
@@ -11,6 +12,7 @@ import io.github.yeyi.agent.realtime.SessionConfig
 import io.github.yeyi.agent.realtime.audio.android.AndroidMicrophoneAdapter
 import io.github.yeyi.agent.realtime.audio.android.AndroidSpeakerAdapter
 import io.github.yeyi.agent.realtime.volc.VolcRealtimeAdapter
+import io.github.yeyi.agent.realtime.volc.VolcRealtimeAppliance
 import io.github.yeyi.agent.team.BossAgent
 import io.github.yeyi.agent.team.TasksState
 import io.ktor.client.HttpClient
@@ -23,6 +25,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 class S2sViewModel(
+    private val applicationContext: android.content.Context,
     private val apiKey: String,
     private val boss: BossAgent,
 ) : ViewModel() {
@@ -53,7 +56,7 @@ class S2sViewModel(
 
         val client = HttpClient(CIO) { install(WebSockets) }
         httpClient = client
-        bridge = RealtimeAppliance(
+        /*bridge = RealtimeAppliance(
             session = RealtimeSession(client, VolcRealtimeAdapter()),
             sessionConfig = SessionConfig(
                 apiKey = apiKey,
@@ -65,6 +68,18 @@ class S2sViewModel(
             ),
             microphone = AndroidMicrophoneAdapter(),
             speaker = AndroidSpeakerAdapter(),
+            delegation = delegation,
+        )*/
+        bridge = VolcRealtimeAppliance(
+            context = applicationContext,
+            sessionConfig = SessionConfig(
+                apiKey = apiKey,
+                endpoint = "wss://openspeech.bytedance.com/api/v3/duplex/realtime/dialogue",
+                model = "1.2.6.0",
+                instructions = "你是一个智能家居助手. 用自然、口语化的中文回答用户",
+                voice = "zh_female_vv_jupiter_bigtts",
+                tools = listOf(MusicControlTool()),
+            ),
             delegation = delegation,
         )
         _state.value = UiState(connected = true)
@@ -167,6 +182,9 @@ class S2sViewModel(
                 }
 
                 is RealtimeEvent.Error -> {
+                    log.error(
+                        "RealtimeEvent.Error: code=${event.code} message=${event.message} isFatal=${event.isFatal}",
+                    )
                     _state.value = _state.value.copy(
                         pendingAssistant = "",
                         pendingUser = "",
@@ -214,12 +232,13 @@ class S2sViewModel(
     }
 
     class Factory(
+        private val applicationContext: android.content.Context,
         private val apiKey: String,
         private val boss: BossAgent,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return S2sViewModel(apiKey, boss) as T
+            return S2sViewModel(applicationContext, apiKey, boss) as T
         }
     }
 }
