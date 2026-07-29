@@ -20,7 +20,7 @@ import java.util.Base64
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 
-public class VolcRealtimeAdapter : RealtimeAdapter {
+public class VolcRealtimeAdapter(encoding: AudioFormat.Encoding? = null) : RealtimeAdapter {
     private val eventEmitter = MutableSharedFlow<RealtimeEvent>(extraBufferCapacity = 64)
     private val toolsByName = mutableMapOf<String, Tool>()
     private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
@@ -28,12 +28,12 @@ public class VolcRealtimeAdapter : RealtimeAdapter {
 
     override val inputAudioFormat: AudioFormat = AudioFormat(
         sampleRateHz = 16_000,
-        encoding = AudioFormat.Encoding.PCM_16BIT,
+        encoding = encoding ?: AudioFormat.Encoding.PCM_16BIT,
     )
 
     override val outputAudioFormat: AudioFormat = AudioFormat(
         sampleRateHz = 24_000,
-        encoding = AudioFormat.Encoding.PCM_16BIT,
+        encoding = encoding ?: AudioFormat.Encoding.PCM_16BIT,
     )
 
     override val events: Flow<RealtimeEvent> = eventEmitter.asSharedFlow()
@@ -353,9 +353,9 @@ public class VolcRealtimeAdapter : RealtimeAdapter {
             model = config.model,
             instructions = config.instructions,
             audio = VolcAudioConfig(
-                input = VolcAudioSideConfig(format = inputAudioFormat.toVolcFormatConfig()),
+                input = VolcAudioSideConfig(format = inputAudioFormat.toVolcFormatConfig(true)),
                 output = VolcAudioSideConfig(
-                    format = outputAudioFormat.toVolcFormatConfig(),
+                    format = outputAudioFormat.toVolcFormatConfig(false),
                     voice = config.voice,
                 ),
             ),
@@ -397,9 +397,10 @@ public class VolcRealtimeAdapter : RealtimeAdapter {
         )
     }
 
-    private fun AudioFormat.toVolcFormatConfig(): VolcFormatConfig {
+    private fun AudioFormat.toVolcFormatConfig(input: Boolean): VolcFormatConfig {
         val type = when (encoding) {
             AudioFormat.Encoding.PCM_16BIT -> "pcm_s16le"
+            AudioFormat.Encoding.PCM_OPUS -> if (input) "speech_opus" else "ogg_opus"
             else -> error("Unsupported encoding: $encoding")
         }
         return VolcFormatConfig(type = type, rate = sampleRateHz)

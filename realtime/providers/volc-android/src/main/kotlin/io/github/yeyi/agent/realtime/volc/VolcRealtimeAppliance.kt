@@ -9,6 +9,7 @@ import io.github.yeyi.agent.realtime.RealtimeAppliance
 import io.github.yeyi.agent.realtime.RealtimeDelegation
 import io.github.yeyi.agent.realtime.RealtimeEvent
 import io.github.yeyi.agent.realtime.SessionConfig
+import io.github.yeyi.agent.realtime.audio.AudioFormat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -24,7 +25,7 @@ public class VolcRealtimeAppliance(
     private val sessionConfig: SessionConfig,
     override val delegation: RealtimeDelegation? = null,
 ) : RealtimeAppliance {
-    private val protocolAdapter = VolcRealtimeAdapter()
+    private val protocolAdapter = VolcRealtimeAdapter(AudioFormat.Encoding.PCM_OPUS)
     private var engine: SpeechEngine? = null
     private var scope: CoroutineScope? = null
     private val eventEmitter = MutableSharedFlow<RealtimeEvent>(extraBufferCapacity = 64)
