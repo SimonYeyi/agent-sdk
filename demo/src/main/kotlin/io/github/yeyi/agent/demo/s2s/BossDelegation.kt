@@ -30,9 +30,9 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
         },
     )
 
-    override suspend fun run(asrText: String) {
+    override suspend fun run(task: String) {
         var delegated = false
-        boss.run(asrText).collect { event ->
+        boss.run(task).collect { event ->
             when (event) {
                 is AgentEvent.ToolCallExplanation if (event.toolNames.contains("publish_task")) ->
                     delegated = true

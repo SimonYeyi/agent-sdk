@@ -21,7 +21,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
-import kotlin.test.assertTrue
 
 class RealtimeApplianceTest {
 
@@ -109,8 +108,8 @@ class RealtimeApplianceTest {
         override val replies: Flow<DelegationReply> = updateEmitter.asSharedFlow()
         val dispatched = Channel<String>(Channel.UNLIMITED)
 
-        override suspend fun run(asrText: String) {
-            dispatched.send(asrText)
+        override suspend fun run(task: String) {
+            dispatched.send(task)
         }
 
         fun emit(update: DelegationReply) {

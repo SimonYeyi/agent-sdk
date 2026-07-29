@@ -9,13 +9,11 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.cancel
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
 
 class DelegationHandlerTest {
 
@@ -26,8 +24,8 @@ class DelegationHandlerTest {
         override val replies = replyEmitter.asSharedFlow()
         val dispatched = Channel<String>(Channel.UNLIMITED)
 
-        override suspend fun run(asrText: String) {
-            dispatched.send(asrText)
+        override suspend fun run(task: String) {
+            dispatched.send(task)
         }
 
         fun emit(reply: DelegationReply) {

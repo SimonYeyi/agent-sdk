@@ -7,7 +7,7 @@ import kotlinx.coroutines.launch
 public interface RealtimeDelegation {
     public val capabilities: List<String>
     public val replies: Flow<DelegationReply>
-    public suspend fun run(asrText: String)
+    public suspend fun run(task: String)
 }
 
 public sealed interface DelegationReply {
