@@ -17,12 +17,11 @@ android {
 dependencies {
     api(project(":realtime:core"))
     api(project(":realtime:providers:volc"))
+    implementation(libs.speechengine.tob)
     implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.annotation)
 }
 
-// NOTE: The speechengine_tob dependency must be manually configured:
-// 1. Download the SDK from Volc Developer Portal
-// 2. Run: maven install:mvn-install-file -Dfile=speechengine_tob-0.0.15.0.aar -DgroupId=com.bytedance.speechengine -DartifactId=speechengine_tob -Dversion=0.0.15.0 -Dpackaging=aar
-// Or configure the Volc private Maven repository in your Gradle settings
-// See: realtime/providers/volc_android_sdk.md for SDK setup instructions
+// speechengine_tob 来自 https://artifact.bytedance.com/repository/Volcengine/,
+// 见 settings.gradle.kts 的 dependencyResolutionManagement 配置。
