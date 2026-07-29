@@ -25,7 +25,7 @@ public class DelegationHandler(
 
     public fun appendInstructions(base: String): String {
         val capabilityList = delegation.capabilities.joinToString("\n") { "- $it" }
-        return "$base\n\n$DELEGATION_PROTOCOL\n$capabilityList"
+        return "$base\n\n${DELEGATION_PROTOCOL.replace(CAPABILITIES_PLACEHOLDER, capabilityList)}"
     }
 
     public fun start() {
@@ -50,6 +50,7 @@ public class DelegationHandler(
                     return event.copy(text = event.text.removePrefix(DELEGATION_MARKER))
                 }
             }
+
             else -> Unit
         }
         return event
@@ -59,9 +60,10 @@ public class DelegationHandler(
         scopeProvider()?.launch { delegation.run(asrText) }
     }
 
-    internal companion object {
+    private companion object {
         private const val DELEGATION_MARKER = "|"
         private const val AVAILABLE_CAPABILITIES_LABEL = "可用能力"
+        private const val CAPABILITIES_PLACEHOLDER = "CAPABILITIES_PLACEHOLDER"
         private val DELEGATION_PROTOCOL = """
             委派协议：
             1. 闲聊 (问候/聊天/知识问答/一般咨询)：直接自然口语回答。
@@ -77,6 +79,7 @@ public class DelegationHandler(
                - 简短确认**必须用进行时** (表达"正在处理"), 不能用完成时承诺结果。
 
                ${AVAILABLE_CAPABILITIES_LABEL}：
+               $CAPABILITIES_PLACEHOLDER
         """.trimIndent()
     }
 }
