@@ -14,8 +14,7 @@
 
 | 文件 | 动作 | 职责 |
 |---|---|---|
-| `realtime/core/.../RealtimeAppliance.kt` | Modify | 缩成 interface + 工厂函数 |
-| `realtime/core/.../DefaultRealtimeAppliance.kt` | Create | 现有逻辑迁移至此,`internal class` + `: RealtimeAppliance` |
+| `realtime/core/.../RealtimeAppliance.kt` | Modify | 改造为 `interface RealtimeAppliance` + `internal class DefaultRealtimeAppliance` + 顶层工厂函数,三段并置 |
 | `realtime/core/.../RealtimeDelegation.kt` | Create | `RealtimeDelegation` + `DelegationReply` + `DelegationHandler` |
 | `realtime/core/.../RealtimeApplianceTest.kt` | - | 无需改动(工厂函数签名一致) |
 | `realtime/core/.../DelegationHandlerTest.kt` | Create | 独立单测 |
@@ -194,32 +193,14 @@ git commit -m "refactor(core): extract RealtimeDelegation + DelegationHandler to
 
 ---
 
-### Task 4: 改造 RealtimeAppliance 为接口 + 创建 DefaultRealtimeAppliance(internal) + 工厂函数
+### Task 4: 改造 RealtimeAppliance 为接口 + 同文件加 DefaultRealtimeAppliance(internal) + 工厂函数
 
 **Files:**
 - Modify: `realtime/core/src/main/kotlin/io/github/yeyi/agent/realtime/RealtimeAppliance.kt`
-- Create: `realtime/core/src/main/kotlin/io/github/yeyi/agent/realtime/DefaultRealtimeAppliance.kt`
 
-- [ ] **Step 1: 将 `RealtimeAppliance.kt` 缩成 interface**
+- [ ] **Step 1: 重写 `RealtimeAppliance.kt`(interface + internal class + 顶层工厂函数)**
 
-替换整个文件内容为:
-
-```kotlin
-package io.github.yeyi.agent.realtime
-
-import kotlinx.coroutines.flow.Flow
-
-public interface RealtimeAppliance {
-    public val delegation: RealtimeDelegation?
-    public val events: Flow<RealtimeEvent>
-    public suspend fun start()
-    public suspend fun close()
-}
-```
-
-- [ ] **Step 2: 创建 `DefaultRealtimeAppliance.kt`**
-
-`DefaultRealtimeAppliance` 为 `internal class`,防止外部直接构造。把原 `RealtimeAppliance` class 的全部逻辑搬到此文件:
+三段并置在同一文件中:
 
 ```kotlin
 package io.github.yeyi.agent.realtime
@@ -235,6 +216,13 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.launch
+
+public interface RealtimeAppliance {
+    public val delegation: RealtimeDelegation?
+    public val events: Flow<RealtimeEvent>
+    public suspend fun start()
+    public suspend fun close()
+}
 
 internal class DefaultRealtimeAppliance(
     private val session: RealtimeSession,
@@ -312,15 +300,12 @@ internal class DefaultRealtimeAppliance(
                 drainAudioChannel()
                 speaker.stopPlayback()
             }
-
             is RealtimeEvent.AssistantAudioStarted -> {
                 userQuerying = false
             }
-
             is RealtimeEvent.AssistantAudioDelta if !userQuerying -> {
                 audioChannel?.send(event.pcm)
             }
-
             else -> {}
         }
     }
@@ -347,17 +332,16 @@ public fun RealtimeAppliance(
 )
 ```
 
-- [ ] **Step 3: 验证编译**
+- [ ] **Step 2: 验证编译**
 
 Run: `cd realtime && ../gradlew :realtime:core:compileKotlin`
 Expected: BUILD SUCCESSFUL
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add realtime/core/src/main/kotlin/io/github/yeyi/agent/realtime/RealtimeAppliance.kt
-git add realtime/core/src/main/kotlin/io/github/yeyi/agent/realtime/DefaultRealtimeAppliance.kt
-git commit -m "refactor(core): RealtimeAppliance is now interface, DefaultRealtimeAppliance is Ktor impl"
+git commit -m "refactor(core): RealtimeAppliance is now interface, DefaultRealtimeAppliance in same file"
 ```
 
 ---### Task 5: 新增 `DelegationHandlerTest.kt`

@@ -62,10 +62,19 @@ public interface RealtimeAppliance {
 - **`delegation` 作为只读属性暴露** — 消费方无需保留构造参数即可查询 appliance 是否绑定了委托。
 - **`start()`/`close()` 仍 suspend** — 与现有签名保持一致;`start()` 仍需幂等。
 
-### 3.2 `DefaultRealtimeAppliance`(新文件,`internal class` + 顶层工厂函数)
+### 3.2 `DefaultRealtimeAppliance`(同文件,`internal class` + 顶层工厂函数)
+
+实现全部落在 `RealtimeAppliance.kt` 单文件里(interface + internal class + 顶层工厂函数三段并置):
 
 ```kotlin
-// realtime/core/src/main/kotlin/io/github/yeyi/agent/realtime/DefaultRealtimeAppliance.kt
+// realtime/core/src/main/kotlin/io/github/yeyi/agent/realtime/RealtimeAppliance.kt
+public interface RealtimeAppliance {
+    public val delegation: RealtimeDelegation?
+    public val events: Flow<RealtimeEvent>
+    public suspend fun start()
+    public suspend fun close()
+}
+
 internal class DefaultRealtimeAppliance(
     private val session: RealtimeSession,
     private val sessionConfig: SessionConfig,
@@ -79,7 +88,7 @@ internal class DefaultRealtimeAppliance(
     //   3) 暴露 override val delegation
 }
 
-// 同一文件末尾 — 顶层工厂函数(签名与原有构造器一致,调用方零改动)
+// 文件末尾 — 顶层工厂函数(签名与原有构造器一致,调用方零改动)
 public fun RealtimeAppliance(
     session: RealtimeSession,
     sessionConfig: SessionConfig,
@@ -94,6 +103,8 @@ public fun RealtimeAppliance(
     delegation = delegation,
 )
 ```
+
+> 备注:实现选择把 `DefaultRealtimeAppliance` 与顶层工厂函数放在 `RealtimeAppliance.kt` 同一文件中,避免拆分成多文件后接口与其默认实现的查找跨文件跳转。
 
 ### 3.3 `RealtimeDelegation.kt`(新文件,统一管理委托)
 
@@ -398,10 +409,9 @@ V1 范围内不引入对真实 SDK 的 mock(SDK 庞大、Java-only 接口,集成
 
 | 文件 | 动作 |
 |---|---|
-| `RealtimeAppliance.kt` | 缩成只剩 `interface RealtimeAppliance` |
+| `RealtimeAppliance.kt` | 改造为 `interface RealtimeAppliance` + `internal class DefaultRealtimeAppliance` + 顶层工厂函数 `RealtimeAppliance(...)`,三段并置在同一文件 |
 | `RealtimeDelegation.kt`(新建) | `RealtimeDelegation` + `DelegationReply` + `DelegationHandler` |
-| `DefaultRealtimeAppliance.kt`(新建) | 现有类实现搬到新文件,`class` 改 `: RealtimeAppliance` |
-| `RealtimeApplianceTest.kt` → `DefaultRealtimeApplianceTest.kt` | 类名 + 构造调用更新 |
+| `RealtimeApplianceTest.kt` | 无需改动(工厂函数签名与原构造器一致,调用方零改动) |
 
 ### 6.2 `:realtime:providers:volc` 模块
 
