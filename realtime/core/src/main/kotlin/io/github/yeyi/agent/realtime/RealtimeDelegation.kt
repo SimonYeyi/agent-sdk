@@ -5,9 +5,19 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 
 public interface RealtimeDelegation {
+    public val classifier: IntentionClassifier? get() = null
     public val capabilities: List<String>
     public val replies: Flow<DelegationReply>
     public suspend fun run(task: String)
+}
+
+public interface IntentionClassifier {
+    public suspend fun classify(asr: String): Intention
+}
+
+public sealed interface Intention {
+    public data class Delegated(val ack: String, val task: String) : Intention
+    public data class Casual(val ack: String?) : Intention
 }
 
 public sealed interface DelegationReply {
