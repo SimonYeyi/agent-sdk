@@ -179,7 +179,7 @@ private val delegationHandler: DelegationHandler? = delegation?.let { delegation
             speaker.stopPlayback()
             drainAudioChannel()
             // 注：服务端 tts 记录修改（问题 3）后续讨论后再加入。暂时使用追加的方式填充历史
-            session.injectAndRespond(text)
+            session.injectAndRespond(ack)
         },
     )
 }
@@ -226,7 +226,7 @@ private val delegationHandler: DelegationHandler? = delegation?.let {
                 "",
             )
             // 注：服务端 tts 记录修改（问题 3）后续讨论后再加入。暂时使用追加的方式填充历史
-            val frames = protocolAdapter.commitSpeechTextFrame(text)
+            val frames = protocolAdapter.commitSpeechTextFrame(ack)
             frames.forEach { frame ->
                 engine?.sendDirective(
                     SpeechEngineDefines.DIRECTIVE_SEND_UPLINK_EVENT,
