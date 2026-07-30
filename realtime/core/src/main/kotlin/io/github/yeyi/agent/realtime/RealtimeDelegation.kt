@@ -20,6 +20,13 @@ public sealed interface Intention {
     public data class Casual(val ack: String?) : Intention
 }
 
+public val Intention?.ack: String?
+    get() = when (this) {
+        is Intention.Delegated -> ack
+        is Intention.Casual -> ack
+        null -> null
+    }
+
 public sealed interface DelegationReply {
     public data class Confirmation(val text: String) : DelegationReply
     public data class Success(val text: String) : DelegationReply
@@ -66,8 +73,8 @@ public class DelegationHandler(
         return event
     }
 
-    private fun runDelegation(asrText: String) {
-        scopeProvider()?.launch { delegation.run(asrText) }
+    private fun runDelegation(task: String) {
+        scopeProvider()?.launch { delegation.run(task) }
     }
 
     private companion object {

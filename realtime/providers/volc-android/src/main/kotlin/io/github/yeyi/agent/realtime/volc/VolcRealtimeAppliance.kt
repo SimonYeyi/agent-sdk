@@ -86,8 +86,11 @@ public class VolcRealtimeAppliance(
 
             scope?.launch {
                 protocolAdapter.events.collect { event ->
-                    val handled = delegationHandler?.handle(event) ?: event
-                    eventEmitter.emit(handled)
+                    if (delegationHandler == null) {
+                        eventEmitter.emit(event)
+                    } else {
+                        delegationHandler.handle(event).let { eventEmitter.emit(it) }
+                    }
                 }
             }
             delegationHandler?.start()
@@ -122,9 +125,11 @@ public class VolcRealtimeAppliance(
                     }
                 }
             }
+
             SpeechEngineDefines.MESSAGE_TYPE_ENGINE_STOP -> {
                 scope.launch { eventEmitter.emit(RealtimeEvent.Disconnected("engine stopped")) }
             }
+
             SpeechEngineDefines.MESSAGE_TYPE_ENGINE_ERROR -> {
                 val msg = if (len > 0) String(data, 0, len, Charsets.UTF_8) else "engine error"
                 scope.launch {
@@ -133,6 +138,7 @@ public class VolcRealtimeAppliance(
                     )
                 }
             }
+
             SpeechEngineDefines.MESSAGE_TYPE_ENGINE_START -> {
                 // 引擎启动成功(start 已收到 engine 回调);无业务事件
             }

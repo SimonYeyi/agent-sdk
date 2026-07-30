@@ -53,9 +53,12 @@ internal class DefaultRealtimeAppliance(
             speaker.start(session.outputAudioFormat)
             scope?.launch {
                 session.events.collect { event ->
-                    handleEvent(event)
-                    val handled = delegationHandler?.handle(event)
-                    (events as MutableSharedFlow).emit(handled ?: event)
+                    val finalEvent = when {
+                        delegationHandler == null -> event
+                        else -> delegationHandler.handle(event) ?: return@collect
+                    }
+                    handleEvent(finalEvent)
+                    (events as MutableSharedFlow).emit(finalEvent)
                 }
             }
             scope?.launch {
