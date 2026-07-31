@@ -246,7 +246,7 @@ scope?.launch {
         if (delegationHandler == null) {
             eventEmitter.emit(event)
         } else {
-            delegationHandler.handle(event).let { eventEmitter.emit(it) }
+            delegationHandler.handle(event)?.let { eventEmitter.emit(it) }
         }
     }
 }
