@@ -37,10 +37,13 @@ public class DelegationHandler(
     private val delegation: RealtimeDelegation,
     private val scopeProvider: () -> CoroutineScope?,
     private val onReply: suspend (String) -> Unit,
+    private val onReplacementAck: suspend (String) -> Unit,
 ) {
     private var pendingAsr: String? = null
+    private var currentRoundIntent: Intention? = null
 
     public fun appendInstructions(base: String): String {
+        if (delegation.classifier != null) return base
         val capabilityList = delegation.capabilities.joinToString("\n") { "- $it" }
         return "$base\n\n${DELEGATION_PROTOCOL.replace(CAPABILITIES_PLACEHOLDER, capabilityList)}"
     }
@@ -58,20 +61,49 @@ public class DelegationHandler(
         }
     }
 
-    public fun handle(event: RealtimeEvent): RealtimeEvent {
+    public suspend fun handle(event: RealtimeEvent): RealtimeEvent? {
         when (event) {
-            is RealtimeEvent.UserTranscriptCompleted -> pendingAsr = event.text
-            is RealtimeEvent.AssistantTextDelta -> {
-                if (event.text.startsWith(DELEGATION_MARKER)) {
+            is RealtimeEvent.UserTranscriptStarted -> {
+                currentRoundIntent = null
+                return event
+            }
+            is RealtimeEvent.UserTranscriptCompleted -> {
+                pendingAsr = event.text
+                delegation.classifier?.let { classifier ->
+                    val intent = try {
+                        classifier.classify(event.text)
+                    } catch (_: Throwable) {
+                        Intention.Casual(null)
+                    }
+                    if (intent is Intention.Delegated) {
+                        runDelegation(intent.task)
+                    }
+                    intent.ack?.let { ack -> onReplacementAck(ack) }
+                    currentRoundIntent = intent
+                }
+                return event
+            }
+            is RealtimeEvent.AssistantTextDelta,
+            is RealtimeEvent.AssistantAudioStarted,
+            is RealtimeEvent.AssistantAudioDelta,
+            is RealtimeEvent.AssistantAudioDone,
+            is RealtimeEvent.ResponseDone,
+            is RealtimeEvent.ResponseCanceled -> {
+                if (shouldSuppressTts()) return null
+                if (delegation.classifier == null
+                    && event is RealtimeEvent.AssistantTextDelta
+                    && event.text.startsWith(DELEGATION_MARKER)
+                ) {
                     pendingAsr?.let { runDelegation(it) }
                     return event.copy(text = event.text.removePrefix(DELEGATION_MARKER))
                 }
+                return event
             }
-
-            else -> Unit
+            else -> return event
         }
-        return event
     }
+
+    private fun shouldSuppressTts(): Boolean = currentRoundIntent?.ack != null
 
     private fun runDelegation(task: String) {
         scopeProvider()?.launch { delegation.run(task) }

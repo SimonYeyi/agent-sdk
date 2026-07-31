@@ -35,6 +35,12 @@ internal class DefaultRealtimeAppliance(
             delegation = delegation,
             scopeProvider = { scope },
             onReply = { text -> session.injectAndRespond(text) },
+            onReplacementAck = { ack ->
+                session.cancelResponse()
+                speaker.stopPlayback()
+                drainAudioChannel()
+                session.injectAndRespond(ack)
+            },
         )
     }
 
