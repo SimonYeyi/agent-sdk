@@ -10,16 +10,23 @@
 
 ---
 
+## 假设 / 约束
+
+- **服务端严格 ASR-first 模式**：假设 s2s 服务端在生成首个 assistant 事件（`AssistantTextDelta` / `AssistantAudioStarted`）之前，必先发出对应轮的 `UserTranscriptCompleted`。  
+  后果：若服务端在 `UserTranscriptStarted` 与 `UserTranscriptCompleted` 之间提前发出 assistant 事件（即"真空期"），`currentRoundIntent` 仍为 `null`，`shouldSuppressTts()` 返回 `false`，事件不会被抑制。  
+  此限制不在 client spec 修复（详见 spec 讨论记录）；服务端升级到 speculative TTS 模式时需重新评估。
+
+---
+
 ## 文件结构
 
 | 文件 | 动作 | 职责 |
 |---|---|---|
-| `realtime/core/.../RealtimeDelegation.kt` | Modify | 新增 `IntentionClassifier` 接口，修改 `Intention` 类型，新增 `ack` 扩展属性 |
-| `realtime/core/.../DelegationHandler.kt` | Modify | 改构造参数（新增 `onReplacementAck`），改 `appendInstructions`，重写 `handle`（suspend + nullable），移除 `dispatch` |
-| `realtime/core/.../RealtimeAppliance.kt` | Modify | 适配 `DelegationHandler` 新签名，collect 循环调整 |
-| `realtime/providers/volc/.../VolcRealtimeAppliance.kt` | Modify | 适配 `DelegationHandler` 新签名 |
-| `realtime/core/.../DelegationHandlerTest.kt` | Modify | 新增 8 个测试用例 |
-| `realtime/core/.../RealtimeApplianceTest.kt` | - | 按需更新 |
+| `realtime/core/.../RealtimeDelegation.kt` | Modify | Task 1: 新增 `IntentionClassifier` 接口，修改 `Intention` 类型，新增 `ack` 扩展属性。Task 2: 改 `DelegationHandler` 构造参数（新增 `onReplacementAck`），改 `appendInstructions`，重写 `handle`（suspend + nullable），移除 `dispatch` |
+| `realtime/core/.../RealtimeAppliance.kt` | Modify | 适配 `DelegationHandler` 新签名（前置 Task 2），collect 循环调整 |
+| `realtime/providers/volc/.../VolcRealtimeAppliance.kt` | Modify | 适配 `DelegationHandler` 新签名（前置 Task 2），collect 循环调整 |
+| `realtime/core/.../DelegationHandlerTest.kt` | Modify | 新增测试用例（含 import 更新） |
+| `realtime/core/.../RealtimeApplianceTest.kt` | - | `FakeDelegation` 不变；`classifier` 字段有默认值 `null` |
 
 ---
 
@@ -175,6 +182,8 @@ Expected: BUILD SUCCESSFUL
 
 ### Task 3: 适配 `RealtimeAppliance`
 
+**前置：Task 2 完成**（`DelegationHandler` 必须先有 `onReplacementAck` 构造参数，本 Task 才能编译通过）。
+
 **Files:**
 - Modify: `realtime/core/src/main/kotlin/io/github/yeyi/agent/realtime/RealtimeAppliance.kt`
 
@@ -222,6 +231,8 @@ Expected: BUILD SUCCESSFUL
 ---
 
 ### Task 4: 适配 `VolcRealtimeAppliance`
+
+**前置：Task 2 完成**（同 Task 3）。
 
 **Files:**
 - Modify: `realtime/providers/volc/.../VolcRealtimeAppliance.kt`
@@ -289,7 +300,7 @@ Expected: BUILD SUCCESSFUL
 **Files:**
 - Modify: `realtime/core/src/test/kotlin/io/github/yeyi/agent/realtime/DelegationHandlerTest.kt`
 
-- [ ] **Step 1: 新增 FakeDelegation 支持 classifier**
+- [ ] **Step 1: 扩展 FakeDelegation 支持 classifier + 更新 imports**
 
 扩展 `FakeDelegation` 以支持 `classifier` 字段：
 
@@ -303,6 +314,14 @@ private class FakeDelegation(
     val dispatched = Channel<String>(Channel.UNLIMITED)
     // ... existing code ...
 }
+```
+
+补全 imports（当前文件仅 `assertEquals`，新用例需要 `assertFalse` / `assertNull` / `assertNotNull`）：
+
+```kotlin
+import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 ```
 
 - [ ] **Step 2: 新增 T1 — classifier != null + Delegated**
@@ -420,11 +439,13 @@ fun `classifier exception is caught and treated as Casual null`() = runTest {
 }
 ```
 
-- [ ] **Step 6: 新增 T5 — classifier != null 抑制 assistant 事件**
+- [ ] **Step 6: 新增 T5 — classifier != null 抑制全部 assistant 事件**
+
+覆盖 spec 验收 #5 全部 6 个事件类型（`AssistantTextDelta` / `AssistantAudioStarted` / `AssistantAudioDelta` / `AssistantAudioDone` / `ResponseDone` / `ResponseCanceled`）。这些分支在 `handle` 的 `when` 中共享同一 `shouldSuppressTts()` 判定，单测覆盖所有类型避免 6 分支因类型擦除漏检。
 
 ```kotlin
 @Test
-fun `classifier with ack suppresses assistant events`() = runTest {
+fun `classifier with ack suppresses all assistant event types`() = runTest {
     val delegation = FakeDelegation(
         capabilities = emptyList(),
         classifier = object : IntentionClassifier {
@@ -441,11 +462,12 @@ fun `classifier with ack suppresses assistant events`() = runTest {
 
     handler.handle(RealtimeEvent.UserTranscriptCompleted("开空调"))
 
-    val suppressed1 = handler.handle(RealtimeEvent.AssistantTextDelta("hi"))
-    val suppressed2 = handler.handle(RealtimeEvent.AssistantAudioStarted)
-
-    assertNull(suppressed1)
-    assertNull(suppressed2)
+    assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("hi")))
+    assertNull(handler.handle(RealtimeEvent.AssistantAudioStarted))
+    assertNull(handler.handle(RealtimeEvent.AssistantAudioDelta(byteArrayOf(1))))
+    assertNull(handler.handle(RealtimeEvent.AssistantAudioDone))
+    assertNull(handler.handle(RealtimeEvent.ResponseDone))
+    assertNull(handler.handle(RealtimeEvent.ResponseCanceled))
     scope.cancel()
 }
 ```
@@ -529,7 +551,36 @@ fun `classifier not null appendInstructions returns base unchanged`() = runTest 
 }
 ```
 
-- [ ] **Step 10: 运行测试**
+- [ ] **Step 10: 新增 T9 — Casual(ack) 也应抑制 assistant 事件**
+
+`shouldSuppressTts()` 判定条件是 `currentRoundIntent?.ack != null`，因此 `Casual(ack = "好的")` 与 `Delegated(ack, task)` 同样抑制。T2 仅验证 `onReplacementAck` 被调用，本用例补全抑制路径。
+
+```kotlin
+@Test
+fun `Casual with ack also suppresses assistant events`() = runTest {
+    val delegation = FakeDelegation(
+        capabilities = emptyList(),
+        classifier = object : IntentionClassifier {
+            override suspend fun classify(asr: String) = Intention.Casual("好的")
+        },
+    )
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    val handler = DelegationHandler(
+        delegation = delegation,
+        scopeProvider = { scope },
+        onReply = {},
+        onReplacementAck = {},
+    )
+
+    handler.handle(RealtimeEvent.UserTranscriptCompleted("你好"))
+
+    assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("hi")))
+    assertNull(handler.handle(RealtimeEvent.AssistantAudioStarted))
+    scope.cancel()
+}
+```
+
+- [ ] **Step 11: 运行测试**
 
 Run: `cd realtime && ../gradlew :realtime:core:test`
 Expected: All tests PASS
@@ -541,7 +592,11 @@ Expected: All tests PASS
 **Files:**
 - Run: `realtime/core/src/test/kotlin/io/github/yeyi/agent/realtime/RealtimeApplianceTest.kt`
 
+`RealtimeApplianceTest` 的 `FakeDelegation`（line 105）**不需要修改**：`RealtimeDelegation.classifier` 有默认值 `null`，现有 FakeDelegation 不显式实现 `classifier` 即可走 marker 路径。
+
 - [ ] **Step 1: 运行 RealtimeApplianceTest**
+
+重点观察「delegate path runs delegation」用例（line 232）—— 该用例依赖 v1 marker 行为（`UserTranscriptCompleted` + `AssistantTextDelta("|好的")` → delegation 收到 asr），Task 2 重写 `handle` 后该用例必须通过才算回归通过。
 
 Run: `cd realtime && ../gradlew :realtime:core:test --tests io.github.yeyi.agent.realtime.RealtimeApplianceTest`
 Expected: All existing tests PASS
@@ -587,8 +642,10 @@ Expected: BUILD SUCCESSFUL
 - [ ] `classifier != null` 时 `AssistantTextDelta` 不再剥 `|` marker
 - [ ] `Delegated(ack, task)` 触发 `onReplacementAck(ack)` 与 `delegation.run(task)`
 - [ ] `Casual(ack)` 当 `ack != null` 时触发 `onReplacementAck(ack)`，否则 no-op
+- [ ] `Delegated(ack, task)` 与 `Casual(ack != null)` 均抑制后续 assistant 事件（6 个事件类型全覆盖）
+- [ ] `UserTranscriptStarted` 重置 `currentRoundIntent = null`，新一轮恢复放行
 - [ ] `UserTranscriptCompleted` 之后到达的 assistant 事件被 handle 返回 null，不 emit
-- [ ] `classifier == null` 时所有现有测试不回归
+- [ ] `classifier == null` 时所有现有测试不回归（含 `RealtimeApplianceTest`「delegate path runs delegation」）
 - [ ] `classifier.classify` 异常被捕获，不传播到调用方
 
 ---
@@ -599,5 +656,5 @@ Expected: BUILD SUCCESSFUL
 2. 不改 `RealtimeSession` / `SessionConfig`
 3. 不动 `DelegationReply` 类型
 4. 不动 `runDelegation` / `start` / `DELEGATION_MARKER` / `DELEGATION_PROTOCOL` 常量
-5. 不修改服务端 tts 记录（问题 3，后续讨论）
+5. 不实现服务端历史片段的删除/替换（问题 3，后续讨论）；`onReplacementAck` 内仅追加 ack（`injectAndRespond(ack)` / `commitSpeechTextFrame(ack)`）即可
 6. 不验证 SpeakerAdapter 内部缓冲是否在 stopPlayback 时清空

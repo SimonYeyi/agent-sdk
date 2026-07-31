@@ -263,14 +263,20 @@ scope?.launch {
 4. **classifier != null + 异常**：mock classifier 抛 `RuntimeException`，asr 后
    不应抛到调用方；断言 `delegation.run` 未被调用、`onReplacementAck` 未被调用
    （等价于 `Casual(null)` 路径）。
-5. **classifier != null + 抑制 assistant 事件**：asr 完成后发送
-   `AssistantTextDelta("hi")` 和 `AssistantAudioStarted`，
-   断言 handle 返回 null。
-6. **classifier != null + UserTranscriptStarted 重置**：完成一轮 Delegated 后
+5. **classifier != null + 抑制全部 assistant 事件**：asr 完成后依次发送 6 个
+   事件（`AssistantTextDelta` / `AssistantAudioStarted` / `AssistantAudioDelta` /
+   `AssistantAudioDone` / `ResponseDone` / `ResponseCanceled`），均断言 handle
+   返回 null。6 个分支在 `handle` 的 `when` 中共享同一 `shouldSuppressTts()` 判定，
+   单测覆盖全部类型避免 6 分支因类型擦除漏检。
+6. **classifier != null + Casual(ack) 也抑制 assistant 事件**：`shouldSuppressTts()`
+   判定条件是 `currentRoundIntent?.ack != null`，因此 `Casual(ack = "好的")` 与
+   `Delegated(ack, task)` 同样抑制。本用例区分于 #2：#2 仅验证 `onReplacementAck`
+   被调用，本用例验证后续 assistant 事件被抑制。
+7. **classifier != null + UserTranscriptStarted 重置**：完成一轮 Delegated 后
    发送新的 `UserTranscriptStarted`，再发送 `AssistantTextDelta`，断言 handle
    返回该 event（非 null）。
-7. **classifier == null + marker 路径不变**：原有 marker 测试不回归。
-8. **classifier != null + appendInstructions**：返回 base，**不**包含"委派协议"。
+8. **classifier == null + marker 路径不变**：原有 marker 测试不回归。
+9. **classifier != null + appendInstructions**：返回 base，**不**包含"委派协议"。
 
 ### 范围边界（明确不做）
 
@@ -293,6 +299,14 @@ scope?.launch {
 - `onReplacementAck` 仍触发（cancel 已发出的响应），但服务端历史里已有 assistant 回复片段
 - 问题 3（删除/替换服务端历史片段）未实现，无法擦除该片段
 - 用户可能听到/看到部分 s2s 原 tts
+
+**服务端 ASR-first 假设**：依赖服务端在生成首个 assistant 事件之前必先发出对应轮的
+`UserTranscriptCompleted`。`UserTranscriptStarted` 与 `UserTranscriptCompleted` 之间
+存在「真空期」：此期间 `currentRoundIntent = null`，`shouldSuppressTts()` 返回 `false`，
+服务端若提前发出 `AssistantTextDelta` / `AssistantAudioStarted` 等不会被抑制。
+此限制**不在 client spec 修复**；服务端升级到 speculative TTS 模式时需重新评估
+（可选方案：保留上一轮 intent 直至新 ASR 完成，但需权衡 prev `Casual(null)` 漏抑制
+及恢复语义）。
 
 ## 验收
 
