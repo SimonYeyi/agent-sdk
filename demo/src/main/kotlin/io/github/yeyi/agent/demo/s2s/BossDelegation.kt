@@ -5,6 +5,7 @@ import io.github.yeyi.agent.realtime.DelegationReply
 import io.github.yeyi.agent.realtime.DelegationReply.Confirmation
 import io.github.yeyi.agent.realtime.DelegationReply.Failure
 import io.github.yeyi.agent.realtime.DelegationReply.Success
+import io.github.yeyi.agent.realtime.IntentionClassifier
 import io.github.yeyi.agent.realtime.RealtimeDelegation
 import io.github.yeyi.agent.team.BossAgent
 import kotlinx.coroutines.flow.Flow
@@ -12,7 +13,13 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.merge
 
-class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
+class BossDelegation(
+    private val boss: BossAgent,
+    private val classifierImpl: IntentionClassifier = SequentialIntentionClassifier(),
+) : RealtimeDelegation {
+    override val classifier: IntentionClassifier?
+        get() = classifierImpl
+
     override val capabilities: List<String> by lazy {
         listOf("空调/座椅控制", "车窗/氛围灯控制", "导航/驾驶辅助")
     }
