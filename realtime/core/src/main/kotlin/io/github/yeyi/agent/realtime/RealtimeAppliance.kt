@@ -7,7 +7,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.filter
@@ -25,12 +24,11 @@ internal class DefaultRealtimeAppliance(
     private val session: RealtimeSession,
     private val sessionConfig: SessionConfig,
     private val microphone: MicrophoneAdapter,
-    private val speaker: SpeakerAdapter,
+    speaker: SpeakerAdapter,
     override val delegation: RealtimeDelegation? = null,
 ) : RealtimeAppliance {
     private var scope: CoroutineScope? = null
-    private var userQuerying: Boolean = false
-    private var audioChannel: Channel<ByteArray>? = null
+    private val speaker: RealtimeSpeaker = RealtimeSpeaker(speaker, { scope })
 
     private val delegationHandler: DelegationHandler? = delegation?.let { delegation ->
         DelegationHandler(
@@ -52,7 +50,6 @@ internal class DefaultRealtimeAppliance(
     override suspend fun start() {
         if (scope != null) return
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        userQuerying = false
         try {
             val instructions = delegationHandler
                 ?.appendInstructions(sessionConfig.instructions)
@@ -66,20 +63,12 @@ internal class DefaultRealtimeAppliance(
                         delegationHandler == null -> event
                         else -> delegationHandler.handle(event) ?: return@collect
                     }
-                    handleEvent(finalEvent)
+                    speaker.observed(finalEvent)
                     (events as MutableSharedFlow).emit(finalEvent)
                 }
             }
             scope?.launch {
                 microphone.capture().collect { pcm -> session.sendAudio(pcm) }
-            }
-
-            audioChannel = Channel<ByteArray>(capacity = Channel.UNLIMITED).also { channel ->
-                scope?.launch {
-                    for (pcm in channel) {
-                        speaker.play(pcm)
-                    }
-                }
             }
 
             delegationHandler?.start()
@@ -90,37 +79,11 @@ internal class DefaultRealtimeAppliance(
     }
 
     override suspend fun close() {
-        userQuerying = false
-        audioChannel?.close()
-        audioChannel = null
-        scope?.coroutineContext[Job]?.cancelAndJoin()
-        scope = null
         microphone.close()
         speaker.close()
         session.close()
-    }
-
-    private suspend fun handleEvent(event: RealtimeEvent) {
-        when (event) {
-            is RealtimeEvent.UserTranscriptStarted -> {
-                userQuerying = true
-                drainAudioChannel()
-                speaker.stopPlayback()
-            }
-            is RealtimeEvent.AssistantAudioStarted -> {
-                userQuerying = false
-            }
-            is RealtimeEvent.AssistantAudioDelta if !userQuerying -> {
-                audioChannel?.send(event.pcm)
-            }
-            else -> {}
-        }
-    }
-
-    private fun drainAudioChannel() {
-        while (audioChannel?.tryReceive()?.isSuccess == true) {
-            // drop pending audio to discard the tail of the previous round's TTS
-        }
+        scope?.coroutineContext[Job]?.cancelAndJoin()
+        scope = null
     }
 }
 

@@ -9,6 +9,7 @@ import io.github.yeyi.agent.realtime.ProtocolFrame
 import io.github.yeyi.agent.realtime.RealtimeAppliance
 import io.github.yeyi.agent.realtime.RealtimeDelegation
 import io.github.yeyi.agent.realtime.RealtimeEvent
+import io.github.yeyi.agent.realtime.RealtimeSpeaker
 import io.github.yeyi.agent.realtime.SessionConfig
 import io.github.yeyi.agent.realtime.audio.AudioFormat
 import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
@@ -17,7 +18,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
-import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -27,23 +27,20 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.io.File
-import java.util.concurrent.atomic.AtomicBoolean
 
 public class VolcRealtimeAppliance(
     context: Context,
     private val sessionConfig: SessionConfig,
-    private val speaker: SpeakerAdapter,
+    speaker: SpeakerAdapter,
     override val delegation: RealtimeDelegation? = null,
 ) : RealtimeAppliance {
     private val applicationContext: Context = context.applicationContext
     private val protocolAdapter = VolcRealtimeAdapter(AudioFormat.Encoding.PCM_OPUS)
     private var engine: SpeechEngine? = null
     private var scope: CoroutineScope? = null
+    private val speaker: RealtimeSpeaker = RealtimeSpeaker(speaker, { scope })
     private val eventEmitter = MutableSharedFlow<RealtimeEvent>(extraBufferCapacity = 64)
     private val json = Json { ignoreUnknownKeys = true }
-
-    private val userQuerying = AtomicBoolean(false)
-    private var audioChannel: Channel<ByteArray>? = null
 
     private val delegationHandler: DelegationHandler? = delegation?.let {
         DelegationHandler(
@@ -112,21 +109,13 @@ public class VolcRealtimeAppliance(
                 "sendDirective(START_ENGINE) failed: $startRet"
             }
 
-            audioChannel = Channel<ByteArray>(capacity = Channel.UNLIMITED).also { channel ->
-                scope?.launch {
-                    for (pcm in channel) {
-                        speaker.play(pcm)
-                    }
-                }
-            }
-
             scope?.launch {
                 protocolAdapter.events.collect { event ->
                     val finalEvent = when {
                         delegationHandler == null -> event
                         else -> delegationHandler.handle(event) ?: return@collect
                     }
-                    handleEvent(finalEvent)
+                    speaker.observed(finalEvent)
                     eventEmitter.emit(finalEvent)
                 }
             }
@@ -138,34 +127,11 @@ public class VolcRealtimeAppliance(
     }
 
     override suspend fun close() {
-        userQuerying.set(false)
+        speaker.close()
         engine?.destroyEngine()
         engine = null
-        audioChannel?.close()
-        audioChannel = null
         scope?.coroutineContext[Job]?.cancelAndJoin()
         scope = null
-        speaker.close()
-    }
-
-    private suspend fun handleEvent(event: RealtimeEvent) {
-        when (event) {
-            is RealtimeEvent.UserTranscriptStarted -> {
-                userQuerying.set(true)
-                drainAudioChannel()
-                speaker.stopPlayback()
-            }
-            is RealtimeEvent.AssistantAudioStarted -> {
-                userQuerying.set(false)
-            }
-            else -> {}
-        }
-    }
-
-    private fun drainAudioChannel() {
-        while (audioChannel?.tryReceive()?.isSuccess == true) {
-            // 丢弃上一轮 TTS 残留 PCM
-        }
     }
 
     private fun handleSdkMessage(type: Int, data: ByteArray, len: Int) {
@@ -188,9 +154,8 @@ public class VolcRealtimeAppliance(
             }
 
             SpeechEngineDefines.MESSAGE_TYPE_DECODER_AUDIO_DATA -> {
-                if (userQuerying.get()) return
                 val pcm = ByteArray(len).also { System.arraycopy(data, 0, it, 0, len) }
-                scope.launch { audioChannel?.send(pcm) }
+                scope.launch { speaker.play(pcm) }
             }
 
             SpeechEngineDefines.MESSAGE_TYPE_ENGINE_STOP -> {
@@ -239,7 +204,10 @@ public class VolcRealtimeAppliance(
 
         // 关闭 SDK 内部播放器,音频由 DECODER_AUDIO_DATA 回调接管自管。
         engine.setOptionBoolean(SpeechEngineDefines.PARAMS_KEY_DIALOG_ENABLE_PLAYER_BOOL, false)
-        engine.setOptionBoolean(SpeechEngineDefines.PARAMS_KEY_DIALOG_ENABLE_DECODER_AUDIO_CALLBACK_BOOL, true)
+        engine.setOptionBoolean(
+            SpeechEngineDefines.PARAMS_KEY_DIALOG_ENABLE_DECODER_AUDIO_CALLBACK_BOOL,
+            true
+        )
 
         // AEC: 录音 + 播放双开时必启用;模型来自 assets/aec/aec.model,首次启动拷贝到 filesDir。
         val aecModelPath = prepareAecModel()
