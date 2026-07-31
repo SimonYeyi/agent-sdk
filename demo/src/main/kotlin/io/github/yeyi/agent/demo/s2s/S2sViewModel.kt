@@ -80,7 +80,7 @@ class S2sViewModel(
                 voice = "zh_female_vv_jupiter_bigtts",
                 tools = listOf(MusicControlTool()),
             ),
-            delegation = delegation,
+            speaker = AndroidSpeakerAdapter(),
         )
         _state.value = UiState(connected = true)
         _taskGroups.value = emptyList()
