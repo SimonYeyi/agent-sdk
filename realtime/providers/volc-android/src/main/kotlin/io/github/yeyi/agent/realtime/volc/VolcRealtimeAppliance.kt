@@ -48,6 +48,23 @@ public class VolcRealtimeAppliance(
                     )
                 }
             },
+            onReplacementAck = { ack ->
+                engine?.sendDirective(
+                    SpeechEngineDefines.DIRECTIVE_PAUSE_PLAYER,
+                    "",
+                )
+                engine?.sendDirective(
+                    SpeechEngineDefines.DIRECTIVE_CANCEL_CURRENT_DIALOG,
+                    "",
+                )
+                val frames = protocolAdapter.commitSpeechTextFrame(ack)
+                frames.forEach { frame ->
+                    engine?.sendDirective(
+                        SpeechEngineDefines.DIRECTIVE_SEND_UPLINK_EVENT,
+                        frame.payload.toString(),
+                    )
+                }
+            },
         )
     }
 
@@ -89,7 +106,7 @@ public class VolcRealtimeAppliance(
                     if (delegationHandler == null) {
                         eventEmitter.emit(event)
                     } else {
-                        delegationHandler.handle(event).let { eventEmitter.emit(it) }
+                        delegationHandler.handle(event)?.let { eventEmitter.emit(it) }
                     }
                 }
             }
