@@ -81,6 +81,7 @@ class S2sViewModel(
                 tools = listOf(MusicControlTool()),
             ),
             speaker = AndroidSpeakerAdapter(),
+            delegation = delegation
         )
         _state.value = UiState(connected = true)
         _taskGroups.value = emptyList()

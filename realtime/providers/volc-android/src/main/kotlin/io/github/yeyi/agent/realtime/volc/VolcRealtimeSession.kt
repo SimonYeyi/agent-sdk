@@ -5,16 +5,21 @@ import com.bytedance.speech.speechengine.SpeechEngine
 import com.bytedance.speech.speechengine.SpeechEngineDefines
 import com.bytedance.speech.speechengine.SpeechEngineGenerator
 import io.github.yeyi.agent.realtime.ProtocolFrame
+import io.github.yeyi.agent.realtime.RealtimeAppliance
+import io.github.yeyi.agent.realtime.RealtimeDelegation
 import io.github.yeyi.agent.realtime.RealtimeEvent
 import io.github.yeyi.agent.realtime.RealtimeSession
 import io.github.yeyi.agent.realtime.SessionConfig
 import io.github.yeyi.agent.realtime.audio.AudioFormat
+import io.github.yeyi.agent.realtime.audio.MicrophoneAdapter
+import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
@@ -22,10 +27,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import java.io.File
 
-internal class VolcRealtimeSession(
-    private val context: Context,
-    private val adapter: VolcRealtimeAdapter,
-) : RealtimeSession {
+private class VolcRealtimeSession(private val context: Context) : RealtimeSession {
+    private val adapter = VolcRealtimeAdapter(AudioFormat.Encoding.PCM_OPUS)
     private var engine: SpeechEngine? = null
     private var scope: CoroutineScope? = null
     private val json = Json { ignoreUnknownKeys = true }
@@ -34,7 +37,7 @@ internal class VolcRealtimeSession(
 
     override val inputAudioFormat: AudioFormat get() = adapter.inputAudioFormat
 
-    override val outputAudioFormat: AudioFormat get() = adapter.outputAudioFormat
+    override val outputAudioFormat: AudioFormat = OUTPUT_AUDIO_FORMAT
 
     override val events: Flow<RealtimeEvent>
         get() = merge(
@@ -200,5 +203,39 @@ internal class VolcRealtimeSession(
         override fun onSpeechLogid(logid: String) {
             // no-op
         }
+    }
+
+    private companion object {
+        private val OUTPUT_AUDIO_FORMAT = AudioFormat(
+            sampleRateHz = 24_000,
+            encoding = AudioFormat.Encoding.PCM_16BIT,
+        )
+    }
+}
+
+public fun VolcRealtimeAppliance(
+    context: Context,
+    sessionConfig: SessionConfig,
+    speaker: SpeakerAdapter,
+    delegation: RealtimeDelegation? = null,
+): RealtimeAppliance =
+    RealtimeAppliance(
+        VolcRealtimeSession(context.applicationContext),
+        sessionConfig,
+        MockMicrophone(),
+        speaker,
+        delegation
+    )
+
+private class MockMicrophone : MicrophoneAdapter {
+    override suspend fun start(format: AudioFormat) {
+
+    }
+
+    override fun capture(): Flow<ByteArray> {
+        return emptyFlow()
+    }
+
+    override suspend fun close() {
     }
 }

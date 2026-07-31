@@ -20,7 +20,7 @@ public interface RealtimeAppliance {
     public suspend fun close()
 }
 
-internal class DefaultRealtimeAppliance(
+private class DefaultRealtimeAppliance(
     private val session: RealtimeSession,
     private val sessionConfig: SessionConfig,
     private val microphone: MicrophoneAdapter,
@@ -55,8 +55,11 @@ internal class DefaultRealtimeAppliance(
                 ?.appendInstructions(sessionConfig.instructions)
                 ?: sessionConfig.instructions
             session.connect(sessionConfig.copy(instructions = instructions))
-            microphone.start(session.inputAudioFormat)
             speaker.start(session.outputAudioFormat)
+            microphone.start(session.inputAudioFormat)
+            scope?.launch {
+                microphone.capture().collect { pcm -> session.sendAudio(pcm) }
+            }
             scope?.launch {
                 session.events.collect { event ->
                     val finalEvent = when {
@@ -67,10 +70,6 @@ internal class DefaultRealtimeAppliance(
                     (events as MutableSharedFlow).emit(finalEvent)
                 }
             }
-            scope?.launch {
-                microphone.capture().collect { pcm -> session.sendAudio(pcm) }
-            }
-
             delegationHandler?.start()
         } catch (e: Throwable) {
             runCatching { close() }
