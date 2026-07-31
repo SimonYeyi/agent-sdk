@@ -88,8 +88,17 @@ public class DelegationHandler(
             is RealtimeEvent.AssistantAudioDelta,
             is RealtimeEvent.AssistantAudioDone,
             is RealtimeEvent.ResponseDone,
-            is RealtimeEvent.ResponseCanceled -> {
-                if (shouldSuppressTts()) return null
+            is RealtimeEvent.ResponseCanceled,
+            is RealtimeEvent.Error -> {
+                if (shouldSuppressTts()) {
+                    if (event is RealtimeEvent.ResponseCanceled
+                        || event is RealtimeEvent.ResponseDone
+                        || event is RealtimeEvent.Error
+                    ) {
+                        currentRoundIntent = null
+                    }
+                    return null
+                }
                 if (delegation.classifier == null
                     && event is RealtimeEvent.AssistantTextDelta
                     && event.text.startsWith(DELEGATION_MARKER)

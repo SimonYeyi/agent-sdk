@@ -204,7 +204,7 @@ class DelegationHandlerTest {
     }
 
     @Test
-    fun `classifier with ack suppresses all assistant event types`() = runTest {
+    fun `classifier with ack suppresses ordinary assistant event types`() = runTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
@@ -220,8 +220,44 @@ class DelegationHandlerTest {
         assertNull(handler.handle(RealtimeEvent.AssistantAudioStarted))
         assertNull(handler.handle(RealtimeEvent.AssistantAudioDelta(byteArrayOf(1))))
         assertNull(handler.handle(RealtimeEvent.AssistantAudioDone))
+        scope.cancel()
+    }
+
+    @Test
+    fun `ResponseDone terminates round and resets suppression`() = runTest {
+        val delegation = FakeDelegation(
+            capabilities = emptyList(),
+            classifier = object : IntentionClassifier {
+                override suspend fun classify(asr: String) = Intention.Delegated("好的", "task")
+            },
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val handler = newHandler(delegation, scope)
+
+        handler.handle(RealtimeEvent.UserTranscriptCompleted("开空调"))
+        assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("hi")))
+
         assertNull(handler.handle(RealtimeEvent.ResponseDone))
+        assertNotNull(handler.handle(RealtimeEvent.AssistantTextDelta("after done")))
+        scope.cancel()
+    }
+
+    @Test
+    fun `ResponseCanceled terminates round and resets suppression`() = runTest {
+        val delegation = FakeDelegation(
+            capabilities = emptyList(),
+            classifier = object : IntentionClassifier {
+                override suspend fun classify(asr: String) = Intention.Delegated("好的", "task")
+            },
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val handler = newHandler(delegation, scope)
+
+        handler.handle(RealtimeEvent.UserTranscriptCompleted("开空调"))
+        assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("hi")))
+
         assertNull(handler.handle(RealtimeEvent.ResponseCanceled))
+        assertNotNull(handler.handle(RealtimeEvent.AssistantTextDelta("after cancel")))
         scope.cancel()
     }
 

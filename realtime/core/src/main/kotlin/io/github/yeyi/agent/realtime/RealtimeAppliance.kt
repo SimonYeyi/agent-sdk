@@ -10,6 +10,8 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 public interface RealtimeAppliance {
@@ -37,8 +39,9 @@ internal class DefaultRealtimeAppliance(
             onReply = { text -> session.injectAndRespond(text) },
             onReplacementAck = { ack ->
                 session.cancelResponse()
-                speaker.stopPlayback()
-                drainAudioChannel()
+                session.events
+                    .filter { it is RealtimeEvent.ResponseDone || it is RealtimeEvent.ResponseCanceled || it is RealtimeEvent.Error }
+                    .first()
                 session.injectAndRespond(ack)
             },
         )

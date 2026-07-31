@@ -18,6 +18,8 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -50,13 +52,12 @@ public class VolcRealtimeAppliance(
             },
             onReplacementAck = { ack ->
                 engine?.sendDirective(
-                    SpeechEngineDefines.DIRECTIVE_PAUSE_PLAYER,
-                    "",
-                )
-                engine?.sendDirective(
                     SpeechEngineDefines.DIRECTIVE_CANCEL_CURRENT_DIALOG,
                     "",
                 )
+                protocolAdapter.events
+                    .filter { it is RealtimeEvent.ResponseDone || it is RealtimeEvent.ResponseCanceled || it is RealtimeEvent.Error }
+                    .first()
                 val frames = protocolAdapter.commitSpeechTextFrame(ack)
                 frames.forEach { frame ->
                     engine?.sendDirective(
