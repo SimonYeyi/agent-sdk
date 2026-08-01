@@ -33,20 +33,21 @@ public sealed interface DelegationReply {
     public data class Failure(val message: String) : DelegationReply
 }
 
-internal class DelegationHandler(
+internal class DelegationProcessor(
     private val delegation: RealtimeDelegation,
     private val scopeProvider: () -> CoroutineScope?,
     private val onReply: suspend (String) -> Unit,
     private val onReplacementAck: suspend (String) -> Unit,
 ) {
-    private var pendingAsr: String? = null
-    private var currentRoundIntent: Intention? = null
+    private val strategy = delegation.classifier
+        ?.let { OuterClassifyStrategy(it, onReplacementAck) }
+        ?: InnerClassifyStrategy(delegation.capabilities)
 
-    fun appendInstructions(base: String): String {
-        if (delegation.classifier != null) return base
-        val capabilityList = delegation.capabilities.joinToString("\n") { "- $it" }
-        return "$base\n\n${DELEGATION_PROTOCOL.replace(CAPABILITIES_PLACEHOLDER, capabilityList)}"
+    private val runDelegation: (String) -> Unit = { task ->
+        scopeProvider()?.launch { delegation.run(task) }
     }
+
+    fun appendInstructions(base: String): String = strategy.appendInstructions(base)
 
     fun start() {
         scopeProvider()?.launch {
@@ -61,73 +62,58 @@ internal class DelegationHandler(
         }
     }
 
-    suspend fun handle(event: RealtimeEvent): RealtimeEvent? {
-        when (event) {
-            is RealtimeEvent.UserTranscriptStarted -> {
-                currentRoundIntent = null
-                return event
-            }
+    suspend fun process(event: RealtimeEvent): RealtimeEvent? =
+        strategy.process(event, runDelegation)
 
-            is RealtimeEvent.UserTranscriptCompleted -> {
-                pendingAsr = event.text
-                delegation.classifier?.let { classifier ->
-                    val intent = try {
-                        classifier.classify(event.text)
-                    } catch (_: Throwable) {
-                        Intention.Casual(null)
-                    }
-                    if (intent is Intention.Delegated) {
-                        runDelegation(intent.task)
-                    }
-                    runCatching {
-                        intent.ack?.let { ack -> onReplacementAck(ack) }
-                    }
-                    currentRoundIntent = intent
-                }
-                return event
-            }
 
-            is RealtimeEvent.AssistantTextDelta,
-            is RealtimeEvent.AssistantAudioStarted,
-            is RealtimeEvent.AssistantAudioDelta,
-            is RealtimeEvent.AssistantAudioDone,
-            is RealtimeEvent.ResponseDone,
-            is RealtimeEvent.ResponseCanceled,
-            is RealtimeEvent.Error -> {
-                if (shouldSuppressTts()) {
-                    if (event is RealtimeEvent.ResponseCanceled
-                        || event is RealtimeEvent.ResponseDone
-                        || event is RealtimeEvent.Error
-                    ) {
-                        currentRoundIntent = null
-                    }
-                    return null
-                }
-                if (delegation.classifier == null
-                    && event is RealtimeEvent.AssistantTextDelta
-                    && event.text.startsWith(DELEGATION_MARKER)
-                ) {
-                    pendingAsr?.let { runDelegation(it) }
-                    return event.copy(text = event.text.removePrefix(DELEGATION_MARKER))
-                }
-                return event
-            }
+    private sealed interface Strategy {
+        fun appendInstructions(base: String): String
+        suspend fun process(
+            event: RealtimeEvent,
+            runDelegation: (task: String) -> Unit,
+        ): RealtimeEvent?
+    }
 
-            else -> return event
+    private class InnerClassifyStrategy(private val capabilities: List<String>) : Strategy {
+        private var pendingAsr: String? = null
+
+        override fun appendInstructions(base: String): String {
+            val capabilityList = capabilities.joinToString("\n") { "- $it" }
+            return "$base\n\n${
+                DELEGATION_PROTOCOL.replace(
+                    CAPABILITIES_PLACEHOLDER,
+                    capabilityList
+                )
+            }"
         }
-    }
 
-    private fun shouldSuppressTts(): Boolean = currentRoundIntent?.ack != null
+        override suspend fun process(
+            event: RealtimeEvent,
+            runDelegation: (task: String) -> Unit,
+        ): RealtimeEvent {
+            when (event) {
+                is RealtimeEvent.UserTranscriptCompleted -> {
+                    pendingAsr = event.text
+                    return event
+                }
 
-    private fun runDelegation(task: String) {
-        scopeProvider()?.launch { delegation.run(task) }
-    }
+                is RealtimeEvent.AssistantTextDelta -> {
+                    if (event.text.startsWith(DELEGATION_MARKER)) {
+                        pendingAsr?.let { asr -> runDelegation(asr) }
+                        return event.copy(text = event.text.removePrefix(DELEGATION_MARKER))
+                    }
+                    return event
+                }
 
-    private companion object {
-        private const val DELEGATION_MARKER = "|"
-        private const val AVAILABLE_CAPABILITIES_LABEL = "可用能力"
-        private const val CAPABILITIES_PLACEHOLDER = "CAPABILITIES_PLACEHOLDER"
-        private val DELEGATION_PROTOCOL = """
+                else -> return event
+            }
+        }
+
+        private companion object {
+            private const val DELEGATION_MARKER = "|"
+            private const val AVAILABLE_CAPABILITIES_LABEL = "可用能力"
+            private const val CAPABILITIES_PLACEHOLDER = "CAPABILITIES_PLACEHOLDER"
+            private val DELEGATION_PROTOCOL = """
             委派协议：
             1. 闲聊 (问候/聊天/知识问答/一般咨询)：直接自然口语回答。
             2. 命中已注册的 function_call 工具：直接发起函数调用，无需标记委派（跳过第3点）。
@@ -144,5 +130,64 @@ internal class DelegationHandler(
                ${AVAILABLE_CAPABILITIES_LABEL}：
                $CAPABILITIES_PLACEHOLDER
         """.trimIndent()
+        }
+    }
+
+    private class OuterClassifyStrategy(
+        private val classifier: IntentionClassifier,
+        private val onReplacementAck: suspend (String) -> Unit,
+    ) : Strategy {
+        private var currentRoundIntent: Intention? = null
+        private val shouldSuppressTts get() = currentRoundIntent?.ack != null
+
+        override fun appendInstructions(base: String): String = base
+
+        override suspend fun process(
+            event: RealtimeEvent,
+            runDelegation: (task: String) -> Unit,
+        ): RealtimeEvent? {
+            when (event) {
+                is RealtimeEvent.UserTranscriptStarted -> {
+                    currentRoundIntent = null
+                    return event
+                }
+
+                is RealtimeEvent.UserTranscriptCompleted -> {
+                    val intent = try {
+                        classifier.classify(event.text)
+                    } catch (_: Throwable) {
+                        Intention.Casual(null)
+                    }
+                    if (intent is Intention.Delegated) {
+                        runDelegation(intent.task)
+                    }
+                    runCatching { intent.ack?.let { ack -> onReplacementAck(ack) } }
+                    currentRoundIntent = intent
+                    return event
+                }
+
+                is RealtimeEvent.AssistantTextDelta,
+                is RealtimeEvent.AssistantAudioStarted,
+                is RealtimeEvent.AssistantAudioDelta,
+                is RealtimeEvent.AssistantAudioDone,
+                is RealtimeEvent.ResponseDone,
+                is RealtimeEvent.ResponseCanceled,
+                is RealtimeEvent.Error -> {
+                    if (shouldSuppressTts) {
+                        if (event is RealtimeEvent.ResponseCanceled
+                            || event is RealtimeEvent.ResponseDone
+                            || event is RealtimeEvent.Error
+                        ) {
+                            // 终态事件，解除压制
+                            currentRoundIntent = null
+                        }
+                        return null
+                    }
+                    return event
+                }
+
+                else -> return event
+            }
+        }
     }
 }

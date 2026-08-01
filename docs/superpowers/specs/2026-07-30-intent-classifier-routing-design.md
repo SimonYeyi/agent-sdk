@@ -4,8 +4,7 @@
 
 `RealtimeDelegation` 已暴露 `classifier: IntentionClassifier?` 字段（默认 `null`），
 并定义了 `Intention.Delegated(ack, task)` / `Intention.Casual(ack?)`。当前
-`DelegationHandler` 完全未消费 `classifier`，仅靠模型按 `DELEGATION_PROTOCOL` 输出
-`|` marker 来触发委派。
+`DelegationProcessor` 通过 `InnerClassifyStrategy` / `OuterClassifyStrategy` 实现两种路径。
 
 本次需求：让外部通过实现 `classifier` 字段接管委派决策，且让 handler 抑制
 s2s 模型的本地 TTS 输出（文本 + 语音），改用 ack 作为替代回复。
@@ -53,7 +52,7 @@ public val Intention?.ack: String?
 | `classifier != null` | 意图分类路径（取代 marker） |
 | `classifier == null` | 原 marker 路径（现状） |
 
-### `DelegationHandler` 变更
+### `DelegationProcessor` 变更
 
 #### 构造参数
 
@@ -65,7 +64,7 @@ public val Intention?.ack: String?
 - 清空本地音频队列（`drainAudioChannel()`，仅 RealtimeAppliance；Volc 由 SDK 处理）
 
 ```kotlin
-public class DelegationHandler(
+public class DelegationProcessor(
     private val delegation: RealtimeDelegation,
     private val scopeProvider: () -> CoroutineScope?,
     private val onReply: suspend (String) -> Unit,
@@ -93,7 +92,7 @@ public fun appendInstructions(base: String): String {
 #### `handle(event)` —— 改 suspend + nullable
 
 ```kotlin
-public suspend fun handle(event: RealtimeEvent): RealtimeEvent? {
+public suspend fun process(event: RealtimeEvent): RealtimeEvent? {
     when (event) {
         is RealtimeEvent.UserTranscriptStarted -> {
             currentRoundIntent = null
@@ -169,16 +168,16 @@ v1 的 `dispatch` 私有方法已并入 `handle(UserTranscriptCompleted)`，
 #### RealtimeAppliance
 
 ```kotlin
-private val delegationHandler: DelegationHandler? = delegation?.let { delegation ->
-    DelegationHandler(
+private val delegationProcessor: DelegationProcessor? = delegation?.let { delegation ->
+    DelegationProcessor(
         delegation = delegation,
         scopeProvider = { scope },
         onReply = { text -> session.injectAndRespond(text) },
         onReplacementAck = { ack ->
             session.cancelResponse()
-            speaker.stopPlayback()
-            drainAudioChannel()
-            // 注：服务端 tts 记录修改（问题 3）后续讨论后再加入。暂时使用追加的方式填充历史
+            session.events
+                .filter { it is RealtimeEvent.ResponseDone || it is RealtimeEvent.ResponseCanceled || it is RealtimeEvent.Error }
+                .first()
             session.injectAndRespond(ack)
         },
     )
@@ -192,7 +191,7 @@ scope?.launch {
     session.events.collect { event ->
         val finalEvent = when {
             delegationHandler == null -> event
-            else -> delegationHandler.handle(event) ?: return@collect
+            else -> delegationProcessor.process(event) ?: return@collect
         }
         handleEvent(finalEvent)
         (events as MutableSharedFlow).emit(finalEvent)
@@ -202,55 +201,8 @@ scope?.launch {
 
 #### VolcRealtimeAppliance
 
-```kotlin
-private val delegationHandler: DelegationHandler? = delegation?.let {
-    DelegationHandler(
-        delegation = it,
-        scopeProvider = { scope },
-        onReply = { text ->
-            val frames = protocolAdapter.commitSpeechTextFrame(text)
-            frames.forEach { frame ->
-                engine?.sendDirective(
-                    SpeechEngineDefines.DIRECTIVE_SEND_UPLINK_EVENT,
-                    frame.payload.toString(),
-                )
-            }
-        },
-        onReplacementAck = { ack ->
-            engine?.sendDirective(
-                SpeechEngineDefines.DIRECTIVE_PAUSE_PLAYER,
-                "",
-            )
-            engine?.sendDirective(
-                SpeechEngineDefines.DIRECTIVE_CANCEL_CURRENT_DIALOG,
-                "",
-            )
-            // 注：服务端 tts 记录修改（问题 3）后续讨论后再加入。暂时使用追加的方式填充历史
-            val frames = protocolAdapter.commitSpeechTextFrame(ack)
-            frames.forEach { frame ->
-                engine?.sendDirective(
-                    SpeechEngineDefines.DIRECTIVE_SEND_UPLINK_EVENT,
-                    frame.payload.toString(),
-                )
-            }
-        },
-    )
-}
-```
-
-collect 侧显式写出（**无 `handleEvent`**——Volc 音频由 SDK 自管，本地副作用仅依赖 `onReplacementAck` 的 `DIRECTIVE_PAUSE_PLAYER` + `DIRECTIVE_CANCEL_CURRENT_DIALOG`；suppression 模式与 RealtimeAppliance 一致）：
-
-```kotlin
-scope?.launch {
-    protocolAdapter.events.collect { event ->
-        if (delegationHandler == null) {
-            eventEmitter.emit(event)
-        } else {
-            delegationHandler.handle(event)?.let { eventEmitter.emit(it) }
-        }
-    }
-}
-```
+Volc 已重构为工厂函数，直接复用 `DefaultRealtimeAppliance`，委派逻辑与
+`DefaultRealtimeAppliance` 完全一致，无需单独实现。
 
 ### 测试补充
 

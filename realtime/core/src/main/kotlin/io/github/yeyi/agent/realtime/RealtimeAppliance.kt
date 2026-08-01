@@ -30,8 +30,8 @@ private class DefaultRealtimeAppliance(
     private var scope: CoroutineScope? = null
     private val speaker: RealtimeSpeaker = RealtimeSpeaker(speaker, { scope })
 
-    private val delegationHandler: DelegationHandler? = delegation?.let { delegation ->
-        DelegationHandler(
+    private val delegationProcessor: DelegationProcessor? = delegation?.let { delegation ->
+        DelegationProcessor(
             delegation = delegation,
             scopeProvider = { scope },
             onReply = { text -> session.injectAndRespond(text) },
@@ -51,7 +51,7 @@ private class DefaultRealtimeAppliance(
         if (scope != null) return
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
-            val instructions = delegationHandler
+            val instructions = delegationProcessor
                 ?.appendInstructions(sessionConfig.instructions)
                 ?: sessionConfig.instructions
             session.connect(sessionConfig.copy(instructions = instructions))
@@ -63,14 +63,14 @@ private class DefaultRealtimeAppliance(
             scope?.launch {
                 session.events.collect { event ->
                     val finalEvent = when {
-                        delegationHandler == null -> event
-                        else -> delegationHandler.handle(event) ?: return@collect
+                        delegationProcessor == null -> event
+                        else -> delegationProcessor.process(event) ?: return@collect
                     }
                     speaker.observed(finalEvent)
                     (events as MutableSharedFlow).emit(finalEvent)
                 }
             }
-            delegationHandler?.start()
+            delegationProcessor?.start()
         } catch (e: Throwable) {
             runCatching { close() }
             throw e

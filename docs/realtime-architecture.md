@@ -12,7 +12,7 @@ realtime/
 │   ├── SessionConfig.kt           # 会话配置 + Tool + TurnDetection
 │   ├── RealtimeAppliance.kt       # 高层编排器接口
 │   ├── DefaultRealtimeAppliance.kt # Ktor WebSocket 实现
-│   ├── RealtimeDelegation.kt      # 委托协议接口 + DelegationHandler
+│   ├── RealtimeDelegation.kt      # 委托协议接口 + DelegationProcessor
 │   └── audio/
 │       ├── AudioFormat.kt
 │       ├── MicrophoneAdapter.kt
@@ -277,16 +277,26 @@ public fun RealtimeAppliance(
 
 - **`start()` 幂等**：第二次调用直接返回。
 - **指令注入**：delegation 非 null 时，将委派协议 + capabilities 追加到 `instructions`。
-- **事件路由**：`handleEvent()` 将 `AssistantAudioDelta` 转发到 speaker；同时将事件传递给 `DelegationHandler`。
+- **事件路由**：`process()` 将 `AssistantAudioDelta` 转发到 speaker；同时将事件传递给 `DelegationProcessor`。
 - **`close()` 使用 `cancelAndJoin()`** 确保所有协程收尾。
 
 ### RealtimeDelegation 接口
 
 ```kotlin
 public interface RealtimeDelegation {
+    public val classifier: IntentionClassifier? get() = null
     public val capabilities: List<String>
     public val replies: Flow<DelegationReply>
-    public suspend fun run(asrText: String)
+    public suspend fun run(task: String)
+}
+
+public interface IntentionClassifier {
+    public suspend fun classify(asr: String): Intention
+}
+
+public sealed interface Intention {
+    public data class Delegated(val ack: String, val task: String) : Intention
+    public data class Casual(val ack: String?) : Intention
 }
 
 public sealed interface DelegationReply {
@@ -296,21 +306,26 @@ public sealed interface DelegationReply {
 }
 ```
 
-### DelegationHandler 内部类
+### DelegationProcessor 内部类
 
 ```kotlin
-public class DelegationHandler(
+internal class DelegationProcessor(
     private val delegation: RealtimeDelegation,
     private val scopeProvider: () -> CoroutineScope?,
     private val onReply: suspend (String) -> Unit,
+    private val onReplacementAck: suspend (String) -> Unit,
 )
 ```
 
+DelegationProcessor 根据 `delegation.classifier` 是否存在选择 Strategy：
+
+- **InnerClassifyStrategy**（无 classifier）：通过协议标记 `|` 检测委派，将 DELEGATION_PROTOCOL + capabilities 追加到 instructions。
+- **OuterClassifyStrategy**（有 classifier）：由外部 LLM 分类器判断意图，分类器返回 `Intention.Delegated` 时触发 delegation，返回的 `ack` 用于 suppress TTS 并替换回复。
+
 职责：
-1. **`appendInstructions()`** — 将 DELEGATION_PROTOCOL + capabilities 追加到基础 instructions。
+1. **`appendInstructions()`** — 委托给 Strategy。
 2. **`start()`** — 订阅 `delegation.replies`，每条 reply 调用 `session.injectAndRespond()`。
-3. **`handle(event)`** — 侦听 `UserTranscriptCompleted` 缓存 ASR 文本，检测到 `AssistantTextDelta` 以 `|` 开头时触发 `runDelegation()`（先 `cancelResponse()`，再 `delegation.run()`）。
-4. **协议清除**：`ResponseDone`/`ResponseCanceled`/`Error`/`AssistantAudioDone` 时清空 `pendingAsr`。
+3. **`process(event)`** — 委托给 Strategy 处理。InnerClassifyStrategy 侦听 `|` 标记；OuterClassifyStrategy 侦听分类结果并 suppress TTS。
 
 ---
 

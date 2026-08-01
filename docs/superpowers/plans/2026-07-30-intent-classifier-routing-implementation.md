@@ -4,7 +4,7 @@
 
 **Goal:** 让外部通过实现 `classifier` 字段接管委派决策，且让 handler 抑制 s2s 模型的本地 TTS 输出，改用 ack 作为替代回复。`classifier != null` 时**取代**原 marker 路径，`classifier == null` 时维持原 marker 路径。
 
-**Architecture:** `IntentionClassifier.classify(asr)` 在 `UserTranscriptCompleted` 时同步阻塞调用，根据返回的 `Intention` 类型决定是否触发 `onReplacementAck` 和 `delegation.run`。`DelegationHandler.handle` 改 suspend，返回 `RealtimeEvent?`，null 表示抑制该事件。`currentRoundIntent` 状态机驱动 TTS 抑制逻辑。
+**Architecture:** `IntentionClassifier.classify(asr)` 在 `UserTranscriptCompleted` 时同步阻塞调用，根据返回的 `Intention` 类型决定是否触发 `onReplacementAck` 和 `delegation.run`。`DelegationProcessor.handle` 改 suspend，返回 `RealtimeEvent?`，null 表示抑制该事件。`currentRoundIntent` 状态机驱动 TTS 抑制逻辑。
 
 **Tech Stack:** Kotlin Multiplatform/JVM, kotlinx.coroutines, Kotlin Test, `runTest`
 
@@ -22,10 +22,10 @@
 
 | 文件 | 动作 | 职责 |
 |---|---|---|
-| `realtime/core/.../RealtimeDelegation.kt` | Modify | Task 1: 新增 `IntentionClassifier` 接口，修改 `Intention` 类型，新增 `ack` 扩展属性。Task 2: 改 `DelegationHandler` 构造参数（新增 `onReplacementAck`），改 `appendInstructions`，重写 `handle`（suspend + nullable），移除 `dispatch` |
-| `realtime/core/.../RealtimeAppliance.kt` | Modify | 适配 `DelegationHandler` 新签名（前置 Task 2），collect 循环调整 |
-| `realtime/providers/volc/.../VolcRealtimeAppliance.kt` | Modify | 适配 `DelegationHandler` 新签名（前置 Task 2），collect 循环调整 |
-| `realtime/core/.../DelegationHandlerTest.kt` | Modify | 新增测试用例（含 import 更新） |
+| `realtime/core/.../RealtimeDelegation.kt` | Modify | Task 1: 新增 `IntentionClassifier` 接口，修改 `Intention` 类型，新增 `ack` 扩展属性。Task 2: 改 `DelegationProcessor` 构造参数（新增 `onReplacementAck`），改 `appendInstructions`，重写 `handle`（suspend + nullable），移除 `dispatch` |
+| `realtime/core/.../RealtimeAppliance.kt` | Modify | 适配 `DelegationProcessor` 新签名（前置 Task 2），collect 循环调整 |
+| `realtime/providers/volc/.../VolcRealtimeAppliance.kt` | Modify | 适配 `DelegationProcessor` 新签名（前置 Task 2），collect 循环调整 |
+| `realtime/core/.../DelegationProcessorTest.kt` | Modify | 新增测试用例（含 import 更新） |
 | `realtime/core/.../RealtimeApplianceTest.kt` | - | `FakeDelegation` 不变；`classifier` 字段有默认值 `null` |
 
 ---
@@ -71,7 +71,7 @@ Expected: BUILD SUCCESSFUL
 
 ---
 
-### Task 2: 重构 `DelegationHandler`
+### Task 2: 重构 `DelegationProcessor`
 
 **Files:**
 - Modify: `realtime/core/src/main/kotlin/io/github/yeyi/agent/realtime/RealtimeDelegation.kt`
@@ -86,7 +86,7 @@ Expected: BUILD SUCCESSFUL
 - [ ] **Step 1: 新增构造参数 `onReplacementAck`**
 
 ```kotlin
-public class DelegationHandler(
+public class DelegationProcessor(
     private val delegation: RealtimeDelegation,
     private val scopeProvider: () -> CoroutineScope?,
     private val onReply: suspend (String) -> Unit,
@@ -182,123 +182,37 @@ Expected: BUILD SUCCESSFUL
 
 ### Task 3: 适配 `RealtimeAppliance`
 
-**前置：Task 2 完成**（`DelegationHandler` 必须先有 `onReplacementAck` 构造参数，本 Task 才能编译通过）。
+**前置：Task 2 完成**（`DelegationProcessor` 必须先有 `onReplacementAck` 构造参数，本 Task 才能编译通过）。
 
 **Files:**
 - Modify: `realtime/core/src/main/kotlin/io/github/yeyi/agent/realtime/RealtimeAppliance.kt`
 
-- [ ] **Step 1: 更新 `DelegationHandler` 构造调用**
+- [ ] **Step 1: 更新 `DelegationProcessor` 构造调用**
 
 ```kotlin
-private val delegationHandler: DelegationHandler? = delegation?.let { delegation ->
-    DelegationHandler(
+private val delegationProcessor: DelegationProcessor? = delegation?.let { delegation ->
+    DelegationProcessor(
         delegation = delegation,
         scopeProvider = { scope },
         onReply = { text -> session.injectAndRespond(text) },
         onReplacementAck = { ack ->
             session.cancelResponse()
-            speaker.stopPlayback()
-            drainAudioChannel()
-            // 注：服务端 tts 记录修改（问题 3）后续讨论后再加入。暂时使用追加的方式填充历史
+            session.events
+                .filter { it is RealtimeEvent.ResponseDone || it is RealtimeEvent.ResponseCanceled || it is RealtimeEvent.Error }
+                .first()
             session.injectAndRespond(ack)
         },
     )
 }
 ```
-
 **注**：`onReplacementAck` 内暂不调 `conversation.item.delete/update/truncate` 或 `speech_text_buffer.replacement`，问题 3 后续讨论。
-
-- [ ] **Step 2: 调整 collect 循环**
-
-```kotlin
-scope?.launch {
-    session.events.collect { event ->
-        val finalEvent = when {
-            delegationHandler == null -> event
-            else -> delegationHandler.handle(event) ?: return@collect
-        }
-        handleEvent(finalEvent)
-        (events as MutableSharedFlow).emit(finalEvent)
-    }
-}
-```
-
-- [ ] **Step 3: 验证编译**
-
-Run: `cd realtime && ../gradlew :realtime:core:compileKotlin`
-Expected: BUILD SUCCESSFUL
-
----
-
-### Task 4: 适配 `VolcRealtimeAppliance`
-
-**前置：Task 2 完成**（同 Task 3）。
-
-**Files:**
-- Modify: `realtime/providers/volc/.../VolcRealtimeAppliance.kt`
-
-- [ ] **Step 1: 更新 `DelegationHandler` 构造调用**
-
-```kotlin
-private val delegationHandler: DelegationHandler? = delegation?.let {
-    DelegationHandler(
-        delegation = it,
-        scopeProvider = { scope },
-        onReply = { text ->
-            val frames = protocolAdapter.commitSpeechTextFrame(text)
-            frames.forEach { frame ->
-                engine?.sendDirective(
-                    SpeechEngineDefines.DIRECTIVE_SEND_UPLINK_EVENT,
-                    frame.payload.toString(),
-                )
-            }
-        },
-        onReplacementAck = { ack ->
-            engine?.sendDirective(
-                SpeechEngineDefines.DIRECTIVE_PAUSE_PLAYER,
-                "",
-            )
-            engine?.sendDirective(
-                SpeechEngineDefines.DIRECTIVE_CANCEL_CURRENT_DIALOG,
-                "",
-            )
-            val frames = protocolAdapter.commitSpeechTextFrame(ack)
-            frames.forEach { frame ->
-                engine?.sendDirective(
-                    SpeechEngineDefines.DIRECTIVE_SEND_UPLINK_EVENT,
-                    frame.payload.toString(),
-                )
-            }
-        },
-    )
-}
-```
-
-- [ ] **Step 2: 调整 collect 循环**
-
-```kotlin
-scope?.launch {
-    protocolAdapter.events.collect { event ->
-        if (delegationHandler == null) {
-            eventEmitter.emit(event)
-        } else {
-            delegationHandler.handle(event)?.let { eventEmitter.emit(it) }
-        }
-    }
-}
-```
-
-- [ ] **Step 3: 验证编译**
-
-Run: `cd realtime && ../gradlew :realtime:providers:volc:compileKotlin`
-Expected: BUILD SUCCESSFUL
 
 ---
 
 ### Task 5: 新增测试用例
 
 **Files:**
-- Modify: `realtime/core/src/test/kotlin/io/github/yeyi/agent/realtime/DelegationHandlerTest.kt`
+- Modify: `realtime/core/src/test/kotlin/io/github/yeyi/agent/realtime/DelegationProcessorTest.kt`
 
 - [ ] **Step 1: 扩展 FakeDelegation 支持 classifier + 更新 imports**
 
@@ -339,7 +253,7 @@ fun `classifier delegable triggers onReplacementAck and runDelegation`() = runTe
     )
     var replacementAckCalledWith: String? = null
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val handler = DelegationHandler(
+    val handler = DelegationProcessor(
         delegation = delegation,
         scopeProvider = { scope },
         onReply = {},
@@ -368,7 +282,7 @@ fun `classifier casual with ack triggers onReplacementAck only`() = runTest {
     )
     var replacementAckCalledWith: String? = null
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val handler = DelegationHandler(
+    val handler = DelegationProcessor(
         delegation = delegation,
         scopeProvider = { scope },
         onReply = {},
@@ -395,7 +309,7 @@ fun `classifier casual with null ack does not trigger onReplacementAck`() = runT
     )
     var replacementAckCalled = false
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val handler = DelegationHandler(
+    val handler = DelegationProcessor(
         delegation = delegation,
         scopeProvider = { scope },
         onReply = {},
@@ -424,7 +338,7 @@ fun `classifier exception is caught and treated as Casual null`() = runTest {
     )
     var replacementAckCalled = false
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val handler = DelegationHandler(
+    val handler = DelegationProcessor(
         delegation = delegation,
         scopeProvider = { scope },
         onReply = {},
@@ -453,7 +367,7 @@ fun `classifier with ack suppresses all assistant event types`() = runTest {
         },
     )
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val handler = DelegationHandler(
+    val handler = DelegationProcessor(
         delegation = delegation,
         scopeProvider = { scope },
         onReply = {},
@@ -484,7 +398,7 @@ fun `UserTranscriptStarted resets suppression state`() = runTest {
         },
     )
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val handler = DelegationHandler(
+    val handler = DelegationProcessor(
         delegation = delegation,
         scopeProvider = { scope },
         onReply = {},
@@ -509,7 +423,7 @@ fun `UserTranscriptStarted resets suppression state`() = runTest {
 fun `classifier null falls back to marker path`() = runTest {
     val delegation = FakeDelegation(capabilities = listOf("灯光控制"))
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val handler = DelegationHandler(
+    val handler = DelegationProcessor(
         delegation = delegation,
         scopeProvider = { scope },
         onReply = {},
@@ -536,7 +450,7 @@ fun `classifier not null appendInstructions returns base unchanged`() = runTest 
         },
     )
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val handler = DelegationHandler(
+    val handler = DelegationProcessor(
         delegation = delegation,
         scopeProvider = { scope },
         onReply = {},
@@ -565,7 +479,7 @@ fun `Casual with ack also suppresses assistant events`() = runTest {
         },
     )
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-    val handler = DelegationHandler(
+    val handler = DelegationProcessor(
         delegation = delegation,
         scopeProvider = { scope },
         onReply = {},
@@ -601,9 +515,9 @@ Expected: All tests PASS
 Run: `cd realtime && ../gradlew :realtime:core:test --tests io.github.yeyi.agent.realtime.RealtimeApplianceTest`
 Expected: All existing tests PASS
 
-- [ ] **Step 2: 运行 DelegationHandlerTest**
+- [ ] **Step 2: 运行 DelegationProcessorTest**
 
-Run: `cd realtime && ../gradlew :realtime:core:test --tests io.github.yeyi.agent.realtime.DelegationHandlerTest`
+Run: `cd realtime && ../gradlew :realtime:core:test --tests io.github.yeyi.agent.realtime.DelegationProcessorTest`
 Expected: All tests PASS
 
 ---

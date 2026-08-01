@@ -18,7 +18,7 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
-class DelegationHandlerTest {
+class DelegationProcessorTest {
 
     private class FakeDelegation(
         override val capabilities: List<String>,
@@ -42,7 +42,7 @@ class DelegationHandlerTest {
         scope: CoroutineScope,
         onReplacementAck: suspend (String) -> Unit = {},
         onReply: suspend (String) -> Unit = {},
-    ) = DelegationHandler(
+    ) = DelegationProcessor(
         delegation = delegation,
         scopeProvider = { scope },
         onReply = onReply,
@@ -77,25 +77,25 @@ class DelegationHandlerTest {
     }
 
     @Test
-    fun `handle with UserTranscriptCompleted sets pendingAsr`() = runTest {
+    fun `process with UserTranscriptCompleted sets pendingAsr`() = runTest {
         val delegation = FakeDelegation(capabilities = emptyList())
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val handler = newHandler(delegation, scope)
 
-        val result = handler.handle(RealtimeEvent.UserTranscriptCompleted("帮我开灯"))
+        val result = handler.process(RealtimeEvent.UserTranscriptCompleted("帮我开灯"))
 
         assertEquals(RealtimeEvent.UserTranscriptCompleted("帮我开灯"), result)
         scope.cancel()
     }
 
     @Test
-    fun `handle with marker text triggers delegation and strips marker`() = runTest {
+    fun `process with marker text triggers delegation and strips marker`() = runTest {
         val delegation = FakeDelegation(capabilities = listOf("灯光控制"))
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val handler = newHandler(delegation, scope)
 
-        handler.handle(RealtimeEvent.UserTranscriptCompleted("帮我开灯"))
-        val result = handler.handle(RealtimeEvent.AssistantTextDelta("|好的，正在开灯"))
+        handler.process(RealtimeEvent.UserTranscriptCompleted("帮我开灯"))
+        val result = handler.process(RealtimeEvent.AssistantTextDelta("|好的，正在开灯"))
 
         assertEquals(RealtimeEvent.AssistantTextDelta("好的，正在开灯"), result)
         val called = withTimeout(5_000) { delegation.dispatched.receive() }
@@ -138,7 +138,7 @@ class DelegationHandlerTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val handler = newHandler(delegation, scope, onReplacementAck = { replacementAckCalledWith = it })
 
-        handler.handle(RealtimeEvent.UserTranscriptCompleted("帮我开空调"))
+        handler.process(RealtimeEvent.UserTranscriptCompleted("帮我开空调"))
 
         assertEquals(ack, replacementAckCalledWith)
         assertEquals(task, withTimeout(5_000) { delegation.dispatched.receive() })
@@ -158,7 +158,7 @@ class DelegationHandlerTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val handler = newHandler(delegation, scope, onReplacementAck = { replacementAckCalledWith = it })
 
-        handler.handle(RealtimeEvent.UserTranscriptCompleted("你好"))
+        handler.process(RealtimeEvent.UserTranscriptCompleted("你好"))
 
         assertEquals(ack, replacementAckCalledWith)
         scope.cancel()
@@ -176,7 +176,7 @@ class DelegationHandlerTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val handler = newHandler(delegation, scope, onReplacementAck = { replacementAckCalled = true })
 
-        handler.handle(RealtimeEvent.UserTranscriptCompleted("你好"))
+        handler.process(RealtimeEvent.UserTranscriptCompleted("你好"))
 
         assertFalse(replacementAckCalled)
         scope.cancel()
@@ -197,7 +197,7 @@ class DelegationHandlerTest {
         val handler = newHandler(delegation, scope, onReplacementAck = { replacementAckCalled = true })
 
         // should not throw
-        handler.handle(RealtimeEvent.UserTranscriptCompleted("你好"))
+        handler.process(RealtimeEvent.UserTranscriptCompleted("你好"))
 
         assertFalse(replacementAckCalled)
         scope.cancel()
@@ -214,12 +214,12 @@ class DelegationHandlerTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val handler = newHandler(delegation, scope)
 
-        handler.handle(RealtimeEvent.UserTranscriptCompleted("开空调"))
+        handler.process(RealtimeEvent.UserTranscriptCompleted("开空调"))
 
-        assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("hi")))
-        assertNull(handler.handle(RealtimeEvent.AssistantAudioStarted))
-        assertNull(handler.handle(RealtimeEvent.AssistantAudioDelta(byteArrayOf(1))))
-        assertNull(handler.handle(RealtimeEvent.AssistantAudioDone))
+        assertNull(handler.process(RealtimeEvent.AssistantTextDelta("hi")))
+        assertNull(handler.process(RealtimeEvent.AssistantAudioStarted))
+        assertNull(handler.process(RealtimeEvent.AssistantAudioDelta(byteArrayOf(1))))
+        assertNull(handler.process(RealtimeEvent.AssistantAudioDone))
         scope.cancel()
     }
 
@@ -234,11 +234,11 @@ class DelegationHandlerTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val handler = newHandler(delegation, scope)
 
-        handler.handle(RealtimeEvent.UserTranscriptCompleted("开空调"))
-        assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("hi")))
+        handler.process(RealtimeEvent.UserTranscriptCompleted("开空调"))
+        assertNull(handler.process(RealtimeEvent.AssistantTextDelta("hi")))
 
-        assertNull(handler.handle(RealtimeEvent.ResponseDone))
-        assertNotNull(handler.handle(RealtimeEvent.AssistantTextDelta("after done")))
+        assertNull(handler.process(RealtimeEvent.ResponseDone))
+        assertNotNull(handler.process(RealtimeEvent.AssistantTextDelta("after done")))
         scope.cancel()
     }
 
@@ -253,11 +253,11 @@ class DelegationHandlerTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val handler = newHandler(delegation, scope)
 
-        handler.handle(RealtimeEvent.UserTranscriptCompleted("开空调"))
-        assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("hi")))
+        handler.process(RealtimeEvent.UserTranscriptCompleted("开空调"))
+        assertNull(handler.process(RealtimeEvent.AssistantTextDelta("hi")))
 
-        assertNull(handler.handle(RealtimeEvent.ResponseCanceled))
-        assertNotNull(handler.handle(RealtimeEvent.AssistantTextDelta("after cancel")))
+        assertNull(handler.process(RealtimeEvent.ResponseCanceled))
+        assertNotNull(handler.process(RealtimeEvent.AssistantTextDelta("after cancel")))
         scope.cancel()
     }
 
@@ -272,12 +272,12 @@ class DelegationHandlerTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val handler = newHandler(delegation, scope)
 
-        handler.handle(RealtimeEvent.UserTranscriptCompleted("开空调"))
-        assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("hi")))
+        handler.process(RealtimeEvent.UserTranscriptCompleted("开空调"))
+        assertNull(handler.process(RealtimeEvent.AssistantTextDelta("hi")))
 
-        handler.handle(RealtimeEvent.UserTranscriptStarted("test"))
+        handler.process(RealtimeEvent.UserTranscriptStarted("test"))
 
-        val notSuppressed = handler.handle(RealtimeEvent.AssistantTextDelta("hello"))
+        val notSuppressed = handler.process(RealtimeEvent.AssistantTextDelta("hello"))
         assertNotNull(notSuppressed)
         scope.cancel()
     }
@@ -288,8 +288,8 @@ class DelegationHandlerTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val handler = newHandler(delegation, scope)
 
-        handler.handle(RealtimeEvent.UserTranscriptCompleted("帮我开灯"))
-        val result = handler.handle(RealtimeEvent.AssistantTextDelta("|好的，正在开灯"))
+        handler.process(RealtimeEvent.UserTranscriptCompleted("帮我开灯"))
+        val result = handler.process(RealtimeEvent.AssistantTextDelta("|好的，正在开灯"))
 
         assertEquals(RealtimeEvent.AssistantTextDelta("好的，正在开灯"), result)
         scope.cancel()
@@ -324,10 +324,10 @@ class DelegationHandlerTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val handler = newHandler(delegation, scope)
 
-        handler.handle(RealtimeEvent.UserTranscriptCompleted("你好"))
+        handler.process(RealtimeEvent.UserTranscriptCompleted("你好"))
 
-        assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("hi")))
-        assertNull(handler.handle(RealtimeEvent.AssistantAudioStarted))
+        assertNull(handler.process(RealtimeEvent.AssistantTextDelta("hi")))
+        assertNull(handler.process(RealtimeEvent.AssistantAudioStarted))
         scope.cancel()
     }
 
@@ -342,11 +342,11 @@ class DelegationHandlerTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val handler = newHandler(delegation, scope)
 
-        handler.handle(RealtimeEvent.UserTranscriptCompleted("开空调"))
-        assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("hi")))
+        handler.process(RealtimeEvent.UserTranscriptCompleted("开空调"))
+        assertNull(handler.process(RealtimeEvent.AssistantTextDelta("hi")))
 
-        assertNull(handler.handle(RealtimeEvent.Error("server_error", "timeout", false)))
-        assertNotNull(handler.handle(RealtimeEvent.AssistantTextDelta("after error")))
+        assertNull(handler.process(RealtimeEvent.Error("server_error", "timeout", false)))
+        assertNotNull(handler.process(RealtimeEvent.AssistantTextDelta("after error")))
         scope.cancel()
     }
 
@@ -361,13 +361,13 @@ class DelegationHandlerTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val handler = newHandler(delegation, scope)
 
-        handler.handle(RealtimeEvent.UserTranscriptCompleted("开空调"))
-        assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("hi")))
+        handler.process(RealtimeEvent.UserTranscriptCompleted("开空调"))
+        assertNull(handler.process(RealtimeEvent.AssistantTextDelta("hi")))
 
-        handler.handle(RealtimeEvent.AssistantAudioDone)
+        handler.process(RealtimeEvent.AssistantAudioDone)
 
         // suppression still active
-        assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("still suppressed")))
+        assertNull(handler.process(RealtimeEvent.AssistantTextDelta("still suppressed")))
         scope.cancel()
     }
 }
