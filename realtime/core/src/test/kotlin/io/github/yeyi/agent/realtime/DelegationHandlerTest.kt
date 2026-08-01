@@ -330,4 +330,70 @@ class DelegationHandlerTest {
         assertNull(handler.handle(RealtimeEvent.AssistantAudioStarted))
         scope.cancel()
     }
+
+    @Test
+    fun `Error terminates round and resets suppression`() = runTest {
+        val delegation = FakeDelegation(
+            capabilities = emptyList(),
+            classifier = object : IntentionClassifier {
+                override suspend fun classify(asr: String) = Intention.Delegated("好的", "task")
+            },
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val handler = newHandler(delegation, scope)
+
+        handler.handle(RealtimeEvent.UserTranscriptCompleted("开空调"))
+        assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("hi")))
+
+        assertNull(handler.handle(RealtimeEvent.Error("server_error", "timeout", false)))
+        assertNotNull(handler.handle(RealtimeEvent.AssistantTextDelta("after error")))
+        scope.cancel()
+    }
+
+    @Test
+    fun `AssistantAudioDone does not affect suppression state`() = runTest {
+        val delegation = FakeDelegation(
+            capabilities = emptyList(),
+            classifier = object : IntentionClassifier {
+                override suspend fun classify(asr: String) = Intention.Delegated("好的", "task")
+            },
+        )
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val handler = newHandler(delegation, scope)
+
+        handler.handle(RealtimeEvent.UserTranscriptCompleted("开空调"))
+        assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("hi")))
+
+        handler.handle(RealtimeEvent.AssistantAudioDone)
+
+        // suppression still active
+        assertNull(handler.handle(RealtimeEvent.AssistantTextDelta("still suppressed")))
+        scope.cancel()
+    }
+}
+
+class IntentionAckTest {
+    @Test
+    fun `ack returns ack from Delegated`() {
+        val intent = Intention.Delegated("好的", "开灯")
+        assertEquals("好的", intent.ack)
+    }
+
+    @Test
+    fun `ack returns ack from Casual`() {
+        val intent = Intention.Casual("你好")
+        assertEquals("你好", intent.ack)
+    }
+
+    @Test
+    fun `ack returns null from Casual with null ack`() {
+        val intent = Intention.Casual(null)
+        assertEquals(null, intent.ack)
+    }
+
+    @Test
+    fun `ack on null returns null`() {
+        val intent: Intention? = null
+        assertEquals(null, intent.ack)
+    }
 }
