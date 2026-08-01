@@ -16,14 +16,14 @@ public interface IntentionClassifier {
 }
 
 public sealed interface Intention {
-    public data class Delegated(val ack: String, val task: String) : Intention
-    public data class Casual(val ack: String?) : Intention
+    public data class Task(val ack: String, val content: String) : Intention
+    public data class Chat(val ack: String?) : Intention
 }
 
 public val Intention?.ack: String?
     get() = when (this) {
-        is Intention.Delegated -> ack
-        is Intention.Casual -> ack
+        is Intention.Task -> ack
+        is Intention.Chat -> ack
         null -> null
     }
 
@@ -156,10 +156,10 @@ internal class DelegationProcessor(
                     val intent = try {
                         classifier.classify(event.text)
                     } catch (_: Throwable) {
-                        Intention.Casual(null)
+                        Intention.Chat(null)
                     }
-                    if (intent is Intention.Delegated) {
-                        runDelegation(intent.task)
+                    if (intent is Intention.Task) {
+                        runDelegation(intent.content)
                     }
                     runCatching { intent.ack?.let { ack -> onReplacementAck(ack) } }
                     currentRoundIntent = intent

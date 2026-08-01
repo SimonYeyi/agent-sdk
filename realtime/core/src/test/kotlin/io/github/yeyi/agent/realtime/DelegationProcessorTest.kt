@@ -131,7 +131,7 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Delegated(ack, task)
+                override suspend fun classify(asr: String) = Intention.Task(ack, task)
             },
         )
         var replacementAckCalledWith: String? = null
@@ -151,7 +151,7 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Casual(ack)
+                override suspend fun classify(asr: String) = Intention.Chat(ack)
             },
         )
         var replacementAckCalledWith: String? = null
@@ -169,7 +169,7 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Casual(null)
+                override suspend fun classify(asr: String) = Intention.Chat(null)
             },
         )
         var replacementAckCalled = false
@@ -208,7 +208,7 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Delegated("好的", "task")
+                override suspend fun classify(asr: String) = Intention.Task("好的", "task")
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -228,7 +228,7 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Delegated("好的", "task")
+                override suspend fun classify(asr: String) = Intention.Task("好的", "task")
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -247,7 +247,7 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Delegated("好的", "task")
+                override suspend fun classify(asr: String) = Intention.Task("好的", "task")
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -266,7 +266,7 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Delegated("好的", "task")
+                override suspend fun classify(asr: String) = Intention.Task("好的", "task")
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -300,7 +300,7 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = listOf("灯光控制"),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Casual(null)
+                override suspend fun classify(asr: String) = Intention.Chat(null)
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -318,7 +318,7 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Casual("好的")
+                override suspend fun classify(asr: String) = Intention.Chat("好的")
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -336,7 +336,7 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Delegated("好的", "task")
+                override suspend fun classify(asr: String) = Intention.Task("好的", "task")
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -355,7 +355,7 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Delegated("好的", "task")
+                override suspend fun classify(asr: String) = Intention.Task("好的", "task")
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -375,19 +375,19 @@ class DelegationProcessorTest {
 class IntentionAckTest {
     @Test
     fun `ack returns ack from Delegated`() {
-        val intent = Intention.Delegated("好的", "开灯")
+        val intent = Intention.Task("好的", "开灯")
         assertEquals("好的", intent.ack)
     }
 
     @Test
     fun `ack returns ack from Casual`() {
-        val intent = Intention.Casual("你好")
+        val intent = Intention.Chat("你好")
         assertEquals("你好", intent.ack)
     }
 
     @Test
     fun `ack returns null from Casual with null ack`() {
-        val intent = Intention.Casual(null)
+        val intent = Intention.Chat(null)
         assertEquals(null, intent.ack)
     }
 

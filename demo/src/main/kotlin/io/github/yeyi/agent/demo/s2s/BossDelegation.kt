@@ -41,22 +41,22 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
                            - ack 简短确认，task 为具体任务。
                         2. 未命中能力列表 → type="Casual"：
                            - 属于明确任务指令（但不在能力范围内），ack 自然表达无法操作
-                           - 闲聊/一般咨询 → type="Casual"，ack 自然回答
+                           - 闲聊/一般咨询 → type="Casual"，ack 不需要输出
 
                         输出格式（必须严格遵循 JSON）：
                         - 命中：{"type":"Delegated","ack":"好的，正在为您xxx","task":"具体任务描述"}
                         - 未命中（任务指令）：{"type":"Casual","ack":"表达无法操作"}
-                        - 未命中（闲聊）：{"type":"Casual","ack":"闲聊回答"}
+                        - 未命中（闲聊）：{"type":"Casual","ack":null}
 
                         示例：
                         输入："帮我把空调调到24度"
                         输出：{"type":"Delegated","ack":"好的，正在为您调整空调温度","task":"把空调调到24度"}
 
-                        输入："帮我"
-                        输出：{"type":"Casual","ack":"抱歉，这个功能暂不支持，换个其他需求试试吧。"}
+                        输入："帮我关闭前照灯"
+                        输出：{"type":"Casual","ack":"抱歉，这个功能不支持，换个其他需求试试吧。"}
 
                         输入："今天心情真好"
-                        输出：{"type":"Casual","ack":"哈哈，希望你每天都有好心情！"}
+                        输出：{"type":"Casual","ack":null}
                         """.trimIndent()
                 )
             val result = agent {
@@ -76,16 +76,16 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
         return when (type) {
             "Delegated" -> {
                 val ack = json.substringAfter("\"ack\":\"").substringBefore('"')
-                val task = json.substringAfter("\"task\":\"").substringBefore('"')
-                Intention.Delegated(ack, task)
+                val content = json.substringAfter("\"task\":\"").substringBefore('"')
+                Intention.Task(ack, content)
             }
 
             "Casual" -> {
                 val ack = json.substringAfter("\"ack\":\"").substringBefore('"')
-                Intention.Casual(ack)
+                Intention.Chat(ack)
             }
 
-            else -> Intention.Casual(null)
+            else -> Intention.Chat(null)
         }
     }
 
