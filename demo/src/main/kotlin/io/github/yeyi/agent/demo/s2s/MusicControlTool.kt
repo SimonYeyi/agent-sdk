@@ -38,10 +38,10 @@ class MusicControlTool : Tool {
             ?.content
             ?: return "未知动作"
         return when (action) {
-            "play" -> "已开始播放"
-            "pause" -> "已暂停播放"
-            "next" -> "已切换到下一首"
-            "previous" -> "已切换到上一首"
+            "play" -> "已开始播放 陈奕迅"
+            "pause" -> "已暂停播放 陈奕迅"
+            "next" -> "已切换到下一首 张学友"
+            "previous" -> "已切换到上一首 陈奕迅"
             else -> "未知动作: $action"
         }
     }
