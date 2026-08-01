@@ -86,6 +86,7 @@ class RealtimeApplianceTest {
         override suspend fun cancelResponse() {
             cancelResponseCount++
             cancelResponseSignal.send(Unit)
+            eventsChannel.trySend(RealtimeEvent.ResponseCanceled)
         }
         override suspend fun injectAndRespond(text: String) {
             injectCount++
@@ -425,5 +426,49 @@ class RealtimeApplianceTest {
         assertEquals(baseInstructions, session.connectInstructions)
         // 委托链完全没触发
         assertEquals(0, session.injectCount)
+    }
+
+    @Test
+    fun `user speech before cancel response aborts inject`() = runTest {
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
+        val delegation = object : RealtimeDelegation {
+            override val capabilities: List<String> = emptyList()
+            override val classifier: IntentionClassifier = object : IntentionClassifier {
+                override suspend fun classify(asr: String) = Intention.Delegated("好的", "开空调")
+            }
+            override val replies: Flow<DelegationReply> = MutableSharedFlow()
+            override suspend fun run(task: String) {}
+        }
+        val speaker = FakeSpeaker()
+        val ackProcessed = Channel<Unit>(Channel.CONFLATED)
+
+        val appliance = RealtimeAppliance(
+            session = session,
+            sessionConfig = makeSessionConfig(),
+            microphone = FakeMicrophone(),
+            speaker = speaker,
+            delegation = delegation,
+        )
+
+        appliance.start()
+        awaitSubscribed(session)
+
+        // UserTranscriptStarted 先于 ResponseCanceled 到达
+        session.emit(RealtimeEvent.UserTranscriptStarted("new query"))
+
+        // 触发 classifier 路径：onReplacementAck 被调用，
+        // 它等待 session.events，UserTranscriptStarted 会先于 cancelResponse 后的 ResponseCanceled 被收到
+        session.emit(RealtimeEvent.UserTranscriptCompleted("开空调"))
+
+        // 等待 cancelResponse 完成
+        realAwait { session.cancelResponseSignal.receive() }
+        // 等待一小段时间确保 abort 完成
+        kotlinx.coroutines.delay(100)
+
+        // UserTranscriptStarted 先被收到，injectAndRespond 不应被调用
+        assertEquals(0, session.injectCount)
+        assertEquals(1, session.cancelResponseCount)
+
+        appliance.close()
     }
 }

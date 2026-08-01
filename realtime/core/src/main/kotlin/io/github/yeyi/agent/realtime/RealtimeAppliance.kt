@@ -28,19 +28,25 @@ private class DefaultRealtimeAppliance(
     override val delegation: RealtimeDelegation? = null,
 ) : RealtimeAppliance {
     private var scope: CoroutineScope? = null
-    private val speaker: RealtimeSpeaker = RealtimeSpeaker(speaker, { scope })
+    private val speaker: RealtimeSpeaker = RealtimeSpeaker(speaker) { scope }
 
-    private val delegationProcessor: DelegationProcessor? = delegation?.let { delegation ->
+    private val delegationProcessor: DelegationProcessor? = delegation?.let {
         DelegationProcessor(
             delegation = delegation,
             scopeProvider = { scope },
             onReply = { text -> session.injectAndRespond(text) },
             onReplacementAck = { ack ->
                 session.cancelResponse()
-                session.events
-                    .filter { it is RealtimeEvent.ResponseDone || it is RealtimeEvent.ResponseCanceled || it is RealtimeEvent.Error }
+                val event = session.events
+                    .filter {
+                        it is RealtimeEvent.ResponseCanceled
+                                || it is RealtimeEvent.Error
+                                || it is RealtimeEvent.UserTranscriptStarted
+                    }
                     .first()
-                session.injectAndRespond(ack)
+                if (event !is RealtimeEvent.UserTranscriptStarted) {
+                    session.injectAndRespond(ack)
+                }
             },
         )
     }
