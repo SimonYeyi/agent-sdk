@@ -67,6 +67,7 @@ public class DelegationHandler(
                 currentRoundIntent = null
                 return event
             }
+
             is RealtimeEvent.UserTranscriptCompleted -> {
                 pendingAsr = event.text
                 delegation.classifier?.let { classifier ->
@@ -78,11 +79,14 @@ public class DelegationHandler(
                     if (intent is Intention.Delegated) {
                         runDelegation(intent.task)
                     }
-                    intent.ack?.let { ack -> onReplacementAck(ack) }
+                    runCatching {
+                        intent.ack?.let { ack -> onReplacementAck(ack) }
+                    }
                     currentRoundIntent = intent
                 }
                 return event
             }
+
             is RealtimeEvent.AssistantTextDelta,
             is RealtimeEvent.AssistantAudioStarted,
             is RealtimeEvent.AssistantAudioDelta,
@@ -108,6 +112,7 @@ public class DelegationHandler(
                 }
                 return event
             }
+
             else -> return event
         }
     }

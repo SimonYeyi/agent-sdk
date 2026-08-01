@@ -31,12 +31,11 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
             val memory = InMemoryMemory()
                 .apply { add(ChatMessage.User(q)) }
                 .apply { add(ChatMessage.Assistant(a)) }
-            val result = agent {
-                persona(
-                    Persona("你是一个意图分类助手。根据用户输入判断是否属于委派任务。")
-                        .extra(capabilities.joinToString("、"), "能力列表")
-                        .extra(
-                            """
+
+            val persona = Persona("你是一个意图分类助手。根据用户输入判断是否属于委派任务。")
+                .extra(capabilities.joinToString("、"), "能力列表")
+                .extra(
+                    """
                         判断规则：
                         1. 命中能力列表 → type="Delegated：
                            - ack 简短确认，task 为具体任务。
@@ -59,8 +58,9 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
                         输入："今天心情真好"
                         输出：{"type":"Casual","ack":"哈哈，希望你每天都有好心情！"}
                         """.trimIndent()
-                        )
                 )
+            val result = agent {
+                persona(persona)
                 llmProvider(LlmProviderFactory.create())
                 memory(memory)
             }.run(asr).awaitResult()
@@ -72,24 +72,20 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
     }
 
     private fun parseIntention(json: String): Intention {
-        return try {
-            val type = json.substringAfter("\"type\":\"").substringBefore('"')
-            when (type) {
-                "Delegated" -> {
-                    val ack = json.substringAfter("\"ack\":\"").substringBefore('"')
-                    val task = json.substringAfter("\"task\":\"").substringBefore('"')
-                    Intention.Delegated(ack, task)
-                }
-
-                "Casual" -> {
-                    val ack = json.substringAfter("\"ack\":\"").substringBefore('"')
-                    Intention.Casual(ack)
-                }
-
-                else -> Intention.Casual(null)
+        val type = json.substringAfter("\"type\":\"").substringBefore('"')
+        return when (type) {
+            "Delegated" -> {
+                val ack = json.substringAfter("\"ack\":\"").substringBefore('"')
+                val task = json.substringAfter("\"task\":\"").substringBefore('"')
+                Intention.Delegated(ack, task)
             }
-        } catch (_: Throwable) {
-            Intention.Casual(null)
+
+            "Casual" -> {
+                val ack = json.substringAfter("\"ack\":\"").substringBefore('"')
+                Intention.Casual(ack)
+            }
+
+            else -> Intention.Casual(null)
         }
     }
 
