@@ -21,6 +21,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class RealtimeApplianceTest {
 
@@ -54,6 +55,7 @@ class RealtimeApplianceTest {
     private class FakeSession(
         private val inputFormat: AudioFormat,
         private val outputFormat: AudioFormat,
+        var cancelResponseDelayMs: Long = 0,
     ) : RealtimeSession {
         private var eventsChannel = Channel<RealtimeEvent>(Channel.UNLIMITED)
         var subscribedSignal = Channel<Unit>(Channel.CONFLATED)
@@ -86,6 +88,9 @@ class RealtimeApplianceTest {
         override suspend fun cancelResponse() {
             cancelResponseCount++
             cancelResponseSignal.send(Unit)
+            if (cancelResponseDelayMs > 0) {
+                kotlinx.coroutines.delay(cancelResponseDelayMs)
+            }
             eventsChannel.trySend(RealtimeEvent.ResponseCanceled)
         }
         override suspend fun injectAndRespond(text: String) {
@@ -430,7 +435,7 @@ class RealtimeApplianceTest {
 
     @Test
     fun `user speech before cancel response aborts inject`() = runTest {
-        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat, cancelResponseDelayMs = 5000)
         val delegation = object : RealtimeDelegation {
             override val capabilities: List<String> = emptyList()
             override val classifier: IntentionClassifier = object : IntentionClassifier {
@@ -467,6 +472,43 @@ class RealtimeApplianceTest {
 
         // UserTranscriptStarted 先被收到，injectAndRespond 不应被调用
         assertEquals(0, session.injectCount)
+        assertEquals(1, session.cancelResponseCount)
+
+        appliance.close()
+    }
+
+    @Test
+    fun `classifier ack cancels previous tts and injects new ack`() = runTest {
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
+        val delegation = object : RealtimeDelegation {
+            override val capabilities: List<String> = emptyList()
+            override val classifier: IntentionClassifier = object : IntentionClassifier {
+                override suspend fun classify(asr: String) = Intention.Delegated("好的", "开空调")
+            }
+            override val replies: Flow<DelegationReply> = MutableSharedFlow()
+            override suspend fun run(task: String) {}
+        }
+        val speaker = FakeSpeaker()
+
+        val appliance = RealtimeAppliance(
+            session = session,
+            sessionConfig = makeSessionConfig(),
+            microphone = FakeMicrophone(),
+            speaker = speaker,
+            delegation = delegation,
+        )
+
+        appliance.start()
+        awaitSubscribed(session)
+
+        // classifier 返回 Delegated，触发 cancelResponse 和 injectAndRespond
+        session.emit(RealtimeEvent.UserTranscriptCompleted("开空调"))
+
+        // 等待 cancelResponse 和 injectAndRespond 完成
+        realAwait { session.cancelResponseSignal.receive() }
+        realAwait { session.injectedSignal.receive() }
+
+        assertEquals(1, session.injectCount)
         assertEquals(1, session.cancelResponseCount)
 
         appliance.close()
