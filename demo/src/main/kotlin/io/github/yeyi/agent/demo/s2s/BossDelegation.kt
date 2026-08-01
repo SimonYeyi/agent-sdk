@@ -32,31 +32,31 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
                 .apply { add(ChatMessage.User(q)) }
                 .apply { add(ChatMessage.Assistant(a)) }
 
-            val persona = Persona("你是一个意图分类助手。根据用户输入判断是否属于委派任务。")
+            val persona = Persona("你是一个意图分类助手。根据用户输入判断是否属于任务。")
                 .extra(capabilities.joinToString("、"), "能力列表")
                 .extra(
                     """
                         判断规则：
-                        1. 命中能力列表 → type="Delegated：
-                           - ack 简短确认，task 为具体任务。
-                        2. 未命中能力列表 → type="Casual"：
+                        1. 命中能力列表 → type="Task"：
+                           - ack 简短确认，content 为具体任务内容。
+                        2. 未命中能力列表 → type="Chat"：
                            - 属于明确任务指令（但不在能力范围内），ack 自然表达无法操作
-                           - 闲聊/一般咨询 → type="Casual"，ack 不需要输出
+                           - 闲聊/一般咨询 → type="Chat"，ack "null"
 
                         输出格式（必须严格遵循 JSON）：
-                        - 命中：{"type":"Delegated","ack":"好的，正在为您xxx","task":"具体任务描述"}
-                        - 未命中（任务指令）：{"type":"Casual","ack":"表达无法操作"}
-                        - 未命中（闲聊）：{"type":"Casual","ack":null}
+                        - 命中：{"type":"Task","ack":"好的，正在为您xxx","content":"具体任务内容"}
+                        - 未命中（任务指令）：{"type":"Chat","ack":"表达无法操作"}
+                        - 未命中（闲聊）：{"type":"Chat","ack":"null"}
 
                         示例：
                         输入："帮我把空调调到24度"
-                        输出：{"type":"Delegated","ack":"好的，正在为您调整空调温度","task":"把空调调到24度"}
+                        输出：{"type":"Task","ack":"好的，正在为您调整空调温度","content":"把空调调到24度"}
 
                         输入："帮我关闭前照灯"
-                        输出：{"type":"Casual","ack":"抱歉，这个功能不支持，换个其他需求试试吧。"}
+                        输出：{"type":"Chat","ack":"抱歉，这个功能不支持，换个其他需求试试吧。"}
 
                         输入："今天心情真好"
-                        输出：{"type":"Casual","ack":null}
+                        输出：{"type":"Chat","ack":"null"}
                         """.trimIndent()
                 )
             val result = agent {
@@ -74,15 +74,15 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
     private fun parseIntention(json: String): Intention {
         val type = json.substringAfter("\"type\":\"").substringBefore('"')
         return when (type) {
-            "Delegated" -> {
+            "Task" -> {
                 val ack = json.substringAfter("\"ack\":\"").substringBefore('"')
-                val content = json.substringAfter("\"task\":\"").substringBefore('"')
+                val content = json.substringAfter("\"content\":\"").substringBefore('"')
                 Intention.Task(ack, content)
             }
 
-            "Casual" -> {
+            "Chat" -> {
                 val ack = json.substringAfter("\"ack\":\"").substringBefore('"')
-                Intention.Chat(ack)
+                Intention.Chat(ack.takeIf { it != "null" })
             }
 
             else -> Intention.Chat(null)
