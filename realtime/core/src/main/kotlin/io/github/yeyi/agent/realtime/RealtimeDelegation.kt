@@ -33,7 +33,7 @@ public sealed interface DelegationReply {
     public data class Failure(val message: String) : DelegationReply
 }
 
-public class DelegationHandler(
+internal class DelegationHandler(
     private val delegation: RealtimeDelegation,
     private val scopeProvider: () -> CoroutineScope?,
     private val onReply: suspend (String) -> Unit,
@@ -42,13 +42,13 @@ public class DelegationHandler(
     private var pendingAsr: String? = null
     private var currentRoundIntent: Intention? = null
 
-    public fun appendInstructions(base: String): String {
+    fun appendInstructions(base: String): String {
         if (delegation.classifier != null) return base
         val capabilityList = delegation.capabilities.joinToString("\n") { "- $it" }
         return "$base\n\n${DELEGATION_PROTOCOL.replace(CAPABILITIES_PLACEHOLDER, capabilityList)}"
     }
 
-    public fun start() {
+    fun start() {
         scopeProvider()?.launch {
             delegation.replies.collect { update ->
                 val text = when (update) {
@@ -61,7 +61,7 @@ public class DelegationHandler(
         }
     }
 
-    public suspend fun handle(event: RealtimeEvent): RealtimeEvent? {
+    suspend fun handle(event: RealtimeEvent): RealtimeEvent? {
         when (event) {
             is RealtimeEvent.UserTranscriptStarted -> {
                 currentRoundIntent = null

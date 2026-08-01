@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * 由调用方在 delegationHandler.handle 之后调 [observed],与 TTS 抑制语义串行。
  * 支持 close → start 重新初始化:内部 channel 懒创建,close 时重置状态。
  */
-public class RealtimeSpeaker(
+internal class RealtimeSpeaker(
     private val delegate: SpeakerAdapter,
     private val scopeProvider: () -> CoroutineScope?,
 ) : SpeakerAdapter {
@@ -33,7 +33,7 @@ public class RealtimeSpeaker(
         }
     }
 
-    public suspend fun observed(event: RealtimeEvent) {
+    suspend fun observed(event: RealtimeEvent) {
         when (event) {
             is RealtimeEvent.UserTranscriptStarted -> {
                 userQuerying.set(true)
