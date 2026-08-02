@@ -173,6 +173,11 @@ public class BossAgent internal constructor(
     override fun runStream(input: String): Flow<AgentEvent> = run(input)
 
     /**
+     * 获取当前所有任务（结束的任务已被移除）.
+     */
+    public fun getAllTasks(): List<TaskState> = tasks.values.toList()
+
+    /**
      * 关闭 BossAgent — 取消 [scope], 停止所有 boss/pasture 的后台任务.
      * 之后 boss LLM 不会再被新事件触发; pasture 的 running jobs 也会被取消.
      * 调用方负责在不再使用 boss 时调用本方法 (e.g., 在应用关闭时).
