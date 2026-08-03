@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.demo.s2s
 
+import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.awaitResult
@@ -62,7 +63,10 @@ internal class LlmIntentionClassifier(
                 focusedTasks.forEach { merged.add(it) }
                 activatedTasks.filter { act -> merged.none { it.taskId == act.taskId } }
                     .forEach { merged.add(it) }
-                merged.forEach { appendLine("- taskId: \"${it.taskId}\", task: \"${it.task}\"") }
+                merged.forEach {
+                    val final = it.events.last() as? AgentEvent.Final
+                    appendLine("- taskId: \"${it.taskId}\", task: \"${it.task}\", result: \"${final?.result?.message?.content}\"")
+                }
             }
         }
     }
@@ -71,31 +75,18 @@ internal class LlmIntentionClassifier(
 
         return Persona(
             """
-            你是车载语音助手的意图识别模块，依据【能力列表】，结合【任务列表】区分任务指令（Task）与闲聊（Chat）。
+            你是车载语音助手的意图分类模块，将用户当前输入所以表达的意图，分类为任务指令（Task）或闲聊（Chat）。
 
             # 【能力列表】
             ${capabilities.joinToString("、")}
 
             # 【任务列表】（用于指代消解 / 省略恢复）
-            ${renderTasks()}
+            ${renderTasks().let { it.takeIf { it.isNotEmpty() } ?: "- （空）" }}
 
-            # 判定规则
-            1. **命中能力列表 → Task**
-
-            2. **未命中能力列表，但可以指代消解或省略恢复 → Task**
-               - 无法精确匹配（如“太热了”、“改一下”、“这样不对”）→ 按以下优先级选 anchors：
-                 1. 语义最相关
-                 2. 语义相当时，选任务列表最靠前的
-               - 输出格式：{"type":"Task","ack":"简短回执","content":"恢复后的完整指令","anchors":["t1"]}
-               
-            3. **其他 → Chat**
-               - 一般聊天、问候、询问 → {"type":"Chat"}
-               - 看似指令但不在能力列表内 → {"type":"Chat","ack":"表达不支持"}
-               - 语义不明、指代不清，比如和多个任务相关度一致 → {"type":"Chat","ack":"跟用户确认"}
-            
-            # 输出格式
-            - Task: {"type":"Task","ack":"好的","content":"完整任务指令","anchors":["t1"]}
+            # 输出格式（JSON）
+            - Task: {"type":"Task","ack":"好的，正在为您处理","content":"清晰的任务内容","anchors":["任务ID"]}"}
             - Chat(无法操作): {"type":"Chat","ack":"抱歉，该操作不支持"}
+            - Chat(意图不明): {"type":"Chat","ack":"提出澄清问题"}
             - Chat(闲聊): {"type":"Chat"}
 
             # 示例（以下任务列表仅用于示例演示）
@@ -131,19 +122,21 @@ internal class LlmIntentionClassifier(
     }
 
     override suspend fun classify(asr: String): Intention {
-        log.info("previous: ${uLast}:${aLast}")
         log.info("capabilities: ${capabilities.joinToString("、")}")
         log.info("allTasks: ${renderTasks()}")
+        log.info("previous: ${uLast}:${aLast}")
+        log.info("current Q: $asr")
         val persona = buildPersona()
         val memory = buildMemory()
+        val provider = LlmProviderFactory.create()
         val result = agent {
             persona(persona)
             memory(memory)
-            llmProvider(LlmProviderFactory.create())
+            llmProvider(provider)
         }.run(asr).awaitResult()
         val (intention, anchors) = parseIntention(result.message.content!!)
-        log.info("current: ${asr}:${intention}:$anchors")
-        
+        log.info("current A: ${intention}:$anchors")
+
         uLast = asr
         aLast = result.message.content!!
 
