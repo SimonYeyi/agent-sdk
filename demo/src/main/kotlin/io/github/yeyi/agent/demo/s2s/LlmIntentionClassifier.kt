@@ -48,7 +48,7 @@ internal class LlmIntentionClassifier(
             → {"type":"Task","ack":"好的，正在为您调整","content":"把空调调到26度"}
 
             User: "打开前照灯"
-            → {"type":"Chat","ack":"抱歉，该操作不支持"}
+            → {"type":"Chat","ack":"抱歉，这个操作不支持呢"}
 
             User: "关掉"
             → {"type":"Chat","ack":"请问您想关掉什么呢？空调还是座椅加热"}
@@ -75,8 +75,8 @@ internal class LlmIntentionClassifier(
             memory(memory)
             llmProvider(provider)
         }.run(asr).awaitResult()
+        log.info("current A: ${result.message.content}")
         val intention = parseIntention(result.message.content!!)
-        log.info("current A: $intention")
         return intention
     }
 
