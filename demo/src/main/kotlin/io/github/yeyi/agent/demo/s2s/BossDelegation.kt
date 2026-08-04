@@ -8,18 +8,14 @@ import io.github.yeyi.agent.realtime.DelegationReply.Success
 import io.github.yeyi.agent.realtime.IntentionClassifier
 import io.github.yeyi.agent.realtime.RealtimeDelegation
 import io.github.yeyi.agent.team.BossAgent
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.flow.merge
 
-class BossDelegation(
-    private val boss: BossAgent,
-    private val scope: CoroutineScope
-) : RealtimeDelegation {
+class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
     override val classifier: IntentionClassifier by lazy {
-        LlmIntentionClassifier(capabilities, boss, scope)
+        LlmIntentionClassifier(capabilities) { boss.getAllTasks().map { it.task } }
     }
 
     override val capabilities: List<String> by lazy {

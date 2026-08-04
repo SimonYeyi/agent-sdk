@@ -12,7 +12,7 @@ public interface RealtimeDelegation {
 }
 
 public interface IntentionClassifier {
-    public suspend fun classify(asr: String): Intention
+    public suspend fun classify(asr: String, chatHistories: List<String>): Intention
 }
 
 public sealed interface Intention {
@@ -39,8 +39,10 @@ internal class DelegationProcessor(
     private val onReply: suspend (String) -> Unit,
     private val onReplacementAck: suspend (String) -> Unit,
 ) {
+    private val chatHistories = mutableListOf<String>()
+
     private val strategy = delegation.classifier
-        ?.let { OuterClassifyStrategy(it, onReplacementAck) }
+        ?.let { OuterClassifyStrategy(it, chatHistories, onReplacementAck) }
         ?: InnerClassifyStrategy(delegation.capabilities)
 
     private val runDelegation: (String) -> Unit = { task ->
@@ -57,14 +59,19 @@ internal class DelegationProcessor(
                     is DelegationReply.Success -> update.text
                     is DelegationReply.Failure -> update.message
                 }
+                chatHistories.add("system:$text")
                 onReply(text)
             }
         }
     }
 
-    suspend fun process(event: RealtimeEvent): RealtimeEvent? =
-        strategy.process(event, runDelegation)
-
+    suspend fun process(event: RealtimeEvent): RealtimeEvent? {
+        return strategy.process(event, runDelegation).also {
+            if (event is RealtimeEvent.UserTranscriptCompleted) {
+                chatHistories.add("user:${event.text}")
+            }
+        }
+    }
 
     private sealed interface Strategy {
         fun appendInstructions(base: String): String
@@ -135,6 +142,7 @@ internal class DelegationProcessor(
 
     private class OuterClassifyStrategy(
         private val classifier: IntentionClassifier,
+        private val chatHistories: List<String>,
         private val onReplacementAck: suspend (String) -> Unit,
     ) : Strategy {
         private var currentRoundIntent: Intention? = null
@@ -154,7 +162,7 @@ internal class DelegationProcessor(
 
                 is RealtimeEvent.UserTranscriptCompleted -> {
                     val intent = try {
-                        classifier.classify(event.text)
+                        classifier.classify(event.text, chatHistories)
                     } catch (_: Throwable) {
                         Intention.Chat(null)
                     }

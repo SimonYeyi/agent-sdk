@@ -42,7 +42,7 @@ class S2sViewModel(
 
     private var bridge: RealtimeAppliance? = null
     private var httpClient: HttpClient? = null
-    private val delegation = BossDelegation(boss, viewModelScope)
+    private val delegation = BossDelegation(boss)
     private var bridgeJob: Job? = null
     private var sessionCollectJob: Job? = null
     private var delegationCollectJob: Job? = null
