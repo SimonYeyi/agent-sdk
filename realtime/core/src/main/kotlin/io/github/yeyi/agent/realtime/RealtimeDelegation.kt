@@ -3,6 +3,7 @@ package io.github.yeyi.agent.realtime
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeout
 
 public interface RealtimeDelegation {
     public val classifier: IntentionClassifier? get() = null
@@ -12,6 +13,7 @@ public interface RealtimeDelegation {
 }
 
 public interface IntentionClassifier {
+    public val timeout: Long
     public suspend fun classify(asr: String, chatHistories: List<String>): Intention
 }
 
@@ -168,7 +170,9 @@ internal class DelegationProcessor(
 
                 is RealtimeEvent.UserTranscriptCompleted -> {
                     val intent = try {
-                        classifier.classify(event.text, chatHistories)
+                        withTimeout(classifier.timeout) {
+                            classifier.classify(event.text, chatHistories)
+                        }
                     } catch (_: Throwable) {
                         Intention.Chat(null)
                     }

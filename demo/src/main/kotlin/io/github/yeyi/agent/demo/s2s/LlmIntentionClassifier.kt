@@ -62,6 +62,8 @@ internal class LlmIntentionClassifier(
     private suspend fun buildMemory(asr: String): Memory =
         InMemoryMemory().apply { add(ChatMessage.User(asr)) }
 
+    override val timeout: Long = 3000
+
     override suspend fun classify(asr: String, chatHistories: List<String>): Intention {
         log.info("capabilities: $capabilities")
         log.info("activeTasks: ${getAllTasks()}")

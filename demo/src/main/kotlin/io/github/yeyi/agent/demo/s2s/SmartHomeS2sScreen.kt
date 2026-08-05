@@ -112,7 +112,7 @@ fun SmartHomeS2sScreen(
         ) {
             // Header
             Text(
-                text = "语音助手",
+                text = "车载语音助手",
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.primary,
             )
