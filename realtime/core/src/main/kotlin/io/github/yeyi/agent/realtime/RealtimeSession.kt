@@ -49,13 +49,13 @@ private class DefaultRealtimeSession(
     private var scope: CoroutineScope? = null
     private val json = Json { ignoreUnknownKeys = true }
     private val writeLock = Mutex()
-    private val disconnectedEvent = MutableSharedFlow<RealtimeEvent>(extraBufferCapacity = 1)
+    private val eventEmitter = MutableSharedFlow<RealtimeEvent>()
 
     override val inputAudioFormat: AudioFormat get() = adapter.inputAudioFormat
     override val outputAudioFormat: AudioFormat get() = adapter.outputAudioFormat
     override val events: Flow<RealtimeEvent>
         get() = merge(
-            disconnectedEvent,
+            eventEmitter,
             adapter.events.filter { it !is RealtimeEvent.Disconnected }
         )
 
@@ -98,6 +98,8 @@ private class DefaultRealtimeSession(
 
     override suspend fun injectAndRespond(text: String) {
         adapter.commitSpeechTextFrame(text).forEach { sendFrame(it) }
+        eventEmitter.emit(RealtimeEvent.AssistantTextDelta(text))
+        eventEmitter.emit(RealtimeEvent.AssistantTextDone(text))
     }
 
     private suspend fun sendFrame(frame: ProtocolFrame) {
@@ -116,7 +118,7 @@ private class DefaultRealtimeSession(
                     replyFrames.forEach { scope?.launch { sendFrame(it) } }
                 }
             } finally {
-                disconnectedEvent.emit(RealtimeEvent.Disconnected("connection closed"))
+                eventEmitter.emit(RealtimeEvent.Disconnected("connection closed"))
             }
         }
     }

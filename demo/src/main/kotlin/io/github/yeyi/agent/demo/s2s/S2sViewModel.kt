@@ -45,13 +45,11 @@ class S2sViewModel(
     private val delegation = BossDelegation(boss)
     private var bridgeJob: Job? = null
     private var sessionCollectJob: Job? = null
-    private var delegationCollectJob: Job? = null
     private var taskGroupsCollectJob: Job? = null
 
     fun startBridge() {
         bridgeJob?.cancel()
         sessionCollectJob?.cancel()
-        delegationCollectJob?.cancel()
         taskGroupsCollectJob?.cancel()
 
         val client = HttpClient(CIO) { install(WebSockets) }
@@ -87,7 +85,6 @@ class S2sViewModel(
         _taskGroups.value = emptyList()
         bridgeJob = viewModelScope.launch { bridge?.start() }
         sessionCollectJob = launchCollectSessionEvents()
-        delegationCollectJob = launchCollectDelegationReplies()
         taskGroupsCollectJob = launchCollectTaskGroups()
     }
 
@@ -96,8 +93,6 @@ class S2sViewModel(
         bridgeJob = null
         sessionCollectJob?.cancel()
         sessionCollectJob = null
-        delegationCollectJob?.cancel()
-        delegationCollectJob = null
         taskGroupsCollectJob?.cancel()
         taskGroupsCollectJob = null
 
@@ -141,17 +136,12 @@ class S2sViewModel(
                 }
 
                 is RealtimeEvent.AssistantTextDelta -> {
-                    if (_state.value.skipNextDelegationTts || event.text.startsWith("|")) {
-                        _state.value = _state.value.copy(skipNextDelegationTts = true)
-                    } else {
-                        _state.value = _state.value.copy(
-                            pendingAssistant = _state.value.pendingAssistant + event.text,
-                        )
-                    }
+                    _state.value = _state.value.copy(
+                        pendingAssistant = _state.value.pendingAssistant + event.text,
+                    )
                 }
 
                 is RealtimeEvent.AssistantAudioStarted -> {
-                    _state.value = _state.value.copy(skipNextDelegationTts = false)
                 }
 
                 is RealtimeEvent.AssistantAudioDone -> {
@@ -198,21 +188,6 @@ class S2sViewModel(
         }
     }
 
-    private fun launchCollectDelegationReplies(): Job = viewModelScope.launch {
-        delegation.replies.collect { reply ->
-            val text = when (reply) {
-                is DelegationReply.Confirmation -> reply.text
-                is DelegationReply.Success -> reply.text
-                is DelegationReply.Failure -> reply.message
-            }
-            if (text.isNotBlank()) {
-                _state.value = _state.value.copy(
-                    messages = _state.value.messages + UiMessage("assistant", text),
-                )
-            }
-        }
-    }
-
     private fun launchCollectTaskGroups(): Job = viewModelScope.launch {
         boss.tasksState.collect { taskGroupState ->
             val currentList = _taskGroups.value.toMutableList()
@@ -255,5 +230,4 @@ data class UiState(
     val pendingUser: String = "",
     val pendingAssistant: String = "",
     val shouldExit: Boolean = false,
-    val skipNextDelegationTts: Boolean = false,
 )

@@ -59,7 +59,7 @@ internal class DelegationProcessor(
                     is DelegationReply.Success -> update.text
                     is DelegationReply.Failure -> update.message
                 }
-                chatHistories.add("system:$text")
+                addChatHistory(text, false)
                 onReply(text)
             }
         }
@@ -67,10 +67,16 @@ internal class DelegationProcessor(
 
     suspend fun process(event: RealtimeEvent): RealtimeEvent? {
         return strategy.process(event, runDelegation).also {
-            if (event is RealtimeEvent.UserTranscriptCompleted) {
-                chatHistories.add("user:${event.text}")
+            if (it is RealtimeEvent.UserTranscriptCompleted) {
+                addChatHistory(it.text, true)
+            } else if (it is RealtimeEvent.AssistantTextDone) {
+                addChatHistory(it.text, false)
             }
         }
+    }
+
+    private fun addChatHistory(text: String, asr: Boolean) {
+        chatHistories.add("${if (asr) "User" else "System"}:$text")
     }
 
     private sealed interface Strategy {
@@ -175,6 +181,7 @@ internal class DelegationProcessor(
                 }
 
                 is RealtimeEvent.AssistantTextDelta,
+                is RealtimeEvent.AssistantTextDone,
                 is RealtimeEvent.AssistantAudioStarted,
                 is RealtimeEvent.AssistantAudioDelta,
                 is RealtimeEvent.AssistantAudioDone,

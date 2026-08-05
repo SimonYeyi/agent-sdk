@@ -33,7 +33,7 @@ private class VolcRealtimeSession(private val context: Context) : RealtimeSessio
     private var scope: CoroutineScope? = null
     private val json = Json { ignoreUnknownKeys = true }
 
-    private val specialEvents = MutableSharedFlow<RealtimeEvent>()
+    private val eventEmitter = MutableSharedFlow<RealtimeEvent>()
 
     override val inputAudioFormat: AudioFormat get() = adapter.inputAudioFormat
 
@@ -41,7 +41,7 @@ private class VolcRealtimeSession(private val context: Context) : RealtimeSessio
 
     override val events: Flow<RealtimeEvent>
         get() = merge(
-            specialEvents,
+            eventEmitter,
             adapter.events.filter { it !is RealtimeEvent.Disconnected }
         )
 
@@ -94,6 +94,8 @@ private class VolcRealtimeSession(private val context: Context) : RealtimeSessio
 
     override suspend fun injectAndRespond(text: String) {
         adapter.commitSpeechTextFrame(text).forEach { sendUplinkFrame(it) }
+        eventEmitter.emit(RealtimeEvent.AssistantTextDelta(text))
+        eventEmitter.emit(RealtimeEvent.AssistantTextDone(text))
     }
 
     private fun sendUplinkFrame(frame: ProtocolFrame) {
@@ -119,17 +121,17 @@ private class VolcRealtimeSession(private val context: Context) : RealtimeSessio
 
             SpeechEngineDefines.MESSAGE_TYPE_DECODER_AUDIO_DATA -> {
                 val pcm = ByteArray(len).also { System.arraycopy(data, 0, it, 0, len) }
-                scope.launch { specialEvents.emit(RealtimeEvent.AssistantAudioDelta(pcm)) }
+                scope.launch { eventEmitter.emit(RealtimeEvent.AssistantAudioDelta(pcm)) }
             }
 
             SpeechEngineDefines.MESSAGE_TYPE_ENGINE_STOP -> {
-                scope.launch { specialEvents.emit(RealtimeEvent.Disconnected("engine stopped")) }
+                scope.launch { eventEmitter.emit(RealtimeEvent.Disconnected("engine stopped")) }
             }
 
             SpeechEngineDefines.MESSAGE_TYPE_ENGINE_ERROR -> {
                 val msg = if (len > 0) String(data, 0, len, Charsets.UTF_8) else "engine error"
                 scope.launch {
-                    specialEvents.emit(
+                    eventEmitter.emit(
                         RealtimeEvent.Error(code = "engine_error", message = msg, isFatal = true)
                     )
                 }

@@ -72,7 +72,7 @@ public class VolcRealtimeAdapter(encoding: AudioFormat.Encoding? = null) : Realt
     override fun commitSpeechTextFrame(text: String): List<ProtocolFrame> {
         return listOf(
             speechTextBufferAppendFrame(text),
-            speechTextBufferCommitFrame(prompt = "查询任务结果"),
+            speechTextBufferCommitFrame(),
         )
     }
 
@@ -268,7 +268,7 @@ public class VolcRealtimeAdapter(encoding: AudioFormat.Encoding? = null) : Realt
         "response.output_text.delta" ->
             evt.delta?.let { listOf(RealtimeEvent.AssistantTextDelta(it)) } ?: emptyList()
 
-        "response.output_text.done" -> emptyList()
+        "response.output_text.done" -> listOf(RealtimeEvent.AssistantTextDone(evt.text ?: ""))
 
         "response.output_audio.started" ->
             listOf(RealtimeEvent.AssistantAudioStarted)

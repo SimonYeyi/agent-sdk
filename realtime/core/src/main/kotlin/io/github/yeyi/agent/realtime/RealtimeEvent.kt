@@ -6,6 +6,7 @@ public sealed interface RealtimeEvent {
     public data class UserTranscriptCompleted(val text: String) : RealtimeEvent
 
     public data class AssistantTextDelta(val text: String) : RealtimeEvent
+    public data class AssistantTextDone(val text: String) : RealtimeEvent
 
     public object AssistantAudioStarted : RealtimeEvent
     public data class AssistantAudioDelta(val pcm: ByteArray) : RealtimeEvent
