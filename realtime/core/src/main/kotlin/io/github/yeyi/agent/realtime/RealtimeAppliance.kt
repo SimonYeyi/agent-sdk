@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 
 public interface RealtimeAppliance {
@@ -37,13 +38,13 @@ private class DefaultRealtimeAppliance(
             onReply = { text -> session.injectAndRespond(text) },
             onReplacementAck = { ack ->
                 session.cancelResponse()
-                val event = session.events
-                    .filter {
+                val event = withTimeoutOrNull(500) {
+                    session.events.filter {
                         it is RealtimeEvent.ResponseCanceled
                                 || it is RealtimeEvent.Error
                                 || it is RealtimeEvent.UserTranscriptStarted
-                    }
-                    .first()
+                    }.first()
+                }
                 if (event !is RealtimeEvent.UserTranscriptStarted) {
                     session.injectAndRespond(ack)
                 }
