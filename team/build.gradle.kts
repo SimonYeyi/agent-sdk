@@ -3,7 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-group = "io.github.yeyi.agent"
+group = "io.github.yeyi.agent.team"
 version = "0.1.0-SNAPSHOT"
 
 kotlin {
@@ -12,12 +12,12 @@ kotlin {
 }
 
 dependencies {
-    api(project(":agent"))
-    api(project(":capability"))
-    api(project(":toolset"))
-    api(project(":skill"))
-    api(project(":subagent"))
-    api(project(":mcp"))
+    api(project(":agent:core"))
+    api(project(":agent:capability"))
+    api(project(":agent:toolset"))
+    api(project(":agent:skill"))
+    api(project(":agent:subagent"))
+    api(project(":agent:mcp"))
 
     implementation(libs.kotlinx.serialization.json)
 
@@ -25,7 +25,7 @@ dependencies {
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.junit)
-    testImplementation(testFixtures(project(":agent")))
+    testImplementation(testFixtures(project(":agent:core")))
 }
 
 tasks.test {

@@ -131,7 +131,8 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Task(ack, task)
+                override val timeout = 100L
+                override suspend fun classify(asr: String, chatHistories: List<String>) = Intention.Task(ack, task)
             },
         )
         var replacementAckCalledWith: String? = null
@@ -151,7 +152,8 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Chat(ack)
+                override val timeout = 100L
+                override suspend fun classify(asr: String, chatHistories: List<String>) = Intention.Chat(ack)
             },
         )
         var replacementAckCalledWith: String? = null
@@ -169,7 +171,8 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Chat(null)
+                override val timeout = 100L
+                override suspend fun classify(asr: String, chatHistories: List<String>) = Intention.Chat(null)
             },
         )
         var replacementAckCalled = false
@@ -187,7 +190,8 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String): Intention {
+                override val timeout = 100L
+                override suspend fun classify(asr: String, chatHistories: List<String>): Intention {
                     throw RuntimeException("classify failed")
                 }
             },
@@ -208,7 +212,8 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Task("好的", "task")
+                override val timeout = 100L
+                override suspend fun classify(asr: String, chatHistories: List<String>) = Intention.Task("好的", "task")
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -228,7 +233,8 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Task("好的", "task")
+                override val timeout = 100L
+                override suspend fun classify(asr: String, chatHistories: List<String>) = Intention.Task("好的", "task")
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -247,7 +253,8 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Task("好的", "task")
+                override val timeout = 100L
+                override suspend fun classify(asr: String, chatHistories: List<String>) = Intention.Task("好的", "task")
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -266,7 +273,8 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Task("好的", "task")
+                override val timeout = 100L
+                override suspend fun classify(asr: String, chatHistories: List<String>) = Intention.Task("好的", "task")
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -300,7 +308,8 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = listOf("灯光控制"),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Chat(null)
+                override val timeout = 100L
+                override suspend fun classify(asr: String, chatHistories: List<String>) = Intention.Chat(null)
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -318,7 +327,8 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Chat("好的")
+                override val timeout = 100L
+                override suspend fun classify(asr: String, chatHistories: List<String>) = Intention.Chat("好的")
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -336,7 +346,8 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Task("好的", "task")
+                override val timeout = 100L
+                override suspend fun classify(asr: String, chatHistories: List<String>) = Intention.Task("好的", "task")
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -355,7 +366,8 @@ class DelegationProcessorTest {
         val delegation = FakeDelegation(
             capabilities = emptyList(),
             classifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Task("好的", "task")
+                override val timeout = 100L
+                override suspend fun classify(asr: String, chatHistories: List<String>) = Intention.Task("好的", "task")
             },
         )
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

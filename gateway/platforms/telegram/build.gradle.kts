@@ -3,7 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
-group = "io.github.yeyi.agent"
+group = "io.github.yeyi.agent.gateway"
 version = "0.1.0-SNAPSHOT"
 
 kotlin {

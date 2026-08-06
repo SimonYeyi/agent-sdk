@@ -4,7 +4,7 @@ plugins {
     alias(libs.plugins.shadow)
 }
 
-group = "io.github.yeyi.agent"
+group = "io.github.yeyi.agent.gateway"
 version = "0.1.0-SNAPSHOT"
 
 application {
@@ -17,10 +17,10 @@ application {
 dependencies {
     implementation(project(":gateway:core"))
     implementation(project(":gateway:platforms:feishu"))
-    implementation(project(":providers:anthropic"))
-    implementation(project(":session"))
-    implementation(project(":agent"))
-    implementation(project(":hook"))
+    implementation(project(":agent:providers:anthropic"))
+    implementation(project(":agent:session"))
+    implementation(project(":agent:core"))
+    implementation(project(":agent:hook"))
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlin.test.junit)

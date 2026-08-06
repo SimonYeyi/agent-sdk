@@ -439,7 +439,9 @@ class RealtimeApplianceTest {
         val delegation = object : RealtimeDelegation {
             override val capabilities: List<String> = emptyList()
             override val classifier: IntentionClassifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Task("好的", "开空调")
+                override val timeout = 100L
+                override suspend fun classify(asr: String, chatHistories: List<String>) =
+                    Intention.Task("好的", "开空调")
             }
             override val replies: Flow<DelegationReply> = MutableSharedFlow()
             override suspend fun run(task: String) {}
@@ -483,7 +485,9 @@ class RealtimeApplianceTest {
         val delegation = object : RealtimeDelegation {
             override val capabilities: List<String> = emptyList()
             override val classifier: IntentionClassifier = object : IntentionClassifier {
-                override suspend fun classify(asr: String) = Intention.Task("好的", "开空调")
+                override val timeout = 100L
+                override suspend fun classify(asr: String, chatHistories: List<String>) =
+                    Intention.Task("好的", "开空调")
             }
             override val replies: Flow<DelegationReply> = MutableSharedFlow()
             override suspend fun run(task: String) {}

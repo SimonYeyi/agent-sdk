@@ -4,7 +4,7 @@ plugins {
     `java-library`
 }
 
-group = "io.github.yeyi.agent"
+group = "io.github.yeyi.agent.realtime"
 version = "0.1.0-SNAPSHOT"
 
 kotlin {

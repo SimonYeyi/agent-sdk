@@ -61,10 +61,10 @@ android {
 }
 
 dependencies {
-    implementation(project(":agent"))
-    implementation(project(":session"))
+    implementation(project(":agent:core"))
+    implementation(project(":agent:session"))
     implementation(project(":gateway:core"))
-    implementation(project(":providers:anthropic"))
+    implementation(project(":agent:providers:anthropic"))
     implementation(project(":gateway:platforms:feishu"))
 
     implementation(libs.kotlinx.coroutines.core)
