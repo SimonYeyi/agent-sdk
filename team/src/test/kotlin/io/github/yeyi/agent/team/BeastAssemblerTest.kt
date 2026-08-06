@@ -100,10 +100,9 @@ class BeastAssemblerTest {
     }
 
     @Test
-    fun `same name across registries is deduped in flat result`() {
-        // 跨 registry 同名在 pool 层不冲突 (tool 与 toolset 可以同名), 但 flatMap
-        // 后的 Tool 列表必须去重 — 同名 Tool 只保留首个, 跟 toolRegistry.register
-        // 拒绝同名语义一致.
+    fun `same name across registries is preserved in flat result`() {
+        // 跨 registry 同名 Tool 在 pool 层不冲突, flatMap 后也不去重 —
+        // 不同 registry 提供的同名 Tool 可能实现不同,去重会丢失下游可用能力.
         val echoInToolReg = tool("echo")
         val echoInSkillReg = tool("echo")
         val toolReg = ToolRegistry().apply { register(echoInToolReg) }
@@ -112,8 +111,8 @@ class BeastAssemblerTest {
 
         val matched = a.extractTools("use echo")
 
-        assertEquals(1, matched.size, "flatMap 后同名 Tool 应去重, got: ${matched.map { it.name }}")
-        assertEquals("echo", matched.single().name)
-        assertTrue(matched.single() === echoInToolReg, "应保留 buildList 首次出现的 (toolRegistry 先)")
+        assertEquals(2, matched.size, "flatMap 后同名 Tool 应全部保留, got: ${matched.map { it.name }}")
+        assertTrue(matched.contains(echoInToolReg), "toolRegistry 的 echo 应保留")
+        assertTrue(matched.contains(echoInSkillReg), "skillRegistry 的 echo 应保留")
     }
 }

@@ -38,13 +38,10 @@ internal class BeastAssembler(
 
         for (s in selections) {
             when (s) {
-                is Selection.Skill -> {
-                    val skill = skillRegistry?.all()?.firstOrNull { it.name == s.name }
-                        ?: error("assembleHorse: skill not found: ${s.name}")
-                    if (!skill.standalone) error("assembleHorse: skill '${skill.name}' is not standalone")
-                    val text = skill.load()
-                    skillTexts += text
-                    tools += extractTools(text)
+                is Selection.Tool -> {
+                    val tool = toolRegistry?.all()?.firstOrNull { it.name == s.name }
+                        ?: error("assembleHorse: tool not found: ${s.name}")
+                    tools += tool
                 }
 
                 is Selection.Toolset -> {
@@ -53,10 +50,13 @@ internal class BeastAssembler(
                     tools += toolset.all()
                 }
 
-                is Selection.Tool -> {
-                    val tool = toolRegistry?.all()?.firstOrNull { it.name == s.name }
-                        ?: error("assembleHorse: tool not found: ${s.name}")
-                    tools += tool
+                is Selection.Skill -> {
+                    val skill = skillRegistry?.all()?.firstOrNull { it.name == s.name }
+                        ?: error("assembleHorse: skill not found: ${s.name}")
+                    if (!skill.standalone) error("assembleHorse: skill '${skill.name}' is not standalone")
+                    val text = skill.load()
+                    skillTexts += text
+                    tools += extractTools(text)
                 }
 
                 is Selection.Subagent -> {
@@ -107,8 +107,7 @@ internal class BeastAssembler(
      * 文本里提到 "weather" → 整个 Toolset 展开 (GetWeather + GetForecast) 一起累入.
      * 但文本提 "GetWeather" 这种子 Tool 名不会触发 — 池子第一层是 Toolset 名字, 不是子 Tool 名字.
      *
-     * @return 返回 skill 需要使用的 Tool 列表, 同名 Tool 实例只保留首个
-     * (flatMap 后 distinctBy name 去重 — 与 toolRegistry.register 拒绝同名语义一致).
+     * @return 返回 skill 需要使用的 Tool 列表。同名工具不去重，交由调用方处理
      */
     internal fun extractTools(text: String): List<Tool> {
         val providers: List<Pair<String, () -> List<Tool>>> = buildList {
@@ -121,8 +120,6 @@ internal class BeastAssembler(
         val names = providers.joinToString(separator = "\\b|\\b") { Regex.escape(it.first) }
         val pattern = Regex("\\b$names\\b")
         val matched = pattern.findAll(text).map { it.value }
-        return providers.filter { it.first in matched }
-            .flatMap { it.second() }
-            .distinctBy { it.name }
+        return providers.filter { it.first in matched }.flatMap { it.second() }
     }
 }
