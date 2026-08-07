@@ -19,6 +19,7 @@ dependencies {
     api(project(":agent:subagent"))
     api(project(":agent:mcp"))
 
+    api(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
 
     testImplementation(libs.kotlin.test)

@@ -26,5 +26,5 @@ dependencies {
     api(project(":realtime:core"))
 
     implementation(libs.androidx.annotation)
-    implementation(libs.kotlinx.coroutines.core)
+    api(libs.kotlinx.coroutines.core)
 }

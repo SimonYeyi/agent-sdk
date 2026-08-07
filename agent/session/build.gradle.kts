@@ -15,9 +15,9 @@ dependencies {
     api(project(":agent:core"))
     api(project(":agent:hook"))
 
-    api(libs.kotlinx.coroutines.core)
     api(libs.kotlinx.serialization.json)
     api(libs.kotlinx.datetime)
+    implementation(libs.kotlinx.coroutines.core)
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlin.test.junit)

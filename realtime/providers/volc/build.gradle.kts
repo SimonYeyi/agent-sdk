@@ -15,7 +15,7 @@ kotlin {
 dependencies {
     api(project(":realtime:core"))
 
-    implementation(libs.kotlinx.coroutines.core)
+    api(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.ktor.client.websockets)
     implementation(libs.ktor.client.content.negotiation)

@@ -13,8 +13,8 @@ kotlin {
 dependencies {
 
     api(project(":gateway:core"))
+    api(libs.kotlinx.coroutines.core)
     implementation(libs.oapi.sdk)
-    implementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.kotlinx.coroutines.test)
