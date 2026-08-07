@@ -36,7 +36,7 @@ internal class Ox internal constructor(
             toolRegistry?.let { tools(it.all()) }
             toolsetRegistry?.let { toolsets(it) }
             skillRegistry?.let { skills(it) }
-            subagentRegistry?.let { subagents(true, it) }
+            subagentRegistry?.let { subagents(it) }
             maxIterations(maxIterations)
         }
         inner.run(task).collect { onEvent(it) }
