@@ -6,13 +6,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,25 +21,33 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.yeyi.agent.demo.team.ui.TaskDashboard
 import io.github.yeyi.agent.team.BossAgent
+import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SmartHomeS2sScreen(
     apiKey: String,
@@ -56,11 +62,16 @@ fun SmartHomeS2sScreen(
     )
     val state by viewModel.state.collectAsState()
     val taskGroups by viewModel.taskGroups.collectAsState()
-    var isDrawerOpen by remember { mutableStateOf(false) }
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
 
     BackHandler {
-        viewModel.closeBridge()
-        onBack()
+        if (drawerState.isOpen) {
+            scope.launch { drawerState.close() }
+        } else {
+            viewModel.closeBridge()
+            onBack()
+        }
     }
 
     val listState = rememberLazyListState()
@@ -104,18 +115,31 @@ fun SmartHomeS2sScreen(
         }
     }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
+                TaskDashboard(taskGroups = taskGroups)
+            }
+        }
+    ) {
+        Box(modifier = modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
         ) {
             // Header
-            Text(
-                text = "车载语音助手",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = { scope.launch { drawerState.open() } }) {
+                    Icon(Icons.Default.Menu, contentDescription = "任务看板")
+                }
+                Text(
+                    text = "车载语音助手",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             Spacer(Modifier.height(4.dp))
             Text(
                 text = if (state.connected) "● 聆听中" else "● 连接中...",
@@ -225,46 +249,6 @@ fun SmartHomeS2sScreen(
             }
         }
 
-        // Task Dashboard swipe strip from left
-        Box(
-            modifier = Modifier
-                .fillMaxHeight()
-                .width(60.dp)
-                .align(Alignment.CenterStart)
-                .pointerInput(Unit) {
-                    detectHorizontalDragGestures(
-                        onDragEnd = {},
-                        onHorizontalDrag = { _, dragAmount ->
-                            if (dragAmount > 20) {
-                                isDrawerOpen = true
-                            }
-                        }
-                    )
-                }
-        )
-
-        // Task Dashboard drawer overlay
-        if (isDrawerOpen) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
-                    .padding(8.dp)
-                    .pointerInput(Unit) {
-                        detectHorizontalDragGestures(
-                            onDragEnd = {
-                                isDrawerOpen = false
-                            },
-                            onHorizontalDrag = { _, dragAmount ->
-                                if (dragAmount < -10) {
-                                    isDrawerOpen = false
-                                }
-                            }
-                        )
-                    }
-            ) {
-                TaskDashboard(taskGroups = taskGroups)
-            }
         }
     }
 }
