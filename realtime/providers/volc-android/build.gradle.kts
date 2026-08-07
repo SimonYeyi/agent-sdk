@@ -22,6 +22,3 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.androidx.annotation)
 }
-
-// speechengine_tob 来自 https://artifact.bytedance.com/repository/Volcengine/,
-// 见 settings.gradle.kts 的 dependencyResolutionManagement 配置。
