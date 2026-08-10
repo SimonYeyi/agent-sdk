@@ -102,7 +102,7 @@ public class BossAgent internal constructor(
     private val pendingUserRounds: Channel<UserRound> = Channel(capacity = Channel.UNLIMITED)
 
     // ===== 报告队列 =====
-    // 结果完成时由 formatTasksResultSummary 格式化后压入,runPendingRound 消费.
+    // 结果完成时由 formatTasksResult 格式化后压入,runPendingRound 消费.
     private val pendingResultEvents: Channel<String> = Channel(capacity = Channel.UNLIMITED)
 
     /**
@@ -227,8 +227,8 @@ public class BossAgent internal constructor(
 
         // 检查 round 内所有 task 是否都 terminal
         if (roundTasks.all { it.terminal }) {
-            val summary = formatTasksResultSummary(state.roundId)
-            pendingResultEvents.trySend(summary)
+            val result = formatTasksResult(state.roundId)
+            pendingResultEvents.trySend(result)
             handlePending(postRound = false)
 
             tasksLock.withLock { roundTasks.forEach { tasks.remove(it.taskId) } }
@@ -242,7 +242,7 @@ public class BossAgent internal constructor(
      *
      * 触发源:
      * - run() 投递 user round 到 pendingUserRounds
-     * - 终态 TaskUpdate 投递 summary 到 pendingResultEvents
+     * - 终态 TaskUpdate 投递 result 到 pendingResultEvents
      */
     private suspend fun handlePending(postRound: Boolean) {
         decisionLock.withLock {
@@ -290,13 +290,13 @@ public class BossAgent internal constructor(
     // ========== 内部: 状态查询与合并 ==========
 
     /**
-     * 格式化 round 内所有 task 的 terminal event 为可读 summary.
+     * 格式化 round 内所有 task 的 terminal event 为可读 result.
      * 由 BossAgent 从 tasks.get(taskId).events 聚合,不依赖 Pasture 提供.
      *
      * @param roundId 要汇总的 round ID
-     * @return summary 字符串
+     * @return result 字符串
      */
-    private suspend fun formatTasksResultSummary(roundId: String): String = tasksLock.withLock {
+    private suspend fun formatTasksResult(roundId: String): String = tasksLock.withLock {
         val roundTasks = tasks.entries.filter { it.value.roundId == roundId }
         buildString {
             append("$beastReportMarker\n")
