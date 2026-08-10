@@ -135,14 +135,15 @@ class SubagentTest {
     // ---------- SubagentArguments ----------
 
     @Test
-    fun `arguments schema declares task property and marks it required`() {
+    fun `arguments schema declares task and context properties and marks only task required`() {
         val args = SubagentArguments()
         val parsed = Json.parseToJsonElement(args.schema) as JsonObject
         val properties = parsed["properties"] as JsonObject
         assertNotNull(properties["task"], "schema should expose task property")
+        assertNotNull(properties["context"], "schema should expose context property")
         val required = parsed["required"] as JsonArray
         val requiredKeys = required.map { it.toString().trim('"') }.toSet()
-        assertTrue(requiredKeys.contains("task"), "task must be in required list")
+        assertEquals(setOf("task"), requiredKeys)
     }
 
     @Test
@@ -198,6 +199,38 @@ class SubagentTest {
         assertTrue(
             userMessages.contains("specific task text"),
             "sub-agent must send the task as a user message; got=$userMessages"
+        )
+    }
+
+    @Test
+    fun `activate prepends context to the user message when present`() = runTest {
+        val llm = StubLlmProvider()
+        val sub = StubSubagent("coder")
+        val ctx = SubagentContext(stubAgentContext(llm))
+        sub.activate(SubagentTask("task text", context = "background info"), ctx)
+        val userMessages = llm.chatRequests.single().messages
+            .filterIsInstance<ChatMessage.User>()
+            .map { it.content }
+        assertEquals(
+            listOf("background info\n\ntask text"),
+            userMessages,
+            "context must precede task in user message",
+        )
+    }
+
+    @Test
+    fun `activate with empty context still sends task alone`() = runTest {
+        val llm = StubLlmProvider()
+        val sub = StubSubagent("coder")
+        val ctx = SubagentContext(stubAgentContext(llm))
+        sub.activate(SubagentTask("task text", context = ""), ctx)
+        val userMessages = llm.chatRequests.single().messages
+            .filterIsInstance<ChatMessage.User>()
+            .map { it.content }
+        assertEquals(
+            listOf("task text"),
+            userMessages,
+            "empty context must not inject a separator",
         )
     }
 

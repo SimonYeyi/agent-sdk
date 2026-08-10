@@ -6,7 +6,7 @@ import kotlinx.serialization.Serializable
 
 /**
  * Subagent 的 arguments 定义。
- * Schema 固定为 `{ "task": { "type": "string", "description": "..." } }`。
+ * Schema 固定为 `{ "task": ..., "context": ... }`。
  */
 internal class SubagentArguments : CapabilityArguments<SubagentTask> {
     override val schema: String = """
@@ -16,6 +16,10 @@ internal class SubagentArguments : CapabilityArguments<SubagentTask> {
                 "task": {
                     "type": "string",
                     "description": "Task description to delegate"
+                },
+                "context": {
+                    "type": "string",
+                    "description": "Optional background information for this invocation"
                 }
             },
             "required": ["task"]
@@ -28,4 +32,7 @@ internal class SubagentArguments : CapabilityArguments<SubagentTask> {
  * Task 输入类型，由 [SubagentArguments] 提供 schema 和 serializer。
  */
 @Serializable
-public data class SubagentTask(val task: String)
+public data class SubagentTask(
+    val task: String,
+    val context: String? = null,
+)

@@ -51,7 +51,12 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
             tools(resolvedTools)
         }
 
-        return sub.run(subagentTask.task).awaitResult().message.content
+        val userMessage = if (subagentTask.context.isNullOrEmpty()) {
+            subagentTask.task
+        } else {
+            "${subagentTask.context}\n\n${subagentTask.task}"
+        }
+        return sub.run(userMessage).awaitResult().message.content
             ?: throw IllegalStateException("Subagent '${name}' returned empty content")
     }
 

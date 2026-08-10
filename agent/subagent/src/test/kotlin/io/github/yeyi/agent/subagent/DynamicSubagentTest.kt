@@ -90,34 +90,31 @@ class DynamicSubagentTest {
     private fun toolCtx(ac: AgentContext): ToolContext =
         ToolContext(toolCallId = "tc-1", agentContext = ac)
 
-    @Test
-    fun `Task round-trips via JSON`() {
-        val original = DynamicSubagentTool.Task(
-            role = "You are a code reviewer",
-            context = "Review the following code",
-            tasks = listOf("review file A", "review file B"),
-            toolList = listOf("read_file"),
-        )
-        val element: JsonElement = Json.encodeToJsonElement(DynamicSubagentTool.Task.serializer(), original)
-        val restored = Json.decodeFromJsonElement(DynamicSubagentTool.Task.serializer(), element)
-        assertEquals(original, restored)
-    }
+    private fun agentJson(role: String, context: String? = null, task: String): JsonElement =
+        buildJsonObject {
+            put("role", role)
+            if (context != null) put("context", context)
+            put("task", task)
+        }
 
     @Test
-    fun `schema declares role context tasks tool_list with required role and tasks`() {
+    fun `schema declares subagents array with per-item role context task tools`() {
         val tool = DynamicSubagentTool()
         val schema = (tool.parametersSchema as ToolParameters.JsonSchema).schema
         val parsed = Json.parseToJsonElement(schema) as JsonObject
-        val properties = parsed["properties"] as JsonObject
-        assertNotNull(properties["role"])
-        assertNotNull(properties["context"])
-        assertNotNull(properties["tasks"])
-        assertNotNull(properties["tool_list"])
-        val required = (parsed["required"] as JsonArray).map { it.toString().trim('"') }.toSet()
-        assertTrue("role" in required)
-        assertTrue("tasks" in required)
-        assertTrue("context" !in required)
-        assertTrue("tool_list" !in required)
+        val topRequired = (parsed["required"] as JsonArray).map { it.toString().trim('"') }.toSet()
+        assertEquals(setOf("subagents"), topRequired)
+        val topProps = parsed["properties"] as JsonObject
+        val agents = topProps["subagents"] as JsonObject
+        assertEquals(1, (agents["minItems"] as JsonPrimitive).content.toInt())
+        val item = agents["items"] as JsonObject
+        val itemProps = item["properties"] as JsonObject
+        assertNotNull(itemProps["role"])
+        assertNotNull(itemProps["context"])
+        assertNotNull(itemProps["task"])
+        assertNotNull(itemProps["tools"])
+        val itemRequired = (item["required"] as JsonArray).map { it.toString().trim('"') }.toSet()
+        assertEquals(setOf("role", "task"), itemRequired)
     }
 
     @Test
@@ -157,8 +154,7 @@ class DynamicSubagentTest {
         val tool = DynamicSubagentTool()
         val ctx = toolCtx(stubAgentContext(StubLlmProvider()))
         val args = buildJsonObject {
-            put("role", "")
-            put("tasks", buildJsonArray { add(JsonPrimitive("t1")) })
+            put("subagents", buildJsonArray { add(agentJson(role = "", task = "t1")) })
         }
         val result = tool.execute(args, ctx)
         assertTrue(result.isError, "empty role must produce error result")
@@ -166,70 +162,69 @@ class DynamicSubagentTest {
     }
 
     @Test
-    fun `execute rejects empty tasks list`() = runTest {
+    fun `execute rejects empty agents list`() = runTest {
         val tool = DynamicSubagentTool()
         val ctx = toolCtx(stubAgentContext(StubLlmProvider()))
         val args = buildJsonObject {
-            put("role", "reviewer")
-            put("tasks", buildJsonArray { })
+            put("subagents", buildJsonArray { })
         }
         val result = tool.execute(args, ctx)
         assertTrue(result.isError)
-        assertTrue(result.content.contains("tasks"))
+        assertTrue(result.content.contains("subagents"))
     }
 
     @Test
-    fun `execute with single task invokes LLM once and returns its content`() = runTest {
+    fun `execute with single agent invokes LLM once and returns its content`() = runTest {
         val llm = StubLlmProvider(listOf(chatResponse("done")))
         val tool = DynamicSubagentTool()
         val ctx = toolCtx(stubAgentContext(llm))
         val args = buildJsonObject {
-            put("role", "reviewer")
-            put("tasks", buildJsonArray { add(JsonPrimitive("review X")) })
+            put("subagents", buildJsonArray { add(agentJson(role = "reviewer", task = "review X")) })
         }
         val result = tool.execute(args, ctx)
         assertFalse(result.isError)
-        assertEquals("[1] done", result.content)
+        assertEquals("[1] review X\ndone", result.content)
         assertEquals(1, llm.chatRequests.size)
     }
 
     @Test
-    fun `execute runs N tasks concurrently and aggregates in order`() = runTest {
+    fun `execute runs N agents concurrently and aggregates in order with task tags`() = runTest {
         val llm = StubLlmProvider(
             listOf(chatResponse("result-A"), chatResponse("result-B"), chatResponse("result-C"))
         )
         val tool = DynamicSubagentTool()
         val ctx = toolCtx(stubAgentContext(llm))
         val args = buildJsonObject {
-            put("role", "reviewer")
-            put("tasks", buildJsonArray {
-                add(JsonPrimitive("task A"))
-                add(JsonPrimitive("task B"))
-                add(JsonPrimitive("task C"))
+            put("subagents", buildJsonArray {
+                add(agentJson(role = "code", task = "task A"))
+                add(agentJson(role = "security", task = "task B"))
+                add(agentJson(role = "ux", task = "task C"))
             })
         }
         val result = tool.execute(args, ctx)
         assertFalse(result.isError)
         assertEquals(3, llm.chatRequests.size)
-        val expected = "[1] result-A\n\n[2] result-B\n\n[3] result-C"
+        val expected = "[1] task A\nresult-A\n\n[2] task B\nresult-B\n\n[3] task C\nresult-C"
         assertEquals(expected, result.content)
     }
 
     @Test
-    fun `result format uses blank line separator between tasks`() = runTest {
+    fun `result format uses blank line separator between agents`() = runTest {
         val llm = StubLlmProvider(listOf(chatResponse("x"), chatResponse("y")))
         val tool = DynamicSubagentTool()
         val ctx = toolCtx(stubAgentContext(llm))
         val args = buildJsonObject {
-            put("role", "p")
-            put("tasks", buildJsonArray { add(JsonPrimitive("a")); add(JsonPrimitive("b")) })
+            put("subagents", buildJsonArray {
+                add(agentJson(role = "a", task = "x"))
+                add(agentJson(role = "b", task = "y"))
+            })
         }
         val result = tool.execute(args, ctx)
-        assertEquals("[1] x\n\n[2] y", result.content)
+        assertEquals("[1] x\nx\n\n[2] y\ny", result.content)
     }
 
     @Test
-    fun `execute with tool_list=null inherits filtered main tools`() = runTest {
+    fun `execute with tools=null inherits filtered main tools`() = runTest {
         val keep = StubTool("read_file")
         val staticSubagent = StubTool("subagent_dispatch")
         val dynamicSelf = StubTool("dynamic_subagent")
@@ -237,9 +232,8 @@ class DynamicSubagentTest {
         val tool = DynamicSubagentTool()
         val ctx = toolCtx(stubAgentContext(llm, tools = listOf(keep, staticSubagent, dynamicSelf)))
         val args = buildJsonObject {
-            put("role", "p")
-            put("tasks", buildJsonArray { add(JsonPrimitive("t")) })
-            // tool_list omitted → null
+            put("subagents", buildJsonArray { add(agentJson(role = "p", task = "t")) })
+            // tools omitted → null
         }
         tool.execute(args, ctx)
         val visible = llm.chatRequests.single().tools.map { it.name }.toSet()
@@ -247,16 +241,20 @@ class DynamicSubagentTest {
     }
 
     @Test
-    fun `execute with tool_list of names uses exactly those tools`() = runTest {
+    fun `execute with tools list uses exactly those tools`() = runTest {
         val a = StubTool("alpha")
         val b = StubTool("beta")
         val llm = StubLlmProvider(listOf(chatResponse("ok")))
         val tool = DynamicSubagentTool()
         val ctx = toolCtx(stubAgentContext(llm, tools = listOf(a, b)))
         val args = buildJsonObject {
-            put("role", "p")
-            put("tasks", buildJsonArray { add(JsonPrimitive("t")) })
-            put("tool_list", buildJsonArray { add(JsonPrimitive("alpha")); add(JsonPrimitive("nonexistent")) })
+            put("subagents", buildJsonArray {
+                add(buildJsonObject {
+                    put("role", "p")
+                    put("task", "t")
+                    put("tools", buildJsonArray { add(JsonPrimitive("alpha")); add(JsonPrimitive("nonexistent")) })
+                })
+            })
         }
         tool.execute(args, ctx)
         val visible = llm.chatRequests.single().tools.map { it.name }.toSet()
@@ -264,28 +262,72 @@ class DynamicSubagentTest {
     }
 
     @Test
-    fun `execute with empty tool_list gives subagent no tools`() = runTest {
+    fun `execute with empty tools list gives subagent no tools`() = runTest {
         val llm = StubLlmProvider(listOf(chatResponse("ok")))
         val tool = DynamicSubagentTool()
         val ctx = toolCtx(stubAgentContext(llm, tools = listOf(StubTool("any"))))
         val args = buildJsonObject {
-            put("role", "p")
-            put("tasks", buildJsonArray { add(JsonPrimitive("t")) })
-            put("tool_list", buildJsonArray { })
+            put("subagents", buildJsonArray {
+                add(buildJsonObject {
+                    put("role", "p")
+                    put("task", "t")
+                    put("tools", buildJsonArray { })
+                })
+            })
         }
         tool.execute(args, ctx)
         val visible = llm.chatRequests.single().tools
-        assertTrue(visible.isEmpty(), "tool_list=[] must give subagent zero tools")
+        assertTrue(visible.isEmpty(), "tools=[] must give subagent zero tools")
     }
 
     @Test
-    fun `single task failure does not cancel siblings`() = runTest {
+    fun `heterogeneous agents each get their own context tools`() = runTest {
+        val llm = StubLlmProvider(listOf(chatResponse("ok-1"), chatResponse("ok-2"), chatResponse("ok-3")))
+        val readOnly = StubTool("read_file")
+        val writeFile = StubTool("write_file")
+        val tool = DynamicSubagentTool()
+        val ctx = toolCtx(stubAgentContext(llm, tools = listOf(readOnly, writeFile)))
+        val args = buildJsonObject {
+            put("subagents", buildJsonArray {
+                add(buildJsonObject {
+                    put("role", "code")
+                    put("task", "review A")
+                    put("tools", buildJsonArray { add(JsonPrimitive("read_file")) })
+                })
+                add(buildJsonObject {
+                    put("role", "writer")
+                    put("context", "needs to persist")
+                    put("task", "draft B")
+                    put("tools", buildJsonArray { add(JsonPrimitive("read_file")); add(JsonPrimitive("write_file")) })
+                })
+                add(buildJsonObject {
+                    put("role", "summarizer")
+                    put("task", "summarize C")
+                    // no tools → inherits filtered main tools
+                })
+            })
+        }
+        val result = tool.execute(args, ctx)
+        assertFalse(result.isError)
+        assertEquals(3, llm.chatRequests.size)
+        val requests = llm.chatRequests
+        assertEquals(setOf("read_file"), requests[0].tools.map { it.name }.toSet())
+        assertEquals(setOf("read_file", "write_file"), requests[1].tools.map { it.name }.toSet())
+        // summarizer inherits everything minus subagent-related → read_file + write_file
+        assertEquals(setOf("read_file", "write_file"), requests[2].tools.map { it.name }.toSet())
+        assertTrue(result.content.contains("[1] review A"))
+        assertTrue(result.content.contains("[2] draft B"))
+        assertTrue(result.content.contains("[3] summarize C"))
+    }
+
+    @Test
+    fun `single agent failure does not cancel siblings and is marked FAILED`() = runTest {
         var callCount = 0
         val llm = object : LlmProvider {
             override val name = "fail-mid"
             override suspend fun chat(request: ChatRequest): ChatResponse {
                 callCount++
-                if (callCount == 2) throw IllegalStateException("simulated task 2 failure")
+                if (callCount == 2) throw IllegalStateException("simulated agent 2 failure")
                 return chatResponse("ok-$callCount")
             }
 
@@ -295,28 +337,23 @@ class DynamicSubagentTest {
         val tool = DynamicSubagentTool()
         val ctx = toolCtx(stubAgentContext(llm))
         val args = buildJsonObject {
-            put("role", "p")
-            put("tasks", buildJsonArray {
-                add(JsonPrimitive("t1"))
-                add(JsonPrimitive("t2"))
-                add(JsonPrimitive("t3"))
+            put("subagents", buildJsonArray {
+                add(agentJson(role = "a", task = "t1"))
+                add(agentJson(role = "b", task = "t2"))
+                add(agentJson(role = "c", task = "t3"))
             })
         }
         val result = tool.execute(args, ctx)
         assertTrue(
             result.isError,
-            "tool.execute must return error when any task fails: ${result.content}"
+            "tool.execute must return error when any agent fails: ${result.content}"
         )
         val parts = result.content.split("\n\n")
         assertEquals(3, parts.size, "expected exactly 3 result parts, got: ${result.content}")
-        assertTrue(parts[0].startsWith("[1] ok-1"), "task 1 should succeed: ${parts[0]}")
-        assertTrue(parts[1].startsWith("[2] "), "task 2 should have a result prefix: ${parts[1]}")
-        assertTrue(parts[2].startsWith("[3] ok-3"), "task 3 should succeed: ${parts[2]}")
-        // task 2 should NOT be a successful LLM response (since LLM threw on call 2)
-        assertFalse(
-            parts[1].contains("ok-"),
-            "task 2 result should be error-like, not content: ${parts[1]}"
-        )
+        assertTrue(parts[0].startsWith("[1] t1\nok-1"), "agent 1 should succeed: ${parts[0]}")
+        assertTrue(parts[1].startsWith("[2] t2 — FAILED"), "agent 2 should be marked FAILED: ${parts[1]}")
+        assertTrue(parts[1].contains("simulated agent 2 failure"), "agent 2 should include error: ${parts[1]}")
+        assertTrue(parts[2].startsWith("[3] t3\nok-3"), "agent 3 should succeed: ${parts[2]}")
     }
 
     @Test
@@ -326,15 +363,14 @@ class DynamicSubagentTest {
         val tool = DynamicSubagentTool()
         val ctx = toolCtx(stubAgentContext(llm, memory = mainMemory))
         val args = buildJsonObject {
-            put("role", "p")
-            put("tasks", buildJsonArray { add(JsonPrimitive("a separate task")) })
+            put("subagents", buildJsonArray { add(agentJson(role = "p", task = "a separate task")) })
         }
         tool.execute(args, ctx)
         assertTrue(mainMemory.history().isEmpty(), "main agent memory must remain untouched")
     }
 
     @Test
-    fun `tasks run in parallel not sequentially`() = runTest {
+    fun `agents run in parallel not sequentially`() = runTest {
         val slowLlm = object : LlmProvider {
             override val name = "slow"
             override suspend fun chat(request: ChatRequest): ChatResponse {
@@ -348,11 +384,10 @@ class DynamicSubagentTest {
         val tool = DynamicSubagentTool()
         val ctx = toolCtx(stubAgentContext(slowLlm))
         val args = buildJsonObject {
-            put("role", "p")
-            put("tasks", buildJsonArray {
-                add(JsonPrimitive("a"))
-                add(JsonPrimitive("b"))
-                add(JsonPrimitive("c"))
+            put("subagents", buildJsonArray {
+                add(agentJson(role = "a", task = "a"))
+                add(agentJson(role = "b", task = "b"))
+                add(agentJson(role = "c", task = "c"))
             })
         }
         val start = currentTime
