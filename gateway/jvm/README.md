@@ -7,13 +7,13 @@ JVM 守护进程入口,加载 `:gateway:core` 并注册飞书(默认)等平台�
 
 将 `application.properties.example` 复制为 `application.properties`,按文件内注释填入:
 
-- 必填:Anthropic LLM 凭据 + 飞书 App 凭据
-- 选填:数据根目录、并发上限
+- 必填:LLM 凭据 + 飞书 App 凭据
+- 选填:provider、数据根目录、并发上限
 
 该文件已被本模块 `.gitignore` 忽略,不会进入版本控制。
 
 任意键可被同名环境变量覆盖(点号转下划线、全大写,例如
-`anthropic.api.key` ↔ `ANTHROPIC_API_KEY`)。要指定配置文件路径,设置环境变量
+`model.api.key` ↔ `MODEL_API_KEY`)。要指定配置文件路径,设置环境变量
 `GATEWAY_CONFIG=<path>`。缺失必填键时启动直接失败并打印缺失项。
 
 ## 运行

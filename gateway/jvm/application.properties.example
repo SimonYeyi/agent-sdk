@@ -1,14 +1,18 @@
 # ---------- Required ----------
-# Anthropic LLM provider credentials.
-anthropic.api.key=
-anthropic.base.url=https://api.anthropic.com
-anthropic.model=claude-sonnet-4-6
+# LLM provider credentials. provider optional value: anthropic or openai
+model.api.key=
+model.base.url=
+model.name=
 
 # Feishu open platform app credentials.
 feishu.app.id=
 feishu.app.secret=
 
 # ---------- Optional ----------
+# 'anthropic' or 'openai'. Empty -> infer from model.base.url
+# (contains 'anthropic' -> anthropic, otherwise openai).
+model.provider=
+
 # App data root. Both :gateway:core and :session.SessionRepository
 # create their own subdirs under it (gateway/sessions/ and agent/sessions/
 # respectively). Empty -> default is ${user.home}/.gateway-jvm.
@@ -21,7 +25,7 @@ gateway.max.concurrent.sessions=
 # ---------- Override behavior ----------
 # Any of the above keys may be overridden by a system environment variable
 # whose name is the uppercased, dot-replaced form, e.g.
-#   anthropic.api.key  <->  ANTHROPIC_API_KEY
-#   feishu.app.id      <->  FEISHU_APP_ID
+#   model.api.key    <->  MODEL_API_KEY
+#   feishu.app.id    <->  FEISHU_APP_ID
 # If GATEWAY_CONFIG is set, its path is used; otherwise ./application.properties.
 # Missing required keys cause the daemon to fail fast at startup.
