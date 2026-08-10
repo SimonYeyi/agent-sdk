@@ -85,13 +85,13 @@ public class BossAgent internal constructor(
     private val tasks: MutableMap<String, TaskState> = mutableMapOf()
     private val tasksLock: Mutex = Mutex()
 
-    // ===== 续轮事件流 (hot SharedFlow) =====
+    // ===== 报告事件流 (hot SharedFlow) =====
     /**
-     * 续轮事件流 (hot SharedFlow) — 任务结果触发的 round 事件都流到这里.
-     * 与 [run] 互补: `run` 是用户驱动的单次 round 流, `continuations` 是任务驱动的多 round 流.
-     * 调用方订阅一次即可收所有续轮 (UI + logger 多消费者支持).
+     * 报告事件流 (hot SharedFlow) — 任务结果触发的 round 事件都流到这里.
+     * 与 [run] 互补: `run` 是用户驱动的单次 round 流, `report` 是任务驱动的多 round 流.
+     * 调用方订阅一次即可收所有报告 (UI + logger 多消费者支持).
      */
-    public val continuations: Flow<AgentEvent> = MutableSharedFlow(
+    public val report: Flow<AgentEvent> = MutableSharedFlow(
         replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
 
@@ -101,7 +101,7 @@ public class BossAgent internal constructor(
     // Channel(UNLIMITED) 自然排队，handlePending 消费时取队首
     private val pendingUserRounds: Channel<UserRound> = Channel(capacity = Channel.UNLIMITED)
 
-    // ===== 续轮 summary 队列 =====
+    // ===== 报告队列 =====
     // 结果完成时由 formatTasksResultSummary 格式化后压入,runPendingRound 消费.
     private val pendingResultEvents: Channel<String> = Channel(capacity = Channel.UNLIMITED)
 
@@ -282,7 +282,7 @@ public class BossAgent internal constructor(
 
     private suspend fun runResultRound(result: String) {
         innerAgent.run(result).collect { e ->
-            (continuations as MutableSharedFlow).emit(e)
+            (report as MutableSharedFlow).emit(e)
         }
         handlePending(postRound = true)
     }

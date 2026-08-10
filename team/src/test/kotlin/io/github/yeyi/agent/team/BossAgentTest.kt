@@ -93,10 +93,10 @@ class BossAgentTest {
     }
 
     @Test
-    fun `continuations is a valid SharedFlow`() {
+    fun `report is a valid SharedFlow`() {
         val (boss, _) = createBossAgent()
         // Should not throw when subscribing
-        val job = GlobalScope.launch { boss.continuations.collect { } }
+        val job = GlobalScope.launch { boss.report.collect { } }
         job.cancel()
     }
 
@@ -152,7 +152,7 @@ class BossAgentTest {
     @Test
     fun `continuation flow receives events when terminal TaskUpdate arrives`() = runBlocking {
         // 构造 idle 状态 + 派一个 task + 直接 publish 终态 TaskUpdate;
-        // 验证 continuations 流收到 boss LLM 看到结果后发出的续轮 Final.
+        // 验证 report 流收到 boss LLM 看到结果后发出的续轮 Final.
         val (boss, bb) = createBossAgent()
 
         // 先 run 一轮初始化 currentRound，否则 handleTaskAssignments 会因 currentRound 未初始化而失败
@@ -175,11 +175,11 @@ class BossAgentTest {
             )
         )
 
-        // 用 launch(UNDISPATCHED) 同步挂上 boss.continuations collector —
+        // 用 launch(UNDISPATCHED) 同步挂上 boss.report collector —
         // 与 publishAndAwaitFinal 同一个套路,无需 delay 等待 subscribe 完成.
-        val continuations = mutableListOf<AgentEvent>()
+        val report = mutableListOf<AgentEvent>()
         val job = launch(start = CoroutineStart.UNDISPATCHED) {
-            boss.continuations.collect { continuations.add(it) }
+            boss.report.collect { report.add(it) }
         }
 
         bb.progressEvent(
@@ -188,12 +188,12 @@ class BossAgentTest {
 
         // 等 boss 跑完续轮
         withTimeout(5000) {
-            while (continuations.isEmpty()) delay(50)
+            while (report.isEmpty()) delay(50)
         }
         delay(100) // 确保流程完成
         job.cancel()
 
-        assertTrue(continuations.isNotEmpty(), "continuations was empty")
-        assertTrue(continuations.any { it is AgentEvent.Final })
+        assertTrue(report.isNotEmpty(), "report was empty")
+        assertTrue(report.any { it is AgentEvent.Final })
     }
 }

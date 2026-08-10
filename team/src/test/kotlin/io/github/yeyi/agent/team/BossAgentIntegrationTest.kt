@@ -117,10 +117,10 @@ class BossAgentIntegrationTest {
         val boss = BossAgent(innerAgent, "[系统汇报]", scope)
         runBlocking { boss.attach(bb) }
 
-        // 用 launch(UNDISPATCHED) 同步挂上 boss.continuations collector,无需 delay 屏障.
-        val continuations = mutableListOf<AgentEvent>()
+        // 用 launch(UNDISPATCHED) 同步挂上 boss.report collector,无需 delay 屏障.
+        val report = mutableListOf<AgentEvent>()
         val contJob = launch(start = CoroutineStart.UNDISPATCHED) {
-            boss.continuations.collect { continuations.add(it) }
+            boss.report.collect { report.add(it) }
         }
 
         // 用户输入 → boss 决策 → publish_task → 完成 round → state WAITING
@@ -128,9 +128,9 @@ class BossAgentIntegrationTest {
         assertTrue(userRoundEvents.isNotEmpty())
 
         // beast 已 publish TaskAssignment → Pasture 跑 beast → TaskUpdate(Final) 回来
-        // → handlePending 撞闲 + hasResults + !hasActive → 跑续轮 → continuations 收到
+        // → handlePending 撞闲 + hasResults + !hasActive → 跑续轮 → report 收到
         withTimeout(3000) {
-            while (continuations.isEmpty()) delay(50)
+            while (report.isEmpty()) delay(50)
         }
         // 等回 WAITING 防止 race
         withTimeout(3000) {
@@ -141,7 +141,7 @@ class BossAgentIntegrationTest {
         boss.shutdown()
 
         // 验证续轮至少含一个 Final (BEAST_FINAL 触发续轮, BOSS_CONTINUATION 发出 Final)
-        assertTrue(continuations.any { it is AgentEvent.Final }, "no Final in continuations: $continuations")
+        assertTrue(report.any { it is AgentEvent.Final }, "no Final in report: $report")
     }
 
     @Test
@@ -222,9 +222,9 @@ class BossAgentIntegrationTest {
         val boss = BossAgent(innerAgent, "[系统汇报]", scope)
         runBlocking { boss.attach(bb) }
 
-        val continuations = mutableListOf<AgentEvent>()
+        val report = mutableListOf<AgentEvent>()
         val contJob = launch(start = CoroutineStart.UNDISPATCHED) {
-            boss.continuations.collect { continuations.add(it) }
+            boss.report.collect { report.add(it) }
         }
 
         boss.run("并发派 A 和 B").toList()
@@ -232,7 +232,7 @@ class BossAgentIntegrationTest {
         // 两个并发 task 都应 Final; 续轮触发后直接 RUNNING
         // 先等续轮有内容 (state 可能在 RUNNING 中, 不能只看 WAITING)
         withTimeout(5000) {
-            while (continuations.isEmpty()) delay(50)
+            while (report.isEmpty()) delay(50)
         }
         // 再等回 WAITING 防止 race
         withTimeout(3000) {
@@ -243,6 +243,6 @@ class BossAgentIntegrationTest {
         boss.shutdown()
 
         // 续轮至少发生一次
-        assertTrue(continuations.isNotEmpty(), "no continuations: $continuations")
+        assertTrue(report.isNotEmpty(), "no report: $report")
     }
 }

@@ -26,7 +26,7 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
 
     override val replies: Flow<DelegationReply> = merge(
         runEvents,
-        boss.continuations.mapNotNull { event ->
+        boss.report.mapNotNull { event ->
             when (event) {
                 is AgentEvent.Final -> Success(event.result.message.content ?: "")
                 is AgentEvent.Failed -> Failure(event.cause.message ?: event.cause.toString())

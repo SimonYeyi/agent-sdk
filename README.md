@@ -535,7 +535,7 @@ boss.tasksState.collect { snapshot ->
 }
 
 // 3) 续轮事件:Worker 完成触发的多轮 AgentEvent(同用户轮的事件形态)
-boss.continuations.collect { event ->
+boss.report.collect { event ->
     ui.showDelegated(event)
 }
 

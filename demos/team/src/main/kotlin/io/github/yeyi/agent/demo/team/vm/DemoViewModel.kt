@@ -23,7 +23,7 @@ class DemoViewModel(
     private var bossAgent: BossAgent? = null
     private val toolCallNames = mutableMapOf<String, String>()
     private var tasksStatesJob: Job? = null
-    private var continuationsJob: Job? = null
+    private var reportJob: Job? = null
 
     private val _taskGroups = MutableStateFlow<List<TasksState>>(emptyList())
     val taskGroups: StateFlow<List<TasksState>> = _taskGroups.asStateFlow()
@@ -43,7 +43,7 @@ class DemoViewModel(
 
     private fun initializeAgent() {
         tasksStatesJob?.cancel()
-        continuationsJob?.cancel()
+        reportJob?.cancel()
 
         bossAgent = SmartHomeAgent.create(llmProvider)
 
@@ -61,9 +61,9 @@ class DemoViewModel(
             }
         }
 
-        // Collect continuation events
-        continuationsJob = viewModelScope.launch {
-            bossAgent?.continuations?.collect { event ->
+        // Collect report events
+        reportJob = viewModelScope.launch {
+            bossAgent?.report?.collect { event ->
                 when (event) {
                     is AgentEvent.ToolCallStart -> {
                         toolCallNames[event.callId] = event.toolName

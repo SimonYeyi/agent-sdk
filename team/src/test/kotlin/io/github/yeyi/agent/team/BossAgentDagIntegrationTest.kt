@@ -150,23 +150,23 @@ class BossAgentDagIntegrationTest {
             ),
         )
 
-        val continuations = mutableListOf<AgentEvent>()
+        val report = mutableListOf<AgentEvent>()
         val contJob = launch(start = CoroutineStart.UNDISPATCHED) {
-            boss.continuations.collect { continuations.add(it) }
+            boss.report.collect { report.add(it) }
         }
 
         boss.run("帮我查天气").toList()
 
         withTimeout(5000) {
-            while (continuations.isEmpty()) delay(50)
+            while (report.isEmpty()) delay(50)
         }
         delay(500) // wait for boss to settle
 
         contJob.cancel()
         boss.shutdown()
 
-        assertTrue(continuations.isNotEmpty(), "no continuations: $continuations")
-        assertTrue(continuations.any { it is AgentEvent.Final }, "no Final in continuations")
+        assertTrue(report.isNotEmpty(), "no report: $report")
+        assertTrue(report.any { it is AgentEvent.Final }, "no Final in report")
     }
 
     @Test
@@ -180,23 +180,23 @@ class BossAgentDagIntegrationTest {
             ),
         )
 
-        val continuations = mutableListOf<AgentEvent>()
+        val report = mutableListOf<AgentEvent>()
         val contJob = launch(start = CoroutineStart.UNDISPATCHED) {
-            boss.continuations.collect { continuations.add(it) }
+            boss.report.collect { report.add(it) }
         }
 
         boss.run("跑 A 和 B, B 依赖 A").toList()
 
         withTimeout(5000) {
-            while (continuations.isEmpty()) delay(50)
+            while (report.isEmpty()) delay(50)
         }
         delay(500) // wait for boss to settle
 
         contJob.cancel()
         boss.shutdown()
 
-        assertTrue(continuations.isNotEmpty(), "no continuations: $continuations")
-        assertTrue(continuations.any { it is AgentEvent.Final }, "no Final in continuations")
+        assertTrue(report.isNotEmpty(), "no report: $report")
+        assertTrue(report.any { it is AgentEvent.Final }, "no Final in report")
     }
 
     @Test
@@ -319,23 +319,23 @@ class BossAgentDagIntegrationTest {
             ),
         )
 
-        val continuations = mutableListOf<AgentEvent>()
+        val report = mutableListOf<AgentEvent>()
         val contJob = launch(start = CoroutineStart.UNDISPATCHED) {
-            boss.continuations.collect { continuations.add(it) }
+            boss.report.collect { report.add(it) }
         }
 
         boss.run("跑 diamond DAG").toList()
 
         withTimeout(5000) {
-            while (continuations.isEmpty()) delay(50)
+            while (report.isEmpty()) delay(50)
         }
         delay(500) // wait for boss to settle
 
         contJob.cancel()
         boss.shutdown()
 
-        assertTrue(continuations.isNotEmpty(), "no continuations")
-        assertTrue(continuations.any { it is AgentEvent.Final }, "no Final in continuations")
+        assertTrue(report.isNotEmpty(), "no report")
+        assertTrue(report.any { it is AgentEvent.Final }, "no Final in report")
     }
 
     @Test
@@ -394,23 +394,23 @@ class BossAgentDagIntegrationTest {
         val boss = BossAgent(innerAgent, "[系统汇报]", scope)
         runBlocking { boss.attach(bb) }
 
-        val continuations = mutableListOf<AgentEvent>()
+        val report = mutableListOf<AgentEvent>()
         val contJob = launch(start = CoroutineStart.UNDISPATCHED) {
-            boss.continuations.collect { continuations.add(it) }
+            boss.report.collect { report.add(it) }
         }
 
         boss.run("查数据").toList()
 
         withTimeout(5000) {
-            while (continuations.isEmpty()) delay(50)
+            while (report.isEmpty()) delay(50)
         }
         delay(500) // wait for boss to settle
 
         contJob.cancel()
         boss.shutdown()
 
-        assertTrue(continuations.isNotEmpty(), "no continuations")
-        assertTrue(continuations.any { it is AgentEvent.Final }, "no Final in continuations")
+        assertTrue(report.isNotEmpty(), "no report")
+        assertTrue(report.any { it is AgentEvent.Final }, "no Final in report")
 
         assertTrue(recordedInputs.isNotEmpty(), "should have recorded at least one LLM input")
         val summaryInput = recordedInputs.lastOrNull()
