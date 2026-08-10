@@ -4,9 +4,10 @@ import java.io.File
 import java.util.Properties
 
 public data class GatewayDaemonConfig(
-    val anthropicApiKey: String,
-    val anthropicBaseUrl: String,
-    val anthropicModel: String,
+    val modelApiKey: String,
+    val modelBaseUrl: String,
+    val modelName: String,
+    val modelProvider: String,
     val feishuAppId: String,
     val feishuAppSecret: String,
     val appStorageDir: String,
@@ -19,14 +20,15 @@ public data class GatewayDaemonConfig(
         private const val DEFAULT_MAX_CONCURRENT = 10
 
         private val REQUIRED_KEYS = listOf(
-            "anthropic.api.key",
-            "anthropic.base.url",
-            "anthropic.model",
+            "model.api.key",
+            "model.base.url",
+            "model.name",
             "feishu.app.id",
             "feishu.app.secret",
         )
 
         private val OPTIONAL_KEYS = listOf(
+            "model.provider",
             "gateway.app.storage.dir",
             "gateway.max.concurrent.sessions",
         )
@@ -72,9 +74,10 @@ public data class GatewayDaemonConfig(
             }
 
             return GatewayDaemonConfig(
-                anthropicApiKey = props.getProperty("anthropic.api.key").trim(),
-                anthropicBaseUrl = props.getProperty("anthropic.base.url").trim(),
-                anthropicModel = props.getProperty("anthropic.model").trim(),
+                modelApiKey = props.getProperty("model.api.key").trim(),
+                modelBaseUrl = props.getProperty("model.base.url").trim(),
+                modelName = props.getProperty("model.name").trim(),
+                modelProvider = props.getProperty("model.provider").trim(),
                 feishuAppId = props.getProperty("feishu.app.id").trim(),
                 feishuAppSecret = props.getProperty("feishu.app.secret").trim(),
                 appStorageDir = props.getProperty("gateway.app.storage.dir", DEFAULT_APP_STORAGE_DIR).ifBlank { DEFAULT_APP_STORAGE_DIR },

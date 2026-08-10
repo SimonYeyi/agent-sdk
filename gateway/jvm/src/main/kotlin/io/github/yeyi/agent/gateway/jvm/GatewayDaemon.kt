@@ -4,7 +4,9 @@ import io.gateway.engine.GatewayEngineBuilder
 import io.gateway.platform.feishu.FeishuAdapter
 import io.gateway.platform.feishu.FeishuConfig
 import io.github.yeyi.agent.agent
+import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
+import io.github.yeyi.agent.providers.openai.OpenAiProvider
 import io.github.yeyi.agent.session.SessionManager
 import io.github.yeyi.agent.hook.HookPipeline
 import kotlinx.coroutines.CoroutineScope
@@ -27,12 +29,13 @@ class GatewayDaemon(private val config: GatewayDaemonConfig) {
         if (!running.compareAndSet(false, true)) {
             throw IllegalStateException("GatewayDaemon already started")
         }
-        println("[gateway-jvm] starting with anthropic.model=${config.anthropicModel}, appStorageDir=${config.appStorageDir}")
+        println("[gateway-jvm] starting with model.name=${config.modelName}, appStorageDir=${config.appStorageDir}")
 
-        val llmProvider = AnthropicProvider(
-            apiKey = config.anthropicApiKey,
-            model = config.anthropicModel,
-            baseUrl = config.anthropicBaseUrl,
+        val llmProvider = resolveLlmProvider(
+            providerRaw = config.modelProvider,
+            apiKey = config.modelApiKey,
+            baseUrl = config.modelBaseUrl,
+            model = config.modelName,
         )
 
         val baseDir = File(config.appStorageDir).also { it.mkdirs() }
@@ -77,5 +80,39 @@ class GatewayDaemon(private val config: GatewayDaemonConfig) {
             }.join()
         }
         scope.cancel()
+    }
+}
+
+private const val PROVIDER_OPENAI = "openai"
+private const val PROVIDER_ANTHROPIC = "anthropic"
+
+private fun resolveLlmProvider(
+    providerRaw: String,
+    apiKey: String,
+    baseUrl: String,
+    model: String,
+): LlmProvider {
+    require(apiKey.isNotEmpty()) { "model.api.key is required" }
+    require(baseUrl.isNotEmpty()) { "model.base.url is required" }
+    require(model.isNotEmpty()) { "model.name is required" }
+
+    val provider = when {
+        providerRaw.isNotEmpty() -> {
+            check(providerRaw in setOf(PROVIDER_OPENAI, PROVIDER_ANTHROPIC)) {
+                "Unsupported model.provider: '$providerRaw'. " +
+                        "Use '$PROVIDER_OPENAI' or '$PROVIDER_ANTHROPIC' " +
+                        "(or leave empty to infer from model.base.url)."
+            }
+            providerRaw
+        }
+
+        baseUrl.contains(PROVIDER_ANTHROPIC, ignoreCase = true) -> PROVIDER_ANTHROPIC
+        else -> PROVIDER_OPENAI
+    }
+
+    return if (provider == PROVIDER_ANTHROPIC) {
+        AnthropicProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
+    } else {
+        OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
     }
 }
