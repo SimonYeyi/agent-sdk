@@ -65,8 +65,8 @@ class PastureDagTest {
         delay(50)
 
         bb.publishEvent(TaskAssignments(listOf(
-            TaskAssignment("a", listOf(Selection.Tool("t")), "task a", null, emptyList()),
-            TaskAssignment("b", listOf(Selection.Tool("t")), "task b", null, listOf("a")),
+            TaskAssignment("a", Selection.Tool("t"), "task a", null, emptyList()),
+            TaskAssignment("b", Selection.Tool("t"), "task b", null, listOf("a")),
         )))
 
         withTimeout(5000) { while (updates.size < 2) delay(50) }
@@ -88,10 +88,10 @@ class PastureDagTest {
         delay(50)
 
         bb.publishEvent(TaskAssignments(listOf(
-            TaskAssignment("a", listOf(Selection.Tool("t")), "task a", null, emptyList()),
-            TaskAssignment("b", listOf(Selection.Tool("t")), "task b", null, listOf("a")),
-            TaskAssignment("c", listOf(Selection.Tool("t")), "task c", null, listOf("a")),
-            TaskAssignment("d", listOf(Selection.Tool("t")), "task d", null, listOf("b", "c")),
+            TaskAssignment("a", Selection.Tool("t"), "task a", null, emptyList()),
+            TaskAssignment("b", Selection.Tool("t"), "task b", null, listOf("a")),
+            TaskAssignment("c", Selection.Tool("t"), "task c", null, listOf("a")),
+            TaskAssignment("d", Selection.Tool("t"), "task d", null, listOf("b", "c")),
         )))
 
         withTimeout(5000) { while (updates.size < 4) delay(50) }
@@ -112,8 +112,8 @@ class PastureDagTest {
         delay(50)
 
         bb.publishEvent(TaskAssignments(listOf(
-            TaskAssignment("a", listOf(Selection.Tool("t")), "task a", null, emptyList()),
-            TaskAssignment("b", listOf(Selection.Tool("t")), "task b", null, emptyList()),
+            TaskAssignment("a", Selection.Tool("t"), "task a", null, emptyList()),
+            TaskAssignment("b", Selection.Tool("t"), "task b", null, emptyList()),
         )))
 
         withTimeout(5000) { while (updates.size < 2) delay(50) }
@@ -138,7 +138,7 @@ class PastureDagTest {
         delay(50)
 
         bb.publishEvent(TaskAssignments(listOf(
-            TaskAssignment("b", listOf(Selection.Tool("t")), "task b", null, listOf("nonexistent")),
+            TaskAssignment("b", Selection.Tool("t"), "task b", null, listOf("nonexistent")),
         )))
 
         withTimeout(5000) { while (updates.size < 1) delay(50) }
@@ -160,11 +160,11 @@ class PastureDagTest {
         delay(50)
 
         bb.publishEvent(TaskAssignments(listOf(
-            TaskAssignment("a", listOf(Selection.Tool("t")), "task a", null, emptyList()),
+            TaskAssignment("a", Selection.Tool("t"), "task a", null, emptyList()),
         )))
 
         bb.publishEvent(TaskAssignments(listOf(
-            TaskAssignment("b", listOf(Selection.Tool("t")), "task b", null, listOf("a")),
+            TaskAssignment("b", Selection.Tool("t"), "task b", null, listOf("a")),
         )))
 
         withTimeout(5000) {
@@ -190,8 +190,8 @@ class PastureDagTest {
         delay(50)
 
         bb.publishEvent(TaskAssignments(listOf(
-            TaskAssignment("a", listOf(Selection.Tool("t")), "task a", null, emptyList()),
-            TaskAssignment("b", listOf(Selection.Tool("t")), "task b", null, listOf("a")),
+            TaskAssignment("a", Selection.Tool("t"), "task a", null, emptyList()),
+            TaskAssignment("b", Selection.Tool("t"), "task b", null, listOf("a")),
         )))
 
         withTimeout(5000) { while (updates.size < 2) delay(50) }
@@ -242,9 +242,9 @@ class PastureDagTest {
 
         // publish [a, b dep a, c dep b]
         bb.publishEvent(TaskAssignments(listOf(
-            TaskAssignment("a", listOf(Selection.Tool("t")), "task a", null, emptyList()),
-            TaskAssignment("b", listOf(Selection.Tool("t")), "task b", null, listOf("a")),
-            TaskAssignment("c", listOf(Selection.Tool("t")), "task c", null, listOf("b")),
+            TaskAssignment("a", Selection.Tool("t"), "task a", null, emptyList()),
+            TaskAssignment("b", Selection.Tool("t"), "task b", null, listOf("a")),
+            TaskAssignment("c", Selection.Tool("t"), "task c", null, listOf("b")),
         )))
         delay(100) // a starts running (slow LLM), b/c are PENDING
 
@@ -303,8 +303,8 @@ class PastureDagTest {
 
         // publish [a, b dep a]; b is PENDING
         bb.publishEvent(TaskAssignments(listOf(
-            TaskAssignment("a", listOf(Selection.Tool("t")), "task a", null, emptyList()),
-            TaskAssignment("b", listOf(Selection.Tool("t")), "task b", null, listOf("a")),
+            TaskAssignment("a", Selection.Tool("t"), "task a", null, emptyList()),
+            TaskAssignment("b", Selection.Tool("t"), "task b", null, listOf("a")),
         )))
         delay(100) // a starts running
 

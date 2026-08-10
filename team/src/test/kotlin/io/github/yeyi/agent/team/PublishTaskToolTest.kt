@@ -44,12 +44,10 @@ class PublishTaskToolTest {
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "my_task")
-                    putJsonArray("selections") {
-                        add(buildJsonObject {
-                            put("type", "tool")
-                            put("name", "echo")
-                        })
-                    }
+                    put("selection", buildJsonObject {
+                        put("type", "tool")
+                        put("name", "echo")
+                    })
                     put("task", "say hello")
                 })
             }
@@ -78,12 +76,10 @@ class PublishTaskToolTest {
         val args = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    putJsonArray("selections") {
-                        add(buildJsonObject {
-                            put("type", "tool")
-                            put("name", "echo")
-                        })
-                    }
+                    put("selection", buildJsonObject {
+                        put("type", "tool")
+                        put("name", "echo")
+                    })
                     put("task", "hello")
                 })
             }
@@ -102,12 +98,10 @@ class PublishTaskToolTest {
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "t1")
-                    putJsonArray("selections") {
-                        add(buildJsonObject {
+                    put("selection", buildJsonObject {
                             put("type", "unknown_type")
                             put("name", "foo")
                         })
-                    }
                     put("task", "hello")
                 })
             }
@@ -126,22 +120,18 @@ class PublishTaskToolTest {
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "t1")
-                    putJsonArray("selections") {
-                        add(buildJsonObject {
-                            put("type", "tool")
-                            put("name", "echo")
-                        })
-                    }
+                    put("selection", buildJsonObject {
+                        put("type", "tool")
+                        put("name", "echo")
+                    })
                     put("task", "task1")
                 })
                 add(buildJsonObject {
                     put("ref", "t2")
-                    putJsonArray("selections") {
-                        add(buildJsonObject {
+                    put("selection", buildJsonObject {
                             put("type", "tool")
                             put("name", "calc")
                         })
-                    }
                     put("task", "task2")
                 })
             }
@@ -159,12 +149,10 @@ class PublishTaskToolTest {
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "my_task")
-                    putJsonArray("selections") {
-                        add(buildJsonObject {
-                            put("type", "tool")
-                            put("name", "echo")
-                        })
-                    }
+                    put("selection", buildJsonObject {
+                        put("type", "tool")
+                        put("name", "echo")
+                    })
                     put("task", "hello")
                 })
             }

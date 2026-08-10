@@ -42,10 +42,9 @@ internal class PublishTaskTool(
             earlier task_ids in depends_on. For chitchat or simple questions, just respond directly without
             calling this tool.
 
-            Each task must specify a non-empty 'selections' array. Each selection is {type, name} where type is
-            $typeList. A task can carry multiple selections to combine resources
-            (e.g. one toolset + one standalone tool). At most one 'subagent' per task — multiple subagents in one
-            task are rejected.
+            Each task must specify exactly one 'selection' {type, name}. A selection represents an atomic capability —
+            pick one skill, one tool, one toolset, or one subagent per task. If you need multiple capabilities,
+            split them into separate tasks and use 'depends_on' to express dependencies between them.
 
             Capabilities available to worker (grouped by type):
         """.trimIndent())
@@ -80,19 +79,15 @@ internal class PublishTaskTool(
             if (ref.isBlank()) return ToolExecutionResult.error("'ref' must not be empty in task #$idx")
             val task = obj.str("task") ?: return ToolExecutionResult.error("Missing 'task' in task '$ref'")
             val context = obj["context"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
-            val selsArr = obj["selections"] as? JsonArray
-                ?: return ToolExecutionResult.error("Missing 'selections' in task '$ref'")
-            if (selsArr.isEmpty()) return ToolExecutionResult.error("'selections' must not be empty in task '$ref'")
-            val selections = selsArr.map { selEl ->
-                val selObj = selEl.jsonObject
-                val type = selObj.str("type") ?: return ToolExecutionResult.error("Missing 'type' in selection of task '$ref'")
-                val name = selObj.str("name") ?: return ToolExecutionResult.error("Missing 'name' in selection of task '$ref'")
-                Selection.FACTORIES[type]?.invoke(name)
-                    ?: return ToolExecutionResult.error("Unknown selection type '$type' in task '$ref'")
-            }
+            val selObj = obj["selection"] as? JsonObject
+                ?: return ToolExecutionResult.error("Missing 'selection' in task '$ref'")
+            val selType = selObj.str("type") ?: return ToolExecutionResult.error("Missing 'selection.type' in task '$ref'")
+            val selName = selObj.str("name") ?: return ToolExecutionResult.error("Missing 'selection.name' in task '$ref'")
+            val selection = Selection.FACTORIES[selType]?.invoke(selName)
+                ?: return ToolExecutionResult.error("Unknown selection type '$selType' in task '$ref'")
             val deps = (obj["depends_on"] as? JsonArray)?.map { it.jsonPrimitive.content } ?: emptyList()
             // 占位: taskId = ref (Pass 2 会 copy 成 UUID), dependsOn 暂存原始字符串列表 (Pass 2 会 copy 成 task_id 列表)
-            TaskAssignment(taskId = ref, selections = selections, task = task, context = context, dependsOn = deps)
+            TaskAssignment(taskId = ref, selection = selection, task = task, context = context, dependsOn = deps)
         }
 
         // intra-call ref 唯一性 (LLM 在同批内不能用相同 ref; 此时 taskId 还是 ref,直接 groupBy)
@@ -122,16 +117,14 @@ internal class PublishTaskTool(
 
         // === Summary: 返回 task_id 给 LLM 后续轮次引用 ===
         val summary = resolved.map { task ->
-            val selStr = task.selections.joinToString("+") { sel ->
-                val name = when (sel) {
-                    is Selection.Skill -> sel.name
-                    is Selection.Toolset -> sel.name
-                    is Selection.Tool -> sel.name
-                    is Selection.Subagent -> sel.name
-                }
-                "${sel.type}($name)"
+            val sel = task.selection
+            val name = when (sel) {
+                is Selection.Skill -> sel.name
+                is Selection.Toolset -> sel.name
+                is Selection.Tool -> sel.name
+                is Selection.Subagent -> sel.name
             }
-            "- ${task.taskId} → $selStr"
+            "- ${task.taskId} → ${sel.type}($name)"
         }
         return ToolExecutionResult("${resolved.size} task(s) published:\n${summary.joinToString("\n")}")
     }
@@ -175,24 +168,21 @@ internal class PublishTaskTool(
                         "type": "string",
                         "description": "Symbolic name you provide, unique within this publish_task call. Use it in depends_on to reference another task in the same call. Cross-call references use the task_id you receive in the previous round's summary."
                       },
-                      "selections": {
-                        "type": "array",
-                        "minItems": 1,
-                        "items": {
-                          "type": "object",
-                          "properties": {
-                            "type": {
-                              "type": "string",
-                              "enum": [$ENUM],
-                              "description": "Type of the capability to load"
-                            },
-                            "name": {
-                              "type": "string",
-                              "description": "Name of the specific capability to use"
-                            }
+                      "selection": {
+                        "type": "object",
+                        "properties": {
+                          "type": {
+                            "type": "string",
+                            "enum": [$ENUM],
+                            "description": "Type of the capability to load"
                           },
-                          "required": ["type", "name"]
-                        }
+                          "name": {
+                            "type": "string",
+                            "description": "Name of the specific capability to use"
+                          }
+                        },
+                        "required": ["type", "name"],
+                        "additionalProperties": false
                       },
                       "task": {
                         "type": "string",
@@ -208,7 +198,7 @@ internal class PublishTaskTool(
                         "description": "Optional list of references. Each entry is either a `ref` from this same call or a `task_id` from a previously published task. Empty/missing = no dependencies, dispatched immediately."
                       }
                     },
-                    "required": ["ref", "selections", "task"]
+                    "required": ["ref", "selection", "task"]
                   }
                 }
               },

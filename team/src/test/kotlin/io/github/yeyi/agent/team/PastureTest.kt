@@ -66,11 +66,11 @@ private suspend fun awaitFinalUpdate(bb: BulletinBoard, timeoutMs: Long = 5000):
 private suspend fun publishAndAwaitFinal(
     bb: BulletinBoard,
     taskId: String,
-    selections: List<Selection>,
+    selection: Selection,
     task: String,
 ): TaskUpdate = coroutineScope {
     val deferred = async(start = CoroutineStart.UNDISPATCHED) { awaitFinalUpdate(bb) }
-    bb.publishEvent(TaskAssignments(listOf(TaskAssignment(taskId, selections, task, null, emptyList()))))
+    bb.publishEvent(TaskAssignments(listOf(TaskAssignment(taskId, selection, task, null, emptyList()))))
     deferred.await()
 }
 
@@ -111,9 +111,9 @@ class PastureTest {
     }
 
     @Test
-    fun `empty selections falls back to Ox and still completes`() {
+    fun `empty selection falls back to Ox and still completes`() {
         runPastureTest { bb ->
-            val update = publishAndAwaitFinal(bb, "t1", emptyList(), "noop")
+            val update = publishAndAwaitFinal(bb, "t1", Selection.Tool(""), "noop")
             assertTrue(update.event is AgentEvent.Final, "expected Final, got: ${update.event}")
         }
     }
@@ -121,7 +121,7 @@ class PastureTest {
     @Test
     fun `Subagent selection falls back to Ox`() {
         runPastureTest { bb ->
-            val update = publishAndAwaitFinal(bb, "t1", listOf(Selection.Subagent("foo")), "task")
+            val update = publishAndAwaitFinal(bb, "t1", Selection.Subagent("foo"), "task")
             assertTrue(update.event is AgentEvent.Final, "expected Final, got: ${update.event}")
         }
     }
@@ -130,7 +130,7 @@ class PastureTest {
     fun `tool not found falls back to Ox`() {
         val toolReg = ToolRegistry().apply { register(EchoTool) }
         runPastureTest(toolReg = toolReg) { bb ->
-            val update = publishAndAwaitFinal(bb, "t1", listOf(Selection.Tool("nonexistent")), "task")
+            val update = publishAndAwaitFinal(bb, "t1", Selection.Tool("nonexistent"), "task")
             // 退 Ox — Ox 持 toolReg 但没有 "nonexistent", 仍能跑 (FakeLlm 返回 Final)
             assertTrue(update.event is AgentEvent.Final, "expected Final, got: ${update.event}")
         }
@@ -142,7 +142,7 @@ class PastureTest {
             register(Toolset("real", "real").apply { add(ToolSetTool) })
         }
         runPastureTest(toolsetReg = toolsetReg) { bb ->
-            val update = publishAndAwaitFinal(bb, "t1", listOf(Selection.Toolset("missing")), "task")
+            val update = publishAndAwaitFinal(bb, "t1", Selection.Toolset("missing"), "task")
             assertTrue(update.event is AgentEvent.Final, "expected Final, got: ${update.event}")
         }
     }
@@ -151,7 +151,7 @@ class PastureTest {
     fun `tool selection assembles Horse and runs to Final`() {
         val toolReg = ToolRegistry().apply { register(EchoTool) }
         runPastureTest(toolReg = toolReg) { bb ->
-            val update = publishAndAwaitFinal(bb, "t1", listOf(Selection.Tool("echo")), "task")
+            val update = publishAndAwaitFinal(bb, "t1", Selection.Tool("echo"), "task")
             assertTrue(update.event is AgentEvent.Final, "expected Final, got: ${update.event}")
         }
     }
@@ -162,24 +162,7 @@ class PastureTest {
             register(Toolset("ts1", "ts1").apply { add(ToolSetTool) })
         }
         runPastureTest(toolsetReg = toolsetReg) { bb ->
-            val update = publishAndAwaitFinal(bb, "t1", listOf(Selection.Toolset("ts1")), "task")
-            assertTrue(update.event is AgentEvent.Final, "expected Final, got: ${update.event}")
-        }
-    }
-
-    @Test
-    fun `multi-selection (toolset + tool) assembles Horse with combined tools`() {
-        val toolsetReg = ToolsetRegistry().apply {
-            register(Toolset("ts1", "ts1").apply { add(ToolSetTool) })
-        }
-        val toolReg = ToolRegistry().apply { register(EchoTool) }
-        runPastureTest(toolReg = toolReg, toolsetReg = toolsetReg) { bb ->
-            val update = publishAndAwaitFinal(
-                bb,
-                "t1",
-                listOf(Selection.Toolset("ts1"), Selection.Tool("echo")),
-                "task",
-            )
+            val update = publishAndAwaitFinal(bb, "t1", Selection.Toolset("ts1"), "task")
             assertTrue(update.event is AgentEvent.Final, "expected Final, got: ${update.event}")
         }
     }
@@ -195,7 +178,7 @@ class PastureTest {
             })
         }
         runPastureTest(skillReg = skillReg) { bb ->
-            val update = publishAndAwaitFinal(bb, "t1", listOf(Selection.Skill("loader_skill")), "task")
+            val update = publishAndAwaitFinal(bb, "t1", Selection.Skill("loader_skill"), "task")
             assertTrue(update.event is AgentEvent.Final, "expected Final, got: ${update.event}")
         }
     }
@@ -215,11 +198,11 @@ class PastureTest {
             llmResponses = listOf(PASTURE_FINAL, PASTURE_FINAL),
         ) { bb ->
             // 先 Tool("echo") path — 应走 Horse (有 echo tool).
-            val u1 = publishAndAwaitFinal(bb, "t1", listOf(Selection.Tool("echo")), "a")
+            val u1 = publishAndAwaitFinal(bb, "t1", Selection.Tool("echo"), "a")
             assertTrue(u1.event is AgentEvent.Final, "Tool route failed: ${u1.event}")
 
             // 再 Toolset("echo") path — 应走 Horse (有 toolset.echo).
-            val u2 = publishAndAwaitFinal(bb, "t2", listOf(Selection.Toolset("echo")), "b")
+            val u2 = publishAndAwaitFinal(bb, "t2", Selection.Toolset("echo"), "b")
             assertTrue(u2.event is AgentEvent.Final, "Toolset route failed: ${u2.event}")
 
             // 两条 route 都 Final, 验证不互冲.
@@ -252,7 +235,7 @@ class PastureCancellationTest {
     @Test
     fun `cancel of completed task is silent (idempotent)`() = runBlocking {
         val (bb, _, _) = setupPasture()
-        val update = publishAndAwaitFinal(bb, "t1", listOf(Selection.Tool("foo")), "task")
+        val update = publishAndAwaitFinal(bb, "t1", Selection.Tool("foo"), "task")
         assertTrue(update.event is AgentEvent.Final, "expected Final, got: ${update.event}")
 
         // 已完成的任务应从 runningJobs 被清掉 — 取消应是静默 no-op
@@ -273,7 +256,7 @@ class PastureCancellationTest {
     @Test
     fun `multiple cancels for same task are all silent`() = runBlocking {
         val (bb, _, _) = setupPasture()
-        val update = publishAndAwaitFinal(bb, "t1", listOf(Selection.Tool("foo")), "task")
+        val update = publishAndAwaitFinal(bb, "t1", Selection.Tool("foo"), "task")
         assertTrue(update.event is AgentEvent.Final, "expected Final, got: ${update.event}")
 
         repeat(5) { bb.publishEvent(Cancellation("t1")) }
@@ -318,7 +301,7 @@ class PastureCancellationTest {
                 .filterIsInstance<TaskUpdate>()
                 .first { it.event is AgentEvent.Failed }
         }
-        bb.publishEvent(TaskAssignments(listOf(TaskAssignment("t1", listOf(Selection.Tool("foo")), "long task", null, emptyList()))))
+        bb.publishEvent(TaskAssignments(listOf(TaskAssignment("t1", Selection.Tool("foo"), "long task", null, emptyList()))))
         delay(100)  // 让 Pasture collect 协程消费 TaskAssignment, 把 beast job 注册到 runningJobs — handleCancellation 依赖这个, 否则 cancel 是 no-op
 
         bb.publishEvent(Cancellation("t1"))

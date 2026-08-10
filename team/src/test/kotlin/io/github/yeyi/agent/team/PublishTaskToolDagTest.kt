@@ -52,16 +52,12 @@ class PublishTaskToolDagTest {
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "lookup")
-                    putJsonArray("selections") {
-                        add(buildJsonObject { put("type", "tool"); put("name", "echo") })
-                    }
+                    put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") })
                     put("task", "lookup data")
                 })
                 add(buildJsonObject {
                     put("ref", "summary")
-                    putJsonArray("selections") {
-                        add(buildJsonObject { put("type", "tool"); put("name", "echo") })
-                    }
+                    put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") })
                     put("task", "summarize")
                     putJsonArray("depends_on") { add(JsonPrimitive("lookup")) }
                 })
@@ -100,10 +96,10 @@ class PublishTaskToolDagTest {
         val args = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "a"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "A")
+                    put("ref", "a"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
                 })
                 add(buildJsonObject {
-                    put("ref", "b"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "B")
+                    put("ref", "b"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "B")
                 })
             }
         }
@@ -129,11 +125,11 @@ class PublishTaskToolDagTest {
         val args = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "a"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "A")
+                    put("ref", "a"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
                     putJsonArray("depends_on") { add(JsonPrimitive("b")) }
                 })
                 add(buildJsonObject {
-                    put("ref", "b"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "B")
+                    put("ref", "b"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "B")
                     putJsonArray("depends_on") { add(JsonPrimitive("a")) }
                 })
             }
@@ -151,7 +147,7 @@ class PublishTaskToolDagTest {
         val args = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "a"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "A")
+                    put("ref", "a"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
                     putJsonArray("depends_on") { add(JsonPrimitive("a")) }
                 })
             }
@@ -169,7 +165,7 @@ class PublishTaskToolDagTest {
         val args = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "a"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "A")
+                    put("ref", "a"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
                     putJsonArray("depends_on") { add(JsonPrimitive("nonexistent")) }
                 })
             }
@@ -187,10 +183,10 @@ class PublishTaskToolDagTest {
         val args = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "dup"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "A")
+                    put("ref", "dup"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
                 })
                 add(buildJsonObject {
-                    put("ref", "dup"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "B")
+                    put("ref", "dup"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "B")
                 })
             }
         }
@@ -209,7 +205,7 @@ class PublishTaskToolDagTest {
         val firstArgs = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "x"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "X")
+                    put("ref", "x"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "X")
                 })
             }
         }
@@ -221,7 +217,7 @@ class PublishTaskToolDagTest {
         val secondArgs = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "a"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "A")
+                    put("ref", "a"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
                     putJsonArray("depends_on") { add(JsonPrimitive(xTaskId)) }
                 })
             }
@@ -264,7 +260,7 @@ class PublishTaskToolDagTest {
         val preArgs = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "x"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "X")
+                    put("ref", "x"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "X")
                 })
             }
         }
@@ -276,12 +272,12 @@ class PublishTaskToolDagTest {
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "x_inline")
-                    putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }
+                    put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") })
                     put("task", "inline")
                 })
                 add(buildJsonObject {
                     put("ref", "a")
-                    putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }
+                    put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") })
                     put("task", "A")
                     putJsonArray("depends_on") { add(JsonPrimitive("x_inline")); add(JsonPrimitive(xTaskId)) }
                 })
@@ -300,7 +296,7 @@ class PublishTaskToolDagTest {
         val args = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "a"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "A")
+                    put("ref", "a"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
                     putJsonArray("depends_on") { }
                 })
             }
@@ -326,7 +322,7 @@ class PublishTaskToolDagTest {
         val args = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "t1"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "T1")
+                    put("ref", "t1"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "T1")
                 })
             }
         }
@@ -349,7 +345,7 @@ class PublishTaskToolDagTest {
         val args = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "t1"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "T1")
+                    put("ref", "t1"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "T1")
                 })
             }
         }
@@ -375,7 +371,7 @@ class PublishTaskToolDagTest {
         val okArgs = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "ok"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "OK")
+                    put("ref", "ok"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "OK")
                 })
             }
         }
@@ -386,7 +382,7 @@ class PublishTaskToolDagTest {
         val refOk = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "dep"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "Dep")
+                    put("ref", "dep"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "Dep")
                     putJsonArray("depends_on") { add(JsonPrimitive(okTaskId)) }
                 })
             }
@@ -397,7 +393,7 @@ class PublishTaskToolDagTest {
         val failArgs = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "a"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "A")
+                    put("ref", "a"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
                     putJsonArray("depends_on") { add(JsonPrimitive("a")) }
                 })
             }
@@ -412,7 +408,7 @@ class PublishTaskToolDagTest {
         val refDep2 = buildJsonObject {
             putJsonArray("tasks") {
                 add(buildJsonObject {
-                    put("ref", "dep2"); putJsonArray("selections") { add(buildJsonObject { put("type", "tool"); put("name", "echo") }) }; put("task", "Dep2")
+                    put("ref", "dep2"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "Dep2")
                     putJsonArray("depends_on") { add(JsonPrimitive(okTaskId)) }
                 })
             }

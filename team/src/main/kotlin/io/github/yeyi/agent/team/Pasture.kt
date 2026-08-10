@@ -156,7 +156,7 @@ internal class Pasture(
 
         // 2) assemble beast (可能 IO 耗时, 放 Dispatchers.IO)
         val beast: Beast =
-            withContext(Dispatchers.IO) { assembler.assemble(node.assignment.selections) }
+            withContext(Dispatchers.IO) { assembler.assemble(node.assignment.selection) }
 
         // 3) launch job
         val job = scope.launch {

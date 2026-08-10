@@ -55,9 +55,7 @@ class BossAgentDagIntegrationTest {
         val taskJson = refsAndDeps.map { (ref, deps) ->
             buildJsonObject {
                 put("ref", ref)
-                putJsonArray("selections") {
-                    add(buildJsonObject { put("type", "tool"); put("name", "echo") })
-                }
+                put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") })
                 put("task", "task $ref")
                 if (deps.isNotEmpty()) {
                     putJsonArray("depends_on") { deps.forEach { add(JsonPrimitive(it)) } }
@@ -223,7 +221,7 @@ class BossAgentDagIntegrationTest {
 
         // Round 1: publish task "a"
         bb.publishEvent(TaskAssignments(listOf(
-            TaskAssignment("a_id", listOf(Selection.Tool("echo")), "task a", null, emptyList()),
+            TaskAssignment("a_id", Selection.Tool("echo"), "task a", null, emptyList()),
         )))
         delay(200)
 
@@ -234,7 +232,7 @@ class BossAgentDagIntegrationTest {
 
         // Round 2: publish task "b" depends_on "a_id" (cross-round ref)
         bb.publishEvent(TaskAssignments(listOf(
-            TaskAssignment("b_id", listOf(Selection.Tool("echo")), "task b", null, listOf("a_id")),
+            TaskAssignment("b_id", Selection.Tool("echo"), "task b", null, listOf("a_id")),
         )))
         delay(200)
 
@@ -285,9 +283,9 @@ class BossAgentDagIntegrationTest {
         delay(50)
 
         bb.publishEvent(TaskAssignments(listOf(
-            TaskAssignment("a", listOf(Selection.Tool("echo")), "task a", null, emptyList()),
-            TaskAssignment("b", listOf(Selection.Tool("echo")), "task b", null, listOf("a")),
-            TaskAssignment("c", listOf(Selection.Tool("echo")), "task c", null, listOf("b")),
+            TaskAssignment("a", Selection.Tool("echo"), "task a", null, emptyList()),
+            TaskAssignment("b", Selection.Tool("echo"), "task b", null, listOf("a")),
+            TaskAssignment("c", Selection.Tool("echo"), "task c", null, listOf("b")),
         )))
 
         withTimeout(5000) {

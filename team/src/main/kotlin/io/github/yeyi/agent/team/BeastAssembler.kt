@@ -18,55 +18,47 @@ internal class BeastAssembler(
     private val maxIterations: Int,
     private val maxRounds: Int,
 ) {
-    suspend fun assemble(selections: List<Selection>): Beast {
+    suspend fun assemble(selection: Selection): Beast {
         return try {
-            assembleHorse(selections)
+            assembleHorse(selection)
         } catch (_: IllegalStateException) {
             buildOx()
         }
     }
 
-    private suspend fun assembleHorse(selections: List<Selection>): Horse {
-        if (selections.isEmpty()) error("assembleHorse: selections is empty")
-
-        selections.filterIsInstance<Selection.Subagent>().takeIf { it.size > 1 }?.let {
-            error("assembleHorse: at most one subagent per task, got ${it.size}")
-        }
-
+    private suspend fun assembleHorse(selection: Selection): Horse {
         val skillTexts = mutableListOf<String>()
         val tools = mutableListOf<Tool>()
 
-        for (s in selections) {
-            when (s) {
-                is Selection.Tool -> {
-                    val tool = toolRegistry?.all()?.firstOrNull { it.name == s.name }
-                        ?: error("assembleHorse: tool not found: ${s.name}")
-                    tools += tool
-                }
+        when (selection) {
+            is Selection.Tool -> {
+                val tool = toolRegistry?.all()?.firstOrNull { it.name == selection.name }
+                    ?: error("assembleHorse: tool not found: ${selection.name}")
+                tools += tool
+            }
 
-                is Selection.Toolset -> {
-                    val toolset = toolsetRegistry?.all()?.firstOrNull { it.name == s.name }
-                        ?: error("assembleHorse: toolset not found: ${s.name}")
-                    tools += toolset.all()
-                }
+            is Selection.Toolset -> {
+                val toolset = toolsetRegistry?.all()?.firstOrNull { it.name == selection.name }
+                    ?: error("assembleHorse: toolset not found: ${selection.name}")
+                tools += toolset.all()
+            }
 
-                is Selection.Skill -> {
-                    val skill = skillRegistry?.all()?.firstOrNull { it.name == s.name }
-                        ?: error("assembleHorse: skill not found: ${s.name}")
-                    if (!skill.standalone) error("assembleHorse: skill '${skill.name}' is not standalone")
-                    val text = skill.load()
-                    skillTexts += text
-                    tools += extractTools(text)
-                }
+            is Selection.Skill -> {
+                val skill = skillRegistry?.all()?.firstOrNull { it.name == selection.name }
+                    ?: error("assembleHorse: skill not found: ${selection.name}")
+                if (!skill.standalone) error("assembleHorse: skill '${skill.name}' is not standalone")
+                val text = skill.load()
+                skillTexts += text
+                tools += extractTools(text)
+            }
 
-                is Selection.Subagent -> {
-                    val subagent = subagentRegistry?.all()?.firstOrNull { it.name == s.name }
-                        ?: error("assembleHorse: subagent not found: ${s.name}")
-                    if (subagent.tools == null) {
-                        error("assembleHorse: subagent '${s.name}' requires global tools")
-                    } else {
-                        tools += subagent.tools!!
-                    }
+            is Selection.Subagent -> {
+                val subagent = subagentRegistry?.all()?.firstOrNull { it.name == selection.name }
+                    ?: error("assembleHorse: subagent not found: ${selection.name}")
+                if (subagent.tools == null) {
+                    error("assembleHorse: subagent '${selection.name}' requires global tools")
+                } else {
+                    tools += subagent.tools!!
                 }
             }
         }

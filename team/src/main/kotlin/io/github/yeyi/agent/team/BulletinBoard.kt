@@ -18,7 +18,7 @@ internal sealed interface ProgressEvent : BulletinEvent
 
 internal data class TaskAssignment(
     internal val taskId: String,
-    internal val selections: List<Selection>,
+    internal val selection: Selection,
     internal val task: String,
     internal val context: String? = null,
     internal val dependsOn: List<String> = emptyList(),

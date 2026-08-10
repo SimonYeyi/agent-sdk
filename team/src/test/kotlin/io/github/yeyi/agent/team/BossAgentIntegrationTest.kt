@@ -42,12 +42,10 @@ class BossAgentIntegrationTest {
                         putJsonArray("tasks") {
                             add(buildJsonObject {
                                 put("ref", "hello_task")
-                                putJsonArray("selections") {
-                                    add(buildJsonObject {
-                                        put("type", "tool")
-                                        put("name", "echo")
-                                    })
-                                }
+                                put("selection", buildJsonObject {
+                                    put("type", "tool")
+                                    put("name", "echo")
+                                })
                                 put("task", "say hello")
                             })
                         }
@@ -180,22 +178,18 @@ class BossAgentIntegrationTest {
                             putJsonArray("tasks") {
                                 add(buildJsonObject {
                                     put("ref", "task_a")
-                                    putJsonArray("selections") {
-                                        add(buildJsonObject {
-                                            put("type", "tool")
-                                            put("name", "echo")
-                                        })
-                                    }
+                                    put("selection", buildJsonObject {
+                                        put("type", "tool")
+                                        put("name", "echo")
+                                    })
                                     put("task", "A")
                                 })
                                 add(buildJsonObject {
                                     put("ref", "task_b")
-                                    putJsonArray("selections") {
-                                        add(buildJsonObject {
-                                            put("type", "tool")
-                                            put("name", "echo")
-                                        })
-                                    }
+                                    put("selection", buildJsonObject {
+                                        put("type", "tool")
+                                        put("name", "echo")
+                                    })
                                     put("task", "B")
                                 })
                             }

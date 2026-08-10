@@ -166,7 +166,7 @@ class BossAgentTest {
                 listOf(
                     TaskAssignment(
                         taskId = taskId,
-                        selections = listOf(Selection.Tool("dummy")),
+                        selection = Selection.Tool("dummy"),
                         task = "do something",
                         context = null,
                         dependsOn = emptyList(),
