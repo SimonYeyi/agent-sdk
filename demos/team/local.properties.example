@@ -4,5 +4,5 @@
 #MODEL_API_KEY=
 #MODEL_NAME=
 
-// 火山引擎 s2s，旧的鉴权方式可通过冒号拼接（appId:accessToken）
+# 火山引擎 s2s，旧的鉴权方式可通过冒号拼接（appId:accessToken）
 #VOLC_API_KEY=

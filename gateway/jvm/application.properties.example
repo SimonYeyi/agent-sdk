@@ -9,7 +9,7 @@ feishu.app.id=
 feishu.app.secret=
 
 # ---------- Optional ----------
-# App data root. Both :gateway:engine and :session.SessionRepository
+# App data root. Both :gateway:core and :session.SessionRepository
 # create their own subdirs under it (gateway/sessions/ and agent/sessions/
 # respectively). Empty -> default is ${user.home}/.gateway-jvm.
 gateway.app.storage.dir=
