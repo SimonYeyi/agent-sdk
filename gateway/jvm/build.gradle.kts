@@ -18,6 +18,7 @@ dependencies {
     implementation(project(":gateway:core"))
     implementation(project(":gateway:platforms:feishu"))
     implementation(project(":agent:providers:anthropic"))
+    implementation(project(":agent:providers:openai"))
     implementation(project(":agent:session"))
     implementation(project(":agent:core"))
     implementation(project(":agent:hook"))

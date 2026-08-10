@@ -22,9 +22,10 @@ android {
             if (f.exists()) f.inputStream().use { load(it) }
         }
         fun raw(key: String) = localProps.getProperty(key).orEmpty()
-        buildConfigField("String", "ANTHROPIC_API_KEY", "\"${raw("ANTHROPIC_API_KEY")}\"")
-        buildConfigField("String", "ANTHROPIC_BASE_URL", "\"${raw("ANTHROPIC_BASE_URL")}\"")
-        buildConfigField("String", "ANTHROPIC_MODEL", "\"${raw("ANTHROPIC_MODEL")}\"")
+        buildConfigField("String", "MODEL_PROVIDER", "\"${raw("MODEL_PROVIDER")}\"")
+        buildConfigField("String", "MODEL_BASE_URL", "\"${raw("MODEL_BASE_URL")}\"")
+        buildConfigField("String", "MODEL_API_KEY", "\"${raw("MODEL_API_KEY")}\"")
+        buildConfigField("String", "MODEL_NAME", "\"${raw("MODEL_NAME")}\"")
         buildConfigField("String", "FEISHU_APP_ID", "\"${raw("FEISHU_APP_ID")}\"")
         buildConfigField("String", "FEISHU_APP_SECRET", "\"${raw("FEISHU_APP_SECRET")}\"")
     }
@@ -65,6 +66,7 @@ dependencies {
     implementation(project(":agent:session"))
     implementation(project(":gateway:core"))
     implementation(project(":agent:providers:anthropic"))
+    implementation(project(":agent:providers:openai"))
     implementation(project(":gateway:platforms:feishu"))
 
     implementation(libs.kotlinx.coroutines.core)
