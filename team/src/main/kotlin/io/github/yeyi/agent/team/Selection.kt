@@ -2,20 +2,21 @@ package io.github.yeyi.agent.team
 
 internal sealed interface Selection {
     val type: String
+    val name: String
 
-    data class Skill(val name: String) : Selection {
+    data class Skill(override val name: String) : Selection {
         override val type: String get() = TYPE
         companion object { const val TYPE: String = "skill" }
     }
-    data class Toolset(val name: String) : Selection {
+    data class Toolset(override val name: String) : Selection {
         override val type: String get() = TYPE
         companion object { const val TYPE: String = "toolset" }
     }
-    data class Subagent(val name: String) : Selection {
+    data class Subagent(override val name: String) : Selection {
         override val type: String get() = TYPE
         companion object { const val TYPE: String = "subagent" }
     }
-    data class Tool(val name: String) : Selection {
+    data class Tool(override val name: String) : Selection {
         override val type: String get() = TYPE
         companion object { const val TYPE: String = "tool" }
     }
