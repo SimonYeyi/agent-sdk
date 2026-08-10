@@ -27,7 +27,7 @@ internal class BeastAssembler(
     }
 
     private suspend fun assembleHorse(selection: Selection): Horse {
-        val skillTexts = mutableListOf<String>()
+        var skillText: String? = null
         val tools = mutableListOf<Tool>()
 
         when (selection) {
@@ -47,9 +47,8 @@ internal class BeastAssembler(
                 val skill = skillRegistry?.all()?.firstOrNull { it.name == selection.name }
                     ?: error("assembleHorse: skill not found: ${selection.name}")
                 if (!skill.standalone) error("assembleHorse: skill '${skill.name}' is not standalone")
-                val text = skill.load()
-                skillTexts += text
-                tools += extractTools(text)
+                skillText = skill.load()
+                tools += extractTools(skillText)
             }
 
             is Selection.Subagent -> {
@@ -66,7 +65,7 @@ internal class BeastAssembler(
         val persona = Persona(
             buildString {
                 append(baseRole)
-                skillTexts.forEach { append("\n\n").append(it) }
+                skillText?.let { append("\n\n").append(it) }
             }
         )
 
