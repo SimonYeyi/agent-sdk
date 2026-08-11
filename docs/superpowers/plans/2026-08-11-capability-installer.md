@@ -1,17 +1,17 @@
-# Capability Factory Implementation Plan
+# Capability Installer Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add `CapabilityFactory` abstract class as module implementer contract; reorder `CapabilityRegistry` / `CapabilityAdapter` / `DefaultCapabilityRegistry` generics to `<C, T, Ctx>` for consistency; migrate Subagent / Skill / Toolset to use the new factory.
+**Goal:** Add `CapabilityInstaller` abstract class as module implementer contract; reorder `CapabilityRegistry` / `CapabilityAdapter` / `DefaultCapabilityRegistry` generics to `<C, T, Ctx>` for consistency; migrate Subagent / Skill / Toolset to use the new installer.
 
-**Architecture:** Single abstract class `CapabilityFactory<C, T, Ctx>` exposes abstract `registry()` / `contextFactory()` / `arguments()` and open `installOn(builder, mode)` which delegates to `CapabilityAdapter.of(...)` + iterates `auxiliaryTools()`. Each capability module gets an `internal` factory subclass; existing `AgentBuilder.xxxs(registry, mode)` ext fns become one-line delegations.
+**Architecture:** Single abstract class `CapabilityInstaller<C, T, Ctx>` exposes abstract `registry()` / `contextFactory()` / `arguments()` and open `installOn(builder, mode)` which delegates to `CapabilityAdapter.of(...)` + iterates `auxiliaryTools()`. Each capability module gets an `internal` installer subclass; existing `AgentBuilder.xxxs(registry, mode)` ext fns become one-line delegations.
 
 **Tech Stack:** Kotlin 2.x, kotlinx-serialization (existing), existing test framework (kotlin-test).
 
 ## Global Constraints
 
 - All changes must preserve current public API surface (registry classes stay public; ext fn signatures unchanged). Only generic argument positions change in existing types.
-- Factory classes (`SubagentFactory` / `SkillFactory` / `ToolsetFactory`) are `internal` — module authors use the abstract class externally; module consumers keep using ext fns.
+- Installer classes (`SubagentInstaller` / `SkillInstaller` / `ToolsetInstaller`) are `internal` — module authors use the abstract class externally; module consumers keep using ext fns.
 - `installOn(builder, enableDelegateAdaptMode)` is `open` (Toolset overrides for try-catch wrapping).
 - Commit messages follow `<type>(<module>): <subject>`; types: `feat` / `refactor` / `test` / `docs`. Only commit, do not push.
 
@@ -21,23 +21,23 @@
 
 | File | Status | Purpose |
 |---|---|---|
-| `agent/capability/.../CapabilityFactory.kt` | **NEW** | Abstract class + default `installOn` |
+| `agent/capability/.../CapabilityInstaller.kt` | **NEW** | Abstract class + default `installOn` |
 | `agent/capability/.../CapabilityRegistry.kt` | modify | Reorder generics `<Ctx, C, T>` → `<C, T, Ctx>` |
 | `agent/capability/.../CapabilityAdapter.kt` | modify | Reorder generics on abstract class + 2 private impls + companion `of()` |
 | `agent/capability/.../CapabilityLoadTool.kt` | modify | Reorder generics + registry field type |
 | `agent/subagent/.../SubagentRegistry.kt` | modify | Update `by` delegation generic args |
-| `agent/subagent/.../SubagentExtensions.kt` | modify | Rewrite to delegate to factory |
-| `agent/subagent/.../SubagentFactory.kt` | **NEW** | `internal class` extending `CapabilityFactory` |
+| `agent/subagent/.../SubagentExtensions.kt` | modify | Rewrite to delegate to installer |
+| `agent/subagent/.../SubagentInstaller.kt` | **NEW** | `internal class` extending `CapabilityInstaller` |
 | `agent/skill/.../SkillRegistry.kt` | modify | Update `by` delegation generic args |
-| `agent/skill/.../SkillExtensions.kt` | modify | Rewrite to delegate to factory |
-| `agent/skill/.../SkillFactory.kt` | **NEW** | `internal class` extending `CapabilityFactory` |
+| `agent/skill/.../SkillExtensions.kt` | modify | Rewrite to delegate to installer |
+| `agent/skill/.../SkillInstaller.kt` | **NEW** | `internal class` extending `CapabilityInstaller` |
 | `agent/toolset/.../ToolsetRegistry.kt` | modify | Update `by` delegation generic args |
-| `agent/toolset/.../ToolsetExtensions.kt` | modify | Rewrite to delegate to factory |
-| `agent/toolset/.../ToolsetFactory.kt` | **NEW** | `internal class` extending `CapabilityFactory`, override `installOn` for try-catch |
-| `agent/capability/.../CapabilityFactoryTest.kt` | **NEW** | Default installOn behavior tests |
-| `agent/subagent/.../SubagentFactoryTest.kt` | **NEW** | Subagent factory wiring tests |
-| `agent/skill/.../SkillFactoryTest.kt` | **NEW** | Skill factory wiring tests |
-| `agent/toolset/.../ToolsetFactoryTest.kt` | **NEW** | Toolset factory wiring tests |
+| `agent/toolset/.../ToolsetExtensions.kt` | modify | Rewrite to delegate to installer |
+| `agent/toolset/.../ToolsetInstaller.kt` | **NEW** | `internal class` extending `CapabilityInstaller`, override `installOn` for try-catch |
+| `agent/capability/.../CapabilityInstallerTest.kt` | **NEW** | Default installOn behavior tests |
+| `agent/subagent/.../SubagentInstallerTest.kt` | **NEW** | Subagent installer wiring tests |
+| `agent/skill/.../SkillInstallerTest.kt` | **NEW** | Skill installer wiring tests |
+| `agent/toolset/.../ToolsetInstallerTest.kt` | **NEW** | Toolset installer wiring tests |
 | `docs/superpowers/specs/2026-06-23-subagent-design.md` | modify | Sync generic order in code block |
 | `docs/superpowers/plans/2026-07-15-team-module-impl.md` | modify | Sync generic order in code block |
 
@@ -280,16 +280,16 @@ git commit -m "refactor(subagent,skill,toolset): 同步 CapabilityRegistry 泛�
 
 ---
 
-## Task 3: Add `CapabilityFactory` abstract class with default `installOn`
+## Task 3: Add `CapabilityInstaller` abstract class with default `installOn`
 
 **Files:**
-- Create: `agent/capability/src/main/kotlin/io/github/yeyi/agent/capability/CapabilityFactory.kt`
+- Create: `agent/capability/src/main/kotlin/io/github/yeyi/agent/capability/CapabilityInstaller.kt`
 
 **Interfaces:**
 - Consumes: `CapabilityRegistry<C, T, Ctx>` (from Task 1), `CapabilityAdapter.of(...)`, `CapabilityContextFactory<Ctx>`, `CapabilityArguments<T>?`
-- Produces: `abstract class CapabilityFactory<C, T, Ctx>` with abstract `registry()`, `contextFactory()`, `arguments()`, open `auxiliaryTools()`, open `installOn(builder, mode)`
+- Produces: `abstract class CapabilityInstaller<C, T, Ctx>` with abstract `registry()`, `contextFactory()`, `arguments()`, open `auxiliaryTools()`, open `installOn(builder, mode)`
 
-- [ ] **Step 1: Create `CapabilityFactory.kt`**
+- [ ] **Step 1: Create `CapabilityInstaller.kt`**
 
 ```kotlin
 package io.github.yeyi.agent.capability
@@ -312,7 +312,7 @@ import io.github.yeyi.agent.tool.Tool
  * @param T arguments 类型
  * @param Ctx capability context 类型
  */
-public abstract class CapabilityFactory<
+public abstract class CapabilityInstaller<
     C : Capability<T, Ctx>,
     T : Any,
     Ctx : CapabilityContext,
@@ -355,28 +355,28 @@ Expected: BUILD SUCCESSFUL.
 - [ ] **Step 3: Commit**
 
 ```bash
-git add agent/capability/src/main/kotlin/io/github/yeyi/agent/capability/CapabilityFactory.kt
-git commit -m "feat(capability): 新增 CapabilityFactory 抽象类作为模块实现者接线契约"
+git add agent/capability/src/main/kotlin/io/github/yeyi/agent/capability/CapabilityInstaller.kt
+git commit -m "feat(capability): 新增 CapabilityInstaller 抽象类作为模块实现者接线契约"
 ```
 
 ---
 
-## Task 4: Subagent module — add `SubagentFactory` and rewrite `SubagentExtensions`
+## Task 4: Subagent module — add `SubagentInstaller` and rewrite `SubagentExtensions`
 
 **Files:**
-- Create: `agent/subagent/src/main/kotlin/io/github/yeyi/agent/subagent/SubagentFactory.kt`
+- Create: `agent/subagent/src/main/kotlin/io/github/yeyi/agent/subagent/SubagentInstaller.kt`
 - Modify: `agent/subagent/src/main/kotlin/io/github/yeyi/agent/subagent/SubagentExtensions.kt:1-23`
 
 **Interfaces:**
-- Consumes: `CapabilityFactory<C, T, Ctx>` (from Task 3), `SubagentRegistry`, `SubagentContextFactory()`, `SubagentArguments()`
-- Produces: `internal class SubagentFactory(registry)` + ext fn delegating to `SubagentFactory(registry).installOn(builder, mode)`
+- Consumes: `CapabilityInstaller<C, T, Ctx>` (from Task 3), `SubagentRegistry`, `SubagentContextFactory()`, `SubagentArguments()`
+- Produces: `internal class SubagentInstaller(registry)` + ext fn delegating to `SubagentInstaller(registry).installOn(builder, mode)`
 
-- [ ] **Step 1: Create `SubagentFactory.kt`**
+- [ ] **Step 1: Create `SubagentInstaller.kt`**
 
 ```kotlin
 package io.github.yeyi.agent.subagent
 
-import io.github.yeyi.agent.capability.CapabilityFactory
+import io.github.yeyi.agent.capability.CapabilityInstaller
 
 /**
  * Subagent 的接线模板 —— 仅 override contextFactory 和 arguments,无辅助 tool。
@@ -384,9 +384,9 @@ import io.github.yeyi.agent.capability.CapabilityFactory
  * 仅供 Subagent 模块内部 `subagents(registry, ...)` 扩展函数使用;
  * 外部调用方应直接使用扩展函数,不感知本类。
  */
-internal class SubagentFactory(
+internal class SubagentInstaller(
     private val registry: SubagentRegistry,
-) : CapabilityFactory<Subagent, SubagentTask, SubagentContext>() {
+) : CapabilityInstaller<Subagent, SubagentTask, SubagentContext>() {
 
     override fun registry(): SubagentRegistry = registry
 
@@ -415,7 +415,7 @@ public fun AgentBuilder.subagents(
     registry: SubagentRegistry,
     enableDelegateAdaptMode: Boolean = true,
 ) {
-    SubagentFactory(registry).installOn(this, enableDelegateAdaptMode)
+    SubagentInstaller(registry).installOn(this, enableDelegateAdaptMode)
 }
 
 internal val log = LoggingTagged("subagent")
@@ -429,31 +429,31 @@ Expected: BUILD SUCCESSFUL; all existing `SubagentTest` and `DynamicSubagentTest
 - [ ] **Step 4: Commit**
 
 ```bash
-git add agent/subagent/src/main/kotlin/io/github/yeyi/agent/subagent/SubagentFactory.kt \
+git add agent/subagent/src/main/kotlin/io/github/yeyi/agent/subagent/SubagentInstaller.kt \
         agent/subagent/src/main/kotlin/io/github/yeyi/agent/subagent/SubagentExtensions.kt
-git commit -m "refactor(subagent): 引入 SubagentFactory,ext fn 收为单行委托"
+git commit -m "refactor(subagent): 引入 SubagentInstaller,ext fn 收为单行委托"
 ```
 
 ---
 
-## Task 5: Skill module — add `SkillFactory` and rewrite `SkillExtensions`
+## Task 5: Skill module — add `SkillInstaller` and rewrite `SkillExtensions`
 
 **Files:**
-- Create: `agent/skill/src/main/kotlin/io/github/yeyi/agent/skill/SkillFactory.kt`
+- Create: `agent/skill/src/main/kotlin/io/github/yeyi/agent/skill/SkillInstaller.kt`
 - Modify: `agent/skill/src/main/kotlin/io/github/yeyi/agent/skill/SkillExtensions.kt:1-31`
 
 **Interfaces:**
-- Consumes: `CapabilityFactory<C, T, Ctx>`, `SkillRegistry`, `SkillContextFactory()`, `SkillToolLoader`, `SkillToolCaller`
-- Produces: `internal class SkillFactory(registry)` overriding `auxiliaryTools()` for conditional Loader/Caller; ext fn delegates to factory
+- Consumes: `CapabilityInstaller<C, T, Ctx>`, `SkillRegistry`, `SkillContextFactory()`, `SkillToolLoader`, `SkillToolCaller`
+- Produces: `internal class SkillInstaller(registry)` overriding `auxiliaryTools()` for conditional Loader/Caller; ext fn delegates to installer
 
-- [ ] **Step 1: Create `SkillFactory.kt`**
+- [ ] **Step 1: Create `SkillInstaller.kt`**
 
 ```kotlin
 package io.github.yeyi.agent.skill
 
 import io.github.yeyi.agent.capability.CapabilityArguments
 import io.github.yeyi.agent.capability.CapabilityContextFactory
-import io.github.yeyi.agent.capability.CapabilityFactory
+import io.github.yeyi.agent.capability.CapabilityInstaller
 import io.github.yeyi.agent.tool.Tool
 
 /**
@@ -462,9 +462,9 @@ import io.github.yeyi.agent.tool.Tool
  * 仅供 Skill 模块内部 `skills(registry, ...)` 扩展函数使用;
  * 外部调用方应直接使用扩展函数,不感知本类。
  */
-internal class SkillFactory(
+internal class SkillInstaller(
     private val registry: SkillRegistry,
-) : CapabilityFactory<Skill, Unit, SkillContext>() {
+) : CapabilityInstaller<Skill, Unit, SkillContext>() {
 
     override fun registry(): SkillRegistry = registry
 
@@ -502,7 +502,7 @@ public fun AgentBuilder.skills(
     registry: SkillRegistry,
     enableDelegateAdaptMode: Boolean = true,
 ) {
-    SkillFactory(registry).installOn(this, enableDelegateAdaptMode)
+    SkillInstaller(registry).installOn(this, enableDelegateAdaptMode)
 }
 ```
 
@@ -514,24 +514,24 @@ Expected: BUILD SUCCESSFUL; all existing `SkillTest` / `SkillRegistryTest` / `Sk
 - [ ] **Step 4: Commit**
 
 ```bash
-git add agent/skill/src/main/kotlin/io/github/yeyi/agent/skill/SkillFactory.kt \
+git add agent/skill/src/main/kotlin/io/github/yeyi/agent/skill/SkillInstaller.kt \
         agent/skill/src/main/kotlin/io/github/yeyi/agent/skill/SkillExtensions.kt
-git commit -m "refactor(skill): 引入 SkillFactory,auxiliaryTools 条件返回 Loader/Caller"
+git commit -m "refactor(skill): 引入 SkillInstaller,auxiliaryTools 条件返回 Loader/Caller"
 ```
 
 ---
 
-## Task 6: Toolset module — add `ToolsetFactory` and rewrite `ToolsetExtensions`
+## Task 6: Toolset module — add `ToolsetInstaller` and rewrite `ToolsetExtensions`
 
 **Files:**
-- Create: `agent/toolset/src/main/kotlin/io/github/yeyi/agent/toolset/ToolsetFactory.kt`
+- Create: `agent/toolset/src/main/kotlin/io/github/yeyi/agent/toolset/ToolsetInstaller.kt`
 - Modify: `agent/toolset/src/main/kotlin/io/github/yeyi/agent/toolset/ToolsetExtensions.kt:1-35`
 
 **Interfaces:**
-- Consumes: `CapabilityFactory<C, T, Ctx>`, `ToolsetRegistry`, `ToolsetContextFactory()`, `SubToolDelegate`, `ToolDuplicateException`, `ToolsetsInstallException`
-- Produces: `internal class ToolsetFactory(registry)` overriding `installOn` for try-catch wrap; ext fn delegates to factory
+- Consumes: `CapabilityInstaller<C, T, Ctx>`, `ToolsetRegistry`, `ToolsetContextFactory()`, `SubToolDelegate`, `ToolDuplicateException`, `ToolsetsInstallException`
+- Produces: `internal class ToolsetInstaller(registry)` overriding `installOn` for try-catch wrap; ext fn delegates to installer
 
-- [ ] **Step 1: Create `ToolsetFactory.kt`**
+- [ ] **Step 1: Create `ToolsetInstaller.kt`**
 
 ```kotlin
 package io.github.yeyi.agent.toolset
@@ -539,7 +539,7 @@ package io.github.yeyi.agent.toolset
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.capability.CapabilityAdapter
 import io.github.yeyi.agent.capability.CapabilityArguments
-import io.github.yeyi.agent.capability.CapabilityFactory
+import io.github.yeyi.agent.capability.CapabilityInstaller
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolDuplicateException
 
@@ -549,9 +549,9 @@ import io.github.yeyi.agent.tool.ToolDuplicateException
  * 仅供 Toolset 模块内部 `toolsets(registry, ...)` 扩展函数使用;
  * 外部调用方应直接使用扩展函数,不感知本类。
  */
-internal class ToolsetFactory(
+internal class ToolsetInstaller(
     private val registry: ToolsetRegistry,
-) : CapabilityFactory<Toolset, Unit, ToolsetContext>() {
+) : CapabilityInstaller<Toolset, Unit, ToolsetContext>() {
 
     override fun registry(): ToolsetRegistry = registry
 
@@ -599,7 +599,7 @@ public fun AgentBuilder.toolsets(
     registry: ToolsetRegistry,
     enableDelegateAdaptMode: Boolean = true,
 ) {
-    ToolsetFactory(registry).installOn(this, enableDelegateAdaptMode)
+    ToolsetInstaller(registry).installOn(this, enableDelegateAdaptMode)
 }
 ```
 
@@ -611,9 +611,9 @@ Expected: BUILD SUCCESSFUL; all existing `ToolsetTest` / `ToolsetRegistryTest` /
 - [ ] **Step 4: Commit**
 
 ```bash
-git add agent/toolset/src/main/kotlin/io/github/yeyi/agent/toolset/ToolsetFactory.kt \
+git add agent/toolset/src/main/kotlin/io/github/yeyi/agent/toolset/ToolsetInstaller.kt \
         agent/toolset/src/main/kotlin/io/github/yeyi/agent/toolset/ToolsetExtensions.kt
-git commit -m "refactor(toolset): 引入 ToolsetFactory,installOn override 套 ToolsetsInstallException wrap"
+git commit -m "refactor(toolset): 引入 ToolsetInstaller,installOn override 套 ToolsetsInstallException wrap"
 ```
 
 ---
@@ -660,16 +660,16 @@ git commit -m "docs(spec,plan): 同步 CapabilityRegistry 泛型实参位置到 
 
 ---
 
-## Task 8: Add `CapabilityFactoryTest.kt`
+## Task 8: Add `CapabilityInstallerTest.kt`
 
 **Files:**
-- Create: `agent/capability/src/test/kotlin/io/github/yeyi/agent/capability/CapabilityFactoryTest.kt`
+- Create: `agent/capability/src/test/kotlin/io/github/yeyi/agent/capability/CapabilityInstallerTest.kt`
 
 **Interfaces:**
-- Consumes: `CapabilityFactory<C, T, Ctx>` (from Task 3), a stub `Capability<T, Ctx>` + registry + context factory for anonymous subclass
+- Consumes: `CapabilityInstaller<C, T, Ctx>` (from Task 3), a stub `Capability<T, Ctx>` + registry + context factory for anonymous subclass
 - Produces: tests for default `installOn` wiring (auxiliaryTools iteration + CapabilityAdapter delegation)
 
-- [ ] **Step 1: Create `CapabilityFactoryTest.kt`**
+- [ ] **Step 1: Create `CapabilityInstallerTest.kt`**
 
 ```kotlin
 package io.github.yeyi.agent.capability
@@ -686,7 +686,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class CapabilityFactoryTest {
+class CapabilityInstallerTest {
 
     // ---------- stubs ----------
 
@@ -719,12 +719,12 @@ class CapabilityFactoryTest {
         return (f.get(this) as ToolRegistry).all()
     }
 
-    private fun minimalFactory(
+    private fun minimalInstaller(
         registry: CapabilityRegistry<StubCapability, Unit, StubContext> =
             DefaultCapabilityRegistry("stub").apply { register(StubCapability("a", "desc a")) },
         auxiliaryTools: List<Tool> = emptyList(),
-    ): CapabilityFactory<StubCapability, Unit, StubContext> =
-        object : CapabilityFactory<StubCapability, Unit, StubContext>() {
+    ): CapabilityInstaller<StubCapability, Unit, StubContext> =
+        object : CapabilityInstaller<StubCapability, Unit, StubContext>() {
             override fun registry(): CapabilityRegistry<StubCapability, Unit, StubContext> = registry
             override fun contextFactory() = StubContextFactory()
             override fun arguments(): CapabilityArguments<Unit>? = null
@@ -736,17 +736,17 @@ class CapabilityFactoryTest {
     // ---------- tests ----------
 
     @Test
-    fun `factory exposes registry passed in constructor`() {
+    fun `installer exposes registry passed in constructor`() {
         val registry = DefaultCapabilityRegistry<StubCapability, Unit, StubContext>("stub")
-        val factory = minimalFactory(registry)
-        assertEquals(registry, factory.registry())
+        val installer = minimalInstaller(registry)
+        assertEquals(registry, installer.registry())
     }
 
     @Test
     fun `installOn in delegate mode installs load_stub tool`() {
-        val factory = minimalFactory()
+        val installer = minimalInstaller()
         val builder = emptyBuilder()
-        factory.installOn(builder, enableDelegateAdaptMode = true)
+        installer.installOn(builder, enableDelegateAdaptMode = true)
         val toolNames = builder.installedTools().map { it.name }
         assertTrue("load_stub" in toolNames, "expected load_stub, got $toolNames")
     }
@@ -757,9 +757,9 @@ class CapabilityFactoryTest {
             register(StubCapability("alpha", "d"))
             register(StubCapability("beta", "d"))
         }
-        val factory = minimalFactory(registry)
+        val installer = minimalInstaller(registry)
         val builder = emptyBuilder()
-        factory.installOn(builder, enableDelegateAdaptMode = false)
+        installer.installOn(builder, enableDelegateAdaptMode = false)
         val toolNames = builder.installedTools().map { it.name }
         assertTrue("stub_alpha" in toolNames, "expected stub_alpha, got $toolNames")
         assertTrue("stub_beta" in toolNames, "expected stub_beta, got $toolNames")
@@ -769,9 +769,9 @@ class CapabilityFactoryTest {
     @Test
     fun `installOn installs auxiliaryTools after CapabilityAdapter`() {
         val aux = StubAuxTool("aux_helper")
-        val factory = minimalFactory(auxiliaryTools = listOf(aux))
+        val installer = minimalInstaller(auxiliaryTools = listOf(aux))
         val builder = emptyBuilder()
-        factory.installOn(builder)
+        installer.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
         assertTrue("aux_helper" in toolNames, "expected aux_helper, got $toolNames")
         assertTrue("load_stub" in toolNames, "delegate tool must still be installed alongside aux tools")
@@ -779,9 +779,9 @@ class CapabilityFactoryTest {
 
     @Test
     fun `installOn with empty auxiliaryTools installs only the load tool`() {
-        val factory = minimalFactory(auxiliaryTools = emptyList())
+        val installer = minimalInstaller(auxiliaryTools = emptyList())
         val builder = emptyBuilder()
-        factory.installOn(builder)
+        installer.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
         assertEquals(listOf("load_stub"), toolNames)
     }
@@ -790,30 +790,30 @@ class CapabilityFactoryTest {
 
 - [ ] **Step 2: Run test**
 
-Run: `cd agent/capability && ../../gradlew :capability:test --tests CapabilityFactoryTest`
+Run: `cd agent/capability && ../../gradlew :capability:test --tests CapabilityInstallerTest`
 Expected: PASS — all 5 tests green.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add agent/capability/src/test/kotlin/io/github/yeyi/agent/capability/CapabilityFactoryTest.kt
-git commit -m "test(capability): CapabilityFactory 默认 installOn 行为测试"
+git add agent/capability/src/test/kotlin/io/github/yeyi/agent/capability/CapabilityInstallerTest.kt
+git commit -m "test(capability): CapabilityInstaller 默认 installOn 行为测试"
 ```
 
 ---
 
-## Task 9: Add `SubagentFactoryTest.kt`
+## Task 9: Add `SubagentInstallerTest.kt`
 
 **Files:**
-- Create: `agent/subagent/src/test/kotlin/io/github/yeyi/agent/subagent/SubagentFactoryTest.kt`
+- Create: `agent/subagent/src/test/kotlin/io/github/yeyi/agent/subagent/SubagentInstallerTest.kt`
 
 **Interfaces:**
-- Consumes: `SubagentFactory`, `SubagentRegistry`
-- Produces: tests for Subagent factory wiring (registry exposure + installOn mode behavior)
+- Consumes: `SubagentInstaller`, `SubagentRegistry`
+- Produces: tests for Subagent installer wiring (registry exposure + installOn mode behavior)
 
 **Stubs inlined**: `SubagentTest.kt` has `StubSubagent` / `StubLlmProvider` as `private class`, so they cannot be reused across files. This test file defines its own minimal stubs.
 
-- [ ] **Step 1: Create `SubagentFactoryTest.kt`**
+- [ ] **Step 1: Create `SubagentInstallerTest.kt`**
 
 ```kotlin
 package io.github.yeyi.agent.subagent
@@ -832,7 +832,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
 
-class SubagentFactoryTest {
+class SubagentInstallerTest {
 
     // ---------- stubs (local; SubagentTest.kt helpers are private) ----------
 
@@ -869,18 +869,18 @@ class SubagentFactoryTest {
     // ---------- tests ----------
 
     @Test
-    fun `factory exposes the same registry passed in`() {
+    fun `installer exposes the same registry passed in`() {
         val registry = SubagentRegistry().apply { register(StubSubagent("alpha")) }
-        val factory = SubagentFactory(registry)
-        assertSame(registry, factory.registry())
+        val installer = SubagentInstaller(registry)
+        assertSame(registry, installer.registry())
     }
 
     @Test
     fun `installOn in delegate mode installs load_subagent tool`() {
         val registry = SubagentRegistry().apply { register(StubSubagent("alpha")) }
-        val factory = SubagentFactory(registry)
+        val installer = SubagentInstaller(registry)
         val builder = newBuilder()
-        factory.installOn(builder, enableDelegateAdaptMode = true)
+        installer.installOn(builder, enableDelegateAdaptMode = true)
         val toolNames = builder.installedTools().map { it.name }
         assertContains(toolNames, "load_subagent")
     }
@@ -891,9 +891,9 @@ class SubagentFactoryTest {
             register(StubSubagent("alpha"))
             register(StubSubagent("beta"))
         }
-        val factory = SubagentFactory(registry)
+        val installer = SubagentInstaller(registry)
         val builder = newBuilder()
-        factory.installOn(builder, enableDelegateAdaptMode = false)
+        installer.installOn(builder, enableDelegateAdaptMode = false)
         val toolNames = builder.installedTools().map { it.name }
         assertContains(toolNames, "subagent_alpha")
         assertContains(toolNames, "subagent_beta")
@@ -905,8 +905,8 @@ class SubagentFactoryTest {
         val registry = SubagentRegistry().apply { register(StubSubagent("x")) }
         val delegateBuilder = newBuilder()
         val oneToOneBuilder = newBuilder()
-        SubagentFactory(registry).installOn(delegateBuilder, enableDelegateAdaptMode = true)
-        SubagentFactory(registry).installOn(oneToOneBuilder, enableDelegateAdaptMode = false)
+        SubagentInstaller(registry).installOn(delegateBuilder, enableDelegateAdaptMode = true)
+        SubagentInstaller(registry).installOn(oneToOneBuilder, enableDelegateAdaptMode = false)
         assertContains(delegateBuilder.installedTools().map { it.name }, "load_subagent")
         assertFalse("load_subagent" in oneToOneBuilder.installedTools().map { it.name })
     }
@@ -915,30 +915,30 @@ class SubagentFactoryTest {
 
 - [ ] **Step 2: Run test**
 
-Run: `cd agent/subagent && ../../gradlew :subagent:test --tests SubagentFactoryTest`
+Run: `cd agent/subagent && ../../gradlew :subagent:test --tests SubagentInstallerTest`
 Expected: PASS — all 4 tests green.
 
 - [ ] **Step 3: Commit**
 
 ```bash
-git add agent/subagent/src/test/kotlin/io/github/yeyi/agent/subagent/SubagentFactoryTest.kt
-git commit -m "test(subagent): SubagentFactory wiring 测试"
+git add agent/subagent/src/test/kotlin/io/github/yeyi/agent/subagent/SubagentInstallerTest.kt
+git commit -m "test(subagent): SubagentInstaller wiring 测试"
 ```
 
 ---
 
-## Task 10: Add `SkillFactoryTest.kt`
+## Task 10: Add `SkillInstallerTest.kt`
 
 **Files:**
-- Create: `agent/skill/src/test/kotlin/io/github/yeyi/agent/skill/SkillFactoryTest.kt`
+- Create: `agent/skill/src/test/kotlin/io/github/yeyi/agent/skill/SkillInstallerTest.kt`
 
 **Interfaces:**
-- Consumes: `SkillFactory`, `SkillRegistry`
-- Produces: tests for Skill factory wiring (auxiliaryTools conditional behavior)
+- Consumes: `SkillInstaller`, `SkillRegistry`
+- Produces: tests for Skill installer wiring (auxiliaryTools conditional behavior)
 
 **Stubs inlined**: `SkillTest.kt` has `FixedSkill` (not `StubSkill`) and `SkillExtensionsTest.kt` has its own `RecordingLlm` — both `private class`, not reusable across files. This test file defines its own minimal stubs.
 
-- [ ] **Step 1: Create `SkillFactoryTest.kt`**
+- [ ] **Step 1: Create `SkillInstallerTest.kt`**
 
 ```kotlin
 package io.github.yeyi.agent.skill
@@ -960,7 +960,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
-class SkillFactoryTest {
+class SkillInstallerTest {
 
     // ---------- stubs (local; existing test helpers are private) ----------
 
@@ -1001,18 +1001,18 @@ class SkillFactoryTest {
     // ---------- tests ----------
 
     @Test
-    fun `factory exposes the same registry passed in`() {
+    fun `installer exposes the same registry passed in`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
-        val factory = SkillFactory(registry)
-        assertEquals(registry, factory.registry())
+        val installer = SkillInstaller(registry)
+        assertEquals(registry, installer.registry())
     }
 
     @Test
     fun `installOn installs load_skill tool`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
-        val factory = SkillFactory(registry)
+        val installer = SkillInstaller(registry)
         val builder = newBuilder()
-        factory.installOn(builder)
+        installer.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
         assertContains(toolNames, "load_skill")
     }
@@ -1020,9 +1020,9 @@ class SkillFactoryTest {
     @Test
     fun `installOn does NOT install SkillToolLoader or SkillToolCaller when registry has no tools`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
-        val factory = SkillFactory(registry)
+        val installer = SkillInstaller(registry)
         val builder = newBuilder()
-        factory.installOn(builder)
+        installer.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
         assertFalse("skill_tool_loader" in toolNames)
         assertFalse("skill_tool_caller" in toolNames)
@@ -1034,9 +1034,9 @@ class SkillFactoryTest {
             register(StubSkill("alpha"))
             registerTools(listOf(StubSkillTool("helper_a")))
         }
-        val factory = SkillFactory(registry)
+        val installer = SkillInstaller(registry)
         val builder = newBuilder()
-        factory.installOn(builder)
+        installer.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
         assertContains(toolNames, "skill_tool_loader")
         assertContains(toolNames, "skill_tool_caller")
@@ -1046,30 +1046,30 @@ class SkillFactoryTest {
 
 - [ ] **Step 3: Run test**
 
-Run: `cd agent/skill && ../../gradlew :skill:test --tests SkillFactoryTest`
+Run: `cd agent/skill && ../../gradlew :skill:test --tests SkillInstallerTest`
 Expected: PASS. If helper classes / APIs mismatch, adjust before commit.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add agent/skill/src/test/kotlin/io/github/yeyi/agent/skill/SkillFactoryTest.kt
-git commit -m "test(skill): SkillFactory wiring + auxiliaryTools 条件返回测试"
+git add agent/skill/src/test/kotlin/io/github/yeyi/agent/skill/SkillInstallerTest.kt
+git commit -m "test(skill): SkillInstaller wiring + auxiliaryTools 条件返回测试"
 ```
 
 ---
 
-## Task 11: Add `ToolsetFactoryTest.kt`
+## Task 11: Add `ToolsetInstallerTest.kt`
 
 **Files:**
-- Create: `agent/toolset/src/test/kotlin/io/github/yeyi/agent/toolset/ToolsetFactoryTest.kt`
+- Create: `agent/toolset/src/test/kotlin/io/github/yeyi/agent/toolset/ToolsetInstallerTest.kt`
 
 **Interfaces:**
-- Consumes: `ToolsetFactory`, `ToolsetRegistry`, `Toolset(name, description)` factory function
-- Produces: tests for Toolset factory wiring + `ToolsetsInstallException` wrap on duplicate
+- Consumes: `ToolsetInstaller`, `ToolsetRegistry`, `Toolset(name, description)``Toolset(name, description)` installer function
+- Produces: tests for Toolset installer wiring + `ToolsetsInstallException` wrap on duplicate
 
 **Stubs inlined**: `ToolsetTest.kt` has `UnusedLlm` (not `StubLlmProvider`), and it's `private object` — not reusable across files. This test file defines its own minimal stub.
 
-- [ ] **Step 1: Create `ToolsetFactoryTest.kt`**
+- [ ] **Step 1: Create `ToolsetInstallerTest.kt`**
 
 ```kotlin
 package io.github.yeyi.agent.toolset
@@ -1087,7 +1087,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-class ToolsetFactoryTest {
+class ToolsetInstallerTest {
 
     // ---------- stubs (local; existing test helpers are private) ----------
 
@@ -1114,12 +1114,12 @@ class ToolsetFactoryTest {
     // ---------- tests ----------
 
     @Test
-    fun `factory exposes the same registry passed in`() {
+    fun `installer exposes the same registry passed in`() {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))
         }
-        val factory = ToolsetFactory(registry)
-        assertEquals(registry, factory.registry())
+        val installer = ToolsetInstaller(registry)
+        assertEquals(registry, installer.registry())
     }
 
     @Test
@@ -1127,9 +1127,9 @@ class ToolsetFactoryTest {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))
         }
-        val factory = ToolsetFactory(registry)
+        val installer = ToolsetInstaller(registry)
         val builder = newBuilder()
-        factory.installOn(builder)
+        installer.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
         assertContains(toolNames, "load_toolset")
         assertContains(toolNames, "sub_tool_delegate")
@@ -1140,13 +1140,13 @@ class ToolsetFactoryTest {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))
         }
-        val factory = ToolsetFactory(registry)
+        val installer = ToolsetInstaller(registry)
         val builder = newBuilder()
         // First install populates load_toolset + sub_tool_delegate
-        factory.installOn(builder)
+        installer.installOn(builder)
         // Second install on same builder must throw ToolsetsInstallException
         assertFailsWith<ToolsetsInstallException> {
-            factory.installOn(builder)
+            installer.installOn(builder)
         }
     }
 }
@@ -1154,14 +1154,14 @@ class ToolsetFactoryTest {
 
 - [ ] **Step 3: Run test**
 
-Run: `cd agent/toolset && ../../gradlew :toolset:test --tests ToolsetFactoryTest`
+Run: `cd agent/toolset && ../../gradlew :toolset:test --tests ToolsetInstallerTest`
 Expected: PASS. Adjust helper imports if mismatch.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add agent/toolset/src/test/kotlin/io/github/yeyi/agent/toolset/ToolsetFactoryTest.kt
-git commit -m "test(toolset): ToolsetFactory wiring + ToolsetsInstallException wrap 测试"
+git add agent/toolset/src/test/kotlin/io/github/yeyi/agent/toolset/ToolsetInstallerTest.kt
+git commit -m "test(toolset): ToolsetInstaller wiring + ToolsetsInstallException wrap 测试"
 ```
 
 ---
@@ -1173,7 +1173,7 @@ git commit -m "test(toolset): ToolsetFactory wiring + ToolsetsInstallException w
 - [ ] **Step 1: Run full test suite**
 
 Run: `cd agent && ../gradlew test`
-Expected: ALL tests pass — including `CapabilityAdapterTest`, `SubagentTest`, `DynamicSubagentTest`, `SkillTest`, `SkillRegistryTest`, `SkillExtensionsTest`, `ToolsetTest`, `ToolsetRegistryTest`, `ToolsetExtensionsTest`, plus the 4 new factory tests.
+Expected: ALL tests pass — including `CapabilityAdapterTest`, `SubagentTest`, `DynamicSubagentTest`, `SkillTest`, `SkillRegistryTest`, `SkillExtensionsTest`, `ToolsetTest`, `ToolsetRegistryTest`, `ToolsetExtensionsTest`, plus the 4 new installer tests.
 
 - [ ] **Step 2: Verify downstream modules still compile**
 
@@ -1191,9 +1191,9 @@ No commit. Print:
 ```
 ✓ All 9 commits applied
 ✓ Generic reorder: <Ctx, C, T> → <C, T, Ctx> across capability module
-✓ CapabilityFactory abstract class added
+✓ CapabilityInstaller abstract class added
 ✓ Subagent/Skill/Toolset modules migrated to internal factories
-✓ 4 new factory tests added
+✓ 4 new installer tests added
 ✓ Spec/plan docs synced
 ✓ No external API breakage (ext fn signatures unchanged)
 ```
