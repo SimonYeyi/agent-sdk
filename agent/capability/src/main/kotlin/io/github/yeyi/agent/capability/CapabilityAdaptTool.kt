@@ -8,12 +8,12 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
 internal class CapabilityAdaptTool<Ctx : CapabilityContext, T : Any>(
-    capabilityName: String,
+    capabilityType: String,
     private val capability: Capability<T, Ctx>,
     private val capabilityContextFactory: CapabilityContextFactory<Ctx>,
     private val arguments: CapabilityArguments<T>?
 ) : Tool {
-    override val name: String = "${capabilityName}_${capability.name}"
+    override val name: String = "${capabilityType}_${capability.name}"
     override val description: String = capability.description
     override val parametersSchema: ToolParameters
         get() = arguments?.let {
