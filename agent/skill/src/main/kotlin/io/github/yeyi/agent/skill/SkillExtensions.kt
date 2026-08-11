@@ -1,7 +1,6 @@
 package io.github.yeyi.agent.skill
 
 import io.github.yeyi.agent.AgentBuilder
-import io.github.yeyi.agent.capability.CapabilityAdapter
 
 /**
  * 注册多个 [Skill] 到 Agent。
@@ -15,17 +14,7 @@ import io.github.yeyi.agent.capability.CapabilityAdapter
  */
 public fun AgentBuilder.skills(
     registry: SkillRegistry,
-    enableDelegateAdaptMode: Boolean = true
+    enableDelegateAdaptMode: Boolean = true,
 ) {
-    CapabilityAdapter.of(
-        registry,
-        SkillContextFactory(),
-        null,
-        enableDelegateAdaptMode
-    ).installOn(this)
-
-    if (registry.allTools().isNotEmpty()) {
-        tool(SkillToolLoader(registry))
-        tool(SkillToolCaller(registry))
-    }
+    SkillFactory(registry).installOn(this, enableDelegateAdaptMode)
 }
