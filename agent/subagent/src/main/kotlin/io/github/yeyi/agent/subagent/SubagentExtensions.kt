@@ -1,7 +1,6 @@
 package io.github.yeyi.agent.subagent
 
 import io.github.yeyi.agent.AgentBuilder
-import io.github.yeyi.agent.capability.CapabilityAdapter
 import io.github.yeyi.agent.log.LoggingTagged
 
 /**
@@ -12,14 +11,9 @@ import io.github.yeyi.agent.log.LoggingTagged
  */
 public fun AgentBuilder.subagents(
     registry: SubagentRegistry,
-    enableDelegateAdaptMode: Boolean = true
+    enableDelegateAdaptMode: Boolean = true,
 ) {
-    CapabilityAdapter.of(
-        registry,
-        SubagentContextFactory(),
-        SubagentArguments(),
-        enableDelegateAdaptMode
-    ).installOn(this)
+    SubagentFactory(registry).installOn(this, enableDelegateAdaptMode)
 }
 
 internal val log = LoggingTagged("subagent")
