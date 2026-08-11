@@ -4,7 +4,7 @@
 
 **Goal:** Add `CapabilityFactory` abstract class as module implementer contract; reorder `CapabilityRegistry` / `CapabilityAdapter` / `DefaultCapabilityRegistry` generics to `<C, T, Ctx>` for consistency; migrate Subagent / Skill / Toolset to use the new factory.
 
-**Architecture:** Single abstract class `CapabilityFactory<C, T, Ctx>(registry)` provides `installOn(builder, mode)` which delegates to `CapabilityAdapter.of(...)` + iterates `auxiliaryTools()`. Each capability module gets an `internal` factory subclass; existing `AgentBuilder.xxxs(registry, mode)` ext fns become one-line delegations.
+**Architecture:** Single abstract class `CapabilityFactory<C, T, Ctx>` exposes abstract `registry()` / `contextFactory()` / `arguments()` and open `installOn(builder, mode)` which delegates to `CapabilityAdapter.of(...)` + iterates `auxiliaryTools()`. Each capability module gets an `internal` factory subclass; existing `AgentBuilder.xxxs(registry, mode)` ext fns become one-line delegations.
 
 **Tech Stack:** Kotlin 2.x, kotlinx-serialization (existing), existing test framework (kotlin-test).
 
@@ -287,7 +287,7 @@ git commit -m "refactor(subagent,skill,toolset): 同步 CapabilityRegistry 泛�
 
 **Interfaces:**
 - Consumes: `CapabilityRegistry<C, T, Ctx>` (from Task 1), `CapabilityAdapter.of(...)`, `CapabilityContextFactory<Ctx>`, `CapabilityArguments<T>?`
-- Produces: `abstract class CapabilityFactory<C, T, Ctx>(registry)` with abstract `contextFactory()`, `arguments()`, open `auxiliaryTools()`, open `installOn(builder, mode)`
+- Produces: `abstract class CapabilityFactory<C, T, Ctx>` with abstract `registry()`, `contextFactory()`, `arguments()`, open `auxiliaryTools()`, open `installOn(builder, mode)`
 
 - [ ] **Step 1: Create `CapabilityFactory.kt`**
 
@@ -301,7 +301,7 @@ import io.github.yeyi.agent.tool.Tool
  * Capability 包的接线契约 —— 模块实现者继承本抽象类并 override 接线部件 = 完成一个能力。
  *
  * 单一契约,无外部助手类:
- * - 构造器参数 [registry]: 调用方 new 后传入,工厂持有并可继续 register
+ * - 抽象方法 [registry]: 调用方 new 后传入,工厂持有并可继续 register
  * - 抽象方法 [contextFactory] / [arguments]: 必须 override
  * - 开放方法 [auxiliaryTools]: 默认空,需要 Loader/Caller/Delegate 等辅助 tool 时覆写
  *
@@ -316,9 +316,10 @@ public abstract class CapabilityFactory<
     C : Capability<T, Ctx>,
     T : Any,
     Ctx : CapabilityContext,
->(
-    public val registry: CapabilityRegistry<C, T, Ctx>,
-) {
+> {
+
+    /** 调用方 new 后传入;工厂持有并可继续 register。 */
+    protected abstract fun registry(): CapabilityRegistry<C, T, Ctx>
 
     /** 把 ToolContext 装成能力专属 context 的工厂。 */
     protected abstract fun contextFactory(): CapabilityContextFactory<Ctx>
@@ -339,7 +340,7 @@ public abstract class CapabilityFactory<
         agentBuilder: AgentBuilder,
         enableDelegateAdaptMode: Boolean = true,
     ) {
-        CapabilityAdapter.of(registry, contextFactory(), arguments(), enableDelegateAdaptMode)
+        CapabilityAdapter.of(registry(), contextFactory(), arguments(), enableDelegateAdaptMode)
             .installOn(agentBuilder)
         auxiliaryTools().forEach { agentBuilder.tool(it) }
     }
@@ -384,8 +385,10 @@ import io.github.yeyi.agent.capability.CapabilityFactory
  * 外部调用方应直接使用扩展函数,不感知本类。
  */
 internal class SubagentFactory(
-    registry: SubagentRegistry,
-) : CapabilityFactory<Subagent, SubagentTask, SubagentContext>(registry) {
+    private val registry: SubagentRegistry,
+) : CapabilityFactory<Subagent, SubagentTask, SubagentContext>() {
+
+    override fun registry(): SubagentRegistry = registry
 
     override fun contextFactory(): SubagentContextFactory = SubagentContextFactory()
 
@@ -460,8 +463,10 @@ import io.github.yeyi.agent.tool.Tool
  * 外部调用方应直接使用扩展函数,不感知本类。
  */
 internal class SkillFactory(
-    registry: SkillRegistry,
-) : CapabilityFactory<Skill, Unit, SkillContext>(registry) {
+    private val registry: SkillRegistry,
+) : CapabilityFactory<Skill, Unit, SkillContext>() {
+
+    override fun registry(): SkillRegistry = registry
 
     override fun contextFactory(): SkillContextFactory = SkillContextFactory()
 
@@ -545,8 +550,10 @@ import io.github.yeyi.agent.tool.ToolDuplicateException
  * 外部调用方应直接使用扩展函数,不感知本类。
  */
 internal class ToolsetFactory(
-    registry: ToolsetRegistry,
-) : CapabilityFactory<Toolset, Unit, ToolsetContext>(registry) {
+    private val registry: ToolsetRegistry,
+) : CapabilityFactory<Toolset, Unit, ToolsetContext>() {
+
+    override fun registry(): ToolsetRegistry = registry
 
     override fun contextFactory(): ToolsetContextFactory = ToolsetContextFactory()
 
@@ -731,7 +738,8 @@ class CapabilityFactoryTest {
             DefaultCapabilityRegistry("stub").apply { register(StubCapability("a", "desc a")) },
         auxiliaryTools: List<Tool> = emptyList(),
     ): CapabilityFactory<StubCapability, StubArgs, StubContext> =
-        object : CapabilityFactory<StubCapability, StubArgs, StubContext>(registry) {
+        object : CapabilityFactory<StubCapability, StubArgs, StubContext>() {
+            override fun registry(): CapabilityRegistry<StubCapability, StubArgs, StubContext> = registry
             override fun contextFactory() = StubContextFactory()
             override fun arguments(): CapabilityArguments<StubArgs>? = StubArgsProvider()
             override fun auxiliaryTools(): List<Tool> = auxiliaryTools
@@ -743,7 +751,7 @@ class CapabilityFactoryTest {
     fun `factory exposes registry passed in constructor`() {
         val registry = DefaultCapabilityRegistry<StubCapability, StubArgs, StubContext>("stub")
         val factory = minimalFactory(registry)
-        assertEquals(registry, factory.registry)
+        assertEquals(registry, factory.registry())
     }
 
     @Test
@@ -840,7 +848,7 @@ class SubagentFactoryTest {
     fun `factory exposes the same registry passed in`() {
         val registry = SubagentRegistry().apply { register(StubSubagent("alpha")) }
         val factory = SubagentFactory(registry)
-        assertSame(registry, factory.registry)
+        assertSame(registry, factory.registry())
     }
 
     @Test
@@ -928,7 +936,7 @@ class SkillFactoryTest {
     fun `factory exposes the same registry passed in`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
         val factory = SkillFactory(registry)
-        assertEquals(registry, factory.registry)
+        assertEquals(registry, factory.registry())
     }
 
     @Test
@@ -1029,7 +1037,7 @@ class ToolsetFactoryTest {
             register(Toolset("alpha", "alpha tools"))
         }
         val factory = ToolsetFactory(registry)
-        assertEquals(registry, factory.registry)
+        assertEquals(registry, factory.registry())
     }
 
     @Test

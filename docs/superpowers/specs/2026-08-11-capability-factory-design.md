@@ -40,7 +40,7 @@
 ## 2. 设计原则
 
 - **单一契约类**：`CapabilityFactory` 是**抽象类**，不是接口。所有接线逻辑（`installOn`）在抽象类里实现，模块作者只 override 部件点。
-- **registry 是构造器参数**：把 `registry` 放到抽象类构造器参数，类型系统强制"必须传入"。
+- **registry 是抽象方法**：`registry()` 与 `contextFactory()` / `arguments()` 并列作为抽象方法，override 与契约条目同处一处、可见性强，避免被混入构造器参数列表而被忽略。
 - **行为参数化**：`enableDelegateAdaptMode` 是 `installOn(builder, ...)` 的参数，不是工厂字段——是"装到哪个 builder"的临时决定，不是工厂状态。
 - **泛型顺序统一**：`<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext>` —— 主类型在前，衍生/依赖类型在后。现有 `CapabilityRegistry` / `CapabilityAdapter` / `DefaultCapabilityRegistry` 同步调整。
 - **面向模块作者，不面向调用方**：抽象类是 `public`（契约公开），但各模块的工厂类（`SubagentFactory` / `SkillFactory` / `ToolsetFactory`）是 `internal`——调用方感知不到。
@@ -61,9 +61,8 @@ public abstract class CapabilityFactory<
     C : Capability<T, Ctx>,
     T : Any,
     Ctx : CapabilityContext,
->(
-    public val registry: CapabilityRegistry<C, T, Ctx>,
-) {
+> {
+    protected abstract fun registry(): CapabilityRegistry<C, T, Ctx>
     protected abstract fun contextFactory(): CapabilityContextFactory<Ctx>
     protected abstract fun arguments(): CapabilityArguments<T>?
     protected open fun auxiliaryTools(): List<Tool> = emptyList()
@@ -72,7 +71,7 @@ public abstract class CapabilityFactory<
         agentBuilder: AgentBuilder,
         enableDelegateAdaptMode: Boolean = true,
     ) {
-        CapabilityAdapter.of(registry, contextFactory(), arguments(), enableDelegateAdaptMode)
+        CapabilityAdapter.of(registry(), contextFactory(), arguments(), enableDelegateAdaptMode)
             .installOn(agentBuilder)
         auxiliaryTools().forEach { agentBuilder.tool(it) }
     }
@@ -105,8 +104,9 @@ public abstract class CapabilityFactory<
 新增 `SubagentFactory.kt`：
 ```kotlin
 internal class SubagentFactory(
-    registry: SubagentRegistry,
-) : CapabilityFactory<Subagent, SubagentTask, SubagentContext>(registry) {
+    private val registry: SubagentRegistry,
+) : CapabilityFactory<Subagent, SubagentTask, SubagentContext>() {
+    override fun registry(): SubagentRegistry = registry
     override fun contextFactory() = SubagentContextFactory()
     override fun arguments() = SubagentArguments()
 }
@@ -137,8 +137,9 @@ public class SubagentRegistry :
 新增 `SkillFactory.kt`：
 ```kotlin
 internal class SkillFactory(
-    registry: SkillRegistry,
-) : CapabilityFactory<Skill, Unit, SkillContext>(registry) {
+    private val registry: SkillRegistry,
+) : CapabilityFactory<Skill, Unit, SkillContext>() {
+    override fun registry(): SkillRegistry = registry
     override fun contextFactory() = SkillContextFactory()
     override fun arguments(): CapabilityArguments<Unit>? = null
 
@@ -175,8 +176,9 @@ public class SkillRegistry :
 新增 `ToolsetFactory.kt`：
 ```kotlin
 internal class ToolsetFactory(
-    registry: ToolsetRegistry,
-) : CapabilityFactory<Toolset, Unit, ToolsetContext>(registry) {
+    private val registry: ToolsetRegistry,
+) : CapabilityFactory<Toolset, Unit, ToolsetContext>() {
+    override fun registry(): ToolsetRegistry = registry
     override fun contextFactory() = ToolsetContextFactory()
     override fun arguments(): CapabilityArguments<Unit>? = null
     override fun auxiliaryTools() = listOf<Tool>(SubToolDelegate(registry))
