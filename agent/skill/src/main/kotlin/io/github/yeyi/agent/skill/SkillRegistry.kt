@@ -13,7 +13,7 @@ import kotlinx.serialization.json.JsonElement
  * Skill 的注册中心，复用 [DefaultCapabilityRegistry] 的逻辑。
  */
 public class SkillRegistry :
-    ToolDispatcher, CapabilityRegistry<SkillContext, Skill, Unit> by DefaultCapabilityRegistry(
+    ToolDispatcher, CapabilityRegistry<Skill, Unit, SkillContext> by DefaultCapabilityRegistry(
     capabilityType = Skill.CAPABILITY_TYPE
 ) {
     private val tools: MutableMap<String, Tool> = mutableMapOf()
@@ -37,6 +37,7 @@ public class SkillRegistry :
             tools[tool.name] = tool
         }
     }
+
     /** 返回所有注册的 Skill 相关工具。 */
     public fun allTools(): List<Tool> = tools.values.toList()
 }

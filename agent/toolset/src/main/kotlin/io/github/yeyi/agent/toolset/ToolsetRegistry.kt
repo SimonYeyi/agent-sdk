@@ -23,6 +23,6 @@ import io.github.yeyi.agent.capability.DefaultCapabilityRegistry
  * ```
  */
 public class ToolsetRegistry :
-    CapabilityRegistry<ToolsetContext, Toolset, Unit> by DefaultCapabilityRegistry(
+    CapabilityRegistry<Toolset, Unit, ToolsetContext> by DefaultCapabilityRegistry(
         Toolset.CAPABILITY_TYPE
     )
