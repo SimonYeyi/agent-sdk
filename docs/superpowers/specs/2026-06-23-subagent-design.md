@@ -179,7 +179,7 @@ internal class SubagentArguments : CapabilityArguments<SubagentTask> {
 
 ```kotlin
 public class SubagentRegistry :
-    CapabilityRegistry<SubagentContext, Subagent, SubagentTask> by DefaultCapabilityRegistry(
+    CapabilityRegistry<Subagent, SubagentTask, SubagentContext> by DefaultCapabilityRegistry(
         capabilityName = "subagent"
     )
 ```

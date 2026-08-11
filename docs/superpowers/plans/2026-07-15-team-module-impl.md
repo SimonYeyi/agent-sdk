@@ -145,7 +145,7 @@ git commit -m "feat(toolset): Toolset.all() 新增 — 返回所有子 Tool 快�
 
 ```kotlin
 public class SkillRegistry :
-    ToolDispatcher, CapabilityRegistry<SkillContext, Skill, Unit> by DefaultCapabilityRegistry(
+    ToolDispatcher, CapabilityRegistry<Skill, Unit, SkillContext> by DefaultCapabilityRegistry(
     capabilityName = Skill.CAPABILITY_TYPE
 ) {
     private val tools: MutableMap<String, Tool> = mutableMapOf()
