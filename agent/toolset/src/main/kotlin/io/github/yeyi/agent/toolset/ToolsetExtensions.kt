@@ -1,8 +1,6 @@
 package io.github.yeyi.agent.toolset
 
 import io.github.yeyi.agent.AgentBuilder
-import io.github.yeyi.agent.capability.CapabilityAdapter
-import io.github.yeyi.agent.tool.ToolDuplicateException
 
 /**
  * DSL — 将 [ToolsetRegistry] 中所有 Toolset 注册到 [AgentBuilder]。
@@ -21,15 +19,5 @@ public fun AgentBuilder.toolsets(
     registry: ToolsetRegistry,
     enableDelegateAdaptMode: Boolean = true,
 ) {
-    try {
-        CapabilityAdapter.of(
-            registry,
-            ToolsetContextFactory(),
-            null,
-            enableDelegateAdaptMode
-        ).installOn(this)
-        tool(SubToolDelegate(registry))
-    } catch (e: ToolDuplicateException) {
-        throw ToolsetsInstallException(e)
-    }
+    ToolsetFactory(registry).installOn(this, enableDelegateAdaptMode)
 }
