@@ -5,11 +5,11 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * Capability 注册中心接口。
  *
- * @param Ctx 执行上下文类型
- * @param C Capability 子类型
+ * @param C capability 类型
  * @param T arguments 类型
+ * @param Ctx 执行上下文类型
  */
-public interface CapabilityRegistry<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any> {
+public interface CapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext> {
     /** 注册中心名称，用于日志和错误信息。 */
     public val capabilityType: String
 
@@ -29,9 +29,9 @@ public interface CapabilityRegistry<Ctx : CapabilityContext, C : Capability<T, C
     public fun unregisterAll()
 }
 
-public class DefaultCapabilityRegistry<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
+public class DefaultCapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext>(
     override val capabilityType: String
-) : CapabilityRegistry<Ctx, C, T> {
+) : CapabilityRegistry<C, T, Ctx> {
     private val capabilities: MutableMap<String, C> = ConcurrentHashMap()
 
     override fun register(capability: C) {

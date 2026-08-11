@@ -20,8 +20,8 @@ import kotlinx.serialization.json.put
  * the capability category's call shape. The selected capability's arguments are decoded
  * with [CapabilityArguments.serializer] before being passed to [Capability.activate].
  */
-internal class CapabilityLoadTool<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
-    private val registry: CapabilityRegistry<Ctx, C, T>,
+internal class CapabilityLoadTool<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext>(
+    private val registry: CapabilityRegistry<C, T, Ctx>,
     private val capabilityContextFactory: CapabilityContextFactory<Ctx>,
     private val arguments: CapabilityArguments<T>?
 ) : Tool {

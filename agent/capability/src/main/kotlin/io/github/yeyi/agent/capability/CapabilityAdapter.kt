@@ -3,8 +3,8 @@ package io.github.yeyi.agent.capability
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.tool.Tool
 
-public abstract class CapabilityAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
-    protected val registry: CapabilityRegistry<Ctx, C, T>,
+public abstract class CapabilityAdapter<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext>(
+    protected val registry: CapabilityRegistry<C, T, Ctx>,
     protected val capabilityContextFactory: CapabilityContextFactory<Ctx>,
     protected val arguments: CapabilityArguments<T>?
 ) {
@@ -24,12 +24,12 @@ public abstract class CapabilityAdapter<Ctx : CapabilityContext, C : Capability<
          *
          * @param enableDelegateAdaptMode true 使用委托模式（单一 Delegate Tool），false 使用一一映射模式（每个 Capability 对应一个 Tool）
          */
-        public fun <Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any> of(
-            registry: CapabilityRegistry<Ctx, C, T>,
+        public fun <C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext> of(
+            registry: CapabilityRegistry<C, T, Ctx>,
             capabilityContextFactory: CapabilityContextFactory<Ctx>,
             arguments: CapabilityArguments<T>?,
             enableDelegateAdaptMode: Boolean = true
-        ): CapabilityAdapter<Ctx, C, T> = if (enableDelegateAdaptMode) {
+        ): CapabilityAdapter<C, T, Ctx> = if (enableDelegateAdaptMode) {
             DelegationAdapter(registry, capabilityContextFactory, arguments)
         } else {
             OneToOneAdapter(registry, capabilityContextFactory, arguments)
@@ -37,20 +37,20 @@ public abstract class CapabilityAdapter<Ctx : CapabilityContext, C : Capability<
     }
 }
 
-private class DelegationAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
-    registry: CapabilityRegistry<Ctx, C, T>,
+private class DelegationAdapter<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext>(
+    registry: CapabilityRegistry<C, T, Ctx>,
     capabilityContextFactory: CapabilityContextFactory<Ctx>,
     arguments: CapabilityArguments<T>? = null
-) : CapabilityAdapter<Ctx, C, T>(registry, capabilityContextFactory, arguments) {
+) : CapabilityAdapter<C, T, Ctx>(registry, capabilityContextFactory, arguments) {
     override fun adapt(): List<Tool> =
         listOf(CapabilityLoadTool(registry, capabilityContextFactory, arguments))
 }
 
-private class OneToOneAdapter<Ctx : CapabilityContext, C : Capability<T, Ctx>, T : Any>(
-    registry: CapabilityRegistry<Ctx, C, T>,
+private class OneToOneAdapter<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext>(
+    registry: CapabilityRegistry<C, T, Ctx>,
     capabilityContextFactory: CapabilityContextFactory<Ctx>,
     arguments: CapabilityArguments<T>? = null
-) : CapabilityAdapter<Ctx, C, T>(registry, capabilityContextFactory, arguments) {
+) : CapabilityAdapter<C, T, Ctx>(registry, capabilityContextFactory, arguments) {
     override fun adapt(): List<Tool> =
         registry.all()
             .map { cap ->
