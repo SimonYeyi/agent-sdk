@@ -59,17 +59,17 @@ class CapabilityInstallerTest {
     @Test
     fun `installer exposes registry passed in constructor`() {
         val registry = DefaultCapabilityRegistry<StubCapability, Unit, StubContext>("stub")
-        val factory = minimalInstaller(registry)
+        val installer = minimalInstaller(registry)
         val m = CapabilityInstaller::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
-        assertEquals(registry, m.invoke(factory))
+        assertEquals(registry, m.invoke(installer))
     }
 
     @Test
     fun `installOn in delegate mode installs load_stub tool`() {
-        val factory = minimalInstaller()
+        val installer = minimalInstaller()
         val builder = emptyBuilder()
-        factory.installOn(builder, enableDelegateAdaptMode = true)
+        installer.installOn(builder, enableDelegateAdaptMode = true)
         val toolNames = builder.installedTools().map { it.name }
         assertTrue("load_stub" in toolNames, "expected load_stub, got $toolNames")
     }
@@ -80,9 +80,9 @@ class CapabilityInstallerTest {
             register(StubCapability("alpha", "d"))
             register(StubCapability("beta", "d"))
         }
-        val factory = minimalInstaller(registry)
+        val installer = minimalInstaller(registry)
         val builder = emptyBuilder()
-        factory.installOn(builder, enableDelegateAdaptMode = false)
+        installer.installOn(builder, enableDelegateAdaptMode = false)
         val toolNames = builder.installedTools().map { it.name }
         assertTrue("stub_alpha" in toolNames, "expected stub_alpha, got $toolNames")
         assertTrue("stub_beta" in toolNames, "expected stub_beta, got $toolNames")
@@ -92,9 +92,9 @@ class CapabilityInstallerTest {
     @Test
     fun `installOn installs auxiliaryTools after CapabilityAdapter`() {
         val aux = StubAuxTool("aux_helper")
-        val factory = minimalInstaller(auxiliaryTools = listOf(aux))
+        val installer = minimalInstaller(auxiliaryTools = listOf(aux))
         val builder = emptyBuilder()
-        factory.installOn(builder)
+        installer.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
         assertTrue("aux_helper" in toolNames, "expected aux_helper, got $toolNames")
         assertTrue("load_stub" in toolNames, "delegate tool must still be installed alongside aux tools")
@@ -102,9 +102,9 @@ class CapabilityInstallerTest {
 
     @Test
     fun `installOn with empty auxiliaryTools installs only the load tool`() {
-        val factory = minimalInstaller(auxiliaryTools = emptyList())
+        val installer = minimalInstaller(auxiliaryTools = emptyList())
         val builder = emptyBuilder()
-        factory.installOn(builder)
+        installer.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
         assertEquals(listOf("load_stub"), toolNames)
     }

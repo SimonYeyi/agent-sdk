@@ -38,14 +38,14 @@ class ToolsetInstallerTest {
     private fun newBuilder(): AgentBuilder = AgentBuilder().apply { llmProvider(StubLlm) }
 
     @Test
-    fun `factory exposes the same registry passed in`() {
+    fun `installer exposes the same registry passed in`() {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))
         }
-        val factory = ToolsetInstaller(registry)
+        val installer = ToolsetInstaller(registry)
         val m = io.github.yeyi.agent.capability.CapabilityInstaller::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
-        assertEquals(registry, m.invoke(factory))
+        assertEquals(registry, m.invoke(installer))
     }
 
     @Test
@@ -53,9 +53,9 @@ class ToolsetInstallerTest {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))
         }
-        val factory = ToolsetInstaller(registry)
+        val installer = ToolsetInstaller(registry)
         val builder = newBuilder()
-        factory.installOn(builder)
+        installer.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
         assertContains(toolNames, "load_toolset")
         assertContains(toolNames, "sub_tool_delegate")
@@ -66,11 +66,11 @@ class ToolsetInstallerTest {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))
         }
-        val factory = ToolsetInstaller(registry)
+        val installer = ToolsetInstaller(registry)
         val builder = newBuilder()
-        factory.installOn(builder)
+        installer.installOn(builder)
         assertFailsWith<ToolsetsInstallException> {
-            factory.installOn(builder)
+            installer.installOn(builder)
         }
     }
 }

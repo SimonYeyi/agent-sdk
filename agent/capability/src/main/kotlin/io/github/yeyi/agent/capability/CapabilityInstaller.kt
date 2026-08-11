@@ -7,7 +7,7 @@ import io.github.yeyi.agent.tool.Tool
  * Capability 包的接线契约 —— 模块实现者继承本抽象类并 override 接线部件 = 完成一个能力。
  *
  * 单一契约,无外部助手类:
- * - 抽象方法 [registry]: 调用方 new 后传入,工厂持有并可继续 register
+ * - 抽象方法 [registry]: 调用方 new 后传入,installer 持有并可继续 register
  * - 抽象方法 [contextFactory] / [arguments]: 必须 override
  * - 开放方法 [auxiliaryTools]: 默认空,需要 Loader/Caller/Delegate 等辅助 tool 时覆写
  *

@@ -49,20 +49,20 @@ class SubagentInstallerTest {
     private fun newBuilder(): AgentBuilder = AgentBuilder().apply { llmProvider(StubLlm) }
 
     @Test
-    fun `factory exposes the same registry passed in`() {
+    fun `installer exposes the same registry passed in`() {
         val registry = SubagentRegistry().apply { register(StubSubagent("alpha")) }
-        val factory = SubagentInstaller(registry)
+        val installer = SubagentInstaller(registry)
         val m = io.github.yeyi.agent.capability.CapabilityInstaller::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
-        assertSame(registry, m.invoke(factory))
+        assertSame(registry, m.invoke(installer))
     }
 
     @Test
     fun `installOn in delegate mode installs load_subagent tool`() {
         val registry = SubagentRegistry().apply { register(StubSubagent("alpha")) }
-        val factory = SubagentInstaller(registry)
+        val installer = SubagentInstaller(registry)
         val builder = newBuilder()
-        factory.installOn(builder, enableDelegateAdaptMode = true)
+        installer.installOn(builder, enableDelegateAdaptMode = true)
         val toolNames = builder.installedTools().map { it.name }
         assertContains(toolNames, "load_subagent")
     }
@@ -73,9 +73,9 @@ class SubagentInstallerTest {
             register(StubSubagent("alpha"))
             register(StubSubagent("beta"))
         }
-        val factory = SubagentInstaller(registry)
+        val installer = SubagentInstaller(registry)
         val builder = newBuilder()
-        factory.installOn(builder, enableDelegateAdaptMode = false)
+        installer.installOn(builder, enableDelegateAdaptMode = false)
         val toolNames = builder.installedTools().map { it.name }
         assertContains(toolNames, "subagent_alpha")
         assertContains(toolNames, "subagent_beta")

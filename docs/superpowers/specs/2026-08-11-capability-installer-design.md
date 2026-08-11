@@ -223,7 +223,7 @@ public class ToolsetRegistry :
 - **`ToolsetInstaller.installOn` 的 try-catch**：捕获 `ToolDuplicateException`（来自 `CapabilityAdapter` 或 `SubToolDelegate`），包装成 `ToolsetsInstallException`。保持原有错误语义。
 - **`SkillInstaller.auxiliaryTools` 的条件返回**：`registry.allTools().isNotEmpty()` 时返回 Loader/Caller，否则空列表 —— 与原 `SkillExtensions.skills()` 行为一致。
 - **`SubagentInstaller`**：无 try-catch、无辅助 tool，行为 = 单纯 `CapabilityAdapter.of(...).installOn(...)`。
-- **类型系统层错误**：`contextFactory` / `arguments` 未 override 会编译失败（`abstract`）；`registry` 类型不匹配 `CapabilityRegistry<Ctx, C, T>` 会编译失败（构造参数类型约束）。
+- **类型系统层错误**：`contextFactory` / `arguments` 未 override 会编译失败（`abstract`）；`registry` 类型不匹配 `CapabilityRegistry<C, T, Ctx>` 会编译失败（构造参数类型约束）。
 
 ---
 
