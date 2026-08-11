@@ -675,14 +675,12 @@ git commit -m "docs(spec,plan): 同步 CapabilityRegistry 泛型实参位置到 
 package io.github.yeyi.agent.capability
 
 import io.github.yeyi.agent.AgentBuilder
-import io.github.yeyi.agent.agent
-import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
-import kotlinx.serialization.KSerializer
-import kotlinx.serialization.serializer
+import io.github.yeyi.agent.tool.ToolRegistry
+import kotlinx.serialization.json.JsonElement
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -698,23 +696,15 @@ class CapabilityFactoryTest {
         override fun create(context: ToolContext): StubContext = StubContext()
     }
 
-    @Suppress("unused")
-    private object StubArgs
-
-    private class StubArgsProvider : CapabilityArguments<StubArgs> {
-        override val schema: String = """{"type":"object","properties":{}}"""
-        override val serializer: KSerializer<StubArgs> = serializer()
-    }
-
     private class StubCapability(
         override val name: String,
         override val description: String,
-    ) : Capability<StubArgs, StubContext> {
-        override suspend fun activate(arguments: StubArgs?, context: StubContext): String =
+    ) : Capability<Unit, StubContext> {
+        override suspend fun activate(arguments: Unit?, context: StubContext): String =
             "stub activated: $name"
     }
 
-    private class StubTool(private val toolName: String) : Tool {
+    private class StubAuxTool(private val toolName: String) : Tool {
         override val name: String get() = toolName
         override val description: String = "stub $toolName"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
@@ -722,34 +712,32 @@ class CapabilityFactoryTest {
             ToolExecutionResult.success("")
     }
 
-    private class StubLlm : LlmProvider {
-        override val name = "stub"
-        override suspend fun chat(request: io.github.yeyi.agent.llm.ChatRequest) =
-            io.github.yeyi.agent.llm.ChatResponse(
-                content = "ok",
-                finishReason = io.github.yeyi.agent.llm.FinishReason.STOP,
-            )
+    // AgentBuilder.toolRegistry is private — peek via reflection for assertions.
+    private fun AgentBuilder.installedTools(): List<Tool> {
+        val f = AgentBuilder::class.java.getDeclaredField("toolRegistry").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        return (f.get(this) as ToolRegistry).all()
     }
 
-    private fun agentBuilder(): AgentBuilder = agent { llmProvider(StubLlm()) }
-
     private fun minimalFactory(
-        registry: CapabilityRegistry<StubCapability, StubArgs, StubContext> =
+        registry: CapabilityRegistry<StubCapability, Unit, StubContext> =
             DefaultCapabilityRegistry("stub").apply { register(StubCapability("a", "desc a")) },
         auxiliaryTools: List<Tool> = emptyList(),
-    ): CapabilityFactory<StubCapability, StubArgs, StubContext> =
-        object : CapabilityFactory<StubCapability, StubArgs, StubContext>() {
-            override fun registry(): CapabilityRegistry<StubCapability, StubArgs, StubContext> = registry
+    ): CapabilityFactory<StubCapability, Unit, StubContext> =
+        object : CapabilityFactory<StubCapability, Unit, StubContext>() {
+            override fun registry(): CapabilityRegistry<StubCapability, Unit, StubContext> = registry
             override fun contextFactory() = StubContextFactory()
-            override fun arguments(): CapabilityArguments<StubArgs>? = StubArgsProvider()
+            override fun arguments(): CapabilityArguments<Unit>? = null
             override fun auxiliaryTools(): List<Tool> = auxiliaryTools
         }
+
+    private fun emptyBuilder(): AgentBuilder = AgentBuilder()
 
     // ---------- tests ----------
 
     @Test
     fun `factory exposes registry passed in constructor`() {
-        val registry = DefaultCapabilityRegistry<StubCapability, StubArgs, StubContext>("stub")
+        val registry = DefaultCapabilityRegistry<StubCapability, Unit, StubContext>("stub")
         val factory = minimalFactory(registry)
         assertEquals(registry, factory.registry())
     }
@@ -757,23 +745,22 @@ class CapabilityFactoryTest {
     @Test
     fun `installOn in delegate mode installs load_stub tool`() {
         val factory = minimalFactory()
-        val builder = agentBuilder()
+        val builder = emptyBuilder()
         factory.installOn(builder, enableDelegateAdaptMode = true)
-        val toolNames = builder.toolRegistry().all().map { it.name }
+        val toolNames = builder.installedTools().map { it.name }
         assertTrue("load_stub" in toolNames, "expected load_stub, got $toolNames")
     }
 
     @Test
     fun `installOn in one-to-one mode installs per-capability tool`() {
-        val registry = DefaultCapabilityRegistry<StubCapability, StubArgs, StubContext>("stub")
-            .apply {
-                register(StubCapability("alpha", "d"))
-                register(StubCapability("beta", "d"))
-            }
+        val registry = DefaultCapabilityRegistry<StubCapability, Unit, StubContext>("stub").apply {
+            register(StubCapability("alpha", "d"))
+            register(StubCapability("beta", "d"))
+        }
         val factory = minimalFactory(registry)
-        val builder = agentBuilder()
+        val builder = emptyBuilder()
         factory.installOn(builder, enableDelegateAdaptMode = false)
-        val toolNames = builder.toolRegistry().all().map { it.name }
+        val toolNames = builder.installedTools().map { it.name }
         assertTrue("stub_alpha" in toolNames, "expected stub_alpha, got $toolNames")
         assertTrue("stub_beta" in toolNames, "expected stub_beta, got $toolNames")
         assertFalse("load_stub" in toolNames, "delegate tool should NOT be installed in one-to-one mode")
@@ -781,27 +768,25 @@ class CapabilityFactoryTest {
 
     @Test
     fun `installOn installs auxiliaryTools after CapabilityAdapter`() {
-        val aux = StubTool("aux_helper")
+        val aux = StubAuxTool("aux_helper")
         val factory = minimalFactory(auxiliaryTools = listOf(aux))
-        val builder = agentBuilder()
+        val builder = emptyBuilder()
         factory.installOn(builder)
-        val toolNames = builder.toolRegistry().all().map { it.name }
+        val toolNames = builder.installedTools().map { it.name }
         assertTrue("aux_helper" in toolNames, "expected aux_helper, got $toolNames")
         assertTrue("load_stub" in toolNames, "delegate tool must still be installed alongside aux tools")
     }
 
     @Test
-    fun `installOn with empty auxiliaryTools installs nothing extra`() {
+    fun `installOn with empty auxiliaryTools installs only the load tool`() {
         val factory = minimalFactory(auxiliaryTools = emptyList())
-        val builder = agentBuilder()
+        val builder = emptyBuilder()
         factory.installOn(builder)
-        val toolNames = builder.toolRegistry().all().map { it.name }
+        val toolNames = builder.installedTools().map { it.name }
         assertEquals(listOf("load_stub"), toolNames)
     }
 }
 ```
-
-> **NOTE on imports:** The `JsonNull` reference at the bottom is to anchor the `kotlinx.serialization.json.JsonNull` import if your IDE auto-removes unused imports. Remove that import + the private `unused` function if `JsonNull` is actually used elsewhere in the file.
 
 - [ ] **Step 2: Run test**
 
@@ -823,26 +808,65 @@ git commit -m "test(capability): CapabilityFactory 默认 installOn 行为测试
 - Create: `agent/subagent/src/test/kotlin/io/github/yeyi/agent/subagent/SubagentFactoryTest.kt`
 
 **Interfaces:**
-- Consumes: `SubagentFactory`, `SubagentRegistry`, existing `StubLlmProvider` test helper from `SubagentTest.kt`
+- Consumes: `SubagentFactory`, `SubagentRegistry`
 - Produces: tests for Subagent factory wiring (registry exposure + installOn mode behavior)
 
-- [ ] **Step 1: Discover existing test helpers**
+**Stubs inlined**: `SubagentTest.kt` has `StubSubagent` / `StubLlmProvider` as `private class`, so they cannot be reused across files. This test file defines its own minimal stubs.
 
-Run: `grep -n "StubLlmProvider\|StubSubagent" agent/subagent/src/test/kotlin/io/github/yeyi/agent/subagent/SubagentTest.kt`
-Expected: visible stubs. Reuse if accessible (same package — yes, can reuse without import).
-
-- [ ] **Step 2: Create `SubagentFactoryTest.kt`**
+- [ ] **Step 1: Create `SubagentFactoryTest.kt`**
 
 ```kotlin
 package io.github.yeyi.agent.subagent
 
+import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.agent
+import io.github.yeyi.agent.llm.LlmProvider
+import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.tool.ToolRegistry
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlin.test.Test
 import kotlin.test.assertContains
-import kotlin.test.assertSame
 import kotlin.test.assertFalse
+import kotlin.test.assertSame
 
 class SubagentFactoryTest {
+
+    // ---------- stubs (local; SubagentTest.kt helpers are private) ----------
+
+    private class StubSubagent(
+        override val name: String,
+        override val description: String = "stub subagent",
+        override val maxIterations: Int? = 5,
+        override val memory: Memory? = null,
+        override val tools: List<Tool>? = null,
+    ) : Subagent {
+        override suspend fun load(): String = "stub instructions"
+    }
+
+    private object StubLlm : LlmProvider {
+        override val name: String = "stub"
+        override suspend fun chat(request: io.github.yeyi.agent.llm.ChatRequest) =
+            io.github.yeyi.agent.llm.ChatResponse(
+                message = io.github.yeyi.agent.llm.ChatMessage.Assistant(content = "ok"),
+                finishReason = io.github.yeyi.agent.llm.FinishReason.Stop,
+            )
+        override fun chatStream(request: io.github.yeyi.agent.llm.ChatRequest): Flow<StreamEvent> =
+            flowOf(StreamEvent.Done(usage = null, finishReason = io.github.yeyi.agent.llm.FinishReason.Stop))
+    }
+
+    // AgentBuilder.toolRegistry is private — peek via reflection for assertions.
+    private fun AgentBuilder.installedTools(): List<Tool> {
+        val f = AgentBuilder::class.java.getDeclaredField("toolRegistry").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        return (f.get(this) as ToolRegistry).all()
+    }
+
+    private fun newBuilder(): AgentBuilder = agent { llmProvider(StubLlm) }
+
+    // ---------- tests ----------
 
     @Test
     fun `factory exposes the same registry passed in`() {
@@ -855,9 +879,9 @@ class SubagentFactoryTest {
     fun `installOn in delegate mode installs load_subagent tool`() {
         val registry = SubagentRegistry().apply { register(StubSubagent("alpha")) }
         val factory = SubagentFactory(registry)
-        val builder = agent { llmProvider(StubLlmProvider()) }
+        val builder = newBuilder()
         factory.installOn(builder, enableDelegateAdaptMode = true)
-        val toolNames = builder.toolRegistry().all().map { it.name }
+        val toolNames = builder.installedTools().map { it.name }
         assertContains(toolNames, "load_subagent")
     }
 
@@ -868,9 +892,9 @@ class SubagentFactoryTest {
             register(StubSubagent("beta"))
         }
         val factory = SubagentFactory(registry)
-        val builder = agent { llmProvider(StubLlmProvider()) }
+        val builder = newBuilder()
         factory.installOn(builder, enableDelegateAdaptMode = false)
-        val toolNames = builder.toolRegistry().all().map { it.name }
+        val toolNames = builder.installedTools().map { it.name }
         assertContains(toolNames, "subagent_alpha")
         assertContains(toolNames, "subagent_beta")
         assertFalse("load_subagent" in toolNames)
@@ -879,22 +903,22 @@ class SubagentFactoryTest {
     @Test
     fun `installOn respects enableDelegateAdaptMode toggle`() {
         val registry = SubagentRegistry().apply { register(StubSubagent("x")) }
-        val delegateBuilder = agent { llmProvider(StubLlmProvider()) }
-        val oneToOneBuilder = agent { llmProvider(StubLlmProvider()) }
+        val delegateBuilder = newBuilder()
+        val oneToOneBuilder = newBuilder()
         SubagentFactory(registry).installOn(delegateBuilder, enableDelegateAdaptMode = true)
         SubagentFactory(registry).installOn(oneToOneBuilder, enableDelegateAdaptMode = false)
-        assertContains(delegateBuilder.toolRegistry().all().map { it.name }, "load_subagent")
-        assertFalse("load_subagent" in oneToOneBuilder.toolRegistry().all().map { it.name })
+        assertContains(delegateBuilder.installedTools().map { it.name }, "load_subagent")
+        assertFalse("load_subagent" in oneToOneBuilder.installedTools().map { it.name })
     }
 }
 ```
 
-- [ ] **Step 3: Run test**
+- [ ] **Step 2: Run test**
 
 Run: `cd agent/subagent && ../../gradlew :subagent:test --tests SubagentFactoryTest`
-Expected: PASS — all 4 tests green. If `builder.toolRegistry()` is unavailable on `AgentBuilder`, fall back to whichever tool query API the project uses (e.g. `builder.installedTools()` etc.) — adjust the test accordingly. Resolve API mismatch before commit.
+Expected: PASS — all 4 tests green.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add agent/subagent/src/test/kotlin/io/github/yeyi/agent/subagent/SubagentFactoryTest.kt
@@ -909,28 +933,72 @@ git commit -m "test(subagent): SubagentFactory wiring 测试"
 - Create: `agent/skill/src/test/kotlin/io/github/yeyi/agent/skill/SkillFactoryTest.kt`
 
 **Interfaces:**
-- Consumes: `SkillFactory`, `SkillRegistry`, existing test helpers in `SkillTest.kt`
+- Consumes: `SkillFactory`, `SkillRegistry`
 - Produces: tests for Skill factory wiring (auxiliaryTools conditional behavior)
 
-- [ ] **Step 1: Discover existing test helpers**
+**Stubs inlined**: `SkillTest.kt` has `FixedSkill` (not `StubSkill`) and `SkillExtensionsTest.kt` has its own `RecordingLlm` — both `private class`, not reusable across files. This test file defines its own minimal stubs.
 
-Run: `grep -n "class StubSkill\|class StubLlmProvider\|StubTool" agent/skill/src/test/kotlin/io/github/yeyi/agent/skill/SkillTest.kt`
-Expected: visible stubs. Reuse if same package.
-
-- [ ] **Step 2: Create `SkillFactoryTest.kt`**
+- [ ] **Step 1: Create `SkillFactoryTest.kt`**
 
 ```kotlin
 package io.github.yeyi.agent.skill
 
+import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.agent
+import io.github.yeyi.agent.llm.LlmProvider
+import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionResult
+import io.github.yeyi.agent.tool.ToolParameters
+import io.github.yeyi.agent.tool.ToolRegistry
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.serialization.json.JsonElement
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class SkillFactoryTest {
+
+    // ---------- stubs (local; existing test helpers are private) ----------
+
+    private class StubSkill(
+        override val name: String,
+        override val description: String = "stub skill",
+    ) : Skill {
+        override suspend fun load(): String = "stub instructions"
+    }
+
+    private class StubSkillTool(override val name: String) : Tool {
+        override val description: String = "stub tool"
+        override val parametersSchema: ToolParameters = ToolParameters.Empty
+        override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+            ToolExecutionResult.success("")
+    }
+
+    private object StubLlm : LlmProvider {
+        override val name: String = "stub"
+        override suspend fun chat(request: io.github.yeyi.agent.llm.ChatRequest) =
+            io.github.yeyi.agent.llm.ChatResponse(
+                message = io.github.yeyi.agent.llm.ChatMessage.Assistant(content = "ok"),
+                finishReason = io.github.yeyi.agent.llm.FinishReason.Stop,
+            )
+        override fun chatStream(request: io.github.yeyi.agent.llm.ChatRequest): Flow<StreamEvent> =
+            flowOf(StreamEvent.Done(usage = null, finishReason = io.github.yeyi.agent.llm.FinishReason.Stop))
+    }
+
+    // AgentBuilder.toolRegistry is private — peek via reflection for assertions.
+    private fun AgentBuilder.installedTools(): List<Tool> {
+        val f = AgentBuilder::class.java.getDeclaredField("toolRegistry").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        return (f.get(this) as ToolRegistry).all()
+    }
+
+    private fun newBuilder(): AgentBuilder = agent { llmProvider(StubLlm) }
+
+    // ---------- tests ----------
 
     @Test
     fun `factory exposes the same registry passed in`() {
@@ -943,9 +1011,9 @@ class SkillFactoryTest {
     fun `installOn installs load_skill tool`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
         val factory = SkillFactory(registry)
-        val builder = agent { llmProvider(StubLlmProvider()) }
+        val builder = newBuilder()
         factory.installOn(builder)
-        val toolNames = builder.toolRegistry().all().map { it.name }
+        val toolNames = builder.installedTools().map { it.name }
         assertContains(toolNames, "load_skill")
     }
 
@@ -953,9 +1021,9 @@ class SkillFactoryTest {
     fun `installOn does NOT install SkillToolLoader or SkillToolCaller when registry has no tools`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
         val factory = SkillFactory(registry)
-        val builder = agent { llmProvider(StubLlmProvider()) }
+        val builder = newBuilder()
         factory.installOn(builder)
-        val toolNames = builder.toolRegistry().all().map { it.name }
+        val toolNames = builder.installedTools().map { it.name }
         assertFalse("skill_tool_loader" in toolNames)
         assertFalse("skill_tool_caller" in toolNames)
     }
@@ -964,29 +1032,17 @@ class SkillFactoryTest {
     fun `installOn installs SkillToolLoader and SkillToolCaller when registry has tools`() {
         val registry = SkillRegistry().apply {
             register(StubSkill("alpha"))
-            registerTools(listOf(StubToolForSkill("helper_a")))
+            registerTools(listOf(StubSkillTool("helper_a")))
         }
         val factory = SkillFactory(registry)
-        val builder = agent { llmProvider(StubLlmProvider()) }
+        val builder = newBuilder()
         factory.installOn(builder)
-        val toolNames = builder.toolRegistry().all().map { it.name }
+        val toolNames = builder.installedTools().map { it.name }
         assertContains(toolNames, "skill_tool_loader")
         assertContains(toolNames, "skill_tool_caller")
     }
 }
-
-private class StubToolForSkill(name: String) : Tool {
-    override val name: String = name
-    override val description: String = "stub"
-    override val parametersSchema = io.github.yeyi.agent.tool.ToolParameters.Empty
-    override suspend fun execute(
-        arguments: io.github.yeyi.agent.tool.ToolContext,
-        context: io.github.yeyi.agent.tool.ToolContext,
-    ) = throw UnsupportedOperationException()
-}
 ```
-
-> **NOTE**: `StubSkill` and `StubLlmProvider` reference existing test helpers from `SkillTest.kt` (same package, so direct reuse). The `StubToolForSkill` class is a placeholder; if `SkillTest.kt` already has a stub tool, reuse it instead. Resolve import / helper reuse before commit.
 
 - [ ] **Step 3: Run test**
 
@@ -1008,28 +1064,54 @@ git commit -m "test(skill): SkillFactory wiring + auxiliaryTools 条件返回测
 - Create: `agent/toolset/src/test/kotlin/io/github/yeyi/agent/toolset/ToolsetFactoryTest.kt`
 
 **Interfaces:**
-- Consumes: `ToolsetFactory`, `ToolsetRegistry`, `Toolset(name, description)`, existing test helpers
+- Consumes: `ToolsetFactory`, `ToolsetRegistry`, `Toolset(name, description)` factory function
 - Produces: tests for Toolset factory wiring + `ToolsetsInstallException` wrap on duplicate
 
-- [ ] **Step 1: Discover existing test helpers**
+**Stubs inlined**: `ToolsetTest.kt` has `UnusedLlm` (not `StubLlmProvider`), and it's `private object` — not reusable across files. This test file defines its own minimal stub.
 
-Run: `grep -n "class StubLlmProvider\|StubTool" agent/toolset/src/test/kotlin/io/github/yeyi/agent/toolset/ToolsetTest.kt`
-Expected: visible stubs. Reuse if same package.
-
-- [ ] **Step 2: Create `ToolsetFactoryTest.kt`**
+- [ ] **Step 1: Create `ToolsetFactoryTest.kt`**
 
 ```kotlin
 package io.github.yeyi.agent.toolset
 
+import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.agent
+import io.github.yeyi.agent.llm.LlmProvider
+import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.tool.ToolRegistry
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlin.test.Test
 import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 class ToolsetFactoryTest {
+
+    // ---------- stubs (local; existing test helpers are private) ----------
+
+    private object StubLlm : LlmProvider {
+        override val name: String = "stub"
+        override suspend fun chat(request: io.github.yeyi.agent.llm.ChatRequest) =
+            io.github.yeyi.agent.llm.ChatResponse(
+                message = io.github.yeyi.agent.llm.ChatMessage.Assistant(content = "ok"),
+                finishReason = io.github.yeyi.agent.llm.FinishReason.Stop,
+            )
+        override fun chatStream(request: io.github.yeyi.agent.llm.ChatRequest): Flow<StreamEvent> =
+            flowOf(StreamEvent.Done(usage = null, finishReason = io.github.yeyi.agent.llm.FinishReason.Stop))
+    }
+
+    // AgentBuilder.toolRegistry is private — peek via reflection for assertions.
+    private fun AgentBuilder.installedTools(): List<Tool> {
+        val f = AgentBuilder::class.java.getDeclaredField("toolRegistry").apply { isAccessible = true }
+        @Suppress("UNCHECKED_CAST")
+        return (f.get(this) as ToolRegistry).all()
+    }
+
+    private fun newBuilder(): AgentBuilder = agent { llmProvider(StubLlm) }
+
+    // ---------- tests ----------
 
     @Test
     fun `factory exposes the same registry passed in`() {
@@ -1046,9 +1128,9 @@ class ToolsetFactoryTest {
             register(Toolset("alpha", "alpha tools"))
         }
         val factory = ToolsetFactory(registry)
-        val builder = agent { llmProvider(StubLlmProvider()) }
+        val builder = newBuilder()
         factory.installOn(builder)
-        val toolNames = builder.toolRegistry().all().map { it.name }
+        val toolNames = builder.installedTools().map { it.name }
         assertContains(toolNames, "load_toolset")
         assertContains(toolNames, "sub_tool_delegate")
     }
@@ -1059,7 +1141,7 @@ class ToolsetFactoryTest {
             register(Toolset("alpha", "alpha tools"))
         }
         val factory = ToolsetFactory(registry)
-        val builder = agent { llmProvider(StubLlmProvider()) }
+        val builder = newBuilder()
         // First install populates load_toolset + sub_tool_delegate
         factory.installOn(builder)
         // Second install on same builder must throw ToolsetsInstallException
