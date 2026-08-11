@@ -13,7 +13,7 @@ public fun AgentBuilder.subagents(
     registry: SubagentRegistry,
     enableDelegateAdaptMode: Boolean = true,
 ) {
-    SubagentFactory(registry).installOn(this, enableDelegateAdaptMode)
+    SubagentInstaller(registry).installOn(this, enableDelegateAdaptMode)
 }
 
 internal val log = LoggingTagged("subagent")

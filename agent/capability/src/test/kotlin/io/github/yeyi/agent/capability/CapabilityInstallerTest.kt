@@ -12,7 +12,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class CapabilityFactoryTest {
+class CapabilityInstallerTest {
 
     private class StubContext : CapabilityContext
 
@@ -42,12 +42,12 @@ class CapabilityFactoryTest {
         return (f.get(this) as ToolRegistry).all()
     }
 
-    private fun minimalFactory(
+    private fun minimalInstaller(
         registry: CapabilityRegistry<StubCapability, Unit, StubContext> =
             DefaultCapabilityRegistry<StubCapability, Unit, StubContext>("stub").apply { register(StubCapability("a", "desc a")) },
         auxiliaryTools: List<Tool> = emptyList(),
-    ): CapabilityFactory<StubCapability, Unit, StubContext> =
-        object : CapabilityFactory<StubCapability, Unit, StubContext>() {
+    ): CapabilityInstaller<StubCapability, Unit, StubContext> =
+        object : CapabilityInstaller<StubCapability, Unit, StubContext>() {
             override fun registry(): CapabilityRegistry<StubCapability, Unit, StubContext> = registry
             override fun contextFactory() = StubContextFactory()
             override fun arguments(): CapabilityArguments<Unit>? = null
@@ -57,17 +57,17 @@ class CapabilityFactoryTest {
     private fun emptyBuilder(): AgentBuilder = AgentBuilder()
 
     @Test
-    fun `factory exposes registry passed in constructor`() {
+    fun `installer exposes registry passed in constructor`() {
         val registry = DefaultCapabilityRegistry<StubCapability, Unit, StubContext>("stub")
-        val factory = minimalFactory(registry)
-        val m = CapabilityFactory::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
+        val factory = minimalInstaller(registry)
+        val m = CapabilityInstaller::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
         assertEquals(registry, m.invoke(factory))
     }
 
     @Test
     fun `installOn in delegate mode installs load_stub tool`() {
-        val factory = minimalFactory()
+        val factory = minimalInstaller()
         val builder = emptyBuilder()
         factory.installOn(builder, enableDelegateAdaptMode = true)
         val toolNames = builder.installedTools().map { it.name }
@@ -80,7 +80,7 @@ class CapabilityFactoryTest {
             register(StubCapability("alpha", "d"))
             register(StubCapability("beta", "d"))
         }
-        val factory = minimalFactory(registry)
+        val factory = minimalInstaller(registry)
         val builder = emptyBuilder()
         factory.installOn(builder, enableDelegateAdaptMode = false)
         val toolNames = builder.installedTools().map { it.name }
@@ -92,7 +92,7 @@ class CapabilityFactoryTest {
     @Test
     fun `installOn installs auxiliaryTools after CapabilityAdapter`() {
         val aux = StubAuxTool("aux_helper")
-        val factory = minimalFactory(auxiliaryTools = listOf(aux))
+        val factory = minimalInstaller(auxiliaryTools = listOf(aux))
         val builder = emptyBuilder()
         factory.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
@@ -102,7 +102,7 @@ class CapabilityFactoryTest {
 
     @Test
     fun `installOn with empty auxiliaryTools installs only the load tool`() {
-        val factory = minimalFactory(auxiliaryTools = emptyList())
+        val factory = minimalInstaller(auxiliaryTools = emptyList())
         val builder = emptyBuilder()
         factory.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }

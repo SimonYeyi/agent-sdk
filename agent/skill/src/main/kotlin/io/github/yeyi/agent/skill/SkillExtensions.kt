@@ -16,5 +16,5 @@ public fun AgentBuilder.skills(
     registry: SkillRegistry,
     enableDelegateAdaptMode: Boolean = true,
 ) {
-    SkillFactory(registry).installOn(this, enableDelegateAdaptMode)
+    SkillInstaller(registry).installOn(this, enableDelegateAdaptMode)
 }

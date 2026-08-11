@@ -19,5 +19,5 @@ public fun AgentBuilder.toolsets(
     registry: ToolsetRegistry,
     enableDelegateAdaptMode: Boolean = true,
 ) {
-    ToolsetFactory(registry).installOn(this, enableDelegateAdaptMode)
+    ToolsetInstaller(registry).installOn(this, enableDelegateAdaptMode)
 }

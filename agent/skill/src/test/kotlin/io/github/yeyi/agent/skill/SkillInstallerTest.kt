@@ -20,7 +20,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
-class SkillFactoryTest {
+class SkillInstallerTest {
 
     private class StubSkill(
         override val name: String,
@@ -58,8 +58,8 @@ class SkillFactoryTest {
     @Test
     fun `factory exposes the same registry passed in`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
-        val factory = SkillFactory(registry)
-        val m = io.github.yeyi.agent.capability.CapabilityFactory::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
+        val factory = SkillInstaller(registry)
+        val m = io.github.yeyi.agent.capability.CapabilityInstaller::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
         assertEquals(registry, m.invoke(factory))
     }
@@ -67,7 +67,7 @@ class SkillFactoryTest {
     @Test
     fun `installOn installs load_skill tool`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
-        val factory = SkillFactory(registry)
+        val factory = SkillInstaller(registry)
         val builder = newBuilder()
         factory.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
@@ -77,7 +77,7 @@ class SkillFactoryTest {
     @Test
     fun `installOn does NOT install SkillToolLoader or SkillToolCaller when registry has no tools`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
-        val factory = SkillFactory(registry)
+        val factory = SkillInstaller(registry)
         val builder = newBuilder()
         factory.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
@@ -91,7 +91,7 @@ class SkillFactoryTest {
             register(StubSkill("alpha"))
             registerTools(listOf(StubSkillTool("helper_a")))
         }
-        val factory = SkillFactory(registry)
+        val factory = SkillInstaller(registry)
         val builder = newBuilder()
         factory.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }

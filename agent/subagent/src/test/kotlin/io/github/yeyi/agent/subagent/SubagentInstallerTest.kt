@@ -17,7 +17,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertFalse
 import kotlin.test.assertSame
 
-class SubagentFactoryTest {
+class SubagentInstallerTest {
 
     private class StubSubagent(
         override val name: String,
@@ -51,8 +51,8 @@ class SubagentFactoryTest {
     @Test
     fun `factory exposes the same registry passed in`() {
         val registry = SubagentRegistry().apply { register(StubSubagent("alpha")) }
-        val factory = SubagentFactory(registry)
-        val m = io.github.yeyi.agent.capability.CapabilityFactory::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
+        val factory = SubagentInstaller(registry)
+        val m = io.github.yeyi.agent.capability.CapabilityInstaller::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
         assertSame(registry, m.invoke(factory))
     }
@@ -60,7 +60,7 @@ class SubagentFactoryTest {
     @Test
     fun `installOn in delegate mode installs load_subagent tool`() {
         val registry = SubagentRegistry().apply { register(StubSubagent("alpha")) }
-        val factory = SubagentFactory(registry)
+        val factory = SubagentInstaller(registry)
         val builder = newBuilder()
         factory.installOn(builder, enableDelegateAdaptMode = true)
         val toolNames = builder.installedTools().map { it.name }
@@ -73,7 +73,7 @@ class SubagentFactoryTest {
             register(StubSubagent("alpha"))
             register(StubSubagent("beta"))
         }
-        val factory = SubagentFactory(registry)
+        val factory = SubagentInstaller(registry)
         val builder = newBuilder()
         factory.installOn(builder, enableDelegateAdaptMode = false)
         val toolNames = builder.installedTools().map { it.name }
@@ -87,8 +87,8 @@ class SubagentFactoryTest {
         val registry = SubagentRegistry().apply { register(StubSubagent("x")) }
         val delegateBuilder = newBuilder()
         val oneToOneBuilder = newBuilder()
-        SubagentFactory(registry).installOn(delegateBuilder, enableDelegateAdaptMode = true)
-        SubagentFactory(registry).installOn(oneToOneBuilder, enableDelegateAdaptMode = false)
+        SubagentInstaller(registry).installOn(delegateBuilder, enableDelegateAdaptMode = true)
+        SubagentInstaller(registry).installOn(oneToOneBuilder, enableDelegateAdaptMode = false)
         assertContains(delegateBuilder.installedTools().map { it.name }, "load_subagent")
         assertFalse("load_subagent" in oneToOneBuilder.installedTools().map { it.name })
     }

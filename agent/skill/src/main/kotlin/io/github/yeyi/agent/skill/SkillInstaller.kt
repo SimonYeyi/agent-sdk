@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.skill
 
 import io.github.yeyi.agent.capability.CapabilityArguments
-import io.github.yeyi.agent.capability.CapabilityFactory
+import io.github.yeyi.agent.capability.CapabilityInstaller
 import io.github.yeyi.agent.tool.Tool
 
 /**
@@ -10,9 +10,9 @@ import io.github.yeyi.agent.tool.Tool
  * 仅供 Skill 模块内部 `skills(registry, ...)` 扩展函数使用;
  * 外部调用方应直接使用扩展函数,不感知本类。
  */
-internal class SkillFactory(
+internal class SkillInstaller(
     private val registry: SkillRegistry,
-) : CapabilityFactory<Skill, Unit, SkillContext>() {
+) : CapabilityInstaller<Skill, Unit, SkillContext>() {
 
     override fun registry(): SkillRegistry = registry
 

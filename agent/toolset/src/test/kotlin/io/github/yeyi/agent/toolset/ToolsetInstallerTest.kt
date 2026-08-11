@@ -16,7 +16,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-class ToolsetFactoryTest {
+class ToolsetInstallerTest {
 
     private object StubLlm : LlmProvider {
         override val name: String = "stub"
@@ -42,8 +42,8 @@ class ToolsetFactoryTest {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))
         }
-        val factory = ToolsetFactory(registry)
-        val m = io.github.yeyi.agent.capability.CapabilityFactory::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
+        val factory = ToolsetInstaller(registry)
+        val m = io.github.yeyi.agent.capability.CapabilityInstaller::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
         assertEquals(registry, m.invoke(factory))
     }
@@ -53,7 +53,7 @@ class ToolsetFactoryTest {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))
         }
-        val factory = ToolsetFactory(registry)
+        val factory = ToolsetInstaller(registry)
         val builder = newBuilder()
         factory.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
@@ -66,7 +66,7 @@ class ToolsetFactoryTest {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))
         }
-        val factory = ToolsetFactory(registry)
+        val factory = ToolsetInstaller(registry)
         val builder = newBuilder()
         factory.installOn(builder)
         assertFailsWith<ToolsetsInstallException> {
