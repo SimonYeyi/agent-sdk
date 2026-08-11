@@ -3,7 +3,7 @@ package io.github.yeyi.agent.capability
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.tool.Tool
 
-public abstract class CapabilityAdapter<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext>(
+internal abstract class CapabilityAdapter<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext>(
     protected val registry: CapabilityRegistry<C, T, Ctx>,
     protected val capabilityContextFactory: CapabilityContextFactory<Ctx>,
     protected val arguments: CapabilityArguments<T>?
@@ -15,16 +15,16 @@ public abstract class CapabilityAdapter<C : Capability<T, Ctx>, T : Any, Ctx : C
      *
      * 内部调用 [adapt] 生成 Tool 列表，然后逐个通过 [AgentBuilder.tool] 注册。
      */
-    public fun installOn(agentBuilder: AgentBuilder): Unit =
+    fun installOn(agentBuilder: AgentBuilder): Unit =
         adapt().forEach { agentBuilder.tool(it) }
 
-    public companion object {
+    companion object {
         /**
          * 创建 CapabilityAdapter 实例。
          *
          * @param enableDelegateAdaptMode true 使用委托模式（单一 Delegate Tool），false 使用一一映射模式（每个 Capability 对应一个 Tool）
          */
-        public fun <C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext> of(
+        fun <C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext> of(
             registry: CapabilityRegistry<C, T, Ctx>,
             capabilityContextFactory: CapabilityContextFactory<Ctx>,
             arguments: CapabilityArguments<T>?,

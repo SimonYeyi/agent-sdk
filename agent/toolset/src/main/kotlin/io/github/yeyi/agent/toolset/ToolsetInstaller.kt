@@ -24,7 +24,7 @@ internal class ToolsetInstaller(
 
     override fun auxiliaryTools(): List<Tool> = listOf(SubToolDelegate(registry))
 
-    public override fun installOn(
+    override fun installOn(
         agentBuilder: AgentBuilder,
         enableDelegateAdaptMode: Boolean,
     ) {

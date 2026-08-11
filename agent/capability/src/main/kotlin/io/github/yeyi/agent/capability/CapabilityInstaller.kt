@@ -18,11 +18,7 @@ import io.github.yeyi.agent.tool.Tool
  * @param T arguments 类型
  * @param Ctx capability context 类型
  */
-public abstract class CapabilityInstaller<
-    C : Capability<T, Ctx>,
-    T : Any,
-    Ctx : CapabilityContext,
-> {
+public abstract class CapabilityInstaller<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext> {
 
     /** 调用方 new 后传入;installer持有并可继续 register。 */
     protected abstract fun registry(): CapabilityRegistry<C, T, Ctx>

@@ -2,7 +2,6 @@ package io.github.yeyi.agent.skill
 
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.Persona
-import io.github.yeyi.agent.capability.CapabilityAdapter
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse

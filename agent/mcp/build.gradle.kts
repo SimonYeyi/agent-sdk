@@ -13,7 +13,6 @@ kotlin {
 
 dependencies {
     api(project(":agent:core"))
-    api(project(":agent:capability"))
     api(project(":agent:toolset"))
     api(libs.kotlinx.serialization.json)
     api(libs.kotlinx.coroutines.core)
