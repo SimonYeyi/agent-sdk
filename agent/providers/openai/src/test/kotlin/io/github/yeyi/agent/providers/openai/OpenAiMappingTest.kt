@@ -63,7 +63,7 @@ class OpenAiMappingTest {
                 OpenAiChoice(
                     message = OpenAiMessage(
                         role = "assistant",
-                        content = "ok",
+                        content = OpenAiContent.StringValue("ok"),
                         toolCalls = listOf(OpenAiToolCall(
                             id = "c1",
                             function = OpenAiFunctionCall("echo", """{"text":"x"}""")
@@ -100,7 +100,7 @@ class OpenAiMappingTest {
     @Test
     fun `mapFromOpenAi with null usage yields null usage`() {
         val raw = OpenAiChatResponse(
-            choices = listOf(OpenAiChoice(message = OpenAiMessage(role = "assistant", content = "ok"), finishReason = "stop")),
+            choices = listOf(OpenAiChoice(message = OpenAiMessage(role = "assistant", content = OpenAiContent.StringValue("ok")), finishReason = "stop")),
             usage = null
         )
         val parsed = mapFromOpenAi(raw)
@@ -110,7 +110,7 @@ class OpenAiMappingTest {
     @Test
     fun `mapFromOpenAi decodes length finish reason`() {
         val raw = OpenAiChatResponse(
-            choices = listOf(OpenAiChoice(message = OpenAiMessage(role = "assistant", content = "partial"), finishReason = "length"))
+            choices = listOf(OpenAiChoice(message = OpenAiMessage(role = "assistant", content = OpenAiContent.StringValue("partial")), finishReason = "length"))
         )
         val parsed = mapFromOpenAi(raw)
         assertEquals(FinishReason.Length, parsed.finishReason)

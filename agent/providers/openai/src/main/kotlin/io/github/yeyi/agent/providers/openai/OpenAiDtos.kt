@@ -1,8 +1,16 @@
 package io.github.yeyi.agent.providers.openai
 
+import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.descriptors.SerialDescriptor
+import kotlinx.serialization.descriptors.buildClassSerialDescriptor
+import kotlinx.serialization.encoding.Decoder
+import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonDecoder
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 
 @Serializable
 internal data class OpenAiChatRequest(
@@ -122,25 +130,89 @@ internal sealed class OpenAiContentPart {
     @Serializable
     @SerialName("image_url")
     data class ImageUrl(
-        val url: String,
-        @SerialName("detail") val detail: String? = null
+        @SerialName("image_url") val imageUrl: ImageUrlDetail
     ) : OpenAiContentPart()
+
+    @Serializable
+    data class ImageUrlDetail(
+        val url: String,
+        val detail: String? = null
+    )
 
     @Serializable
     @SerialName("input_audio")
     data class InputAudio(
+        @SerialName("input_audio") val inputAudio: InputAudioDetail
+    ) : OpenAiContentPart()
+
+    @Serializable
+    data class InputAudioDetail(
         val data: String,
         val format: String
-    ) : OpenAiContentPart()
+    )
 }
 
-@Serializable
+/**
+ * Polymorphic wire format that matches OpenAI's request body exactly:
+ * - [OpenAiContent.StringValue] encodes as a bare JSON string ("hello")
+ * - [OpenAiContent.PartsValue] encodes as a bare JSON array ([{...}, {...}])
+ * No class-discriminator wrapper is emitted (i.e. NOT {"type":"string","value":"..."}).
+ *
+ * Uses a hand-written [KSerializer] because kotlinx's default polymorphic encoder
+ * emits a {"type":..., "value":...} wrapper, which is not the OpenAI shape.
+ */
+@Serializable(with = OpenAiContentSerializer::class)
 internal sealed class OpenAiContent {
     @Serializable
-    @SerialName("string")
     data class StringValue(val value: String) : OpenAiContent()
 
     @Serializable
-    @SerialName("parts")
     data class PartsValue(val value: List<OpenAiContentPart>) : OpenAiContent()
+}
+
+internal object OpenAiContentSerializer : KSerializer<OpenAiContent> {
+
+    override val descriptor: SerialDescriptor =
+        buildClassSerialDescriptor("io.github.yeyi.agent.providers.openai.OpenAiContent")
+
+    override fun serialize(encoder: Encoder, value: OpenAiContent) {
+        val jsonEncoder = encoder as? kotlinx.serialization.json.JsonEncoder
+            ?: throw IllegalStateException(
+                "OpenAiContent can only be serialized using kotlinx.serialization.json.Json"
+            )
+        when (value) {
+            is OpenAiContent.StringValue ->
+                jsonEncoder.encodeJsonElement(JsonPrimitive(value.value))
+            is OpenAiContent.PartsValue ->
+                jsonEncoder.encodeJsonElement(
+                    JsonArray(value.value.map { part ->
+                        jsonEncoder.json.encodeToJsonElement(OpenAiContentPart.serializer(), part)
+                    })
+                )
+        }
+    }
+
+    override fun deserialize(decoder: Decoder): OpenAiContent {
+        val jsonDecoder = decoder as? JsonDecoder
+            ?: throw IllegalStateException(
+                "OpenAiContent can only be deserialized using kotlinx.serialization.json.Json"
+            )
+        val element: JsonElement = jsonDecoder.decodeJsonElement()
+        return when (element) {
+            is JsonPrimitive -> {
+                if (!element.isString) {
+                    throw kotlinx.serialization.SerializationException(
+                        "OpenAiContent: expected JSON string or array, got primitive ${element.content}"
+                    )
+                }
+                OpenAiContent.StringValue(element.content)
+            }
+            is JsonArray -> OpenAiContent.PartsValue(
+                element.map { jsonDecoder.json.decodeFromJsonElement(OpenAiContentPart.serializer(), it) }
+            )
+            else -> throw kotlinx.serialization.SerializationException(
+                "OpenAiContent: expected JSON string or array, got ${element::class.simpleName}"
+            )
+        }
+    }
 }
