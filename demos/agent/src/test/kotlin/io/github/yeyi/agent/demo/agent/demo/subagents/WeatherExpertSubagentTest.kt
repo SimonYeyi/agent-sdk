@@ -6,6 +6,7 @@ import io.github.yeyi.agent.demo.agent.demo.tools.getWeatherTool
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
@@ -72,7 +73,7 @@ class WeatherExpertSubagentTest {
         assertEquals(1, llm.recordedRequests.size, "subagent must invoke LLM exactly once")
         val userMsgs = llm.recordedRequests.single().messages
             .filterIsInstance<ChatMessage.User>()
-            .map { it.content }
+            .mapNotNull { (it.parts.firstOrNull() as? ContentPart.Text)?.text }
         assertTrue(
             userMsgs.contains("北京今天天气如何"),
             "task must be forwarded as user message; got $userMsgs",
