@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.subagent
 
 import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.awaitResult
 import io.github.yeyi.agent.Persona
@@ -129,7 +130,7 @@ class DynamicSubagentTest {
             llmProvider(llm)
             subagents(dynamic = true)
         }
-        a.run("hi").awaitResult()
+        a.run(AgentQuery.text("hi")).awaitResult()
         val toolNames = llm.chatRequests.single().tools.map { it.name }
         assertTrue(
             "dynamic_subagent" in toolNames,
@@ -144,7 +145,7 @@ class DynamicSubagentTest {
             llmProvider(llm)
             subagents(dynamic = false)
         }
-        a.run("hi").awaitResult()
+        a.run(AgentQuery.text("hi")).awaitResult()
         val toolNames = llm.chatRequests.single().tools.map { it.name }
         assertTrue(toolNames.isEmpty(), "dynamic=false must not register any tool, got $toolNames")
     }

@@ -2,6 +2,8 @@ package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
+import io.github.yeyi.agent.AgentQuery
+import io.github.yeyi.agent.llm.ContentPart
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
@@ -152,15 +154,17 @@ public class BossAgent internal constructor(
 
     // ========== Public API ==========
 
-    override fun run(input: String): Flow<AgentEvent> {
+    override fun run(query: AgentQuery): Flow<AgentEvent> {
         // scope 已取消 (shutdown 调用过) — run() 返回 Failed 事件.
         if (!scope.isActive) {
             return flow { emit(AgentEvent.Failed(IllegalStateException("Agent is shut down"))) }
         }
 
+        val queryText = (query.parts.firstOrNull() as? ContentPart.Text)?.text
+            ?: query.parts.joinToString(" ") { it.toString() }
         val round = UserRound(
             UUID.randomUUID().toString(),
-            input,
+            queryText,
             System.currentTimeMillis(),
             Channel(Channel.UNLIMITED)
         )
@@ -170,7 +174,7 @@ public class BossAgent internal constructor(
         return flow { for (e in round.channel) emit(e) }
     }
 
-    override fun runStream(input: String): Flow<AgentEvent> = run(input)
+    override fun runStream(query: AgentQuery): Flow<AgentEvent> = run(query)
 
     /**
      * 获取当前所有任务（结束的任务已被移除）.
@@ -271,7 +275,7 @@ public class BossAgent internal constructor(
 
     private suspend fun runUserRound(userRound: UserRound) {
         try {
-            innerAgent.run(userRound.input).collect { e ->
+            innerAgent.run(AgentQuery.text(userRound.input)).collect { e ->
                 userRound.channel.send(e)
             }
         } finally {
@@ -281,7 +285,7 @@ public class BossAgent internal constructor(
     }
 
     private suspend fun runResultRound(result: String) {
-        innerAgent.run(result).collect { e ->
+        innerAgent.run(AgentQuery.text(result)).collect { e ->
             (report as MutableSharedFlow).emit(e)
         }
         handlePending(postRound = true)

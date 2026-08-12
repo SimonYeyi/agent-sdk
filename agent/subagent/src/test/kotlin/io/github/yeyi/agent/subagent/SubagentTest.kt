@@ -5,6 +5,7 @@ import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
@@ -195,7 +196,7 @@ class SubagentTest {
         val ctx = SubagentContext(stubAgentContext(llm))
         sub.activate(SubagentTask("specific task text"), ctx)
         val messages = llm.chatRequests.single().messages
-        val userMessages = messages.filterIsInstance<ChatMessage.User>().map { it.content }
+        val userMessages = messages.filterIsInstance<ChatMessage.User>().mapNotNull { (it.parts.firstOrNull() as? ContentPart.Text)?.text }
         assertTrue(
             userMessages.contains("specific task text"),
             "sub-agent must send the task as a user message; got=$userMessages"
@@ -210,7 +211,7 @@ class SubagentTest {
         sub.activate(SubagentTask("task text", context = "background info"), ctx)
         val userMessages = llm.chatRequests.single().messages
             .filterIsInstance<ChatMessage.User>()
-            .map { it.content }
+            .mapNotNull { (it.parts.firstOrNull() as? ContentPart.Text)?.text }
         assertEquals(
             listOf("background info\n\ntask text"),
             userMessages,
@@ -226,7 +227,7 @@ class SubagentTest {
         sub.activate(SubagentTask("task text", context = ""), ctx)
         val userMessages = llm.chatRequests.single().messages
             .filterIsInstance<ChatMessage.User>()
-            .map { it.content }
+            .mapNotNull { (it.parts.firstOrNull() as? ContentPart.Text)?.text }
         assertEquals(
             listOf("task text"),
             userMessages,
@@ -286,7 +287,7 @@ class SubagentTest {
         // runTest collects messages synchronously by the time the agent returns.
         val messages = sharedMemory.history()
         assertTrue(
-            messages.any { it is ChatMessage.User && it.content == "x" },
+            messages.any { it is ChatMessage.User && (it.parts.firstOrNull() as? ContentPart.Text)?.text == "x" },
             "sub-agent must use the supplied memory (got ${messages.size} messages, contents=${messages.map { it::class.simpleName }})"
         )
     }

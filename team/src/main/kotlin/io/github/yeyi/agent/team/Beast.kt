@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.LlmProvider
@@ -15,7 +16,7 @@ import io.github.yeyi.agent.toolset.ToolsetRegistry
 import io.github.yeyi.agent.toolset.toolsets
 
 internal interface Beast {
-    suspend fun run(task: String, onEvent: suspend (AgentEvent) -> Unit)
+    suspend fun run(query: AgentQuery, onEvent: suspend (AgentEvent) -> Unit)
 }
 
 internal class Ox internal constructor(
@@ -28,7 +29,7 @@ internal class Ox internal constructor(
     private val maxIterations: Int,
     private val maxRounds: Int,
 ) : Beast {
-    override suspend fun run(task: String, onEvent: suspend (AgentEvent) -> Unit) {
+    override suspend fun run(query: AgentQuery, onEvent: suspend (AgentEvent) -> Unit) {
         val inner = agent {
             persona(this@Ox.persona)
             llmProvider(llmProvider)
@@ -39,7 +40,7 @@ internal class Ox internal constructor(
             subagentRegistry?.let { subagents(it) }
             maxIterations(maxIterations)
         }
-        inner.run(task).collect { onEvent(it) }
+        inner.run(query).collect { onEvent(it) }
     }
 }
 
@@ -50,7 +51,7 @@ internal class Horse internal constructor(
     private val maxIterations: Int,
     private val maxRounds: Int,
 ) : Beast {
-    override suspend fun run(task: String, onEvent: suspend (AgentEvent) -> Unit) {
+    override suspend fun run(query: AgentQuery, onEvent: suspend (AgentEvent) -> Unit) {
         val inner = agent {
             persona(this@Horse.persona)
             llmProvider(llmProvider)
@@ -58,6 +59,6 @@ internal class Horse internal constructor(
             tools(tools)
             maxIterations(maxIterations)
         }
-        inner.run(task).collect { onEvent(it) }
+        inner.run(query).collect { onEvent(it) }
     }
 }

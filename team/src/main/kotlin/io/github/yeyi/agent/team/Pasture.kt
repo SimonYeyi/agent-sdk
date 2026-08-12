@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
+import io.github.yeyi.agent.AgentQuery
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -162,7 +163,7 @@ internal class Pasture(
         val job = scope.launch {
             try {
                 var failed: AgentEvent.Failed? = null
-                beast.run(userInput) { event ->
+                beast.run(AgentQuery.text(userInput)) { event ->
                     when (event) {
                         is AgentEvent.Final -> dagLock.withLock { dag[taskId]?.result = event }
                         is AgentEvent.Failed -> failed = event

@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.skill
 
 import io.github.yeyi.agent.AgentBuilder
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
@@ -58,7 +59,7 @@ class SkillExtensionsTest {
         val registry = SkillRegistry()
         registry.register(FixedSkill(name = "weather", description = "d", content = "B"))
         b.skills(registry, enableDelegateAdaptMode = false)
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val req = llm.recorded.single()
         val toolNames = req.tools.map { it.name }
         assertTrue("skill_weather" in toolNames, "expected skill_weather in $toolNames")
@@ -71,7 +72,7 @@ class SkillExtensionsTest {
         val registry = SkillRegistry()
         registry.register(FixedSkill(name = "weather", description = "d", content = "use get_weather"))
         b.skills(registry, enableDelegateAdaptMode = false)
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val toolNames = llm.recorded.single().tools.map { it.name }
         assertEquals(listOf("skill_weather"), toolNames)
     }
@@ -89,7 +90,7 @@ class SkillExtensionsTest {
             )
         )
         b.skills(registry)
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val req = llm.recorded.single()
         val loadSkill = req.tools.single { it.name == "load_skill" }
         assertTrue("weather" in loadSkill.description, "expected 'weather' in load_skill description, got: ${loadSkill.description}")
@@ -114,7 +115,7 @@ class SkillExtensionsTest {
         val registry = SkillRegistry()
         registry.register(FixedSkill(name = "weather", description = "d", content = "## Weather\nStep 1"))
         b.skills(registry, enableDelegateAdaptMode = false)
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val toolDef = llm.recorded.single().tools.single { it.name == "skill_weather" }
         assertEquals("d", toolDef.description)
     }
@@ -127,7 +128,7 @@ class SkillExtensionsTest {
         val registry = SkillRegistry()
         registry.register(listOf(FixedSkill("weather", "d", "body")))
         b.skills(registry)
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val loadSkill = llm.recorded.single().tools.single { it.name == "load_skill" }
         assertTrue("weather" in loadSkill.description, "expected 'weather' in load_skill description, got: ${loadSkill.description}")
     }
@@ -139,7 +140,7 @@ class SkillExtensionsTest {
         val registry = SkillRegistry()
         registry.register(listOf(FixedSkill("weather", "d", "body")))
         b.skills(registry)
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val loadSkill = llm.recorded.single().tools.single { it.name == "load_skill" }
         assertTrue("weather" in loadSkill.description, "expected 'weather' in load_skill description, got: ${loadSkill.description}")
     }

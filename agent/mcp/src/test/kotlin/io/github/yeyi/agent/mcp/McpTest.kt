@@ -2,6 +2,7 @@ package io.github.yeyi.agent.mcp
 
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
@@ -334,7 +335,7 @@ class McpTest {
         AgentBuilder().apply {
             llmProvider(llm)
             mcps(registry)
-        }.build().run("hi").toList()
+        }.build().run(AgentQuery.text("hi")).toList()
 
         val names = llm.recorded.single().tools.map { it.name }.toSet()
         assertTrue("load_toolset" in names, "expected load_toolset in $names")
@@ -351,7 +352,7 @@ class McpTest {
         AgentBuilder().apply {
             llmProvider(llm)
             mcps(registry)
-        }.build().run("hi").toList()
+        }.build().run(AgentQuery.text("hi")).toList()
 
         val loadToolset = llm.recorded.single().tools.single { it.name == "load_toolset" }
         assertTrue("calc" in loadToolset.description)

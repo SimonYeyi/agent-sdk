@@ -1,11 +1,13 @@
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
@@ -153,7 +155,7 @@ class BossAgentDagIntegrationTest {
             boss.report.collect { report.add(it) }
         }
 
-        boss.run("帮我查天气").toList()
+        boss.run(AgentQuery.text("帮我查天气")).toList()
 
         withTimeout(5000) {
             while (report.isEmpty()) delay(50)
@@ -183,7 +185,7 @@ class BossAgentDagIntegrationTest {
             boss.report.collect { report.add(it) }
         }
 
-        boss.run("跑 A 和 B, B 依赖 A").toList()
+        boss.run(AgentQuery.text("跑 A 和 B, B 依赖 A")).toList()
 
         withTimeout(5000) {
             while (report.isEmpty()) delay(50)
@@ -322,7 +324,7 @@ class BossAgentDagIntegrationTest {
             boss.report.collect { report.add(it) }
         }
 
-        boss.run("跑 diamond DAG").toList()
+        boss.run(AgentQuery.text("跑 diamond DAG")).toList()
 
         withTimeout(5000) {
             while (report.isEmpty()) delay(50)
@@ -351,7 +353,7 @@ class BossAgentDagIntegrationTest {
                 if (index > 0) {
                     val lastUserMsg = request.messages.lastOrNull { it is ChatMessage.User }
                     if (lastUserMsg != null) {
-                        recordedInputs.add((lastUserMsg as ChatMessage.User).content)
+                        recordedInputs.add((lastUserMsg as ChatMessage.User).parts.firstOrNull { it is ContentPart.Text }?.let { (it as ContentPart.Text).text } ?: "")
                     }
                 }
                 return responses[index++]
@@ -397,7 +399,7 @@ class BossAgentDagIntegrationTest {
             boss.report.collect { report.add(it) }
         }
 
-        boss.run("查数据").toList()
+        boss.run(AgentQuery.text("查数据")).toList()
 
         withTimeout(5000) {
             while (report.isEmpty()) delay(50)

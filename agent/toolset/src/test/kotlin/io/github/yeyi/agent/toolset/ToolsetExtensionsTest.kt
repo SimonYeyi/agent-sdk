@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.toolset
 
 import io.github.yeyi.agent.AgentBuilder
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
@@ -75,7 +76,7 @@ class ToolsetExtensionsTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
         b.toolsets(registryWith("weather" to "天气查询"))
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val names = llm.recorded.single().tools.map { it.name }
         assertTrue("load_toolset" in names, "expected load_toolset in $names")
     }
@@ -86,7 +87,7 @@ class ToolsetExtensionsTest {
         val b = AgentBuilder().apply { llmProvider(llm) }
         b.persona(Persona("x"))
         b.toolsets(registryWith("weather" to "天气查询", "news" to "新闻查询"))
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val loadToolset = llm.recorded.single().tools.single { it.name == "load_toolset" }
         assertTrue("weather" in loadToolset.description, "expected 'weather' in load_toolset description")
         assertTrue("天气查询" in loadToolset.description, "expected '天气查询' in load_toolset description")
@@ -99,7 +100,7 @@ class ToolsetExtensionsTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
         b.toolsets(registryWith("weather" to "d"))
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val names = llm.recorded.single().tools.map { it.name }
         assertTrue("sub_tool_delegate" in names, "expected sub_tool_delegate in $names")
     }
@@ -109,7 +110,7 @@ class ToolsetExtensionsTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
         b.toolsets(registryWith("weather" to "d"))
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val names = llm.recorded.single().tools.map { it.name }
         assertFalse(
             names.any { it.startsWith("toolset_") },
@@ -122,7 +123,7 @@ class ToolsetExtensionsTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
         b.toolsets(registryWith("weather" to "d"))
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val names = llm.recorded.single().tools.map { it.name }.toSet()
         assertEquals(setOf("load_toolset", "sub_tool_delegate"), names)
     }
@@ -137,7 +138,7 @@ class ToolsetExtensionsTest {
             registryWith("weather" to "d1", "news" to "d2"),
             enableDelegateAdaptMode = false,
         )
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val names = llm.recorded.single().tools.map { it.name }.toSet()
         assertTrue("toolset_weather" in names, "expected toolset_weather in $names")
         assertTrue("toolset_news" in names, "expected toolset_news in $names")
@@ -148,7 +149,7 @@ class ToolsetExtensionsTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
         b.toolsets(registryWith("weather" to "d"), enableDelegateAdaptMode = false)
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val names = llm.recorded.single().tools.map { it.name }
         assertFalse("load_toolset" in names, "OneToOne mode must not register load_toolset, got: $names")
     }
@@ -158,7 +159,7 @@ class ToolsetExtensionsTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
         b.toolsets(registryWith("weather" to "d"), enableDelegateAdaptMode = false)
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val names = llm.recorded.single().tools.map { it.name }
         assertTrue("sub_tool_delegate" in names, "sub_tool_delegate must be registered in both modes, got: $names")
     }
@@ -171,7 +172,7 @@ class ToolsetExtensionsTest {
             registryWith("weather" to "weather-desc"),
             enableDelegateAdaptMode = false,
         )
-        b.build().run("hi").toList()
+        b.build().run(AgentQuery.text("hi")).toList()
         val tool = llm.recorded.single().tools.single { it.name == "toolset_weather" }
         assertEquals("weather-desc", tool.description)
     }

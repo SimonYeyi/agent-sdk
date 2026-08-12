@@ -4,6 +4,7 @@ package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentHook
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
@@ -58,7 +59,7 @@ class BossAgentBuilderTest {
             maxIterations(1)
         }
 
-        val events = boss.run("hello").toList()
+        val events = boss.run(AgentQuery.text("hello")).toList()
         assertTrue(events.isNotEmpty())
         boss.shutdown()
     }
@@ -82,7 +83,7 @@ class BossAgentBuilderTest {
             maxIterations(1)
         }
 
-        boss.run("hello").toList()
+        boss.run(AgentQuery.text("hello")).toList()
 
         assertEquals(1, recordingHook.llmCalls)
         boss.shutdown()

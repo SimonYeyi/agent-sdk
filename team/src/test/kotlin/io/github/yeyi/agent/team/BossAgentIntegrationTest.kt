@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
@@ -122,7 +123,7 @@ class BossAgentIntegrationTest {
         }
 
         // 用户输入 → boss 决策 → publish_task → 完成 round → state WAITING
-        val userRoundEvents = boss.run("帮我跑 echo").toList()
+        val userRoundEvents = boss.run(AgentQuery.text("帮我跑 echo")).toList()
         assertTrue(userRoundEvents.isNotEmpty())
 
         // beast 已 publish TaskAssignment → Pasture 跑 beast → TaskUpdate(Final) 回来
@@ -221,7 +222,7 @@ class BossAgentIntegrationTest {
             boss.report.collect { report.add(it) }
         }
 
-        boss.run("并发派 A 和 B").toList()
+        boss.run(AgentQuery.text("并发派 A 和 B")).toList()
 
         // 两个并发 task 都应 Final; 续轮触发后直接 RUNNING
         // 先等续轮有内容 (state 可能在 RUNNING 中, 不能只看 WAITING)

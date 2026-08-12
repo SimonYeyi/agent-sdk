@@ -3,6 +3,7 @@
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.agent
@@ -88,7 +89,7 @@ class BossAgentTest {
     fun `run returns events`() = runTest {
         val (boss, _) = createBossAgent()
 
-        val events = boss.run("hello").toList()
+        val events = boss.run(AgentQuery.text("hello")).toList()
         assertTrue(events.isNotEmpty())
     }
 
@@ -107,7 +108,7 @@ class BossAgentTest {
         // 直接 shutdown 即可, 无需额外 delay.
         boss.shutdown()
         // subsequent run returns Failed event
-        val events = boss.run("hello").toList()
+        val events = boss.run(AgentQuery.text("hello")).toList()
         assertEquals(1, events.size)
         assertTrue(events[0] is AgentEvent.Failed)
     }
@@ -131,11 +132,11 @@ class BossAgentTest {
         val flow2Events = mutableListOf<AgentEvent>()
         val flow3Events = mutableListOf<AgentEvent>()
 
-        val flow1Job = launch { boss.run("first").collect { flow1Events.add(it) } }
+        val flow1Job = launch { boss.run(AgentQuery.text("first")).collect { flow1Events.add(it) } }
         delay(50)  // 确保 flow1 进入队列
-        val flow2Job = launch { boss.run("second").collect { flow2Events.add(it) } }
+        val flow2Job = launch { boss.run(AgentQuery.text("second")).collect { flow2Events.add(it) } }
         delay(50)
-        val flow3Job = launch { boss.run("third").collect { flow3Events.add(it) } }
+        val flow3Job = launch { boss.run(AgentQuery.text("third")).collect { flow3Events.add(it) } }
 
         withTimeout(5000) {
             flow1Job.join()
@@ -156,7 +157,7 @@ class BossAgentTest {
         val (boss, bb) = createBossAgent()
 
         // 先 run 一轮初始化 currentRound，否则 handleTaskAssignments 会因 currentRound 未初始化而失败
-        val initJob = launch { boss.run("init").collect { } }
+        val initJob = launch { boss.run(AgentQuery.text("init")).collect { } }
         withTimeout(5000) { initJob.join() }
 
         // 直接 publish 一个 taskId 的 TaskAssignment (跳过 PublishTaskTool)
