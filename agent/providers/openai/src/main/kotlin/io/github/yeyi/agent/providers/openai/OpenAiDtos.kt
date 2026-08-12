@@ -24,7 +24,7 @@ internal data class OpenAiStreamOptions(
 @Serializable
 internal data class OpenAiMessage(
     val role: String,                                                     // "system" | "user" | "assistant" | "tool"
-    val content: String? = null,
+    val content: OpenAiContent? = null,
     @SerialName("tool_calls") val toolCalls: List<OpenAiToolCall>? = null,
     @SerialName("tool_call_id") val toolCallId: String? = null,
     val name: String? = null
@@ -112,3 +112,35 @@ internal data class OpenAiStreamFunctionCall(
     val name: String? = null,
     val arguments: String? = null
 )
+
+@Serializable
+internal sealed class OpenAiContentPart {
+    @Serializable
+    @SerialName("text")
+    data class Text(val text: String) : OpenAiContentPart()
+
+    @Serializable
+    @SerialName("image_url")
+    data class ImageUrl(
+        val url: String,
+        @SerialName("detail") val detail: String? = null
+    ) : OpenAiContentPart()
+
+    @Serializable
+    @SerialName("input_audio")
+    data class InputAudio(
+        val data: String,
+        val format: String
+    ) : OpenAiContentPart()
+}
+
+@Serializable
+internal sealed class OpenAiContent {
+    @Serializable
+    @SerialName("string")
+    data class StringValue(val value: String) : OpenAiContent()
+
+    @Serializable
+    @SerialName("parts")
+    data class PartsValue(val value: List<OpenAiContentPart>) : OpenAiContent()
+}
