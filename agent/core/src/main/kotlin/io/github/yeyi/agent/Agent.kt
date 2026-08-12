@@ -17,18 +17,20 @@ public interface Agent {
      *
      * 内部使用 [io.github.yeyi.agent.memory.Memory] 维护对话历史，
      * 调用 [io.github.yeyi.agent.llm.LlmProvider.chat] 单次 RTT。
+     * 入参 [AgentQuery] 承载文本 + 多模态块。
      *
      * 适用场景：响应速度优先、无需流式输出。
      */
-    public fun run(input: String): Flow<AgentEvent>
+    public fun run(query: AgentQuery): Flow<AgentEvent>
 
     /**
      * 流式执行路径。
      *
      * 内部使用 [io.github.yeyi.agent.memory.Memory] 维护对话历史，
      * 调用 [io.github.yeyi.agent.llm.LlmProvider.chatStream] 推送 [AgentEvent.TextDelta] 增量文本。
+     * 入参 [AgentQuery] 承载文本 + 多模态块。
      *
      * 适用场景：需要实时展示 LLM 输出文字、工具调用进度等。
      */
-    public fun runStream(input: String): Flow<AgentEvent>
+    public fun runStream(query: AgentQuery): Flow<AgentEvent>
 }

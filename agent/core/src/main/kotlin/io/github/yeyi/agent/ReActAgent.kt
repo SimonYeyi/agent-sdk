@@ -3,7 +3,6 @@ package io.github.yeyi.agent
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
-import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
@@ -33,11 +32,11 @@ public class ReActAgent internal constructor(
 ) : Agent {
     private val memory = RoundsBoundedMemory(memory, maxRounds, llmProvider)
 
-    override fun run(input: String): Flow<AgentEvent> = flow {
-        loop(input, { req -> llmProvider.chat(req) }, { emit(it) })
+    override fun run(query: AgentQuery): Flow<AgentEvent> = flow {
+        loop(query, { req -> llmProvider.chat(req) }, { emit(it) })
     }
 
-    override fun runStream(input: String): Flow<AgentEvent> = flow {
+    override fun runStream(query: AgentQuery): Flow<AgentEvent> = flow {
         val llmCall: suspend (ChatRequest) -> ChatResponse = { req ->
             val accumulatedText = StringBuilder()
             val callOrder: LinkedHashSet<String> = linkedSetOf()
@@ -89,11 +88,11 @@ public class ReActAgent internal constructor(
                 finishReason = finishReason!!
             )
         }
-        loop(input = input, llmCall = llmCall, emit = { emit(it) })
+        loop(query = query, llmCall = llmCall, emit = { emit(it) })
     }
 
     private suspend fun loop(
-        input: String,
+        query: AgentQuery,
         llmCall: suspend (ChatRequest) -> ChatResponse,
         emit: suspend (AgentEvent) -> Unit
     ) {
@@ -101,10 +100,10 @@ public class ReActAgent internal constructor(
         var iterations = 0
 
         try {
-            emit(AgentEvent.Initial(input))
+            emit(AgentEvent.Initial(query))
 
             memory.attachHook(ProxyHook(hook, emit), buildContext(0))
-            memory.add(ChatMessage.User(listOf(ContentPart.Text(input))))
+            memory.add(ChatMessage.User(query.parts))
 
             while (iterations < maxIterations) {
                 loopOnce(++iterations, toolCalls, llmCall, emit)?.let { return }
