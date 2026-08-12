@@ -1,9 +1,12 @@
 package io.github.yeyi.agent.providers.anthropic
 
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
+import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
 
@@ -21,12 +24,17 @@ internal fun mapToAnthropic(model: String, request: ChatRequest): AnthropicChatR
         when (msg) {
             is ChatMessage.System -> Unit
 
-            is ChatMessage.User -> messages.add(
-                AnthropicMessage(
-                    role = "user",
-                    content = listOf(AnthropicContentBlock.Text(msg.content)),
-                )
-            )
+            is ChatMessage.User -> {
+                val blocks = msg.parts.map { part ->
+                    when (part) {
+                        is ContentPart.Text -> AnthropicContentBlock.Text(part.text)
+                        is ContentPart.Image -> AnthropicContentBlock.Image(mapImageToAnthropic(part.source))
+                        is ContentPart.Audio -> AnthropicContentBlock.Audio(mapImageToAnthropic(part.source))
+                        is ContentPart.Video -> AnthropicContentBlock.Video(mapVideoToAnthropic(part.source))
+                    }
+                }
+                messages.add(AnthropicMessage(role = "user", content = blocks))
+            }
 
             is ChatMessage.Assistant -> {
                 val blocks = mutableListOf<AnthropicContentBlock>()
@@ -93,5 +101,22 @@ internal fun mapAnthropicToCore(response: AnthropicChatResponse): ChatResponse {
         ),
         finishReason = finishReason,
         usage = usage,
+    )
+}
+
+private fun mapImageToAnthropic(source: MediaSource): AnthropicContentBlock.Image.Source = when (source) {
+    is MediaSource.Http -> AnthropicContentBlock.Image.UrlSource(source.url)
+    is MediaSource.Data -> AnthropicContentBlock.Image.Base64Source(
+        mediaType = source.mimeType,
+        data = source.base64
+    )
+    is MediaSource.FileId -> AnthropicContentBlock.Image.FileSource(source.id)
+}
+
+private fun mapVideoToAnthropic(source: MediaSource): AnthropicContentBlock.Image.Source = when (source) {
+    is MediaSource.Http -> AnthropicContentBlock.Image.UrlSource(source.url)
+    is MediaSource.FileId -> AnthropicContentBlock.Image.FileSource(source.id)
+    is MediaSource.Data -> throw AgentException.UnsupportedContent(
+        "Anthropic does not support video base64 inline; use Http or FileId"
     )
 }

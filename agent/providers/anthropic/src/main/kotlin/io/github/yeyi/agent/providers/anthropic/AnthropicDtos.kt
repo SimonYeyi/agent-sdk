@@ -43,6 +43,37 @@ internal sealed class AnthropicContentBlock {
         val content: String,
         @SerialName("is_error") val isError: Boolean = false,
     ) : AnthropicContentBlock()
+
+    @Serializable
+    @SerialName("image")
+    data class Image(val source: Source) : AnthropicContentBlock() {
+
+        @Serializable
+        sealed class Source
+
+        @Serializable
+        @SerialName("base64")
+        data class Base64Source(
+            @SerialName("media_type") val mediaType: String,
+            val data: String
+        ) : Source()
+
+        @Serializable
+        @SerialName("url")
+        data class UrlSource(val url: String) : Source()
+
+        @Serializable
+        @SerialName("file")
+        data class FileSource(@SerialName("file_id") val fileId: String) : Source()
+    }
+
+    @Serializable
+    @SerialName("audio")
+    data class Audio(val source: Image.Source) : AnthropicContentBlock()
+
+    @Serializable
+    @SerialName("video")
+    data class Video(val source: Image.Source) : AnthropicContentBlock()
 }
 
 @Serializable
