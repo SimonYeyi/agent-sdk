@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.AgentEvent
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.demo.team.smartHome.SmartHomeAgent
 import io.github.yeyi.agent.demo.team.ui.ChatMessageUi
@@ -117,7 +118,7 @@ class DemoViewModel(
         _isLoading.value = true
 
         viewModelScope.launch {
-            bossAgent?.run(text)?.collect { event ->
+            bossAgent?.run(AgentQuery.text(text))?.collect { event ->
                 when (event) {
                     is AgentEvent.ToolCallStart -> {
                         toolCallNames[event.callId] = event.toolName

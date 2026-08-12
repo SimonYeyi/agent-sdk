@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.gateway.app
 
 import io.github.yeyi.agent.Agent
+import io.github.yeyi.agent.AgentQuery
 import io.gateway.api.AgentRunner
 import io.gateway.model.GatewaySession
 import io.gateway.model.IncomingMessage
@@ -21,7 +22,7 @@ class DefaultAgentRunner(
         val sessionName = (message.content as? MessageContent.Text)?.text ?: sessionId
 
         val agent = createAgent(accountId, sessionId, sessionName)
-        val agentResult = agent.run(message.content.toString()).awaitResult()
+        val agentResult = agent.run(AgentQuery.text(message.content.toString())).awaitResult()
         return AgentRunner.Result.Success(MessageContent.Text(agentResult.message.content!!))
     }
 

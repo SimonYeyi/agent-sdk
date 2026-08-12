@@ -4,9 +4,11 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.AgentEvent
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.demo.agent.demo.DemoAgentFactory
 import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.session.SessionManager
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -149,11 +151,14 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             try {
                 val agent = DemoAgentFactory.create(session.memory, hookPipeline)
-                agent.runStream(inputText).collect { event ->
+                agent.runStream(AgentQuery.text(inputText)).collect { event ->
                     when (event) {
                         is io.github.yeyi.agent.AgentEvent.Initial -> {
                             _uiState.value = _uiState.value.copy(
-                                messages = _uiState.value.messages + UiMessage.User(event.userInput, id = nextUiId()),
+                                messages = _uiState.value.messages + UiMessage.User(
+                                    text = event.agentQuery.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text },
+                                    id = nextUiId(),
+                                ),
                                 liveBubble = null,
                                 isToolExecutionPending = false
                             )
@@ -274,7 +279,10 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
 
 private fun ChatMessage.toUiMessage(): UiMessage {
     return when (this) {
-        is ChatMessage.User -> UiMessage.User(content, id = UUID.randomUUID().toString())
+        is ChatMessage.User -> UiMessage.User(
+                text = parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text },
+                id = UUID.randomUUID().toString(),
+            )
         is ChatMessage.Assistant -> UiMessage.Assistant(text = content ?: "", id = UUID.randomUUID().toString())
         is ChatMessage.System -> UiMessage.Assistant(text = content, id = UUID.randomUUID().toString())
         is ChatMessage.ToolResult -> UiMessage.ToolExecution(

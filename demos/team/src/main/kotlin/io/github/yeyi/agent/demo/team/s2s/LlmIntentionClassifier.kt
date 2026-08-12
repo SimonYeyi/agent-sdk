@@ -2,10 +2,12 @@ package io.github.yeyi.agent.demo.team.s2s
 
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.awaitResult
 import io.github.yeyi.agent.demo.team.LlmProviderFactory
 import io.github.yeyi.agent.demo.team.log
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.realtime.Intention
@@ -60,7 +62,7 @@ internal class LlmIntentionClassifier(
     }
 
     private suspend fun buildMemory(asr: String): Memory =
-        InMemoryMemory().apply { add(ChatMessage.User(asr)) }
+        InMemoryMemory().apply { add(ChatMessage.User(listOf(ContentPart.Text(asr)))) }
 
     override val timeout: Long = 3000
 
@@ -76,7 +78,7 @@ internal class LlmIntentionClassifier(
             persona(persona)
             memory(memory)
             llmProvider(provider)
-        }.run(asr).awaitResult()
+        }.run(AgentQuery.text(asr)).awaitResult()
         log.info("current A: ${result.message.content}")
         val intention = parseIntention(result.message.content!!)
         return intention

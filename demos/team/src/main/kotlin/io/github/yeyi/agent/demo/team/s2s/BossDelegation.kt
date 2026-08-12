@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.demo.team.s2s
 
 import io.github.yeyi.agent.AgentEvent
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.realtime.DelegationReply
 import io.github.yeyi.agent.realtime.DelegationReply.Confirmation
 import io.github.yeyi.agent.realtime.DelegationReply.Failure
@@ -37,7 +38,7 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
 
     override suspend fun run(task: String) {
         var delegated = false
-        boss.run(task).collect { event ->
+        boss.run(AgentQuery.text(task)).collect { event ->
             when (event) {
                 is AgentEvent.ToolCallExplanation if (event.toolNames.contains("publish_task")) ->
                     delegated = true

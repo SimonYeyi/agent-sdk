@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.demo.agent.demo.DemoAgentFactory
 import io.github.yeyi.agent.memory.Memory
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,7 +57,10 @@ class ChatViewModel(
 
     private fun ChatMessage.toUiMessage(): UiMessage {
         return when (this) {
-            is ChatMessage.User -> UiMessage.User(content, id = nextUiId())
+            is ChatMessage.User -> UiMessage.User(
+                text = parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text },
+                id = nextUiId(),
+            )
             is ChatMessage.Assistant -> UiMessage.Assistant(text = content ?: "", id = nextUiId())
             is ChatMessage.System -> UiMessage.Assistant(text = content, id = nextUiId())
             is ChatMessage.ToolResult -> UiMessage.ToolExecution(
@@ -95,8 +100,8 @@ class ChatViewModel(
         viewModelScope.launch {
             try {
                 val flow = when (_mode.value) {
-                    RunMode.STREAM -> agent.runStream(text)
-                    RunMode.BATCH -> agent.run(text)
+                    RunMode.STREAM -> agent.runStream(AgentQuery.text(text))
+                    RunMode.BATCH -> agent.run(AgentQuery.text(text))
                 }
                 flow.collect { handleEvent(it) }
             } catch (t: Throwable) {
@@ -114,7 +119,10 @@ class ChatViewModel(
     private fun handleEvent(event: AgentEvent) {
         when (event) {
             is AgentEvent.Initial -> {
-                _messages.update { it + UiMessage.User(event.userInput, id = nextUiId()) }
+                _messages.update { it + UiMessage.User(
+                    text = event.agentQuery.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text },
+                    id = nextUiId(),
+                ) }
                 _liveBubble.value = null
             }
             is AgentEvent.ToolCallExplanation -> {
