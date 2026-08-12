@@ -24,7 +24,7 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  */
 public sealed interface AgentEvent {
     /** 用户输入事件,首次循环前发出 */
-    public data class Initial(public val agentQuery: AgentQuery) : AgentEvent
+    public data class Initial(public val query: AgentQuery) : AgentEvent
 
     /**
      * 工具调用说明事件。在 [ToolCallStart] 之前发出，是 LLM 决定调用工具前对用户的解释性说明。

@@ -156,7 +156,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                         is io.github.yeyi.agent.AgentEvent.Initial -> {
                             _uiState.value = _uiState.value.copy(
                                 messages = _uiState.value.messages + UiMessage.User(
-                                    text = event.agentQuery.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text },
+                                    text = event.query.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text },
                                     id = nextUiId(),
                                 ),
                                 liveBubble = null,

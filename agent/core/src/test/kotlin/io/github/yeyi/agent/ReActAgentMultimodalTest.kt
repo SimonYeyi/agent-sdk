@@ -53,6 +53,6 @@ class ReActAgentMultimodalTest {
         val agent = makeAgent(provider)
         val events = agent.run(AgentQuery.text("hi")).toList()
         val initial = events.filterIsInstance<AgentEvent.Initial>().first()
-        assertEquals(AgentQuery.text("hi"), initial.agentQuery)
+        assertEquals(AgentQuery.text("hi"), initial.query)
     }
 }

@@ -196,7 +196,7 @@ public interface Agent {
 
 ```kotlin
 public sealed interface AgentEvent {
-    public data class Initial(public val agentQuery: AgentQuery) : AgentEvent
+    public data class Initial(public val query: AgentQuery) : AgentEvent
     // ... 其余子类不变
 }
 ```
@@ -530,7 +530,7 @@ public sealed class AgentException(message: String, cause: Throwable? = null) : 
 | `agent/core` MediaSource | 3 个子类构造 |
 | `agent/core` ChatMessage.User | parts 非空校验 / 序列化 round-trip |
 | `agent/core` Agent | `run(query)` / `runStream(query)` 签名可用 |
-| `agent/core` AgentEvent.Initial | agentQuery 类型为 AgentQuery |
+| `agent/core` AgentEvent.Initial | query 类型为 AgentQuery |
 | `agent/core` RoundsBoundedMemory | User 多模态 parts → 摘要占位文本正确（`[image:...]` 等） |
 | `agent/providers/openai` OpenAiMapping | `Text→StringValue` / `Image+Http→ImageUrl` / `Image+Data→data URI` / `Video→throw` / `Audio+Http→throw` |
 | `agent/providers/anthropic` AnthropicMapping | `Text→Text` / `Image+Data→Base64Source` / `Video+Data→throw` / `Video+Http→UrlSource` |

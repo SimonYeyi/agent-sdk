@@ -120,7 +120,7 @@ class ChatViewModel(
         when (event) {
             is AgentEvent.Initial -> {
                 _messages.update { it + UiMessage.User(
-                    text = event.agentQuery.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text },
+                    text = event.query.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text },
                     id = nextUiId(),
                 ) }
                 _liveBubble.value = null
