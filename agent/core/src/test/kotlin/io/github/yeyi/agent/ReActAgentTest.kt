@@ -39,7 +39,7 @@ class ReActAgentTest {
         val agent = ReActAgent(
             persona = Persona("you are helpful"), llmProvider = provider, toolRegistry = registryOf(), memory = memory, maxRounds = 20, maxIterations = 5
         )
-        val result = agent.run("hi").awaitResult()
+        val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("hello", result.message.content)
         assertEquals(1, result.iterations)
         assertEquals(0, result.toolCalls.size)
@@ -57,7 +57,7 @@ class ReActAgentTest {
             )
         )
         val agent = ReActAgent(persona = Persona("ROLE"), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
-        agent.run("q").awaitResult()
+        agent.run(AgentQuery.text("q")).awaitResult()
         val msgs = provider.recordedRequests.single().messages
         assertEquals(Role.System, msgs[0].role)
         assertEquals("ROLE", (msgs[0] as ChatMessage.System).content)
@@ -81,7 +81,7 @@ class ReActAgentTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = mem, maxRounds = 20, maxIterations = 5)
-        val result = agent.run("hi").awaitResult()
+        val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("done: hello", result.message.content)
         assertEquals(2, result.iterations)
         assertEquals(1, result.toolCalls.size)
@@ -116,7 +116,7 @@ class ReActAgentTest {
             )
         )
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
-        val events = agent.run("hi").toList()
+        val events = agent.run(AgentQuery.text("hi")).toList()
 
         val explanations = events.filterIsInstance<AgentEvent.ToolCallExplanation>()
         assertEquals(2, explanations.size, "ToolCallExplanation must emit on every tool-call round, even with null/empty content")
@@ -145,7 +145,7 @@ class ReActAgentTest {
             )
         )
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
-        agent.run("hi").awaitResult()
+        agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals(2, echo.invocations.size)
     }
 
@@ -170,7 +170,7 @@ class ReActAgentTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(failingTool), memory = mem, maxRounds = 20, maxIterations = 5)
-        val result = agent.run("hi").awaitResult()
+        val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("recovered", result.message.content)
         val toolResult = mem.history().filterIsInstance<ChatMessage.ToolResult>().single()
         assertTrue(toolResult.isError)
@@ -190,7 +190,7 @@ class ReActAgentTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = mem, maxRounds = 20, maxIterations = 5)
-        agent.run("hi").awaitResult()
+        agent.run(AgentQuery.text("hi")).awaitResult()
         val toolResult = mem.history().filterIsInstance<ChatMessage.ToolResult>().single()
         assertTrue(toolResult.isError)
         assertTrue(toolResult.content.contains("missing"))
@@ -207,7 +207,7 @@ class ReActAgentTest {
         )
         val provider = FakeLlmProvider(nonStreamResponses = listOf(toolResp, toolResp, toolResp))
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 2)
-        val events = agent.run("hi").toList()
+        val events = agent.run(AgentQuery.text("hi")).toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
         val ex = failed.cause as AgentException.MaxIterations
         assertEquals(2, ex.max)
@@ -233,7 +233,7 @@ class ReActAgentTest {
         )
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(cancellingTool), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
         assertFailsWith<kotlinx.coroutines.CancellationException> {
-            agent.run("hi").toList()
+            agent.run(AgentQuery.text("hi")).toList()
         }
     }
 
@@ -249,7 +249,7 @@ class ReActAgentTest {
             )
         )
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
-        val events = agent.runStream("hi").toList()
+        val events = agent.runStream(AgentQuery.text("hi")).toList()
         val texts = events.filterIsInstance<AgentEvent.TextDelta>().map { it.text }
         assertEquals(listOf("hel", "lo"), texts)
         val finals = events.filterIsInstance<AgentEvent.Final>()
@@ -275,7 +275,7 @@ class ReActAgentTest {
             )
         )
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
-        val events = agent.runStream("hi").toList()
+        val events = agent.runStream(AgentQuery.text("hi")).toList()
         assertTrue(events.any { it is AgentEvent.ToolCallStart && it.toolName == "echo" })
         assertTrue(events.any { it is AgentEvent.ToolCallEnd })
         assertTrue(events.any { it is AgentEvent.Final })
@@ -300,7 +300,7 @@ class ReActAgentTest {
             )
         )
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
-        val events = agent.runStream("hi").toList()
+        val events = agent.runStream(AgentQuery.text("hi")).toList()
 
         val startedIdx = events.indexOfFirst { it is AgentEvent.ToolCallStart }
         val finishedIdx = events.indexOfFirst { it is AgentEvent.ToolCallEnd }
@@ -322,7 +322,7 @@ class ReActAgentTest {
             )
         )
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
-        val events = agent.runStream("hi").toList()
+        val events = agent.runStream(AgentQuery.text("hi")).toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
         // Failed 直接携带原始 Throwable,不做任何包装,因此 cause 即 boom 本体。
         assertSame(boom, failed.cause)
@@ -340,7 +340,7 @@ class ReActAgentTest {
             )
         )
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
-        val events = agent.runStream("ping").toList()
+        val events = agent.runStream(AgentQuery.text("ping")).toList()
         val final = events.filterIsInstance<AgentEvent.Final>().single()
         assertEquals(expectedUsage, final.result.usage)
     }
@@ -354,7 +354,7 @@ class ReActAgentTest {
         )
         val provider = FakeLlmProvider(streamScripts = listOf(toolResp, toolResp, toolResp))
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 2)
-        val events = agent.runStream("hi").toList()
+        val events = agent.runStream(AgentQuery.text("hi")).toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
         val ex = failed.cause as AgentException.MaxIterations
         assertEquals(2, ex.max)

@@ -71,7 +71,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = hook
         )
-        agent.run("hi").awaitResult()
+        agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals(
             listOf(
                 "beforeLlmCall(1)",
@@ -105,7 +105,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = hook
         )
-        agent.runStream("hi").awaitResult()
+        agent.runStream(AgentQuery.text("hi")).awaitResult()
         assertEquals(
             listOf(
                 "beforeLlmCall(1)",
@@ -153,7 +153,7 @@ class AgentHookTest {
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(),
             memory = memory, maxRounds = 20, maxIterations = 5, hook = hook,
         )
-        agent.run("hi").awaitResult()
+        agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals(
             listOf(
                 "beforeLlmCall(1)",
@@ -179,7 +179,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = throwingHook
         )
-        val result = agent.run("hi").awaitResult()
+        val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("ok", result.message.content)
     }
 
@@ -205,7 +205,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 1, hook = errorHook
         )
-        agent.run("hi").toList()
+        agent.run(AgentQuery.text("hi")).toList()
         assertTrue(errorHook.errors.size == 1)
     }
 
@@ -224,7 +224,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = throwingHook
         )
-        val result = agent.run("hi").awaitResult()
+        val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("ok", result.message.content)
     }
 
@@ -255,7 +255,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = throwingHook
         )
-        val result = agent.run("hi").awaitResult()
+        val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("final", result.message.content)
         assertEquals(1, result.toolCalls.size)
     }
@@ -278,7 +278,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = errorHook
         )
-        agent.run("hi").toList()
+        agent.run(AgentQuery.text("hi")).toList()
         assertEquals(1, errorHook.errors.size)
         assertSame(boom, errorHook.errors[0])
     }
@@ -301,7 +301,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = errorHook
         )
-        try { agent.run("hi").toList() } catch (t: Throwable) {
+        try { agent.run(AgentQuery.text("hi")).toList() } catch (t: Throwable) {
             assertTrue(t is kotlinx.coroutines.CancellationException)
         }
         // onRunFailed MUST NOT be called for cancellation
@@ -331,7 +331,7 @@ class AgentHookTest {
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = hook
         )
-        val events2 = agent.run("hi").toList()
+        val events2 = agent.run(AgentQuery.text("hi")).toList()
         // Short-circuited call still emits ToolCallStart/ToolCallEnd for event stream integrity.
         assertTrue(events2.any { it is AgentEvent.ToolCallStart }, "short-circuited call must emit ToolCallStart")
         assertTrue(events2.any { it is AgentEvent.ToolCallEnd }, "short-circuited call must emit ToolCallEnd")
@@ -358,7 +358,7 @@ class AgentHookTest {
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = hook
         )
-        val result = agent.run("hi").awaitResult()
+        val result = agent.run(AgentQuery.text("hi")).awaitResult()
         // The synthetic result MUST land in toolCalls (so AgentResult consumers see the call)
         // even though no events were emitted.
         assertEquals(1, result.toolCalls.size)
@@ -386,7 +386,7 @@ class AgentHookTest {
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = hook
         )
-        val result = agent.run("hi").awaitResult()
+        val result = agent.run(AgentQuery.text("hi")).awaitResult()
         // The agent still completes (no throw). The synthetic error result is what the LLM saw.
         assertEquals("final", result.message.content)
         assertEquals(1, result.toolCalls.size)
@@ -421,7 +421,7 @@ class AgentHookTest {
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = hook
         )
-        val result = agent.run("hi").awaitResult()
+        val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals(1, result.toolCalls.size)
         // EchoTool normally returns JsonObject text; hook rewrote it.
         assertEquals("rewritten-by-hook", result.toolCalls[0].result.content)
@@ -449,7 +449,7 @@ class AgentHookTest {
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = hook
         )
-        val result = agent.run("hi").awaitResult()
+        val result = agent.run(AgentQuery.text("hi")).awaitResult()
         // exception in beforeToolCall 鈫?tool runs as if no hook short-circuited
         assertEquals("final", result.message.content)
         assertEquals(1, result.toolCalls.size)
@@ -475,7 +475,7 @@ class AgentHookTest {
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(),
             memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = hook
         )
-        agent.run("hi").awaitResult()
+        agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("value", capturedMetadata?.get("key"))
     }
 }

@@ -29,7 +29,7 @@ class AgentBuilderTest {
         val a = agent {
             llmProvider(fakeProvider())
         }
-        val r = a.run("hi").awaitResult()
+        val r = a.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("ok", r.message.content)
     }
 }
