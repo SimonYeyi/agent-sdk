@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.subagent
 
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.awaitResult
@@ -56,7 +57,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
         } else {
             "${subagentTask.context}\n\n${subagentTask.task}"
         }
-        return sub.run(userMessage).awaitResult().message.content
+        return sub.run(AgentQuery.text(userMessage)).awaitResult().message.content
             ?: throw IllegalStateException("Subagent '${name}' returned empty content")
     }
 
