@@ -6,6 +6,7 @@ import io.github.yeyi.agent.fakes.registryOf
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
@@ -141,10 +142,10 @@ class AgentHookTest {
         // 预填历史,让 handleContextOverflow 的 truncateByCoefficient 有足够素材可裁剪
         // (单条非系统消息会触发 IllegalStateException,见 RoundsBoundedMemory.kt:242-244)。
         val memory = InMemoryMemory().apply {
-            add(ChatMessage.User("prev-1"))
+            add(ChatMessage.User(listOf(ContentPart.Text("prev-1"))))
             add(ChatMessage.Assistant("prev-a-1"))
             add(ChatMessage.ToolResult("c0", "echo", "prev-r-1"))
-            add(ChatMessage.User("prev-2"))
+            add(ChatMessage.User(listOf(ContentPart.Text("prev-2"))))
             add(ChatMessage.Assistant("prev-a-2"))
             add(ChatMessage.ToolResult("c1", "echo", "prev-r-2"))
         }

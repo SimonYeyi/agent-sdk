@@ -2,6 +2,7 @@ package io.github.yeyi.agent.providers.anthropic
 
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.llm.Usage
@@ -41,7 +42,7 @@ class AnthropicProviderStreamTest {
             httpClient = http,
         )
         val events = provider.chatStream(
-            ChatRequest(messages = listOf(ChatMessage.User("hi")))
+            ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
         ).toList()
         val deltas = events.filterIsInstance<StreamEvent.ContentDelta>()
         assertEquals(1, deltas.size)
@@ -72,7 +73,7 @@ class AnthropicProviderStreamTest {
             httpClient = http,
         )
         val events = provider.chatStream(
-            ChatRequest(messages = listOf(ChatMessage.User("hi")))
+            ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
         ).toList()
         val done = events.filterIsInstance<StreamEvent.Done>()
         assertEquals(1, done.size)
@@ -109,7 +110,7 @@ class AnthropicProviderStreamTest {
             baseUrl = AnthropicProvider.DEFAULT_BASE_URL,
             httpClient = mockAnthropicHttpClient { respond(sse, HttpStatusCode.OK, sseHeaders) },
         )
-        val events = provider.chatStream(ChatRequest(messages = listOf(ChatMessage.User("hi")))).toList()
+        val events = provider.chatStream(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))).toList()
         val starts = events.filterIsInstance<StreamEvent.ToolCallStart>()
         val deltas = events.filterIsInstance<StreamEvent.ToolCallDelta>()
         val done = events.filterIsInstance<StreamEvent.Done>().last()

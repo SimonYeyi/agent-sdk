@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.providers.anthropic
 
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
@@ -20,7 +21,7 @@ class AnthropicMappingTest {
         val req = ChatRequest(
             messages = listOf(
                 ChatMessage.System("you are concise"),
-                ChatMessage.User("hi"),
+                ChatMessage.User(listOf(ContentPart.Text("hi"))),
             ),
         )
         val mapped = mapToAnthropic("claude-sonnet-4-6", req)
@@ -30,7 +31,7 @@ class AnthropicMappingTest {
     @Test
     fun `null system prompt produces null system field`() {
         val req = ChatRequest(
-            messages = listOf(ChatMessage.User("hi")),
+            messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))),
         )
         val mapped = mapToAnthropic("claude-sonnet-4-6", req)
         assertNull(mapped.system)
@@ -44,7 +45,7 @@ class AnthropicMappingTest {
             messages = listOf(
                 ChatMessage.System("persona: helpful"),
                 ChatMessage.System("summary: previous conversation"),
-                ChatMessage.User("hi"),
+                ChatMessage.User(listOf(ContentPart.Text("hi"))),
             ),
         )
         val mapped = mapToAnthropic("claude-sonnet-4-6", req)
@@ -57,7 +58,7 @@ class AnthropicMappingTest {
     fun `User and Assistant messages are mapped with text content block`() {
         val req = ChatRequest(
             messages = listOf(
-                ChatMessage.User("hello"),
+                ChatMessage.User(listOf(ContentPart.Text("hello"))),
                 ChatMessage.Assistant(content = "hi back"),
             ),
         )
@@ -76,7 +77,7 @@ class AnthropicMappingTest {
         val arguments = buildJsonObject { put("city", JsonPrimitive("Beijing")) }
         val req = ChatRequest(
             messages = listOf(
-                ChatMessage.User("weather?"),
+                ChatMessage.User(listOf(ContentPart.Text("weather?"))),
                 ChatMessage.Assistant(
                     content = null,
                     toolCalls = listOf(ToolCall("call_1", "get_weather", arguments)),
@@ -95,7 +96,7 @@ class AnthropicMappingTest {
     fun `ToolResult is mapped to user message with tool_result block`() {
         val req = ChatRequest(
             messages = listOf(
-                ChatMessage.User("weather?"),
+                ChatMessage.User(listOf(ContentPart.Text("weather?"))),
                 ChatMessage.Assistant(
                     content = null,
                     toolCalls = listOf(ToolCall("call_1", "get_weather", buildJsonObject {})),
@@ -116,7 +117,7 @@ class AnthropicMappingTest {
     fun `tools list maps ToolDefinition with input_schema field name`() {
         val schemaJson = Json.parseToJsonElement("""{"type":"object","properties":{"city":{"type":"string"}}}""") as JsonObject
         val req = ChatRequest(
-            messages = listOf(ChatMessage.User("hi")),
+            messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))),
             tools = listOf(
                 ToolDefinition(
                     name = "get_weather",

@@ -5,6 +5,7 @@ import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.LlmProvider
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -83,7 +84,7 @@ internal class RoundsBoundedMemory(
         val compressedContent = history.filterIndexed { index, _ -> index in compressedIndices }
             .joinToString("\n") { msg ->
                 when (msg) {
-                    is ChatMessage.User -> msg.content
+                    is ChatMessage.User -> msg.parts.joinToString(" ") { it.toString() }
                     is ChatMessage.Assistant -> msg.content ?: ""
                     is ChatMessage.ToolResult -> msg.content
                     is ChatMessage.System -> msg.content
@@ -126,7 +127,7 @@ internal class RoundsBoundedMemory(
                 ChatMessage.System(
                     "请将以下对话内容压缩为一段${maxRounds * 2}字以内的摘要，保留关键结论和信息。压缩时保持以下格式：\n问：用户问题\n答：助手回答\n（每轮对话的问答）"
                 ),
-                ChatMessage.User(content)
+                ChatMessage.User(listOf(ContentPart.Text(content)))
             ),
             temperature = 0.3,
         )

@@ -6,6 +6,7 @@ import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.tool.Tool
@@ -15,6 +16,13 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
+
+private fun ChatMessage.contentOrFirstText(): String = when (this) {
+    is ChatMessage.User -> parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text }
+    is ChatMessage.Assistant -> content ?: ""
+    is ChatMessage.ToolResult -> content
+    is ChatMessage.System -> content
+}
 
 private class FailingMemory(private val failOnRebuild: Boolean = true) : Memory {
     private val messages = mutableListOf<ChatMessage>()
@@ -48,11 +56,11 @@ class RoundsBoundedMemoryTest {
             maxRounds = 20,
         )
         (1..5).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
         assertEquals(10, memory.history().size)
-        assertEquals("u1", (memory.history()[0] as ChatMessage.User).content)
+        assertEquals("u1", (memory.history()[0] as ChatMessage.User).contentOrFirstText())
         assertEquals("a5", (memory.history()[9] as ChatMessage.Assistant).content)
     }
 
@@ -72,7 +80,7 @@ class RoundsBoundedMemoryTest {
             maxRounds = 2,
         )
         (1..3).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
         val history = memory.history()
@@ -98,7 +106,7 @@ class RoundsBoundedMemoryTest {
             maxRounds = 2,
         )
         (1..3).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
         assertEquals(1, llmProvider.recordedRequests.size)
@@ -115,7 +123,7 @@ class RoundsBoundedMemoryTest {
         underlying.add(
             ChatMessage.System("{\"summaries\":[{\"content\":\"previous\"}]}")
         )
-        underlying.add(ChatMessage.User("existing u"))
+        underlying.add(ChatMessage.User(listOf(ContentPart.Text("existing u"))))
         underlying.add(ChatMessage.Assistant(content = "existing a"))
 
         val memory = RoundsBoundedMemory(
@@ -137,9 +145,9 @@ class RoundsBoundedMemoryTest {
             llmProvider = FakeLlmProvider(),
             maxRounds = 10,
         )
-        memory.rebuild(listOf(ChatMessage.User("a")))
+        memory.rebuild(listOf(ChatMessage.User(listOf(ContentPart.Text("a")))))
         assertEquals(1, underlying.history().size)
-        assertEquals("a", (underlying.history()[0] as ChatMessage.User).content)
+        assertEquals("a", (underlying.history()[0] as ChatMessage.User).contentOrFirstText())
     }
 
     @Test
@@ -158,7 +166,7 @@ class RoundsBoundedMemoryTest {
             maxRounds = 2,
         )
         (1..5).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
 
@@ -187,7 +195,7 @@ class RoundsBoundedMemoryTest {
             maxRounds = 10,
         )
         (1..12).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
         val history = memory.history()
@@ -199,7 +207,7 @@ class RoundsBoundedMemoryTest {
         val retained = history.drop(1)
         assertTrue(retained.size >= 6)
         // Last retained messages should be u12 and a12
-        assertEquals("u12", (retained[retained.size - 2] as ChatMessage.User).content)
+        assertEquals("u12", (retained[retained.size - 2] as ChatMessage.User).contentOrFirstText())
         assertEquals("a12", (retained[retained.size - 1] as ChatMessage.Assistant).content)
     }
 
@@ -220,20 +228,20 @@ class RoundsBoundedMemoryTest {
         )
         // Add 3 complete rounds
         (1..3).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
         // Add 2 trailing users (no assistant responses)
-        memory.add(ChatMessage.User("u4"))
-        memory.add(ChatMessage.User("u5"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u4"))))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u5"))))
 
         // Compression triggers because currentRounds=3 > maxRounds=3 (trailing users not counted for rounds)
         // But effective retain window = 1 + 2 = 3, so all 3 rounds are retained
         assertEquals(1, llmProvider.recordedRequests.size)
         val history = memory.history()
         // Trailing users should be preserved in the effective retain window
-        assertEquals("u4", (history[history.size - 2] as ChatMessage.User).content)
-        assertEquals("u5", (history[history.size - 1] as ChatMessage.User).content)
+        assertEquals("u4", (history[history.size - 2] as ChatMessage.User).contentOrFirstText())
+        assertEquals("u5", (history[history.size - 1] as ChatMessage.User).contentOrFirstText())
     }
 
     @Test
@@ -253,14 +261,14 @@ class RoundsBoundedMemoryTest {
         )
         // Add 3 complete rounds + 2 trailing users (no assistant responses)
         (1..3).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
-        memory.add(ChatMessage.User("u4"))
-        memory.add(ChatMessage.User("u5"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u4"))))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u5"))))
 
         // Trigger compression by adding another user to make total rounds exceed maxRounds
-        memory.add(ChatMessage.User("u6"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u6"))))
 
         val history = memory.history()
         // Should have summary + trailing users + recent rounds
@@ -274,12 +282,12 @@ class RoundsBoundedMemoryTest {
         // history: [System(summary), U1,A1, U2,A2, U3,A3, U4,U5,U6]
         underlying.add(ChatMessage.System("{\"summaries\":[]}"))
         (1..3).forEach { i ->
-            underlying.add(ChatMessage.User("u$i"))
+            underlying.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             underlying.add(ChatMessage.Assistant(content = "a$i"))
         }
-        underlying.add(ChatMessage.User("u4"))
-        underlying.add(ChatMessage.User("u5"))
-        underlying.add(ChatMessage.User("u6"))
+        underlying.add(ChatMessage.User(listOf(ContentPart.Text("u4"))))
+        underlying.add(ChatMessage.User(listOf(ContentPart.Text("u5"))))
+        underlying.add(ChatMessage.User(listOf(ContentPart.Text("u6"))))
 
         val llmProvider = FakeLlmProvider()
         val memory = RoundsBoundedMemory(
@@ -328,20 +336,20 @@ class RoundsBoundedMemoryTest {
         failingMemory.add(ChatMessage.System("{\"summaries\":[]}"))
 
         // First compression: triggers at u3, rebuild fails
-        memory.add(ChatMessage.User("u1"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u1"))))
         memory.add(ChatMessage.Assistant(content = "a1"))
-        memory.add(ChatMessage.User("u2"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u2"))))
         memory.add(ChatMessage.Assistant(content = "a2"))
         try {
-            memory.add(ChatMessage.User("u3"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u3"))))
         } catch (e: IllegalStateException) {
             assertEquals("rebuild failed", e.message)
         }
 
         // Second compression: triggers at u4 or u5, rebuild succeeds
-        memory.add(ChatMessage.User("u4"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u4"))))
         memory.add(ChatMessage.Assistant(content = "a4"))
-        memory.add(ChatMessage.User("u5"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u5"))))
 
         // Verify: if summary1 is present, it means summaries WAS updated on first failure (BUG)
         // Correct behavior: only summary2 or summary3 should be present
@@ -373,11 +381,11 @@ class RoundsBoundedMemoryTest {
         )
 
         // Trigger compression
-        memory.add(ChatMessage.User("u1"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u1"))))
         memory.add(ChatMessage.Assistant(content = "a1"))
-        memory.add(ChatMessage.User("u2"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u2"))))
         memory.add(ChatMessage.Assistant(content = "a2"))
-        memory.add(ChatMessage.User("u3")) // triggers compression
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u3")))) // triggers compression
 
         // Verify summaries are updated
         val history = memory.history()
@@ -429,7 +437,7 @@ class RoundsBoundedMemoryTest {
         )
 
         (1..3).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
 
@@ -473,7 +481,7 @@ class RoundsBoundedMemoryTest {
         )
 
         (1..3).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
 
@@ -518,7 +526,7 @@ class RoundsBoundedMemoryTest {
         )
 
         (1..5).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
 
@@ -574,7 +582,7 @@ class RoundsBoundedMemoryTest {
         // retainWindow = 1, so only the last round (u6,a6,t6) is retained
         // Earlier rounds (u1-t5) are compressed into summary
         (1..6).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(
                 ChatMessage.Assistant(
                     content = "a$i",
@@ -594,7 +602,7 @@ class RoundsBoundedMemoryTest {
 
         // The retained last round should contain the most recent user message
         val lastUser = history.filterIsInstance<ChatMessage.User>().lastOrNull()
-        assertEquals("u6", lastUser?.content)
+        assertEquals("u6", lastUser?.contentOrFirstText())
 
         // The last assistant should have toolCalls (from u6 round)
         val lastAssistant = history.filterIsInstance<ChatMessage.Assistant>().lastOrNull()
@@ -627,9 +635,9 @@ class RoundsBoundedMemoryTest {
         )
 
         // All messages within retain window (maxRounds=20), no compression happens
-        memory.add(ChatMessage.User("u1"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u1"))))
         memory.add(ChatMessage.Assistant(content = "a1"))
-        memory.add(ChatMessage.User("u2"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u2"))))
         memory.add(ChatMessage.Assistant(content = "a2"))
 
         val history = memory.history()
@@ -669,7 +677,7 @@ class RoundsBoundedMemoryTest {
 
         // Add 10 rounds (will trigger compression due to maxRounds=10)
         (1..10).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
 
@@ -678,7 +686,7 @@ class RoundsBoundedMemoryTest {
         assertEquals(10, roundsBefore)
 
         // Add one more to trigger another compression
-        memory.add(ChatMessage.User("u11"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u11"))))
 
         val historyAfter = memory.history()
         val roundsAfter = historyAfter.count { it is ChatMessage.User }
@@ -713,13 +721,13 @@ class RoundsBoundedMemoryTest {
         )
 
         // Add 2 rounds
-        memory.add(ChatMessage.User("u1"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u1"))))
         memory.add(ChatMessage.Assistant(content = "a1"))
-        memory.add(ChatMessage.User("u2"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u2"))))
         memory.add(ChatMessage.Assistant(content = "a2"))
 
         // Trigger truncation by adding more
-        memory.add(ChatMessage.User("u3"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u3"))))
 
         val history = memory.history()
         val hasSystemOrUsers = history.any { it is ChatMessage.System || it is ChatMessage.User }
@@ -769,7 +777,7 @@ class RoundsBoundedMemoryTest {
 
         // Setup: 8 rounds with some tool calls - will trigger compression on add
         (1..8).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             val assistantMsg = if (i % 2 == 0) {
                 ChatMessage.Assistant(
                     content = "a$i",
@@ -816,14 +824,14 @@ class RoundsBoundedMemoryTest {
 
         // Add 15 rounds - will trigger compression
         (1..15).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
 
         val history = memory.history()
         // Most recent rounds should be preserved
         val lastUserIndex = history.indexOfLast { it is ChatMessage.User }
-        assertEquals("u15", (history[lastUserIndex] as ChatMessage.User).content)
+        assertEquals("u15", (history[lastUserIndex] as ChatMessage.User).contentOrFirstText())
     }
 
     @Test
@@ -858,7 +866,7 @@ class RoundsBoundedMemoryTest {
         // retainWindow = 3 * 0.3 = 0 (coerced to 1 by extractRetainedIndices)
         // So only the last round is retained
         (1..6).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(
                 ChatMessage.Assistant(
                     content = "a$i",
@@ -908,7 +916,7 @@ class RoundsBoundedMemoryTest {
         // maxRounds=5, retainRatio=0.3, so retainWindow=1
         // All rounds except the last one are in the compress window
         (1..6).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(
                 ChatMessage.Assistant(
                     content = "a$i",
@@ -971,7 +979,7 @@ class RoundsBoundedMemoryTest {
         // No tool messages in compress window -> removeCompressWindowToolMessages returns false
         // -> truncateByCoefficient should be called
         (1..15).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
 
@@ -1019,7 +1027,7 @@ class RoundsBoundedMemoryTest {
         )
 
         // Only 1 round - this triggers the toRetain < 1 boundary in truncateByCoefficient
-        memory.add(ChatMessage.User("u1"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("u1"))))
         memory.add(ChatMessage.Assistant(content = "a1"))
 
         memory.handleContextOverflow()
@@ -1059,7 +1067,7 @@ class RoundsBoundedMemoryTest {
         // Add 12 rounds - exceeds maxRounds=10, triggers compression
         // retainWindow = 10 * 0.3 = 3, so 3 rounds retained
         (1..12).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
 
@@ -1102,7 +1110,7 @@ class RoundsBoundedMemoryTest {
         // Add 8 rounds - retainWindow = 1 (5 * 0.3), so only last round retained
         // Earlier rounds should be compressed into summary
         (1..8).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
 
@@ -1110,7 +1118,7 @@ class RoundsBoundedMemoryTest {
 
         // The most recent user should be u8
         val lastUser = history.filterIsInstance<ChatMessage.User>().lastOrNull()
-        assertEquals("u8", lastUser?.content)
+        assertEquals("u8", lastUser?.contentOrFirstText())
 
         // History should be smaller than original 16 messages after compression
         assertTrue(history.size < 16, "History should be smaller after compression")
@@ -1148,7 +1156,7 @@ class RoundsBoundedMemoryTest {
 
         // Add 6 rounds to trigger multiple compressions
         (1..6).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
 
@@ -1189,7 +1197,7 @@ class RoundsBoundedMemoryTest {
 
         // Add rounds without tool messages - no tool messages to remove in compress window
         (1..5).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
 
@@ -1228,7 +1236,7 @@ class RoundsBoundedMemoryTest {
         // Add many rounds to trigger multiple compressions
         // With maxRounds=1, each new user triggers compression
         (1..12).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
 
@@ -1273,7 +1281,7 @@ class RoundsBoundedMemoryTest {
         // With maxRounds=1, each new user triggers compression
         // After many compressions, we should hit the toRetain < 1 branch
         (1..10).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
 
@@ -1313,7 +1321,7 @@ class RoundsBoundedMemoryTest {
 
         // Add 20 rounds - this will cause multiple compressions
         (1..20).forEach { i ->
-            memory.add(ChatMessage.User("u$i"))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
 

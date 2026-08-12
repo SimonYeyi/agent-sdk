@@ -3,6 +3,7 @@ package io.github.yeyi.agent.providers.anthropic
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
+import io.github.yeyi.agent.llm.ContentPart
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpStatusCode
@@ -34,7 +35,7 @@ class AnthropicProviderChatTest {
             baseUrl = AnthropicProvider.DEFAULT_BASE_URL,
             httpClient = http,
         )
-        provider.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+        provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
         assertEquals("sk-ant-xxx", capturedHeaders?.get("x-api-key"))
         assertEquals("2023-06-01", capturedHeaders?.get("anthropic-version"))
     }
@@ -58,7 +59,7 @@ class AnthropicProviderChatTest {
             baseUrl = AnthropicProvider.DEFAULT_BASE_URL,
             httpClient = http,
         )
-        provider.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+        provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
         assertTrue(capturedUrl!!.endsWith("/v1/messages"), "expected /v1/messages, got $capturedUrl")
     }
 
@@ -79,7 +80,7 @@ class AnthropicProviderChatTest {
             baseUrl = AnthropicProvider.DEFAULT_BASE_URL,
             httpClient = http,
         )
-        val response = provider.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+        val response = provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
         assertEquals("hello back", response.message.content)
         assertEquals(0, response.message.toolCalls.size)
     }
@@ -99,7 +100,7 @@ class AnthropicProviderChatTest {
             httpClient = http,
         )
         try {
-            provider.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+            provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
             error("should have thrown")
         } catch (e: AgentException.LlmError) {
             assertTrue(

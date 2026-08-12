@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.session
 
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.hook.Hook
 import io.github.yeyi.agent.hook.HookEvent
 import io.github.yeyi.agent.hook.HookPipeline
@@ -116,12 +117,12 @@ class SessionManagerTest {
         val session = sessionManager.create("user1", "test session")
         val memory = session.memory
 
-        memory.add(ChatMessage.User("Hello"))
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("Hello"))))
         memory.add(ChatMessage.Assistant(content = "Hi there!"))
 
         val history = memory.history()
         assertEquals(2, history.size)
-        assertEquals("Hello", (history[0] as ChatMessage.User).content)
+        assertEquals("Hello", (history[0] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
     }
 
     // --- Session events via HookPipeline ---

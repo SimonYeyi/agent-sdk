@@ -21,6 +21,7 @@ public data class ToolCall(
     public val arguments: JsonElement
 )
 
+@Serializable
 public sealed interface ChatMessage {
     public val role: Role
 
@@ -30,9 +31,15 @@ public sealed interface ChatMessage {
         override val role: Role = Role.System
     }
 
-    /** 用户消息。 */
+    /**
+     * 用户消息,承载单条/多条内容块 (文本 + image/audio/video)。
+     * 空 parts 等价于无消息,构造时拒。
+     */
     @Serializable
-    public data class User(public val content: String) : ChatMessage {
+    public data class User(public val parts: List<ContentPart>) : ChatMessage {
+        init {
+            require(parts.isNotEmpty()) { "ChatMessage.User.parts must not be empty" }
+        }
         override val role: Role = Role.User
     }
 

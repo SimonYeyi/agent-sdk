@@ -3,6 +3,7 @@ package io.github.yeyi.agent
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
@@ -103,7 +104,7 @@ public class ReActAgent internal constructor(
             emit(AgentEvent.Initial(input))
 
             memory.attachHook(ProxyHook(hook, emit), buildContext(0))
-            memory.add(ChatMessage.User(input))
+            memory.add(ChatMessage.User(listOf(ContentPart.Text(input))))
 
             while (iterations < maxIterations) {
                 loopOnce(++iterations, toolCalls, llmCall, emit)?.let { return }

@@ -2,6 +2,7 @@ package io.github.yeyi.agent.providers.openai
 
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.StreamEvent
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
@@ -35,7 +36,7 @@ class OpenAiProviderStreamTest {
             httpClient = mockOpenAiHttpClient { respond(sseBody, HttpStatusCode.OK, sseHeaders) },
         )
         val events = provider.chatStream(
-            ChatRequest(messages = listOf(ChatMessage.User("hi")))
+            ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
         ).toList()
         val deltas = events.filterIsInstance<StreamEvent.ContentDelta>()
         assertEquals(1, deltas.size)
@@ -55,7 +56,7 @@ class OpenAiProviderStreamTest {
                 respond(sseBody, HttpStatusCode.OK, sseHeaders)
             },
         )
-        provider.chatStream(ChatRequest(messages = listOf(ChatMessage.User("hi")))).toList()
+        provider.chatStream(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))).toList()
         assertTrue(capturedBody != null, "request body should have been captured")
         val json = Json.parseToJsonElement(capturedBody!!).jsonObject
         val streamOptions = json["stream_options"]?.jsonObject
@@ -75,7 +76,7 @@ class OpenAiProviderStreamTest {
                 respond("""{"choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}""", HttpStatusCode.OK, headersOf(HttpHeaders.ContentType, "application/json"))
             },
         )
-        provider.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+        provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
         assertTrue(capturedBody != null, "request body should have been captured")
         val json = Json.parseToJsonElement(capturedBody!!).jsonObject
         // 非流式请求不应带 stream_options(避免污染非流式客户端)

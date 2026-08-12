@@ -3,6 +3,7 @@ package io.github.yeyi.agent.providers.openai
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpHeaders
@@ -38,7 +39,7 @@ class OpenAiProviderChatTest {
                 )
             },
         )
-        val resp = provider.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+        val resp = provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
         assertEquals("hello", resp.message.content)
         assertEquals(FinishReason.Stop, resp.finishReason)
         assertEquals(5, resp.usage?.totalTokens)
@@ -58,7 +59,7 @@ class OpenAiProviderChatTest {
             },
         )
         try {
-            provider.chat(ChatRequest(messages = listOf(ChatMessage.User("hi"))))
+            provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
             error("should have thrown")
         } catch (e: AgentException.LlmError) {
             assertTrue(e.message!!.contains("LLM call failed"))

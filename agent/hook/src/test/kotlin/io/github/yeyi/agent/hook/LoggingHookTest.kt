@@ -8,6 +8,7 @@ import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.memory.InMemoryMemory
@@ -42,7 +43,7 @@ class LoggingHookTest {
         maxRounds = 20,
     )
 
-    private val request = ChatRequest(messages = listOf(ChatMessage.User("")))
+    private val request = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("")))))
 
     @BeforeTest
     fun captureStderr() {

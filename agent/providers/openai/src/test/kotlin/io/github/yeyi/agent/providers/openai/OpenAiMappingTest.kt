@@ -2,6 +2,7 @@ package io.github.yeyi.agent.providers.openai
 
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
@@ -21,7 +22,7 @@ class OpenAiMappingTest {
         val req = ChatRequest(
             messages = listOf(
                 ChatMessage.System("sys"),
-                ChatMessage.User("hi"),
+                ChatMessage.User(listOf(ContentPart.Text("hi"))),
                 ChatMessage.Assistant(content = "let me check", toolCalls = listOf(
                     ToolCall("c1", "echo", JsonObject(mapOf("text" to JsonPrimitive("x"))))
                 )),
@@ -41,7 +42,7 @@ class OpenAiMappingTest {
     @Test
     fun `mapToOpenAi serializes tools`() {
         val req = ChatRequest(
-            messages = listOf(ChatMessage.User("hi")),
+            messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))),
             tools = listOf(
                 ToolDefinition(
                     name = "echo",
@@ -136,7 +137,7 @@ class OpenAiMappingTest {
     @Test
     fun `mapToOpenAi serializes empty schema as object schema`() {
         val req = ChatRequest(
-            messages = listOf(ChatMessage.User("hi")),
+            messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))),
             tools = listOf(
                 ToolDefinition(
                     name = "noop",
@@ -155,15 +156,15 @@ class OpenAiMappingTest {
 
     @Test
     fun `mapToOpenAi sets stream true when stream param is true`() {
-        val req = ChatRequest(messages = listOf(ChatMessage.User("hi")))
+        val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
         val out = mapToOpenAi("gpt-4o-mini", req, stream = true)
         assertEquals(true, out.stream)
     }
 
     @Test
     fun `mapToOpenAi omits stop when stopSequences is empty, sets it when non-empty`() {
-        val empty = ChatRequest(messages = listOf(ChatMessage.User("hi")), stopSequences = emptyList())
-        val nonEmpty = ChatRequest(messages = listOf(ChatMessage.User("hi")), stopSequences = listOf("\n"))
+        val empty = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))), stopSequences = emptyList())
+        val nonEmpty = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))), stopSequences = listOf("\n"))
         val outEmpty = mapToOpenAi("gpt-4o-mini", empty, stream = false)
         val outNonEmpty = mapToOpenAi("gpt-4o-mini", nonEmpty, stream = false)
         assertNull(outEmpty.stop)
