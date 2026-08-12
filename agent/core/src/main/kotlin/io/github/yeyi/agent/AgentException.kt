@@ -33,6 +33,12 @@ public sealed class AgentException(message: String, cause: Throwable? = null) :
         public val reason: String,
         cause: Throwable? = null
     ) : AgentException("Context overflow: $reason", cause)
+
+    /**
+     * Provider 拒绝某种内容形态（如 OpenAI video、video base64 等）。
+     * 不在 type 层静态禁止——在 provider 实现层 fail-fast, 给未来扩展留口子。
+     */
+    public class UnsupportedContent(message: String) : AgentException(message)
 }
 
 internal fun Throwable.isContextOverflow(): Boolean {
