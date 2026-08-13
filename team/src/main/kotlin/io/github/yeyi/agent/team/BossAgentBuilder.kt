@@ -152,23 +152,23 @@ public class BossAgentBuilder internal constructor() {
     ): BossAgent {
         val capabilitiesByType: Map<String, List<NamedCapability>> = buildMap {
             delegatedToolRegistry0?.let { reg ->
-                put(Selection.Tool.TYPE, reg.all().map { NamedCapability(it.name, it.description) })
+                put(Selection.Type.Tool.value, reg.all().map { NamedCapability(it.name, it.description) })
             }
             toolsetRegistry0?.let { reg ->
                 put(
-                    Selection.Toolset.TYPE,
+                    Selection.Type.Toolset.value,
                     reg.all().map { NamedCapability(it.name, it.description) }
                 )
             }
             skillRegistry0?.let { reg ->
                 put(
-                    Selection.Skill.TYPE,
+                    Selection.Type.Skill.value,
                     reg.all().map { NamedCapability(it.name, it.description) }
                 )
             }
             subagentRegistry0?.let { reg ->
                 put(
-                    Selection.Subagent.TYPE,
+                    Selection.Type.Subagent.value,
                     reg.all().map { NamedCapability(it.name, it.description) }
                 )
             }
