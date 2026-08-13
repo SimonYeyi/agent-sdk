@@ -131,20 +131,20 @@ internal class RoundsBoundedMemory(
     }
 
     private suspend fun generateSummary(content: String): Summary {
+        val length = (maxRounds * (1 - retainRatio) * 2 * 30).toInt()
         val request = ChatRequest(
             messages = listOf(
                 ChatMessage.System(
-                    "请将以下对话内容压缩为一段${maxRounds * 2}字以内的摘要，保留关键结论和信息。压缩时保持以下格式：\n问：用户问题\n答：你的回答"
+                    "请将以下对话内容压缩为一段${length}字以内的摘要，保留关键结论和信息。压缩时保持以下格式：\n问：用户问题\n答：你的回答"
                 ),
                 ChatMessage.User(listOf(ContentPart.Text(content)))
             ),
             temperature = 0.3,
+            maxTokens = length * 2
         )
 
-        val response = llmProvider.chat(request)
-        val summaryText = response.message.content
+        val summaryText = llmProvider.chat(request).message.content
             ?: throw IllegalStateException("LLM summary generation failed: empty response")
-
         return Summary(summaryText)
     }
 
