@@ -86,9 +86,7 @@ internal class RoundsBoundedMemory(
                     is ChatMessage.User -> msg.parts.joinToString("\n") { part ->
                         when (part) {
                             is ContentPart.Text -> part.text
-                            is ContentPart.Image,
-                            is ContentPart.Audio,
-                            is ContentPart.Video -> "[${part}]"
+                            else -> "[${part}]"
                         }
                     }
 
