@@ -200,13 +200,23 @@ public class ReActAgent internal constructor(
         }
     }
 
-    private suspend fun buildRequest(): ChatRequest = ChatRequest(
-        messages = buildList {
-            add(ChatMessage.System(persona.toString()))
-            addAll(memory.history())
-        },
-        tools = toolRegistry.all().map(Tool::toDefinition)
-    )
+    private suspend fun buildRequest(): ChatRequest {
+        val history = memory.history()
+        // 当前 round 是最后一条 User 消息 —— 整个 round 内所有 iter 都保留原图,
+        // 跨 round 的历史 User 才占位。这样 iter #2+ 仍可重看图,
+        // 但旧 round 的图不再每轮重传,避免 token 膨胀。
+        val lastUserIdx = history.indexOfLast { it is ChatMessage.User }
+        val rendered = history.mapIndexed { i, message ->
+            if (i == lastUserIdx) message else message.toTextContent()
+        }
+        return ChatRequest(
+            messages = buildList {
+                add(ChatMessage.System(persona.toString()))
+                addAll(rendered)
+            },
+            tools = toolRegistry.all().map(Tool::toDefinition)
+        )
+    }
 
     private fun buildContext(currentIteration: Int) = AgentContext(
         persona = persona,
