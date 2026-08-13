@@ -4,7 +4,6 @@ import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
-import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.toTextContent
 import kotlinx.serialization.Serializable
@@ -81,25 +80,8 @@ internal class RoundsBoundedMemory(
         hook?.beforeMemoryCompress(agentContext, summaries.toList())
 
         // 3. 提取压缩窗口内容并生成摘要
-        val compressedContent = history.filterIndexed { index, _ -> index in compressedIndices }
-            .joinToString("\n") { msg ->
-                when (msg) {
-                    is ChatMessage.User -> {
-                        val user = msg.toTextContent() as ChatMessage.User
-                        user.parts.joinToString("\n") { part ->
-                            when (part) {
-                                is ContentPart.Text -> part.text
-                                else -> "[${part}]"
-                            }
-                        }
-                    }
-
-                    is ChatMessage.Assistant -> msg.content ?: ""
-                    is ChatMessage.ToolResult -> msg.content
-                    is ChatMessage.System -> msg.content
-                }
-            }
-        val summary = generateSummary(compressedContent)
+        val compressedMessages = history.filterIndexed { index, _ -> index in compressedIndices }
+        val summary = generateSummary(compressedMessages)
 
         summaries.add(summary)
 
@@ -122,23 +104,22 @@ internal class RoundsBoundedMemory(
 
         if (toMerge.isEmpty()) return
 
-        val mergedContent = toMerge.joinToString("\n") { it.content }
-        val newSummary = generateSummary(mergedContent)
+        val summaryMessages = toMerge.map { ChatMessage.System(it.content) }
+        val newSummary = generateSummary(summaryMessages)
 
         summaries.clear()
         summaries.add(newSummary)
         summaries.addAll(keep)
     }
 
-    private suspend fun generateSummary(content: String): Summary {
+    private suspend fun generateSummary(messages: List<ChatMessage>): Summary {
         val length = (maxRounds * (1 - retainRatio) * 2 * 30).toInt()
+        val rendered = messages.map { it.toTextContent() }
         val request = ChatRequest(
-            messages = listOf(
-                ChatMessage.System(
-                    "请将以下对话内容压缩为一段${length}字以内的摘要，保留关键结论和信息。压缩时保持以下格式：\n问：用户问题\n答：你的回答"
-                ),
-                ChatMessage.User(listOf(ContentPart.Text(content)))
-            ),
+            messages = buildList {
+                add(ChatMessage.System("请将以下对话内容压缩为一段${length}字以内的摘要，保留关键结论和信息。压缩时保持以下格式：\n问：用户问题\n答：你的回答"))
+                addAll(rendered)
+            },
             temperature = 0.3,
             maxTokens = length * 2
         )
