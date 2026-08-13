@@ -3,7 +3,7 @@ package io.github.yeyi.agent.mcp
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.memory.InMemoryMemory
@@ -103,8 +103,8 @@ class LocalTransportTest {
         override val name: String = "unused"
         override suspend fun chat(request: ChatRequest): ChatResponse =
             error("LlmProvider.chat must not be called in LocalTransportTest")
-        override fun chatStream(request: ChatRequest): Flow<StreamEvent> =
-            flowOf(StreamEvent.Error(IllegalStateException("unused")))
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> =
+            flowOf(ChatResponseEvent.Error(IllegalStateException("unused")))
     }
 
     private fun stubToolContext(): ToolContext = ToolContext(

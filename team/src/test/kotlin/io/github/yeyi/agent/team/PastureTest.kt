@@ -276,7 +276,7 @@ class PastureCancellationTest {
             }
             // chatStream 接口要求, Pasture 走 chat 路径不会调到
             override fun chatStream(request: io.github.yeyi.agent.llm.ChatRequest) =
-                kotlinx.coroutines.flow.flow<io.github.yeyi.agent.llm.StreamEvent> {
+                kotlinx.coroutines.flow.flow<io.github.yeyi.agent.llm.ChatResponseEvent> {
                     error("chatStream not expected in this test")
                 }
         }

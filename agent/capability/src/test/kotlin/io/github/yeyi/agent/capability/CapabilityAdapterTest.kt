@@ -4,7 +4,7 @@ import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
@@ -69,8 +69,8 @@ class CapabilityAdapterTest {
         override val name: String = "stub"
         override suspend fun chat(request: ChatRequest) =
             error("LlmProvider.chat must not be called in capability tests")
-        override fun chatStream(request: ChatRequest): Flow<StreamEvent> =
-            flowOf(StreamEvent.Error(IllegalStateException("LlmProvider.chatStream must not be called in capability tests")))
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> =
+            flowOf(ChatResponseEvent.Error(IllegalStateException("LlmProvider.chatStream must not be called in capability tests")))
     }
 
     private fun stubToolContext(): ToolContext = ToolContext(

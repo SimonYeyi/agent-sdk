@@ -5,7 +5,7 @@ import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.log.log
@@ -47,29 +47,29 @@ public class ReActAgent internal constructor(
 
             llmProvider.chatStream(req).collect { event ->
                 when (event) {
-                    is StreamEvent.ContentDelta -> {
+                    is ChatResponseEvent.ContentDelta -> {
                         accumulatedText.append(event.text)
                         emit(AgentEvent.TextDelta(event.text))
                     }
 
-                    is StreamEvent.ToolCallStart -> {
+                    is ChatResponseEvent.ToolCallStart -> {
                         callOrder.add(event.id) // LinkedHashSet: idempotent + preserves first-seen order
                         callNames[event.id] = event.name
                         argumentsBuffers.getOrPut(event.id) { StringBuilder() }
                     }
 
-                    is StreamEvent.ToolCallDelta -> {
+                    is ChatResponseEvent.ToolCallDelta -> {
                         // LlmProvider 契约:Delta.id 必非空(continuation chunk 由 provider 填充)。
                         // 若违反,静默丢弃会导致 arguments JSON 损坏,fail-fast 更安全。
                         argumentsBuffers[event.id!!]?.append(event.argumentsDelta)
                     }
 
-                    is StreamEvent.Done -> {
+                    is ChatResponseEvent.Done -> {
                         finishReason = event.finishReason
                         usage = event.usage
                     }
 
-                    is StreamEvent.Error -> throw event.cause
+                    is ChatResponseEvent.Error -> throw event.cause
                 }
             }
 

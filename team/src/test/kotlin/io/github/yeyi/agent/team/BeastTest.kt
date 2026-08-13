@@ -146,7 +146,7 @@ class BeastTest {
             override val name: String = "failing"
             override suspend fun chat(request: ChatRequest): ChatResponse =
                 throw RuntimeException("LLM down")
-            override fun chatStream(request: ChatRequest) = kotlinx.coroutines.flow.flow<io.github.yeyi.agent.llm.StreamEvent> {
+            override fun chatStream(request: ChatRequest) = kotlinx.coroutines.flow.flow<io.github.yeyi.agent.llm.ChatResponseEvent> {
                 throw RuntimeException("LLM down")
             }
         }

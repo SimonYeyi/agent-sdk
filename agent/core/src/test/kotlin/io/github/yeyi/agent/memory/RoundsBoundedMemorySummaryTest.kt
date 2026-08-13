@@ -7,7 +7,7 @@ import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.MediaSource
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
@@ -73,5 +73,5 @@ private class EchoLlmProvider : LlmProvider {
         )
     }
 
-    override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow { }
+    override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { }
 }

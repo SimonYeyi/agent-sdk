@@ -6,7 +6,7 @@ import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -135,7 +135,7 @@ private fun createToolContext(): ToolContext = ToolContext(
         llmProvider = object : LlmProvider {
             override val name: String = "test"
             override suspend fun chat(request: ChatRequest): ChatResponse = throw UnsupportedOperationException()
-            override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flowOf()
+            override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flowOf()
         },
         tools = emptyList(),
         maxRounds = 10

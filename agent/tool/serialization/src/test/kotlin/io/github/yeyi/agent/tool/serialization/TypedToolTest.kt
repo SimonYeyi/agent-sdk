@@ -7,7 +7,7 @@ import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -195,7 +195,7 @@ private fun createToolContext(): ToolContext = ToolContext(
             override val name: String = "test"
             override suspend fun chat(request: ChatRequest): io.github.yeyi.agent.llm.ChatResponse =
                 throw UnsupportedOperationException()
-            override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flowOf()
+            override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flowOf()
         },
         tools = emptyList(),
         maxRounds = 10

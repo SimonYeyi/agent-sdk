@@ -40,11 +40,11 @@ class SkillExtensionsTest {
             )
         }
 
-        override fun chatStream(request: ChatRequest): Flow<io.github.yeyi.agent.llm.StreamEvent> =
+        override fun chatStream(request: ChatRequest): Flow<io.github.yeyi.agent.llm.ChatResponseEvent> =
             flow {
                 recorded += request
                 emit(
-                    io.github.yeyi.agent.llm.StreamEvent.Done(
+                    io.github.yeyi.agent.llm.ChatResponseEvent.Done(
                         usage = null,
                         finishReason = FinishReason.Stop
                     )

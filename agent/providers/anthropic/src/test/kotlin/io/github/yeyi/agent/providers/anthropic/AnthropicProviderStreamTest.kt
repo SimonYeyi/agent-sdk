@@ -4,7 +4,7 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.Usage
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
@@ -44,7 +44,7 @@ class AnthropicProviderStreamTest {
         val events = provider.chatStream(
             ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
         ).toList()
-        val deltas = events.filterIsInstance<StreamEvent.ContentDelta>()
+        val deltas = events.filterIsInstance<ChatResponseEvent.ContentDelta>()
         assertEquals(1, deltas.size)
         assertEquals("hi", deltas[0].text)
     }
@@ -75,7 +75,7 @@ class AnthropicProviderStreamTest {
         val events = provider.chatStream(
             ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
         ).toList()
-        val done = events.filterIsInstance<StreamEvent.Done>()
+        val done = events.filterIsInstance<ChatResponseEvent.Done>()
         assertEquals(1, done.size)
     }
 
@@ -111,9 +111,9 @@ class AnthropicProviderStreamTest {
             httpClient = mockAnthropicHttpClient { respond(sse, HttpStatusCode.OK, sseHeaders) },
         )
         val events = provider.chatStream(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))).toList()
-        val starts = events.filterIsInstance<StreamEvent.ToolCallStart>()
-        val deltas = events.filterIsInstance<StreamEvent.ToolCallDelta>()
-        val done = events.filterIsInstance<StreamEvent.Done>().last()
+        val starts = events.filterIsInstance<ChatResponseEvent.ToolCallStart>()
+        val deltas = events.filterIsInstance<ChatResponseEvent.ToolCallDelta>()
+        val done = events.filterIsInstance<ChatResponseEvent.Done>().last()
         assertEquals(1, starts.size)
         assertEquals("toolu_1", starts[0].id)
         assertEquals("calc", starts[0].name)

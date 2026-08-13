@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.providers.openai
 
 import io.github.yeyi.agent.llm.FinishReason
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
@@ -20,9 +20,9 @@ class OpenAiStreamDecoderTest {
             "data: [DONE]"
         )
         val events = decodeOpenAiSseLines(flowOf(*sseLines.toTypedArray())).toList()
-        val deltas = events.filterIsInstance<StreamEvent.ContentDelta>().map { it.text }
+        val deltas = events.filterIsInstance<ChatResponseEvent.ContentDelta>().map { it.text }
         assertEquals(listOf("hel", "lo"), deltas)
-        assertTrue(events.any { it is StreamEvent.Done })
+        assertTrue(events.any { it is ChatResponseEvent.Done })
     }
 
     @Test
@@ -33,8 +33,8 @@ class OpenAiStreamDecoderTest {
             "data: [DONE]"
         )
         val events = decodeOpenAiSseLines(flowOf(*sseLines.toTypedArray())).toList()
-        val starts = events.filterIsInstance<StreamEvent.ToolCallStart>()
-        val deltas = events.filterIsInstance<StreamEvent.ToolCallDelta>()
+        val starts = events.filterIsInstance<ChatResponseEvent.ToolCallStart>()
+        val deltas = events.filterIsInstance<ChatResponseEvent.ToolCallDelta>()
         // 第一个带 id 的 chunk 先发 ToolCallStart,再发 ToolCallDelta(spec §4.2)
         assertEquals(1, starts.size)
         assertEquals("c1", starts[0].id)
@@ -58,10 +58,10 @@ class OpenAiStreamDecoderTest {
         val events = decodeOpenAiSseLines(lines).toList()
         assertEquals(
             listOf(
-                StreamEvent.ToolCallStart(id = "call_1", name = "get_time"),
-                StreamEvent.ToolCallDelta(id = "call_1", name = "get_time", argumentsDelta = ""),
-                StreamEvent.ToolCallDelta(id = "call_1", name = null, argumentsDelta = "{}"),
-                StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
+                ChatResponseEvent.ToolCallStart(id = "call_1", name = "get_time"),
+                ChatResponseEvent.ToolCallDelta(id = "call_1", name = "get_time", argumentsDelta = ""),
+                ChatResponseEvent.ToolCallDelta(id = "call_1", name = null, argumentsDelta = "{}"),
+                ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
             ),
             events
         )
@@ -75,7 +75,7 @@ class OpenAiStreamDecoderTest {
             """data: [DONE]"""
         )
         val events = decodeOpenAiSseLines(lines).toList()
-        val done = events.last() as StreamEvent.Done
+        val done = events.last() as ChatResponseEvent.Done
         assertEquals(FinishReason.Stop, done.finishReason)
     }
 
@@ -89,8 +89,8 @@ class OpenAiStreamDecoderTest {
             """data: [DONE]"""
         )
         val events = decodeOpenAiSseLines(lines).toList()
-        val starts = events.filterIsInstance<StreamEvent.ToolCallStart>()
-        val deltas = events.filterIsInstance<StreamEvent.ToolCallDelta>()
+        val starts = events.filterIsInstance<ChatResponseEvent.ToolCallStart>()
+        val deltas = events.filterIsInstance<ChatResponseEvent.ToolCallDelta>()
         assertEquals(2, starts.size)
         assertEquals(setOf("c1", "c2"), starts.map { it.id }.toSet())
         assertEquals(setOf("calc", "time"), starts.map { it.name }.toSet())
@@ -113,7 +113,7 @@ class OpenAiStreamDecoderTest {
             "data: [DONE]"
         )
         val events = decodeOpenAiSseLines(lines).toList()
-        val deltas = events.filterIsInstance<StreamEvent.ToolCallDelta>()
+        val deltas = events.filterIsInstance<ChatResponseEvent.ToolCallDelta>()
         assertEquals(3, deltas.size)
         // First two carry their own id (start chunks)
         assertEquals("c1", deltas[0].id)
@@ -133,7 +133,7 @@ class OpenAiStreamDecoderTest {
             "data: [DONE]"
         )
         val events = decodeOpenAiSseLines(flowOf(*sseLines.toTypedArray())).toList()
-        val deltas = events.filterIsInstance<StreamEvent.ContentDelta>()
+        val deltas = events.filterIsInstance<ChatResponseEvent.ContentDelta>()
         assertEquals(1, deltas.size)
     }
 }

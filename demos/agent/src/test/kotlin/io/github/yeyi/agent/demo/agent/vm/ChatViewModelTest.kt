@@ -7,7 +7,7 @@ import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -25,7 +25,7 @@ import kotlin.test.assertTrue
  * Integration test for [ChatViewModel] using [FakeLlmProvider] (via the public `agent { }` DSL).
  *
  * ChatViewModel uses [Agent.runStream], so the fake must be scripted via
- * [FakeLlmProvider.streamScripts] (StreamEvent list), not nonStreamResponses.
+ * [FakeLlmProvider.streamScripts] (ChatResponseEvent list), not nonStreamResponses.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModelTest {
@@ -47,9 +47,9 @@ class ChatViewModelTest {
         val provider = FakeLlmProvider(
             streamScripts = listOf(
                 listOf(
-                    StreamEvent.ContentDelta("hello "),
-                    StreamEvent.ContentDelta("back"),
-                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop),
+                    ChatResponseEvent.ContentDelta("hello "),
+                    ChatResponseEvent.ContentDelta("back"),
+                    ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop),
                 )
             )
         )
@@ -106,8 +106,8 @@ class ChatViewModelTest {
         val provider = FakeLlmProvider(
             streamScripts = listOf(
                 listOf(
-                    StreamEvent.ContentDelta("streamed"),
-                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
+                    ChatResponseEvent.ContentDelta("streamed"),
+                    ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 )
             ),
             nonStreamResponses = listOf(

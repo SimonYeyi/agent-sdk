@@ -8,7 +8,7 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.tool.Tool
@@ -49,8 +49,8 @@ class SubagentTest {
             return responses[index++]
         }
 
-        override fun chatStream(request: ChatRequest): Flow<StreamEvent> =
-            flowOf(StreamEvent.Done(usage = null, finishReason = FinishReason.Stop))
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> =
+            flowOf(ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop))
     }
 
     private class StubSubagent(

@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.providers.anthropic
 
 import io.github.yeyi.agent.llm.FinishReason
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.Usage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -12,7 +12,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 private val decoderJson = Json { ignoreUnknownKeys = true }
 
-internal fun decodeAnthropicSse(lines: Flow<String>): Flow<StreamEvent> = flow {
+internal fun decodeAnthropicSse(lines: Flow<String>): Flow<ChatResponseEvent> = flow {
     var pendingEvent: String? = null
     val pendingData = StringBuilder()
     var lastStopReason: String? = null
@@ -37,7 +37,7 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<StreamEvent> = flow {
                 val parsed = try {
                     decoderJson.parseToJsonElement(data).jsonObject
                 } catch (e: Throwable) {
-                    emit(StreamEvent.Error(e))
+                    emit(ChatResponseEvent.Error(e))
                     return@collect
                 }
                 when (event) {
@@ -47,7 +47,7 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<StreamEvent> = flow {
                             val id = contentBlock["id"]?.jsonPrimitive?.content ?: return@collect
                             val name = contentBlock["name"]?.jsonPrimitive?.content ?: return@collect
                             currentToolCallId = id
-                            emit(StreamEvent.ToolCallStart(id = id, name = name))
+                            emit(ChatResponseEvent.ToolCallStart(id = id, name = name))
                         }
                     }
                     "content_block_delta" -> {
@@ -56,11 +56,11 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<StreamEvent> = flow {
                         when (deltaType) {
                             "text_delta" -> {
                                 val text = delta["text"]?.jsonPrimitive?.content ?: ""
-                                emit(StreamEvent.ContentDelta(text))
+                                emit(ChatResponseEvent.ContentDelta(text))
                             }
                             "input_json_delta" -> {
                                 val partial = delta["partial_json"]?.jsonPrimitive?.content ?: ""
-                                emit(StreamEvent.ToolCallDelta(
+                                emit(ChatResponseEvent.ToolCallDelta(
                                     id = currentToolCallId,
                                     name = null,
                                     argumentsDelta = partial
@@ -112,7 +112,7 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<StreamEvent> = flow {
                             "tool_use" -> FinishReason.ToolCalls
                             else -> FinishReason.Stop
                         }
-                        emit(StreamEvent.Done(usage = lastUsage, finishReason = finish))
+                        emit(ChatResponseEvent.Done(usage = lastUsage, finishReason = finish))
                     }
                     "content_block_stop" -> {
                         currentToolCallId = null

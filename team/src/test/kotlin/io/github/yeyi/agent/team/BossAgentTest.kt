@@ -12,7 +12,7 @@ import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.memory.InMemoryMemory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -81,7 +81,7 @@ class BossAgentTest {
             return responses[i]
         }
 
-        override fun chatStream(request: ChatRequest): Flow<StreamEvent> =
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> =
             kotlinx.coroutines.flow.flow { /* not used by innerAgent.run() */ }
     }
 

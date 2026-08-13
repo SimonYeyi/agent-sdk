@@ -3,7 +3,7 @@ package io.github.yeyi.agent.providers.openai
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ContentPart
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.ktor.client.engine.mock.respond
 import io.ktor.client.request.HttpRequestData
 import io.ktor.http.HttpHeaders
@@ -38,7 +38,7 @@ class OpenAiProviderStreamTest {
         val events = provider.chatStream(
             ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
         ).toList()
-        val deltas = events.filterIsInstance<StreamEvent.ContentDelta>()
+        val deltas = events.filterIsInstance<ChatResponseEvent.ContentDelta>()
         assertEquals(1, deltas.size)
         assertEquals("hi", deltas[0].text)
     }

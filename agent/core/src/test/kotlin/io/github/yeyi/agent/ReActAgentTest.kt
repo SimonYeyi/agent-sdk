@@ -7,7 +7,7 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.Role
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.memory.InMemoryMemory
@@ -242,9 +242,9 @@ class ReActAgentTest {
         val provider = FakeLlmProvider(
             streamScripts = listOf(
                 listOf(
-                    StreamEvent.ContentDelta("hel"),
-                    StreamEvent.ContentDelta("lo"),
-                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
+                    ChatResponseEvent.ContentDelta("hel"),
+                    ChatResponseEvent.ContentDelta("lo"),
+                    ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 )
             )
         )
@@ -263,14 +263,14 @@ class ReActAgentTest {
         val provider = FakeLlmProvider(
             streamScripts = listOf(
                 listOf(
-                    StreamEvent.ToolCallStart(id = "c1", name = "echo"),
-                    StreamEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":"),
-                    StreamEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "\"x\"}"),
-                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
+                    ChatResponseEvent.ToolCallStart(id = "c1", name = "echo"),
+                    ChatResponseEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":"),
+                    ChatResponseEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "\"x\"}"),
+                    ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 ),
                 listOf(
-                    StreamEvent.ContentDelta("done"),
-                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
+                    ChatResponseEvent.ContentDelta("done"),
+                    ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 )
             )
         )
@@ -289,13 +289,13 @@ class ReActAgentTest {
         val provider = FakeLlmProvider(
             streamScripts = listOf(
                 listOf(
-                    StreamEvent.ToolCallStart(id = "c1", name = "echo"),
-                    StreamEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":\"x\"}"),
-                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
+                    ChatResponseEvent.ToolCallStart(id = "c1", name = "echo"),
+                    ChatResponseEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":\"x\"}"),
+                    ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 ),
                 listOf(
-                    StreamEvent.ContentDelta("done"),
-                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
+                    ChatResponseEvent.ContentDelta("done"),
+                    ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 )
             )
         )
@@ -315,9 +315,9 @@ class ReActAgentTest {
         val provider = FakeLlmProvider(
             streamScripts = listOf(
                 listOf(
-                    StreamEvent.ContentDelta("hel"),
-                    StreamEvent.Error(boom),
-                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)  // after Error: should not be reached
+                    ChatResponseEvent.ContentDelta("hel"),
+                    ChatResponseEvent.Error(boom),
+                    ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)  // after Error: should not be reached
                 )
             )
         )
@@ -334,8 +334,8 @@ class ReActAgentTest {
         val provider = FakeLlmProvider(
             streamScripts = listOf(
                 listOf(
-                    StreamEvent.ContentDelta("hi"),
-                    StreamEvent.Done(usage = expectedUsage, finishReason = FinishReason.Stop)
+                    ChatResponseEvent.ContentDelta("hi"),
+                    ChatResponseEvent.Done(usage = expectedUsage, finishReason = FinishReason.Stop)
                 )
             )
         )
@@ -348,9 +348,9 @@ class ReActAgentTest {
     @Test
     fun `runStream exhausts max iterations`() = runTest {
         val toolResp = listOf(
-            StreamEvent.ToolCallStart(id = "c", name = "echo"),
-            StreamEvent.ToolCallDelta(id = "c", name = null, argumentsDelta = "{\"text\":\"x\"}"),
-            StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
+            ChatResponseEvent.ToolCallStart(id = "c", name = "echo"),
+            ChatResponseEvent.ToolCallDelta(id = "c", name = null, argumentsDelta = "{\"text\":\"x\"}"),
+            ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
         )
         val provider = FakeLlmProvider(streamScripts = listOf(toolResp, toolResp, toolResp))
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 2)

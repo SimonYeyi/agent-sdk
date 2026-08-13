@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.providers.anthropic
 
 import io.github.yeyi.agent.llm.FinishReason
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.Usage
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
@@ -21,7 +21,7 @@ class AnthropicStreamDecoderTest {
         )
         val events = decodeAnthropicSse(lines).toList()
         assertEquals(1, events.size)
-        assertEquals(StreamEvent.ContentDelta("hi"), events[0])
+        assertEquals(ChatResponseEvent.ContentDelta("hi"), events[0])
     }
 
     @Test
@@ -34,8 +34,8 @@ class AnthropicStreamDecoderTest {
         val events = decodeAnthropicSse(lines).toList()
         assertEquals(1, events.size)
         val ev = events[0]
-        assertTrue(ev is StreamEvent.ToolCallDelta)
-        assertEquals("{\"city\":", (ev as StreamEvent.ToolCallDelta).argumentsDelta)
+        assertTrue(ev is ChatResponseEvent.ToolCallDelta)
+        assertEquals("{\"city\":", (ev as ChatResponseEvent.ToolCallDelta).argumentsDelta)
     }
 
     @Test
@@ -52,7 +52,7 @@ class AnthropicStreamDecoderTest {
             "",
         )
         val events = decodeAnthropicSse(lines).toList()
-        val done = events.filterIsInstance<StreamEvent.Done>()
+        val done = events.filterIsInstance<ChatResponseEvent.Done>()
         assertEquals(1, done.size)
         assertEquals(Usage(promptTokens = 7, completionTokens = 0, totalTokens = 7), done[0].usage)
         assertEquals(FinishReason.Stop, done[0].finishReason)
@@ -83,7 +83,7 @@ class AnthropicStreamDecoderTest {
             "",
         )
         val events = decodeAnthropicSse(lines).toList()
-        assertTrue(events.any { it is StreamEvent.Error })
+        assertTrue(events.any { it is ChatResponseEvent.Error })
     }
 
     @Test
@@ -103,7 +103,7 @@ class AnthropicStreamDecoderTest {
             "",
         )
         val events = decodeAnthropicSse(lines).toList()
-        val done = events.last() as StreamEvent.Done
+        val done = events.last() as ChatResponseEvent.Done
         assertEquals(Usage(promptTokens = 10, completionTokens = 3, totalTokens = 13), done.usage)
         assertEquals(FinishReason.Stop, done.finishReason)
     }
@@ -125,7 +125,7 @@ class AnthropicStreamDecoderTest {
             "",
         )
         val events = decodeAnthropicSse(lines).toList()
-        val done = events.last() as StreamEvent.Done
+        val done = events.last() as ChatResponseEvent.Done
         assertEquals(null, done.usage)
         assertEquals(FinishReason.Stop, done.finishReason)
     }
@@ -153,8 +153,8 @@ class AnthropicStreamDecoderTest {
             "",
         )
         val events = decodeAnthropicSse(lines).toList()
-        val starts = events.filterIsInstance<StreamEvent.ToolCallStart>()
-        val deltas = events.filterIsInstance<StreamEvent.ToolCallDelta>()
+        val starts = events.filterIsInstance<ChatResponseEvent.ToolCallStart>()
+        val deltas = events.filterIsInstance<ChatResponseEvent.ToolCallDelta>()
         assertEquals(2, starts.size)
         assertEquals(setOf("toolu_1", "toolu_2"), starts.map { it.id }.toSet())
         // Each delta carries the id of the tool_use block that produced it

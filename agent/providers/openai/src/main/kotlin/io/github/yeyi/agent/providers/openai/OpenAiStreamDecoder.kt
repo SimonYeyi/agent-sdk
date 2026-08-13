@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.providers.openai
 
 import io.github.yeyi.agent.llm.FinishReason
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.Usage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -10,7 +10,7 @@ import kotlinx.serialization.json.Json
 private val SseMapper: Json = Json { ignoreUnknownKeys = true }
 
 /**
- * 把 OpenAI SSE 文本行流(已按行拆分)解码为 StreamEvent。
+ * 把 OpenAI SSE 文本行流(已按行拆分)解码为 ChatResponseEvent。
  * - "data: [DONE]" → Done(usage, finishReason)
  * - "data: {...}" 是 OpenAiStreamChunk
  * - 其他行(注释、空行)忽略
@@ -20,7 +20,7 @@ private val SseMapper: Json = Json { ignoreUnknownKeys = true }
  * `finishReason` 来自最后一个 chunk 的 `choices[*].finish_reason`,映射后挂到 Done 上。
  * Continuation ToolCallDelta events always carry the most-recently-seen tool call id (filled from `seenToolCallIds`).
  */
-internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow {
+internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<ChatResponseEvent> = flow {
     var lastUsage: Usage? = null
     var lastFinishReason: String? = null
     val seenToolCallIds = mutableSetOf<String>()
@@ -33,13 +33,13 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow
         if (payload.isEmpty()) return@collect
         if (payload == "[DONE]") {
             doneEmitted = true
-            emit(StreamEvent.Done(usage = lastUsage, finishReason = mapFinishReason(lastFinishReason)))
+            emit(ChatResponseEvent.Done(usage = lastUsage, finishReason = mapFinishReason(lastFinishReason)))
             return@collect
         }
         val chunk: OpenAiStreamChunk = try {
             SseMapper.decodeFromString(OpenAiStreamChunk.serializer(), payload)
         } catch (t: Throwable) {
-            emit(StreamEvent.Error(t))
+            emit(ChatResponseEvent.Error(t))
             return@collect
         }
         chunk.usage?.let {
@@ -51,16 +51,16 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow
             choice.finishReason?.let { lastFinishReason = it }
             val delta = choice.delta
             delta.content?.let {
-                if (it.isNotEmpty()) emit(StreamEvent.ContentDelta(it))
+                if (it.isNotEmpty()) emit(ChatResponseEvent.ContentDelta(it))
             }
             delta.toolCalls?.forEach { tc ->
                 val id = tc.id
                 val name = tc.function?.name
                 if (id != null && id !in seenToolCallIds) {
                     seenToolCallIds += id
-                    emit(StreamEvent.ToolCallStart(id = id, name = name!!))
+                    emit(ChatResponseEvent.ToolCallStart(id = id, name = name!!))
                 }
-                emit(StreamEvent.ToolCallDelta(
+                emit(ChatResponseEvent.ToolCallDelta(
                     id = id ?: seenToolCallIds.lastOrNull(),
                     name = name,
                     argumentsDelta = tc.function?.arguments.orEmpty()
@@ -70,7 +70,7 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow
     }
     // 流正常结束但未收到 [DONE] 时，发送 Done 事件
     if (!doneEmitted) {
-        emit(StreamEvent.Done(usage = lastUsage, finishReason = mapFinishReason(lastFinishReason)))
+        emit(ChatResponseEvent.Done(usage = lastUsage, finishReason = mapFinishReason(lastFinishReason)))
     }
 }
 
@@ -82,7 +82,7 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<StreamEvent> = flow
  * - 协议已经走到 Done 事件,流正常结束是确定事实
  * - 未识别值按"安全默认"处理为正常停止,而不是错误;
  *   若需要为 `content_filter` 等已知错误条件单独识别,加显式 case
- * - 真正的错误(网络、解析)在 [StreamEvent.Error] 与 LlmProvider 抛
+ * - 真正的错误(网络、解析)在 [ChatResponseEvent.Error] 与 LlmProvider 抛
  *   `AgentException` 路径上处理,不在 finishReason 维度重复出口
  */
 private fun mapFinishReason(s: String?): FinishReason = when (s) {

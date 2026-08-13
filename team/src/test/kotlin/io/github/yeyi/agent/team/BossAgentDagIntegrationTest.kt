@@ -10,7 +10,7 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -255,7 +255,7 @@ class BossAgentDagIntegrationTest {
             override suspend fun chat(request: ChatRequest): ChatResponse {
                 throw RuntimeException("simulated beast failure")
             }
-            override fun chatStream(request: ChatRequest): Flow<StreamEvent> =
+            override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> =
                 kotlinx.coroutines.flow.flow { error("chatStream not expected") }
         }
 
@@ -358,7 +358,7 @@ class BossAgentDagIntegrationTest {
                 }
                 return responses[index++]
             }
-            override fun chatStream(request: ChatRequest): Flow<StreamEvent> =
+            override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> =
                 kotlinx.coroutines.flow.flow { error("not expected") }
         }
 

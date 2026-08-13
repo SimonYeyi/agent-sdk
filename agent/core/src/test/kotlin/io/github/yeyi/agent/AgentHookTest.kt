@@ -9,7 +9,7 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.ReadOnlyMemory
@@ -92,13 +92,13 @@ class AgentHookTest {
         val provider = FakeLlmProvider(
             streamScripts = listOf(
                 listOf(
-                    StreamEvent.ToolCallStart(id = "c1", name = "echo"),
-                    StreamEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":\"x\"}"),
-                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
+                    ChatResponseEvent.ToolCallStart(id = "c1", name = "echo"),
+                    ChatResponseEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":\"x\"}"),
+                    ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 ),
                 listOf(
-                    StreamEvent.ContentDelta("final"),
-                    StreamEvent.Done(usage = null, finishReason = FinishReason.Stop)
+                    ChatResponseEvent.ContentDelta("final"),
+                    ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 )
             )
         )
@@ -137,7 +137,7 @@ class AgentHookTest {
                     finishReason = FinishReason.Stop,
                 )
             }
-            override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow { /* not used */ }
+            override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { /* not used */ }
         }
         // 预填历史,让 handleContextOverflow 的 truncateByCoefficient 有足够素材可裁剪
         // (单条非系统消息会触发 IllegalStateException,见 RoundsBoundedMemory.kt:242-244)。
@@ -273,7 +273,7 @@ class AgentHookTest {
         val provider = object : LlmProvider {
             override val name: String = "throwing"
             override suspend fun chat(request: ChatRequest): ChatResponse = throw boom
-            override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow { /* not used */ }
+            override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = errorHook
@@ -296,7 +296,7 @@ class AgentHookTest {
             override val name: String = "cancelling"
             override suspend fun chat(request: ChatRequest): ChatResponse =
                 throw kotlinx.coroutines.CancellationException("cancelled")
-            override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow { /* not used */ }
+            override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = errorHook

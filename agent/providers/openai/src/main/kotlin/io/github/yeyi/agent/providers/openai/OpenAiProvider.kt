@@ -4,7 +4,7 @@ import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.llm.StreamEvent
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.ktor.client.*
 import io.ktor.client.call.*
 import io.ktor.client.engine.cio.*
@@ -97,7 +97,7 @@ public class OpenAiProvider(
         return mapFromOpenAi(parsed)
     }
 
-    override fun chatStream(request: ChatRequest): Flow<StreamEvent> = flow {
+    override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
         val openAiReq = mapToOpenAi(model, request, stream = true)
         try {
             httpClient.preparePost("$baseUrl/chat/completions") {
