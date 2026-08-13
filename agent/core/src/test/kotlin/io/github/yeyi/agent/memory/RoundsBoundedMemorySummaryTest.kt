@@ -40,7 +40,7 @@ class RoundsBoundedMemorySummaryTest {
         val summary = mem.history().firstOrNull { it is ChatMessage.System } as? ChatMessage.System
         assertTrue(summary != null)
         assertTrue("see this:" in summary.content)
-        assertTrue("[image:" in summary.content)
+        assertTrue("[Image(source=Http" in summary.content)
         assertTrue("cat.jpg" in summary.content)
     }
 }

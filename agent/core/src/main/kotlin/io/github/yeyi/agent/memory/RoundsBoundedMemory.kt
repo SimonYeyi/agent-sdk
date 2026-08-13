@@ -1,13 +1,11 @@
 package io.github.yeyi.agent.memory
 
 import io.github.yeyi.agent.AgentContext
-import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.llm.shortLabel
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -88,11 +86,12 @@ internal class RoundsBoundedMemory(
                     is ChatMessage.User -> msg.parts.joinToString("\n") { part ->
                         when (part) {
                             is ContentPart.Text -> part.text
-                            is ContentPart.Image -> "[image:${part.source.shortLabel()}]"
-                            is ContentPart.Audio -> "[audio:${part.source.shortLabel()}]"
-                            is ContentPart.Video -> "[video:${part.source.shortLabel()}]"
+                            is ContentPart.Image,
+                            is ContentPart.Audio,
+                            is ContentPart.Video -> "[${part}]"
                         }
                     }
+
                     is ChatMessage.Assistant -> msg.content ?: ""
                     is ChatMessage.ToolResult -> msg.content
                     is ChatMessage.System -> msg.content

@@ -35,13 +35,13 @@ private class FailingMemory(private val failOnRebuild: Boolean = true) : Memory 
 
     override suspend fun history(): List<ChatMessage> = messages.toList()
 
-    override suspend fun rebuild(newMessages: List<ChatMessage>) {
+    override suspend fun rebuild(messages: List<ChatMessage>) {
         rebuildFailureCount++
         if (failOnRebuild && rebuildFailureCount == 1) {
             throw IllegalStateException("rebuild failed")
         }
-        messages.clear()
-        messages.addAll(newMessages)
+        this@FailingMemory.messages.clear()
+        this@FailingMemory.messages.addAll(messages)
     }
 }
 

@@ -1,7 +1,12 @@
 package io.github.yeyi.agent.llm
 
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+
 /**
- * LLM 聊天请求数据类。
+ * LLM 聊天请求数据。
  *
  * @param messages 对话历史列表，首位通常是 [ChatMessage.System]
  * @param tools 可用工具定义列表，为空时不启用工具调用
@@ -17,4 +22,167 @@ public data class ChatRequest(
     public val stopSequences: List<String> = emptyList()
 ) {
     override fun toString(): String = "ChatRequest(message=${messages.lastOrNull() ?: "empty"})"
+}
+
+/**
+ * 消息角色枚举。
+ *
+ * @property System 系统消息（通常放 persona 文本）
+ * @property User 用户消息
+ * @property Assistant LLM 回复消息
+ * @property Tool 工具执行结果（tool result 反馈给 LLM）
+ */
+public enum class Role { System, User, Assistant, Tool }
+
+/** LLM 生成的工具调用请求。 */
+@Serializable
+public data class ToolCall(
+    public val id: String,
+    public val name: String,
+    public val arguments: JsonElement
+)
+
+@Serializable
+public sealed interface ChatMessage {
+    public val role: Role
+
+    /** 系统消息，通常放入 [io.github.yeyi.agent.Persona] 渲染后的角色文本。 */
+    @Serializable
+    public data class System(public val content: String) : ChatMessage {
+        override val role: Role = Role.System
+    }
+
+    /**
+     * 用户消息,承载单条/多条内容块 (文本 + image/audio/video)。
+     * 空 parts 等价于无消息,构造时拒。
+     */
+    @Serializable
+    public data class User(public val parts: List<ContentPart>) : ChatMessage {
+        init {
+            require(parts.isNotEmpty()) { "ChatMessage.User.parts must not be empty" }
+        }
+
+        override val role: Role = Role.User
+    }
+
+    /**
+     * LLM 回复消息。
+     *
+     * @param content 文字回复（可能为 null，此时 [toolCalls] 非空）
+     * @param toolCalls LLM 决定调用的工具列表（可能为空）
+     */
+    @Serializable
+    public data class Assistant(
+        public val content: String? = null,
+        public val toolCalls: List<ToolCall> = emptyList()
+    ) : ChatMessage {
+        override val role: Role = Role.Assistant
+    }
+
+    /**
+     * 工具执行结果，写入 memory 后反馈给 LLM。
+     *
+     * @param toolCallId 对应 [ToolCall.id]
+     * @param toolName 工具名称
+     * @param content 执行结果文本
+     * @param isError 是否为错误结果
+     */
+    @Serializable
+    public data class ToolResult(
+        public val toolCallId: String,
+        public val toolName: String,
+        public val content: String,
+        public val isError: Boolean = false
+    ) : ChatMessage {
+        override val role: Role = Role.Tool
+    }
+}
+
+/**
+ * 用户回合（user turn）中的单条内容块。
+ * 4 个变体独立 sealed 而非合并为 Media(kind, source), 三种媒体未来会
+ * 各自演化出差异化约束 (image 的 detail、audio 的 format、video 的 clip window)。
+ */
+@Serializable
+public sealed interface ContentPart {
+    public val kind: Kind
+        get() = when (this) {
+            is Text -> Kind.Text
+            is Image -> Kind.Image
+            is Audio -> Kind.Audio
+            is Video -> Kind.Video
+        }
+
+    public enum class Kind { Text, Image, Audio, Video }
+
+    @Serializable
+    @SerialName("text")
+    public data class Text(public val text: String) : ContentPart
+
+    @Serializable
+    @SerialName("image")
+    public data class Image(public val source: MediaSource) : ContentPart
+
+    @Serializable
+    @SerialName("audio")
+    public data class Audio(public val source: MediaSource) : ContentPart
+
+    @Serializable
+    @SerialName("video")
+    public data class Video(public val source: MediaSource) : ContentPart
+}
+
+/**
+ * 多媒体资源的统一来源抽象，三种模态 (image/audio/video) 共用同一组变体。
+ *
+ * - [Http]  : 公网 URL 或内网可路由 URL，由 LLM provider 主动 fetch。
+ * - [Data]  : base64 内联；适用于 image 和短 audio；video 由 provider 实现层拒绝。
+ * - [FileId]: provider 托管的文件 ID（OpenAI files API、Anthropic files API）。
+ */
+@Serializable
+public sealed interface MediaSource {
+    @Serializable
+    @SerialName("url")
+    public data class Http(public val url: String) : MediaSource {
+        override fun toString(): String {
+            return "Http(url=${if (url.length > 64) url.take(63) + "…" else url})"
+        }
+    }
+
+    @Serializable
+    @SerialName("data")
+    public data class Data(public val mimeType: String, public val base64: String) : MediaSource {
+        override fun toString(): String {
+            return "Data(mimeType=$mimeType, ${base64.length / 1024}KB)"
+        }
+    }
+
+    @Serializable
+    @SerialName("fileId")
+    public data class FileId(public val id: String) : MediaSource
+}
+
+/**
+ * 工具定义（用于告诉 LLM 有哪些工具可用）。
+ *
+ * 此类是 SDK → LLM 的输出数据结构，不参与实际执行。
+ *
+ * @param name 工具名称，对应 [io.github.yeyi.agent.tool.Tool.name]
+ * @param description 工具描述，供 LLM 理解用途
+ * @param parametersSchema 参数 JSON Schema，LLM 据此生成调用参数
+ */
+public data class ToolDefinition(
+    public val name: String,
+    public val description: String,
+    public val parametersSchema: JsonObject
+) {
+    override fun toString(): String {
+        val escapedDesc = description
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+            .replace("\n", "\\n")
+            .replace("\r", "\\r")
+            .replace("\t", "\\t")
+        return """{"name": "$name", "description": "$escapedDesc", "parameters_schema": $parametersSchema}"""
+    }
 }

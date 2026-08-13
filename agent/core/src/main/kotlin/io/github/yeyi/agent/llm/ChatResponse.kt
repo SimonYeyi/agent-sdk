@@ -1,6 +1,19 @@
 package io.github.yeyi.agent.llm
 
 /**
+ * LLM 聊天响应数据
+ *
+ * @param message 模型返回的消息
+ * @param usage token 消耗统计
+ * @param finishReason 模型输出终止原因
+ */
+public data class ChatResponse(
+    public val message: ChatMessage.Assistant,
+    public val usage: Usage? = null,
+    public val finishReason: FinishReason
+)
+
+/**
  * Token 使用量统计。
  *
  * @param promptTokens 输入侧消耗的 token 数
@@ -21,9 +34,3 @@ public data class Usage(
  * @property Length 达到 [ChatRequest.maxTokens] 上限被迫终止
  */
 public enum class FinishReason { Stop, ToolCalls, Length }
-
-public data class ChatResponse(
-    public val message: ChatMessage.Assistant,
-    public val usage: Usage? = null,
-    public val finishReason: FinishReason
-)
