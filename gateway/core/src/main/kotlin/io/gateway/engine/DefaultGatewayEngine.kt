@@ -12,6 +12,7 @@ import io.gateway.model.GatewayError
 import io.gateway.model.GatewaySession
 import io.gateway.model.GatewayState
 import io.gateway.model.IncomingMessage
+import io.gateway.model.MessageContent.Resource
 import io.gateway.model.MessageContent
 import io.gateway.model.OutgoingContent
 import io.gateway.model.PlatformId
@@ -404,19 +405,24 @@ internal class DefaultGatewayEngine(
         val outgoingContent = when (responseContent) {
             is MessageContent.Text -> OutgoingContent.Text(responseContent.text)
             is MessageContent.Image -> {
-                val url = responseContent.urls.firstOrNull()
-                if (url != null) {
-                    OutgoingContent.Image(url = url, caption = responseContent.caption)
+                val http = responseContent.parts.firstOrNull() as? Resource.Http
+                if (http != null) {
+                    OutgoingContent.Image(url = http.url, caption = responseContent.caption)
                 } else {
-                    OutgoingContent.Text(responseContent.caption ?: "Image (no URL)")
+                    OutgoingContent.Text("(image response not supported yet)")
                 }
             }
 
-            is MessageContent.Audio -> OutgoingContent.Audio(responseContent.url)
-            is MessageContent.Document -> OutgoingContent.Document(
-                url = responseContent.url,
-                fileName = responseContent.fileName
-            )
+            is MessageContent.Audio -> {
+                val http = responseContent.resource as? Resource.Http
+                if (http != null) OutgoingContent.Audio(http.url)
+                else OutgoingContent.Text("(audio response not supported yet)")
+            }
+            is MessageContent.Document -> {
+                val http = responseContent.resource as? Resource.Http
+                if (http != null) OutgoingContent.Document(url = http.url, fileName = responseContent.fileName)
+                else OutgoingContent.Text("(document response not supported yet)")
+            }
 
             else -> OutgoingContent.Text("Unsupported message type")
         }

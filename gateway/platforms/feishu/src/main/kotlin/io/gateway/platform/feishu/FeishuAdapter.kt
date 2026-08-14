@@ -75,13 +75,13 @@ public class FeishuAdapter(
         deduplicator = MessageDeduplicator(maxSize = 5000)
 
         try {
-            // 初始化组件
-            messageParser = FeishuMessageParser(gson)
-            messageFormatter = FeishuMessageFormatter(gson)
-            messageFilter = FeishuMessageFilter(config, deduplicator!!)
-
             // 创建 API 客户端
             feishuApi = FeishuApiClient(config.appId, config.appSecret, gson)
+
+            // 初始化组件
+            messageParser = FeishuMessageParser(gson, feishuApi)
+            messageFormatter = FeishuMessageFormatter(gson)
+            messageFilter = FeishuMessageFilter(config, deduplicator!!)
 
             // 创建事件分发器
             val eventDispatcher = EventDispatcher.newBuilder(

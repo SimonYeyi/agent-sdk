@@ -7,6 +7,7 @@ import com.lark.oapi.service.im.v1.enums.ReceiveIdTypeEnum
 import com.lark.oapi.service.im.v1.model.CreateMessageReq
 import com.lark.oapi.service.im.v1.model.CreateMessageReqBody
 import com.lark.oapi.service.im.v1.model.DeleteMessageReq
+import com.lark.oapi.service.im.v1.model.GetMessageResourceReq
 import com.lark.oapi.service.im.v1.model.UpdateMessageReq
 import com.lark.oapi.service.im.v1.model.UpdateMessageReqBody
 import io.gateway.model.PlatformId
@@ -23,6 +24,7 @@ public class FeishuApiClient(
 
     public data class BotInfo(public val openId: String, public val name: String)
     public data class ReactionResult(public val reactionId: String?, public val success: Boolean)
+    public data class FileResource(public val data: ByteArray, public val mime: String)
 
     public enum class ReactionType(public val emojiType: String) {
         ACK("Typing"),
@@ -138,6 +140,31 @@ public class FeishuApiClient(
             }
         } catch (e: Exception) {
             log.warn("Failed to get bot info", e)
+            null
+        }
+    }
+
+    public suspend fun getFileResource(
+        messageId: String,
+        type: String,
+        fileKey: String
+    ): FileResource? {
+        return try {
+            val resp = apiClient.im().messageResource().get(
+                GetMessageResourceReq.Builder().messageId(messageId).type(type).fileKey(fileKey)
+                    .build()
+            )
+            if (resp.code == 0) {
+                FileResource(
+                    resp.data.toByteArray(),
+                    resp.rawResponse.headers["content-type"]!![0]
+                )
+            } else {
+                log.warn("Empty media resource: messageId=$messageId type=${type} fileKey=$fileKey")
+                null
+            }
+        } catch (e: Exception) {
+            log.warn("Failed to get message resource: messageId=$messageId type=${type} fileKey=$fileKey", e)
             null
         }
     }

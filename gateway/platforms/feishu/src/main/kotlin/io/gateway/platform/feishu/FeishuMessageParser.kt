@@ -1,6 +1,7 @@
 package io.gateway.platform.feishu
 
 import com.google.gson.Gson
+import com.lark.oapi.channel.model.SendInput.video
 import io.gateway.model.ChatType
 import io.gateway.model.IncomingMessage
 import io.gateway.model.Mention
@@ -11,13 +12,15 @@ import io.gateway.model.MessageSource
 import io.gateway.model.PlatformId
 import io.gateway.util.gatewayLog
 import com.lark.oapi.service.im.v1.model.P2MessageReceiveV1
+import sun.security.krb5.Confounder.bytes
 
 internal class FeishuMessageParser(
-    private val gson: Gson = Gson()
+    private val gson: Gson = Gson(),
+    private val feishuApi: FeishuApiClient? = null
 ) {
     private val log = gatewayLog("FeishuMessageParser")
 
-    internal fun parseSdkEvent(event: P2MessageReceiveV1): IncomingMessage? {
+    internal suspend fun parseSdkEvent(event: P2MessageReceiveV1): IncomingMessage? {
         try {
             val sdkMessage = event.event?.message ?: return null
 
@@ -31,7 +34,7 @@ internal class FeishuMessageParser(
 
             val messageType = sdkMessage.messageType ?: "text"
             val contentStr = sdkMessage.content ?: "{}"
-            val content = parseContent(messageType, contentStr)
+            val content = parseContent(messageType, contentStr, messageId)
 
             val mentions = parseMentions(contentStr)
 
@@ -64,8 +67,23 @@ internal class FeishuMessageParser(
         }
     }
 
+    private suspend fun fetchFileOrNull(
+        messageId: String,
+        type: String,
+        fileKey: String
+    ): MessageContent.Resource.Bytes? {
+        if (fileKey.isBlank()) return null
+        val api = feishuApi ?: return null
+        val fileResource = api.getFileResource(messageId, type, fileKey) ?: return null
+        return MessageContent.Resource.Bytes(data = fileResource.data, mime = fileResource.mime)
+    }
+
     @Suppress("UNCHECKED_CAST")
-    internal fun parseContent(messageType: String, contentStr: String): MessageContent {
+    internal suspend fun parseContent(
+        messageType: String,
+        contentStr: String,
+        messageId: String
+    ): MessageContent {
         return try {
             val contentJson = gson.fromJson(contentStr, Map::class.java) as? Map<String, Any>
                 ?: return MessageContent.Unknown(rawContent = contentStr)
@@ -78,28 +96,40 @@ internal class FeishuMessageParser(
 
                 "image" -> {
                     val imageKey = contentJson["image_key"] as? String ?: ""
-                    MessageContent.Image(urls = listOf(imageKey))
+                    val bytes = fetchFileOrNull(messageId, messageType, imageKey)
+                    if (bytes != null) MessageContent.Image(parts = listOf(bytes))
+                    else MessageContent.Unknown(rawContent = contentStr)
                 }
 
                 "audio" -> {
                     val fileKey = contentJson["file_key"] as? String ?: ""
-                    MessageContent.Audio(url = fileKey)
+                    val bytes = fetchFileOrNull(messageId, messageType, fileKey)
+                    if (bytes != null) MessageContent.Audio(resource = bytes)
+                    else MessageContent.Unknown(rawContent = contentStr)
                 }
 
                 "video" -> {
                     val fileKey = contentJson["file_key"] as? String ?: ""
-                    MessageContent.Video(url = fileKey)
+                    val bytes = fetchFileOrNull(messageId, messageType, fileKey)
+                    if (bytes != null) MessageContent.Video(resource = bytes)
+                    else MessageContent.Unknown(rawContent = contentStr)
                 }
 
                 "file" -> {
                     val fileKey = contentJson["file_key"] as? String ?: ""
                     val fileName = contentJson["file_name"] as? String ?: ""
-                    MessageContent.Document(url = fileKey, fileName = fileName)
+                    val bytes = fetchFileOrNull(messageId, messageType, fileKey)
+                    if (bytes != null) MessageContent.Document(
+                        resource = bytes,
+                        fileName = fileName
+                    )
+                    else MessageContent.Unknown(rawContent = contentStr)
                 }
 
                 "post" -> {
-                    val text = extractPostText(contentJson)
-                    MessageContent.Text(text)
+                    val parts = extractMixedElements(contentJson, messageId)
+                    if (parts.isNotEmpty()) MessageContent.Mixed(parts = parts)
+                    else MessageContent.Unknown(rawContent = contentStr)
                 }
 
                 "interactive" -> {
@@ -112,12 +142,16 @@ internal class FeishuMessageParser(
 
                 "sticker" -> {
                     val fileKey = contentJson["file_key"] as? String ?: ""
-                    MessageContent.Image(urls = listOf(fileKey))
+                    val bytes = fetchFileOrNull(messageId, messageType, fileKey)
+                    if (bytes != null) MessageContent.Image(parts = listOf(bytes))
+                    else MessageContent.Unknown(rawContent = contentStr)
                 }
 
                 "media" -> {
                     val fileKey = contentJson["file_key"] as? String ?: ""
-                    MessageContent.Video(url = fileKey)
+                    val bytes = fetchFileOrNull(messageId, messageType, fileKey)
+                    if (bytes != null) MessageContent.Video(resource = bytes)
+                    else MessageContent.Unknown(rawContent = contentStr)
                 }
 
                 else -> MessageContent.Unknown(rawContent = contentStr)
@@ -129,30 +163,65 @@ internal class FeishuMessageParser(
     }
 
     @Suppress("UNCHECKED_CAST")
-    internal fun extractPostText(contentJson: Map<String, Any>): String {
-        val lines = mutableListOf<String>()
+    internal suspend fun extractMixedElements(
+        contentJson: Map<String, Any>,
+        messageId: String
+    ): List<MessageContent> {
+        val parts = mutableListOf<MessageContent>()
+        val lines = contentJson["content"] as? List<Any> ?: return parts
+        val textBuf = StringBuilder()
 
-        val content = contentJson["content"] as? List<Any> ?: return ""
-        for (lineArray in content) {
-            val lineParts = mutableListOf<String>()
-            val elements = lineArray as? List<Map<String, Any>> ?: continue
-
-            for (element in elements) {
-                when (element["tag"] as? String) {
-                    "text" -> lineParts.add(element["text"] as? String ?: "")
-                    "a" -> lineParts.add(element["text"] as? String ?: "")
-                    "at" -> lineParts.add("@${element["user_name"] as? String ?: ""}")
-                    "img" -> lineParts.add("[图片]")
-                    "media" -> lineParts.add("[媒体]")
-                    "emotion" -> lineParts.add(element["emoji_type"] as? String ?: "")
-                }
-            }
-            if (lineParts.isNotEmpty()) {
-                lines.add(lineParts.joinToString(""))
+        fun flushText() {
+            if (textBuf.isNotEmpty()) {
+                parts.add(MessageContent.Text(textBuf.toString()))
+                textBuf.clear()
             }
         }
 
-        return lines.joinToString("\n")
+        for (lineArray in lines) {
+            if (textBuf.isNotEmpty()) textBuf.append('\n')
+            val elements = lineArray as? List<Map<String, Any>> ?: continue
+            for (element in elements) {
+                when (element["tag"] as? String) {
+                    "text" -> textBuf.append(element["text"] as? String ?: "")
+                    "a" -> textBuf.append(element["text"] as? String ?: "")
+                    "at" -> textBuf.append("@${element["user_name"] as? String ?: ""}")
+                    "img" -> {
+                        val imageKey = element["image_key"] as? String ?: ""
+                        val img = fetchFileOrNull(messageId, "image", imageKey)
+                        if (img != null) {
+                            flushText()
+                            parts.add(MessageContent.Image(parts = listOf(img)))
+                        } else {
+                            textBuf.append("[图片]")
+                        }
+                    }
+
+                    "media" -> {
+                        val fileKey = element["file_key"] as? String ?: ""
+                        val media = fetchFileOrNull(messageId, "media", fileKey)
+                        when {
+                            media == null -> textBuf.append("[媒体]")
+                            media.mime.startsWith("audio/") -> {
+                                flushText()
+                                parts.add(MessageContent.Audio(resource = media))
+                            }
+
+                            media.mime.startsWith("video/") -> {
+                                flushText()
+                                parts.add(MessageContent.Video(resource = media))
+                            }
+
+                            else -> textBuf.append("[媒体]")
+                        }
+                    }
+
+                    "emotion" -> textBuf.append(element["emoji_type"] as? String ?: "")
+                }
+            }
+        }
+        flushText()
+        return parts
     }
 
     internal fun extractCardText(contentStr: String): String {

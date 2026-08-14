@@ -1,5 +1,6 @@
 package io.gateway.platform.telegram
 
+import io.gateway.model.MessageContent.Resource
 import io.gateway.model.*
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -90,33 +91,33 @@ internal class TelegramMessageParser(
                 val photos = message["photo"]?.jsonArray ?: JsonArray(emptyList())
                 val urls = photos.mapNotNull { it.jsonObject?.get("file_id")?.jsonPrimitive?.content }
                 val caption = message["caption"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() }
-                MessageContent.Image(urls = urls, caption = caption)
+                MessageContent.Image(parts = urls.map { Resource.Http(it) }, caption = caption)
             }
             message.containsKey("audio") -> {
                 val audio = message["audio"]?.jsonObject ?: return MessageContent.Unknown("")
                 MessageContent.Audio(
-                    url = audio["file_id"]?.jsonPrimitive?.content ?: "",
+                    resource = Resource.Http(audio["file_id"]?.jsonPrimitive?.content ?: ""),
                     durationSeconds = audio["duration"]?.jsonPrimitive?.content?.toIntOrNull()?.takeIf { it > 0 }
                 )
             }
             message.containsKey("voice") -> {
                 val voice = message["voice"]?.jsonObject ?: return MessageContent.Unknown("")
                 MessageContent.Audio(
-                    url = voice["file_id"]?.jsonPrimitive?.content ?: "",
+                    resource = Resource.Http(voice["file_id"]?.jsonPrimitive?.content ?: ""),
                     durationSeconds = voice["duration"]?.jsonPrimitive?.content?.toIntOrNull()?.takeIf { it > 0 }
                 )
             }
             message.containsKey("video") -> {
                 val video = message["video"]?.jsonObject ?: return MessageContent.Unknown("")
                 MessageContent.Video(
-                    url = video["file_id"]?.jsonPrimitive?.content ?: "",
+                    resource = Resource.Http(video["file_id"]?.jsonPrimitive?.content ?: ""),
                     durationSeconds = video["duration"]?.jsonPrimitive?.content?.toIntOrNull()?.takeIf { it > 0 }
                 )
             }
             message.containsKey("document") -> {
                 val doc = message["document"]?.jsonObject ?: return MessageContent.Unknown("")
                 MessageContent.Document(
-                    url = doc["file_id"]?.jsonPrimitive?.content ?: "",
+                    resource = Resource.Http(doc["file_id"]?.jsonPrimitive?.content ?: ""),
                     fileName = doc["file_name"]?.jsonPrimitive?.content ?: "",
                     mimeType = doc["mime_type"]?.jsonPrimitive?.content?.takeIf { it.isNotBlank() },
                     sizeBytes = doc["file_size"]?.jsonPrimitive?.content?.toLongOrNull()?.takeIf { it > 0 }
@@ -124,7 +125,7 @@ internal class TelegramMessageParser(
             }
             message.containsKey("sticker") -> {
                 val sticker = message["sticker"]?.jsonObject ?: return MessageContent.Unknown("")
-                MessageContent.Image(urls = listOf(sticker["file_id"]?.jsonPrimitive?.content ?: ""))
+                MessageContent.Image(parts = listOf(Resource.Http(sticker["file_id"]?.jsonPrimitive?.content ?: "")))
             }
             message.containsKey("location") -> {
                 val location = message["location"]?.jsonObject ?: return MessageContent.Unknown("")

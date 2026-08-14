@@ -1,5 +1,6 @@
 package io.gateway.platform.weixin
 
+import io.gateway.model.MessageContent.Resource
 import io.gateway.model.*
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -52,20 +53,20 @@ internal class WeixinMessageParser(
             }
             "image" -> {
                 val imageUrl = json["image_url"]?.jsonPrimitive?.content ?: ""
-                MessageContent.Image(urls = listOf(imageUrl))
+                MessageContent.Image(parts = listOf(Resource.Http(imageUrl)))
             }
             "voice" -> {
                 val voiceUrl = json["voice_url"]?.jsonPrimitive?.content ?: ""
-                MessageContent.Audio(url = voiceUrl)
+                MessageContent.Audio(resource = Resource.Http(voiceUrl))
             }
             "video" -> {
                 val videoUrl = json["video_url"]?.jsonPrimitive?.content ?: ""
-                MessageContent.Video(url = videoUrl)
+                MessageContent.Video(resource = Resource.Http(videoUrl))
             }
             "file" -> {
                 val fileUrl = json["file_url"]?.jsonPrimitive?.content ?: ""
                 val fileName = json["file_name"]?.jsonPrimitive?.content ?: ""
-                MessageContent.Document(url = fileUrl, fileName = fileName)
+                MessageContent.Document(resource = Resource.Http(fileUrl), fileName = fileName)
             }
             "location" -> {
                 val lat = json["latitude"]?.jsonPrimitive?.content?.toDoubleOrNull() ?: 0.0
