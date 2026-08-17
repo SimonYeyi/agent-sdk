@@ -153,7 +153,6 @@ internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager 
     }
 
     override suspend fun getOrCreateSession(source: MessageSource): GatewaySession {
-        ensureInitialized()
         val key = source.sessionKey()
         getLock(key).withLock {
             val existing = sessionCache[key]
@@ -196,8 +195,9 @@ internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager 
         }
     }
 
-    override suspend fun getActiveSessions(): List<GatewaySession> =
-        sessionCache.values.toList()
+    override suspend fun getAllSessions(): List<GatewaySession> {
+        return sessionCache.values.toList()
+    }
 
     override suspend fun markProcessing(sessionKey: String) {
         val session = sessionCache[sessionKey] ?: return
@@ -217,6 +217,18 @@ internal class FileGatewaySessionManager(baseDir: File) : GatewaySessionManager 
         getLock(sessionKey).withLock {
             persistGatewaySession(updated)
             updateCacheAndFlow(updated)
+        }
+    }
+
+    override suspend fun markAllProcessingComplete() {
+        // 启动期恢复:加载所有会话,把残留的 isProcessing=true 走 markProcessingComplete。
+        // 副作用:首次 getOrCreateSession 不再触发延迟加载,后续访问直接命中缓存。
+        // 代价:markProcessingComplete 会把 lastMessageAt 写成进程启动时间(原本是会话上次活跃时间)。
+        ensureInitialized()
+        sessionCache.values.forEach { session ->
+            if (session.isProcessing) {
+                markProcessingComplete(session.key)
+            }
         }
     }
 

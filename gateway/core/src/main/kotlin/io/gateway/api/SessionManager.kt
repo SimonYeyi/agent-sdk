@@ -14,11 +14,17 @@ public interface GatewaySessionManager {
 
     public suspend fun deleteSession(sessionKey: String)
 
-    public suspend fun getActiveSessions(): List<GatewaySession>
+    public suspend fun getAllSessions(): List<GatewaySession>
 
     public suspend fun markProcessing(sessionKey: String)
 
     public suspend fun markProcessingComplete(sessionKey: String)
+
+    /**
+     * 把所有 isProcessing=true 的会话标记为处理完成,用于进程启动时恢复上次异常退出留下的脏状态。
+     * 各实现自行决定如何处理自己的持久化层;调用方不假设实现细节。
+     */
+    public suspend fun markAllProcessingComplete()
 
     public fun isProcessing(sessionKey: String): Boolean
 

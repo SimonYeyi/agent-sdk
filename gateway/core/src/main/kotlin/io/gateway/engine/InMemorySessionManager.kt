@@ -43,7 +43,7 @@ internal class InMemoryGatewaySessionManager : GatewaySessionManager {
         updateFlow()
     }
 
-    override suspend fun getActiveSessions(): List<GatewaySession> =
+    override suspend fun getAllSessions(): List<GatewaySession> =
         sessions.values.toList()
 
     override suspend fun markProcessing(sessionKey: String) {
@@ -61,6 +61,10 @@ internal class InMemoryGatewaySessionManager : GatewaySessionManager {
             )
             updateFlow()
         }
+    }
+
+    override suspend fun markAllProcessingComplete() {
+        // 内存实现无跨进程持久化,无脏状态需要恢复。
     }
 
     override fun isProcessing(sessionKey: String): Boolean =

@@ -124,12 +124,7 @@ internal class DefaultGatewayEngine(
     override suspend fun start() {
         if (isRunning) return
 
-        // 清除上次进程中断遗留的标记
-        sessionManager.getActiveSessions().forEach { session ->
-            if (session.isProcessing) {
-                sessionManager.markProcessingComplete(session.key)
-            }
-        }
+        sessionManager.markAllProcessingComplete()
 
         hookPipeline.run(
             HookPipeline.Event.ON_START,
