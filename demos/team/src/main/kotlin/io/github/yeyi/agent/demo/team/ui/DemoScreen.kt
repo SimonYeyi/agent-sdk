@@ -78,8 +78,10 @@ fun DemoScreen(
         drawerState = drawerState,
         gesturesEnabled = !voiceMode,
         drawerContent = {
-            if (!voiceMode) {
-                ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
+            // 外层 ModalDrawerSheet 始终渲染,保持 drawerContent width 稳定,
+            // 避免 voiceMode 切换时 AnchoredDraggableState 的 anchor 重算导致 drawer 错位。
+            ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
+                if (!voiceMode) {
                     TaskDashboard(taskGroups = taskGroups)
                 }
             }
