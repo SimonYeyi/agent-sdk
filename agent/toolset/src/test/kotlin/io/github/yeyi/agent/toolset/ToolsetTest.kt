@@ -8,6 +8,7 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.toDefinition
 import io.github.yeyi.agent.tool.Tool
@@ -38,7 +39,7 @@ class ToolsetTest {
         override val name: String,
         override val description: String = "stub tool",
         override val parametersSchema: ToolParameters = ToolParameters.Empty,
-        private val result: ToolExecutionResult = ToolExecutionResult("ok"),
+        private val result: ToolExecutionResult = ToolExecutionResult.success("ok"),
     ) : Tool {
         val execCalls: MutableList<JsonElement> = mutableListOf()
         override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
@@ -88,7 +89,7 @@ class ToolsetTest {
     fun `add stores a single sub tool`() = runTest {
         val ts = Toolset("weather", "d")
         ts.add(StubTool("get_weather"))
-        assertEquals("ok", ts.dispatch("get_weather", JsonNull, emptyContext()).content)
+        assertEquals("ok", ts.dispatch("get_weather", JsonNull, emptyContext()).parts.text)
     }
 
     @Test
@@ -96,7 +97,7 @@ class ToolsetTest {
         val ts = Toolset("weather", "d")
         ts.add(listOf(StubTool("a"), StubTool("b"), StubTool("c")))
         assertEquals(3, ts.all().map { it.toDefinition() }.size)
-        assertEquals("ok", ts.dispatch("b", JsonNull, emptyContext()).content)
+        assertEquals("ok", ts.dispatch("b", JsonNull, emptyContext()).parts.text)
     }
 
     @Test
@@ -124,15 +125,15 @@ class ToolsetTest {
             ts.add(listOf(StubTool("a"), StubTool("a")))
         }
         ts.add(StubTool("b"))
-        assertEquals("ok", ts.dispatch("b", JsonNull, emptyContext()).content)
+        assertEquals("ok", ts.dispatch("b", JsonNull, emptyContext()).parts.text)
     }
 
     @Test
     fun `sub tools with the same name in DIFFERENT toolsets are independent`() = runTest {
-        val ts1 = Toolset("a", "d1").apply { add(StubTool("x", result = ToolExecutionResult("from-a"))) }
-        val ts2 = Toolset("b", "d2").apply { add(StubTool("x", result = ToolExecutionResult("from-b"))) }
-        assertEquals("from-a", ts1.dispatch("x", JsonNull, emptyContext()).content)
-        assertEquals("from-b", ts2.dispatch("x", JsonNull, emptyContext()).content)
+        val ts1 = Toolset("a", "d1").apply { add(StubTool("x", result = ToolExecutionResult.success("from-a"))) }
+        val ts2 = Toolset("b", "d2").apply { add(StubTool("x", result = ToolExecutionResult.success("from-b"))) }
+        assertEquals("from-a", ts1.dispatch("x", JsonNull, emptyContext()).parts.text)
+        assertEquals("from-b", ts2.dispatch("x", JsonNull, emptyContext()).parts.text)
     }
 
     // ---------- definitions + activate ----------
@@ -200,7 +201,7 @@ class ToolsetTest {
         val ts = Toolset("weather", "d").apply { add(sub) }
         val out = ts.dispatch("get_weather", JsonNull, emptyContext())
         assertFalse(out.isError)
-        assertEquals("sunny", out.content)
+        assertEquals("sunny", out.parts.text)
     }
 
     @Test
@@ -217,9 +218,9 @@ class ToolsetTest {
     fun `dispatch returns ToolNotFound error for unknown sub tool name`() = runTest {
         val ts = Toolset("t", "d").apply { add(StubTool("known")) }
         val out = ts.dispatch("unknown", JsonNull, emptyContext())
-        assertTrue(out.isError, "expected isError=true, got content=${out.content}")
-        assertTrue("'unknown'" in out.content, "error should mention the missing name, got: ${out.content}")
-        assertTrue("known" in out.content, "error should list available tools, got: ${out.content}")
+        assertTrue(out.isError, "expected isError=true, got content=${out.parts.text}")
+        assertTrue("'unknown'" in out.parts.text, "error should mention the missing name, got: ${out.parts.text}")
+        assertTrue("known" in out.parts.text, "error should list available tools, got: ${out.parts.text}")
     }
 
     @Test
@@ -228,7 +229,7 @@ class ToolsetTest {
         val ts = Toolset("t", "d").apply { add(sub) }
         val out = ts.dispatch("boom", JsonNull, emptyContext())
         assertTrue(out.isError)
-        assertEquals("kaboom", out.content)
+        assertEquals("kaboom", out.parts.text)
     }
 
     @Test

@@ -7,6 +7,7 @@ import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -177,8 +178,8 @@ class CompressToolTest {
         )
 
         assertEquals(false, result.isError)
-        assertTrue(result.content.contains("x@x.com"))
-        assertTrue(result.content.contains("hello"))
+        assertTrue(result.parts.text.contains("x@x.com"))
+        assertTrue(result.parts.text.contains("hello"))
     }
 
     @Test
@@ -193,7 +194,7 @@ class CompressToolTest {
         )
 
         assertEquals(false, result.isError)
-        assertTrue(result.content.contains("foo"))
+        assertTrue(result.parts.text.contains("foo"))
     }
 
     @Test
@@ -240,8 +241,8 @@ class CompressToolTest {
             createToolContext()
         )
 
-        assertFalse(result.isError, "execute failed: ${result.content}")
-        assertTrue(result.content.contains("numbers"))
+        assertFalse(result.isError, "execute failed: ${result.parts.text}")
+        assertTrue(result.parts.text.contains("numbers"))
     }
 
     @Test
@@ -258,8 +259,8 @@ class CompressToolTest {
             createToolContext()
         )
 
-        assertFalse(result.isError, "execute failed: ${result.content}")
-        val parsed = Json.parseToJsonElement(result.content).jsonObject
+        assertFalse(result.isError, "execute failed: ${result.parts.text}")
+        val parsed = Json.parseToJsonElement(result.parts.text).jsonObject
         val channel = parsed["channel"]!!.jsonObject
         assertEquals("email", channel["type"]?.jsonPrimitive?.content)
         assertEquals("user@example.com", channel["to"]?.jsonPrimitive?.content)
@@ -279,8 +280,8 @@ class CompressToolTest {
             createToolContext()
         )
 
-        assertFalse(result.isError, "execute failed: ${result.content}")
-        val parsed = Json.parseToJsonElement(result.content).jsonObject
+        assertFalse(result.isError, "execute failed: ${result.parts.text}")
+        val parsed = Json.parseToJsonElement(result.parts.text).jsonObject
         val events = parsed["events"]!!.jsonArray
         assertEquals(2, events.size)
         assertEquals("click", events[0].jsonObject["type"]?.jsonPrimitive?.content)
@@ -447,8 +448,8 @@ class CompressToolTest {
         )
 
         // 断言:解析结果里所有字段类型正确
-        val parsed = Json.parseToJsonElement(result.content).jsonObject
-        assertEquals(false, result.isError, "execute failed: ${result.content}")
+        val parsed = Json.parseToJsonElement(result.parts.text).jsonObject
+        assertEquals(false, result.isError, "execute failed: ${result.parts.text}")
         assertEquals("新功能发布", parsed["title"]?.jsonPrimitive?.content)
         assertEquals("high", parsed["priority"]?.jsonPrimitive?.content)
         val recipients = parsed["recipients"]!!.jsonArray

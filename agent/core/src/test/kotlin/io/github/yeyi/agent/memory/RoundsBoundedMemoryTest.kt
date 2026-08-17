@@ -9,6 +9,7 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.Tool
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonNull
@@ -18,9 +19,9 @@ import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 private fun ChatMessage.contentOrFirstText(): String = when (this) {
-    is ChatMessage.User -> parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text }
+    is ChatMessage.User -> parts.text
     is ChatMessage.Assistant -> content ?: ""
-    is ChatMessage.ToolResult -> content
+    is ChatMessage.ToolResult -> parts.text
     is ChatMessage.System -> content
 }
 
@@ -589,7 +590,7 @@ class RoundsBoundedMemoryTest {
                     toolCalls = listOf(ToolCall("c$i", "tool$i", JsonNull))
                 )
             )
-            memory.add(ChatMessage.ToolResult("c$i", "tool$i", "r$i"))
+            memory.add(ChatMessage.ToolResult("c$i", "tool$i", listOf(ContentPart.Text("r$i"))))
         }
 
         val history = memory.history()
@@ -788,7 +789,7 @@ class RoundsBoundedMemoryTest {
             }
             memory.add(assistantMsg)
             if (i % 2 == 0) {
-                memory.add(ChatMessage.ToolResult("c$i", "tool", "r$i"))
+                memory.add(ChatMessage.ToolResult("c$i", "tool", listOf(ContentPart.Text("r$i"))))
             }
         }
 
@@ -873,7 +874,7 @@ class RoundsBoundedMemoryTest {
                     toolCalls = listOf(ToolCall("c$i", "tool", JsonNull))
                 )
             )
-            memory.add(ChatMessage.ToolResult("c$i", "tool", "r$i"))
+            memory.add(ChatMessage.ToolResult("c$i", "tool", listOf(ContentPart.Text("r$i"))))
         }
 
         val history = memory.history()
@@ -923,7 +924,7 @@ class RoundsBoundedMemoryTest {
                     toolCalls = listOf(ToolCall("c$i", "tool", JsonNull))
                 )
             )
-            memory.add(ChatMessage.ToolResult("c$i", "tool", "r$i"))
+            memory.add(ChatMessage.ToolResult("c$i", "tool", listOf(ContentPart.Text("r$i"))))
         }
 
         val beforeHistory = memory.history()

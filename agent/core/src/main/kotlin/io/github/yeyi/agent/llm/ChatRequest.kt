@@ -80,18 +80,18 @@ public sealed interface ChatMessage {
     }
 
     /**
-     * 工具执行结果，写入 memory 后反馈给 LLM。
+     * 工具执行结果。与 [User] 对称,承载单条/多条内容块 (文本 + image/audio/video)。
      *
      * @param toolCallId 对应 [ToolCall.id]
      * @param toolName 工具名称
-     * @param content 执行结果文本
+     * @param parts 执行结果内容块 (文本 + image/audio/video)
      * @param isError 是否为错误结果
      */
     @Serializable
     public data class ToolResult(
         public val toolCallId: String,
         public val toolName: String,
-        public val content: String,
+        public val parts: List<ContentPart>,
         public val isError: Boolean = false
     ) : ChatMessage {
         override val role: Role = Role.Tool
@@ -99,7 +99,7 @@ public sealed interface ChatMessage {
 }
 
 /**
- * 用户回合（user turn）中的单条内容块。
+ * 单条内容块，[ChatMessage.User] 与 [ChatMessage.ToolResult] 共用。
  * 4 个变体独立 sealed 而非合并为 Media(kind, source), 三种媒体未来会
  * 各自演化出差异化约束 (image 的 detail、audio 的 format、video 的 clip window)。
  */
@@ -131,6 +131,10 @@ public sealed interface ContentPart {
     @SerialName("video")
     public data class Video(public val source: MediaSource) : ContentPart
 }
+
+/** 集合中的文本部分，多段以换行拼接；媒体块不参与。 */
+public val Collection<ContentPart>.text: String
+    get() = filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
 
 /**
  * 多媒体资源的统一来源抽象，三种模态 (image/audio/video) 共用同一组变体。

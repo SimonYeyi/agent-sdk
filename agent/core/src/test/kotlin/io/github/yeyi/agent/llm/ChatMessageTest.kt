@@ -60,14 +60,15 @@ class ChatMessageTest {
 
     @Test
     fun `ToolResult message has Role Tool and required fields`() {
-        val msg = ChatMessage.ToolResult(toolCallId = "c1", toolName = "echo", content = "ok")
+        val msg = ChatMessage.ToolResult(toolCallId = "c1", toolName = "echo", parts = listOf(ContentPart.Text("ok")))
         assertEquals(Role.Tool, msg.role)
         assertEquals(false, msg.isError)
+        assertEquals("ok", msg.parts.text)
     }
 
     @Test
     fun `ToolResult can mark isError true`() {
-        val msg = ChatMessage.ToolResult(toolCallId = "c1", toolName = "echo", content = "boom", isError = true)
+        val msg = ChatMessage.ToolResult(toolCallId = "c1", toolName = "echo", parts = listOf(ContentPart.Text("boom")), isError = true)
         assertTrue(msg.isError)
     }
 }

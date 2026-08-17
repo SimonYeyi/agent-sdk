@@ -6,6 +6,7 @@ import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.ToolContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
@@ -72,7 +73,7 @@ class PublishTaskToolDagTest {
         runCurrent()
         job.cancel()
 
-        assertTrue(result.content.contains("2 task(s) published"), "summary: ${result.content}")
+        assertTrue(result.parts.text.contains("2 task(s) published"), "summary: ${result.parts.text}")
         assertEquals(1, collected.size)
         val assignments = collected[0]
         assertEquals(2, assignments.tasks.size)
@@ -84,7 +85,7 @@ class PublishTaskToolDagTest {
         assertEquals(lookupTa.taskId, summaryTa.dependsOn[0])
         assertTrue(lookupTa.dependsOn.isEmpty())
 
-        val lines = result.content.lines().drop(1)
+        val lines = result.parts.text.lines().drop(1)
         assertEquals(2, lines.size)
         lines.forEach { line -> assertTrue(UUID.fromString(extractTaskId(line)) is UUID) }
     }
@@ -136,8 +137,8 @@ class PublishTaskToolDagTest {
         }
 
         val result = tool.execute(args, ctx())
-        assertTrue(result.isError, "expected error, got: ${result.content}")
-        assertTrue(result.content.contains("Cycle"))
+        assertTrue(result.isError, "expected error, got: ${result.parts.text}")
+        assertTrue(result.parts.text.contains("Cycle"))
     }
 
     @Test
@@ -154,8 +155,8 @@ class PublishTaskToolDagTest {
         }
 
         val result = tool.execute(args, ctx())
-        assertTrue(result.isError, "expected error, got: ${result.content}")
-        assertTrue(result.content.contains("Cycle"))
+        assertTrue(result.isError, "expected error, got: ${result.parts.text}")
+        assertTrue(result.parts.text.contains("Cycle"))
     }
 
     @Test
@@ -172,8 +173,8 @@ class PublishTaskToolDagTest {
         }
 
         val result = tool.execute(args, ctx())
-        assertTrue(result.isError, "expected error, got: ${result.content}")
-        assertTrue(result.content.contains("Unknown depends_on"))
+        assertTrue(result.isError, "expected error, got: ${result.parts.text}")
+        assertTrue(result.parts.text.contains("Unknown depends_on"))
     }
 
     @Test
@@ -192,8 +193,8 @@ class PublishTaskToolDagTest {
         }
 
         val result = tool.execute(args, ctx())
-        assertTrue(result.isError, "expected error, got: ${result.content}")
-        assertTrue(result.content.contains("Duplicate ref"))
+        assertTrue(result.isError, "expected error, got: ${result.parts.text}")
+        assertTrue(result.parts.text.contains("Duplicate ref"))
     }
 
     @Test
@@ -210,8 +211,8 @@ class PublishTaskToolDagTest {
             }
         }
         val firstResult = tool.execute(firstArgs, ctx())
-        assertTrue(!firstResult.isError, "first call failed: ${firstResult.content}")
-        val xTaskId = extractTaskId(firstResult.content.lines()[1])
+        assertTrue(!firstResult.isError, "first call failed: ${firstResult.parts.text}")
+        val xTaskId = extractTaskId(firstResult.parts.text.lines()[1])
 
         // Second call: publish task "a" depends_on x's task_id (cross-publish reference)
         val secondArgs = buildJsonObject {
@@ -224,7 +225,7 @@ class PublishTaskToolDagTest {
         }
         val secondResult = tool.execute(secondArgs, ctx())
         // Cross-publish reference accepted — proves knownTaskIds contains x's task_id
-        assertTrue(!secondResult.isError, "cross-publish reference should be accepted: ${secondResult.content}")
+        assertTrue(!secondResult.isError, "cross-publish reference should be accepted: ${secondResult.parts.text}")
 
         // Collect the second TaskAssignments to verify dependsOn
         val collected = mutableListOf<TaskAssignments>()
@@ -265,7 +266,7 @@ class PublishTaskToolDagTest {
             }
         }
         val preResult = tool.execute(preArgs, ctx())
-        val xTaskId = extractTaskId(preResult.content.lines()[1])
+        val xTaskId = extractTaskId(preResult.parts.text.lines()[1])
 
         // Single call: a depends on ref "x_inline" (same call) + xTaskId (cross-call)
         val args = buildJsonObject {
@@ -285,8 +286,8 @@ class PublishTaskToolDagTest {
         }
 
         val result = tool.execute(args, ctx())
-        assertTrue(!result.isError, "expected success, got: ${result.content}")
-        assertTrue(result.content.contains("2 task(s) published"))
+        assertTrue(!result.isError, "expected success, got: ${result.parts.text}")
+        assertTrue(result.parts.text.contains("2 task(s) published"))
     }
 
     @Test
@@ -328,7 +329,7 @@ class PublishTaskToolDagTest {
         }
 
         val result = tool.execute(args, ctx())
-        val lines = result.content.lines()
+        val lines = result.parts.text.lines()
         assertTrue(lines[0].startsWith("1 task(s) published"))
 
         val taskLine = lines[1]
@@ -376,7 +377,7 @@ class PublishTaskToolDagTest {
             }
         }
         val okResult = tool.execute(okArgs, ctx())
-        val okTaskId = extractTaskId(okResult.content.lines()[1])
+        val okTaskId = extractTaskId(okResult.parts.text.lines()[1])
 
         // Verify the task_id is accepted in a second publish (proves registration)
         val refOk = buildJsonObject {

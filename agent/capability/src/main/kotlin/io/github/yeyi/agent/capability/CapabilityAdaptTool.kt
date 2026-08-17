@@ -27,7 +27,7 @@ internal class CapabilityAdaptTool<Ctx : CapabilityContext, T : Any>(
         val input = this.arguments?.let {
             Json.decodeFromJsonElement(it.serializer, arguments)
         }
-        return ToolExecutionResult(
+        return ToolExecutionResult.success(
             capability.activate(input, capabilityContextFactory.create(context))
         )
     }

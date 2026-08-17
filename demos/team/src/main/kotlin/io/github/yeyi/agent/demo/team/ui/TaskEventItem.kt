@@ -14,6 +14,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentResult
+import io.github.yeyi.agent.llm.text
 
 /**
  * Displays a single task event with appropriate icon and content.
@@ -26,7 +27,7 @@ fun TaskEventItem(
     val (icon, color, text) = when (event) {
         is AgentEvent.ToolCallStart -> Triple("⏳", MaterialTheme.colorScheme.primary, "开始: ${event.toolName}")
         is AgentEvent.ToolCallEnd -> {
-            val result = event.result.content?.toString()?.take(50) ?: "完成"
+            val result = event.result.parts.text.take(50).takeIf { it.isNotEmpty() } ?: "完成"
             Triple("✓", MaterialTheme.colorScheme.tertiary, "完成: $result")
         }
         is AgentEvent.Final -> {

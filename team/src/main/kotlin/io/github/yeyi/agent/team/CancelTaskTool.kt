@@ -41,6 +41,6 @@ internal class CancelTaskTool(
         val taskId = arguments.jsonObject["task_id"]?.jsonPrimitive?.content
             ?: return ToolExecutionResult.error("Missing 'task_id'")
         bulletinBoard.publishEvent(Cancellation(taskId))
-        return ToolExecutionResult("Cancellation request for task $taskId sent")
+        return ToolExecutionResult.success("Cancellation request for task $taskId sent")
     }
 }

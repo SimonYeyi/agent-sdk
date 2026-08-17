@@ -1,7 +1,6 @@
 package io.github.yeyi.agent
 
 import io.github.yeyi.agent.llm.ChatMessage
-import io.github.yeyi.agent.llm.ChatMessage.User
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.llm.ToolDefinition
@@ -51,34 +50,55 @@ public suspend fun Flow<AgentEvent>.awaitResult(): AgentResult {
 }
 
 /**
- * 把消息转成给 LLM 看的形态:非当前 turn 的 media part 一律用
+ * 把消息转成给 LLM 看的形态:非当前 turn 的 media part 一律用占位 Text 替换,
+ * 避免旧轮次的图片/音频/视频每轮重传,造成 token 膨胀。
  *
- * - [ChatMessage.User]:把非 Text part 转成 Text(占位)
- * - 其他类型([ChatMessage.System] / [ChatMessage.Assistant] / [ChatMessage.ToolResult])
- *   已经是文本,直接返回
+ * - [ChatMessage.User] / [ChatMessage.ToolResult]:把非 Text part 转成 Text(占位)
+ * - 其他类型([ChatMessage.System] / [ChatMessage.Assistant])已经是文本,直接返回
  */
-public fun ChatMessage.toTextContent(): ChatMessage = when (this) {
-    is User -> {
-        fun describeMediaSource(source: MediaSource): String = when (source) {
-            is MediaSource.Http -> source.url.substringAfterLast('/')
-                .ifEmpty { source.url.take(64) }
+public fun ChatMessage.toTextMessage(): ChatMessage {
+    fun describeMediaSource(source: MediaSource): String = when (source) {
+        is MediaSource.Http -> source.url.substringAfterLast('/')
+            .ifEmpty { source.url.take(64) }
 
-            is MediaSource.Data -> "inline ${source.base64.length * 3 / 4 / 1024}KB"
-            is MediaSource.FileId -> "file:${source.id.take(8)}"
-        }
-
-        fun mediaPlaceholder(part: ContentPart): String = when (part) {
-            is ContentPart.Text -> part.text
-            is ContentPart.Image -> "[image] ${describeMediaSource(part.source)}"
-            is ContentPart.Audio -> "[audio] ${describeMediaSource(part.source)}"
-            is ContentPart.Video -> "[video] ${describeMediaSource(part.source)}"
-        }
-
-        if (parts.all { it is ContentPart.Text }) this
-        else copy(parts = parts.map { part ->
-            part as? ContentPart.Text ?: ContentPart.Text(mediaPlaceholder(part))
-        })
+        is MediaSource.Data -> "inline ${source.base64.length * 3 / 4 / 1024}KB"
+        is MediaSource.FileId -> "file:${source.id.take(8)}"
     }
 
-    else -> this
+    fun mediaPlaceholder(part: ContentPart): String = when (part) {
+        is ContentPart.Text -> part.text
+        is ContentPart.Image -> "[image] ${describeMediaSource(part.source)}"
+        is ContentPart.Audio -> "[audio] ${describeMediaSource(part.source)}"
+        is ContentPart.Video -> "[video] ${describeMediaSource(part.source)}"
+    }
+
+    fun List<ContentPart>.stripNonText(): List<ContentPart> =
+        map { it as? ContentPart.Text ?: ContentPart.Text(mediaPlaceholder(it)) }
+
+    return when (this) {
+        is ChatMessage.User -> copy(parts = parts.stripNonText())
+        is ChatMessage.ToolResult -> copy(parts = parts.stripNonText())
+        else -> this
+    }
+}
+
+/**
+ * 把多模态 [ChatMessage.ToolResult] 调整成对话流可呈现的形态:
+ * 拆成 1 条 text-only 的 [ChatMessage.ToolResult] + 1 条合成的 [ChatMessage.User]
+ * - text parts 留在新的 ToolResult 中(可空)
+ * - media 全部抽到合成的 User 消息,首 part 为 `[from $toolName]` 指明来源
+ *
+ * 无 media 时返回原 ToolResult 单元素列表。
+ */
+internal fun ChatMessage.ToolResult.adaptModality(): List<ChatMessage> {
+    val mediaParts = parts.filter { it !is ContentPart.Text }
+    if (mediaParts.isEmpty()) return listOf(this)
+    val textParts = parts.filterIsInstance<ContentPart.Text>()
+    val textOnly = copy(parts = textParts)
+    return listOf(
+        textOnly,
+        ChatMessage.User(
+            parts = listOf(ContentPart.Text("[from $toolName]")) + mediaParts
+        )
+    )
 }

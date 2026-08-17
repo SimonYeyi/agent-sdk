@@ -19,6 +19,6 @@ class GetCurrentTimeTool : Tool {
 
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         val now = Instant.now().toString()
-        return ToolExecutionResult(content = "Current UTC time: $now")
+        return ToolExecutionResult.success("Current UTC time: $now")
     }
 }

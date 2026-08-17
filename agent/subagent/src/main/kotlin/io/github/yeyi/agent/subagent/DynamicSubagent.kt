@@ -2,6 +2,7 @@ package io.github.yeyi.agent.subagent
 
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -91,14 +92,16 @@ internal class DynamicSubagentTool : Tool {
             }.awaitAll()
         }
         val hasError = pairs.any { it.second.isError }
-        return ToolExecutionResult(formatResults(pairs), isError = hasError)
+        val aggregatedParts = buildList {
+            pairs.forEachIndexed { i, (a, r) ->
+                val marker = if (r.isError) " — FAILED" else ""
+                add(ContentPart.Text("[${i + 1}] ${a.task}$marker"))
+                addAll(r.parts)
+                if (i < pairs.lastIndex) add(ContentPart.Text(""))
+            }
+        }
+        return ToolExecutionResult(parts = aggregatedParts, isError = hasError)
     }
-
-    private fun formatResults(pairs: List<Pair<DynamicSubagentArgs, ToolExecutionResult>>): String =
-        pairs.mapIndexed { i, (a, r) ->
-            val marker = if (r.isError) " — FAILED" else ""
-            "[${i + 1}] ${a.task}$marker\n${r.content}"
-        }.joinToString("\n\n")
 
     private suspend fun runOne(
         index: Int,
@@ -116,7 +119,7 @@ internal class DynamicSubagentTool : Tool {
                 SubagentTask(args.task, args.context),
                 SubagentContext(agentContext)
             )
-            ToolExecutionResult(result)
+            ToolExecutionResult.success(result)
         } catch (e: Exception) {
             log.warn("dynamic subagent execute failed: task=${args.task}", e)
             ToolExecutionResult.error(e.message ?: "<no message>")

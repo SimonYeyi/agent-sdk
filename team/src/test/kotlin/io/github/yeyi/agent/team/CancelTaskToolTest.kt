@@ -6,6 +6,7 @@ import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.ToolContext
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
@@ -48,7 +49,7 @@ class CancelTaskToolTest {
         job.cancel()
         runCurrent()
 
-        assertTrue(result.content.contains("task-abc"))
+        assertTrue(result.parts.text.contains("task-abc"))
         assertEquals(1, collected.size)
         assertTrue(collected[0] is Cancellation)
         assertEquals("task-abc", (collected[0] as Cancellation).taskId)
@@ -63,7 +64,7 @@ class CancelTaskToolTest {
         val result = tool.execute(args, ctx("call1"))
 
         assertTrue(result.isError)
-        assertTrue(result.content.contains("Missing 'task_id'"))
+        assertTrue(result.parts.text.contains("Missing 'task_id'"))
     }
 
     @Test
@@ -80,7 +81,7 @@ class CancelTaskToolTest {
         // 同一 taskId 多次取消 — 每次都发 Cancellation 事件, 幂等由下游 Pasture 静默处理.
         repeat(3) {
             val r = tool.execute(args, ctx("call$it"))
-            assertTrue(r.content.contains("task-xyz"))
+            assertTrue(r.parts.text.contains("task-xyz"))
             runCurrent()
         }
 

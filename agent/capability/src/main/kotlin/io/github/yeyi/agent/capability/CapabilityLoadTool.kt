@@ -74,7 +74,7 @@ internal class CapabilityLoadTool<C : Capability<T, Ctx>, T : Any, Ctx : Capabil
                         arguments.jsonObject["arguments"]!!
                     )
                 }
-                ToolExecutionResult(capability.activate(input, capabilityContext))
+                ToolExecutionResult.success(capability.activate(input, capabilityContext))
             }
             ?: ToolExecutionResult.error("${this.capabilityType} not found: $capabilityName")
     }

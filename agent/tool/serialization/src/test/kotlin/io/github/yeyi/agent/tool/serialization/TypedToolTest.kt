@@ -8,6 +8,7 @@ import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
+import io.github.yeyi.agent.llm.text
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -214,7 +215,7 @@ class TypedToolTest {
         val result = tool.execute(json, createToolContext())
 
         assertEquals(false, result.isError)
-        assertTrue(result.content.contains("msg-123"))
+        assertTrue(result.parts.text.contains("msg-123"))
     }
 
     @Test
@@ -225,7 +226,7 @@ class TypedToolTest {
         val result = tool.execute(json, createToolContext())
 
         // 验证返回的是 JSON 格式
-        val parsed = Json.parseToJsonElement(result.content)
+        val parsed = Json.parseToJsonElement(result.parts.text)
         assertTrue(parsed.toString().contains("msg-123"))
     }
 
@@ -318,7 +319,7 @@ class TypedToolTest {
         val result = tool.execute(json, createToolContext())
 
         assertEquals(false, result.isError)
-        assertTrue(result.content.contains("msg-123"))
+        assertTrue(result.parts.text.contains("msg-123"))
     }
 
     @Test

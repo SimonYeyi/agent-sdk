@@ -2,6 +2,7 @@ package io.github.yeyi.agent.session
 
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -11,9 +12,9 @@ import org.junit.Test
 import java.io.File
 
 private fun ChatMessage.firstTextOrEmpty(): String = when (this) {
-    is ChatMessage.User -> parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text }
+    is ChatMessage.User -> parts.text
     is ChatMessage.Assistant -> content ?: ""
-    is ChatMessage.ToolResult -> content
+    is ChatMessage.ToolResult -> parts.text
     is ChatMessage.System -> content
 }
 

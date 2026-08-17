@@ -6,6 +6,7 @@ import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.toolset.ToolsetRegistry
@@ -156,7 +157,7 @@ class LocalTransportTest {
             stubToolContext(),
         )
 
-        val text = kotlinx.serialization.json.Json.parseToJsonElement(out.content)
+        val text = kotlinx.serialization.json.Json.parseToJsonElement(out.parts.text)
             .jsonArray[0].jsonObject["text"]?.jsonPrimitive?.content
         assertEquals("10.0", text)
     }
@@ -169,7 +170,7 @@ class LocalTransportTest {
         val out = mcp.dispatch("unknown_tool", buildJsonObject { }, stubToolContext())
 
         assertTrue(out.isError)
-        assertTrue("unknown_tool" in out.content)
+        assertTrue("unknown_tool" in out.parts.text)
     }
 
     @Test

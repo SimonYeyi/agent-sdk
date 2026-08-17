@@ -9,6 +9,7 @@ import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.demo.team.smartHome.SmartHomeAgent
 import io.github.yeyi.agent.demo.team.ui.ChatMessageUi
 import io.github.yeyi.agent.llm.LlmProvider
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.team.BossAgent
 import io.github.yeyi.agent.team.TasksState
 import kotlinx.coroutines.Job
@@ -72,7 +73,7 @@ class DemoViewModel(
                     }
                     is AgentEvent.ToolCallEnd -> {
                         val toolName = toolCallNames.remove(event.callId) ?: "unknown"
-                        val content = event.result.content?.toString() ?: "完成"
+                        val content = event.result.parts.text.takeIf { it.isNotEmpty() } ?: "完成"
                         appendMessage("tool", "[$toolName] $content", toolName = toolName)
                     }
                     is AgentEvent.ToolCallExplanation -> {
@@ -126,7 +127,7 @@ class DemoViewModel(
                     }
                     is AgentEvent.ToolCallEnd -> {
                         val toolName = toolCallNames.remove(event.callId) ?: "unknown"
-                        val content = event.result.content?.toString() ?: "完成"
+                        val content = event.result.parts.text.takeIf { it.isNotEmpty() } ?: "完成"
                         appendMessage("tool", "[$toolName] $content", toolName = toolName)
                     }
                     is AgentEvent.ToolCallExplanation -> {

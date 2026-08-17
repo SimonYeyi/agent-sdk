@@ -20,7 +20,7 @@ class ToolDefinitionTest {
         override suspend fun execute(
             arguments: kotlinx.serialization.json.JsonElement,
             context: ToolContext,
-        ): ToolExecutionResult = ToolExecutionResult("stub")
+        ): ToolExecutionResult = ToolExecutionResult.success("stub")
     }
 
     @Test

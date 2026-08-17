@@ -11,6 +11,7 @@ import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ToolCall
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.ReadOnlyMemory
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -144,10 +145,10 @@ class AgentHookTest {
         val memory = InMemoryMemory().apply {
             add(ChatMessage.User(listOf(ContentPart.Text("prev-1"))))
             add(ChatMessage.Assistant("prev-a-1"))
-            add(ChatMessage.ToolResult("c0", "echo", "prev-r-1"))
+            add(ChatMessage.ToolResult("c0", "echo", listOf(ContentPart.Text("prev-r-1"))))
             add(ChatMessage.User(listOf(ContentPart.Text("prev-2"))))
             add(ChatMessage.Assistant("prev-a-2"))
-            add(ChatMessage.ToolResult("c1", "echo", "prev-r-2"))
+            add(ChatMessage.ToolResult("c1", "echo", listOf(ContentPart.Text("prev-r-2"))))
         }
         val agent = ReActAgent(
             persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(),
@@ -310,7 +311,7 @@ class AgentHookTest {
 
     @Test
     fun `beforeToolCall returning non-null short-circuits tool execution but emits tool events`() = runTest {
-        val shortCircuit = ToolExecutionResult("synthetic-from-hook", isError = false)
+        val shortCircuit = ToolExecutionResult.success("synthetic-from-hook")
         val hook = object : EmptyAgentHook() {
             override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
                 return shortCircuit
@@ -341,7 +342,7 @@ class AgentHookTest {
     fun `beforeToolCall short-circuit still records the synthetic result into AgentResult`() = runTest {
         val hook = object : EmptyAgentHook() {
             override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? =
-                ToolExecutionResult("synthetic-from-hook", isError = false)
+                ToolExecutionResult.success("synthetic-from-hook")
         }
         val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
@@ -362,14 +363,14 @@ class AgentHookTest {
         // The synthetic result MUST land in toolCalls (so AgentResult consumers see the call)
         // even though no events were emitted.
         assertEquals(1, result.toolCalls.size)
-        assertEquals("synthetic-from-hook", result.toolCalls[0].result.content)
+        assertEquals("synthetic-from-hook", result.toolCalls[0].result.parts.text)
     }
 
     @Test
     fun `beforeToolCall returning isError=true feeds synthetic error into memory`() = runTest {
         val hook = object : EmptyAgentHook() {
             override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? =
-                ToolExecutionResult("blocked by hook", isError = true)
+                ToolExecutionResult.error("blocked by hook")
         }
         val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
@@ -390,13 +391,13 @@ class AgentHookTest {
         // The agent still completes (no throw). The synthetic error result is what the LLM saw.
         assertEquals("final", result.message.content)
         assertEquals(1, result.toolCalls.size)
-        assertEquals("blocked by hook", result.toolCalls[0].result.content)
+        assertEquals("blocked by hook", result.toolCalls[0].result.parts.text)
         assertTrue(result.toolCalls[0].result.isError)
     }
 
     @Test
     fun `afterToolCall return value overrides raw result`() = runTest {
-        val rewritten = ToolExecutionResult("rewritten-by-hook", isError = false)
+        val rewritten = ToolExecutionResult.success("rewritten-by-hook")
         val hook = object : EmptyAgentHook() {
             override suspend fun afterToolCall(
                 context: AgentContext,
@@ -424,7 +425,7 @@ class AgentHookTest {
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals(1, result.toolCalls.size)
         // EchoTool normally returns JsonObject text; hook rewrote it.
-        assertEquals("rewritten-by-hook", result.toolCalls[0].result.content)
+        assertEquals("rewritten-by-hook", result.toolCalls[0].result.parts.text)
     }
 
     @Test

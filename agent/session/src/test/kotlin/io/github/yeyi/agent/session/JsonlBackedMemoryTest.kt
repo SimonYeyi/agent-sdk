@@ -101,7 +101,7 @@ class JsonlBackedMemoryTest {
             ChatMessage.System("sys"),
             ChatMessage.User(listOf(ContentPart.Text("usr"))),
             ChatMessage.Assistant(content = "asst", toolCalls = emptyList()),
-            ChatMessage.ToolResult(toolCallId = "tc1", toolName = "echo", content = "result"),
+            ChatMessage.ToolResult(toolCallId = "tc1", toolName = "echo", parts = listOf(ContentPart.Text("result"))),
         )
 
         memory.rebuild(messages)

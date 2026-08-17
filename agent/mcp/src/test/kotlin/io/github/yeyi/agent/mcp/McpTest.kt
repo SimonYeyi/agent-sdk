@@ -10,6 +10,7 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.toolset.ToolsetContext
@@ -205,7 +206,7 @@ class McpTest {
                     arguments: JsonElement,
                     context: io.github.yeyi.agent.tool.ToolContext,
                 ): io.github.yeyi.agent.tool.ToolExecutionResult =
-                    io.github.yeyi.agent.tool.ToolExecutionResult("ok")
+                    io.github.yeyi.agent.tool.ToolExecutionResult.success("ok")
             })
         }
         assertTrue("calc" in (ex.message ?: ""), "exception should mention Mcp name, got: ${ex.message}")
@@ -236,7 +237,7 @@ class McpTest {
 
         assertFalse(out.isError)
         // JsonPrimitive("42").toString() returns the JSON-encoded form "\"42\""
-        assertEquals("\"42\"", out.content)
+        assertEquals("\"42\"", out.parts.text)
         val params = transport.capturedParams.single()
         assertEquals("add", params.name)
         // Mcp 自身不做参数解码，arguments 原样透传给 MCP server

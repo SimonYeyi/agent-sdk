@@ -4,6 +4,7 @@ import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.llm.text
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -24,8 +25,8 @@ class ToolParametersTest {
 
     @Test
     fun `ToolExecutionResult defaults isError false`() {
-        val r = ToolExecutionResult("done")
-        assertEquals("done", r.content)
+        val r = ToolExecutionResult.success("done")
+        assertEquals("done", r.parts.text)
         assertEquals(false, r.isError)
     }
 

@@ -11,6 +11,7 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.tool.Tool
@@ -159,7 +160,7 @@ class DynamicSubagentTest {
         }
         val result = tool.execute(args, ctx)
         assertTrue(result.isError, "empty role must produce error result")
-        assertTrue(result.content.contains("role"), "error must mention 'role'")
+        assertTrue(result.parts.text.contains("role"), "error must mention 'role'")
     }
 
     @Test
@@ -171,7 +172,7 @@ class DynamicSubagentTest {
         }
         val result = tool.execute(args, ctx)
         assertTrue(result.isError)
-        assertTrue(result.content.contains("subagents"))
+        assertTrue(result.parts.text.contains("subagents"))
     }
 
     @Test
@@ -184,7 +185,7 @@ class DynamicSubagentTest {
         }
         val result = tool.execute(args, ctx)
         assertFalse(result.isError)
-        assertEquals("[1] review X\ndone", result.content)
+        assertEquals("[1] review X\ndone", result.parts.text)
         assertEquals(1, llm.chatRequests.size)
     }
 
@@ -206,7 +207,7 @@ class DynamicSubagentTest {
         assertFalse(result.isError)
         assertEquals(3, llm.chatRequests.size)
         val expected = "[1] task A\nresult-A\n\n[2] task B\nresult-B\n\n[3] task C\nresult-C"
-        assertEquals(expected, result.content)
+        assertEquals(expected, result.parts.text)
     }
 
     @Test
@@ -221,7 +222,7 @@ class DynamicSubagentTest {
             })
         }
         val result = tool.execute(args, ctx)
-        assertEquals("[1] x\nx\n\n[2] y\ny", result.content)
+        assertEquals("[1] x\nx\n\n[2] y\ny", result.parts.text)
     }
 
     @Test
@@ -316,9 +317,9 @@ class DynamicSubagentTest {
         assertEquals(setOf("read_file", "write_file"), requests[1].tools.map { it.name }.toSet())
         // summarizer inherits everything minus subagent-related → read_file + write_file
         assertEquals(setOf("read_file", "write_file"), requests[2].tools.map { it.name }.toSet())
-        assertTrue(result.content.contains("[1] review A"))
-        assertTrue(result.content.contains("[2] draft B"))
-        assertTrue(result.content.contains("[3] summarize C"))
+        assertTrue(result.parts.text.contains("[1] review A"))
+        assertTrue(result.parts.text.contains("[2] draft B"))
+        assertTrue(result.parts.text.contains("[3] summarize C"))
     }
 
     @Test
@@ -347,10 +348,10 @@ class DynamicSubagentTest {
         val result = tool.execute(args, ctx)
         assertTrue(
             result.isError,
-            "tool.execute must return error when any agent fails: ${result.content}"
+            "tool.execute must return error when any agent fails: ${result.parts.text}"
         )
-        val parts = result.content.split("\n\n")
-        assertEquals(3, parts.size, "expected exactly 3 result parts, got: ${result.content}")
+        val parts = result.parts.text.split("\n\n")
+        assertEquals(3, parts.size, "expected exactly 3 result parts, got: ${result.parts.text}")
         assertTrue(parts[0].startsWith("[1] t1\nok-1"), "agent 1 should succeed: ${parts[0]}")
         assertTrue(parts[1].startsWith("[2] t2 — FAILED"), "agent 2 should be marked FAILED: ${parts[1]}")
         assertTrue(parts[1].contains("simulated agent 2 failure"), "agent 2 should include error: ${parts[1]}")

@@ -11,6 +11,7 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.tool.Tool
@@ -81,7 +82,7 @@ class DefaultHookPipelineTest {
                     }
                 }
                 is AgentHookEvent.AfterToolCall -> {
-                    recordedEvents += "${name}:afterToolCall(${event.toolCall.name},${event.result.content})"
+                    recordedEvents += "${name}:afterToolCall(${event.toolCall.name},${event.result.parts.text})"
                     return if (nextRewritten != null) {
                         HookResult.Modify(nextRewritten!!)
                     } else {
@@ -155,7 +156,7 @@ class DefaultHookPipelineTest {
         val c = RecordingHook("c")
         val composite = DefaultHookPipeline(listOf(a, b, c))
         val r = composite.beforeToolCall(context(), toolCall())
-        assertEquals("[from-a]; [from-b]", r!!.content)
+        assertEquals("[from-a]; [from-b]", r!!.parts.text)
         assertTrue(r.isError, "refused tool result must be isError=true")
         assertEquals(
             listOf("a:beforeToolCall(x)", "b:beforeToolCall(x)", "c:beforeToolCall(x)"),
@@ -170,7 +171,7 @@ class DefaultHookPipelineTest {
         val c = RecordingHook("c").apply { nextSynthetic = "from-c" }
         val composite = DefaultHookPipeline(listOf(a, b, c))
         val r = composite.beforeToolCall(context(), toolCall())
-        assertEquals("[from-c]", r!!.content)
+        assertEquals("[from-c]", r!!.parts.text)
         assertEquals(
             listOf("a:beforeToolCall(x)", "b:beforeToolCall(x)", "c:beforeToolCall(x)"),
             a.recordedEvents + b.recordedEvents + c.recordedEvents
@@ -184,7 +185,7 @@ class DefaultHookPipelineTest {
         val c = RecordingHook("c").apply { nextSynthetic = "tool-disabled" }
         val composite = DefaultHookPipeline(listOf(a, b, c))
         val r = composite.beforeToolCall(context(), toolCall())
-        assertEquals("[perm-denied]; [quota-exhausted]; [tool-disabled]", r!!.content)
+        assertEquals("[perm-denied]; [quota-exhausted]; [tool-disabled]", r!!.parts.text)
     }
 
     @Test
@@ -197,13 +198,13 @@ class DefaultHookPipelineTest {
 
     @Test
     fun `afterToolCall chains each hook sees previous output`() = runTest {
-        val a = RecordingHook("a").apply { nextRewritten = ToolExecutionResult("a-out") }
-        val b = RecordingHook("b").apply { nextRewritten = ToolExecutionResult("b-out") }
+        val a = RecordingHook("a").apply { nextRewritten = ToolExecutionResult.success("a-out") }
+        val b = RecordingHook("b").apply { nextRewritten = ToolExecutionResult.success("b-out") }
         val c = RecordingHook("c")
         val composite = DefaultHookPipeline(listOf(a, b, c))
-        val initial = ToolExecutionResult("raw")
+        val initial = ToolExecutionResult.success("raw")
         val final = composite.afterToolCall(context(), toolCall(), initial, false, 5)
-        assertEquals("b-out", final.content, "c didn't rewrite - final is b's output")
+        assertEquals("b-out", final.parts.text, "c didn't rewrite - final is b's output")
         assertEquals(listOf("a:afterToolCall(x,raw)"), a.recordedEvents)
         assertEquals(listOf("b:afterToolCall(x,a-out)"), b.recordedEvents)
         assertEquals(listOf("c:afterToolCall(x,b-out)"), c.recordedEvents)
@@ -212,7 +213,7 @@ class DefaultHookPipelineTest {
     @Test
     fun `afterToolCall returns input when no hook rewrites`() = runTest {
         val composite = DefaultHookPipeline(listOf(RecordingHook("a"), RecordingHook("b")))
-        val input = ToolExecutionResult("untouched")
+        val input = ToolExecutionResult.success("untouched")
         val output = composite.afterToolCall(context(), toolCall(), input, false, 5)
         assertSame(input, output)
     }
@@ -292,7 +293,7 @@ class DefaultHookPipelineTest {
         val b = RecordingHook("b").apply { nextSynthetic = "from-b" }
         val composite = DefaultHookPipeline(listOf(throwing, b))
         val r = composite.beforeToolCall(context(), toolCall())
-        assertEquals("[from-b]", r!!.content, "throwing hook's exception should be swallowed, b's Refuse wins")
+        assertEquals("[from-b]", r!!.parts.text, "throwing hook's exception should be swallowed, b's Refuse wins")
     }
 
     @Test
@@ -304,11 +305,11 @@ class DefaultHookPipelineTest {
                 throw RuntimeException("oops")
             }
         }
-        val b = RecordingHook("b").apply { nextRewritten = ToolExecutionResult("b-out") }
+        val b = RecordingHook("b").apply { nextRewritten = ToolExecutionResult.success("b-out") }
         val composite = DefaultHookPipeline(listOf(throwing, b))
-        val input = ToolExecutionResult("raw")
+        val input = ToolExecutionResult.success("raw")
         val out = composite.afterToolCall(context(), toolCall(), input, false, 5)
-        assertEquals("b-out", out.content)
+        assertEquals("b-out", out.parts.text)
     }
 
     @Test
@@ -368,7 +369,7 @@ class DefaultHookPipelineTest {
         val composite = DefaultHookPipeline(listOf(throwing, b))
         var caught: Throwable? = null
         try {
-            composite.afterToolCall(context(), toolCall(), ToolExecutionResult("x"), false, 5)
+            composite.afterToolCall(context(), toolCall(), ToolExecutionResult.success("x"), false, 5)
         } catch (t: Throwable) {
             caught = t
         }

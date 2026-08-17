@@ -107,7 +107,7 @@ class LoggingHookTest {
     @Test
     fun `afterToolCall returns input unchanged`() = runTest {
         val pipeline = DefaultHookPipeline(listOf(LoggingHook()))
-        val input = ToolExecutionResult("payload", isError = true)
+        val input = ToolExecutionResult.error("payload")
         val out1 = pipeline.afterToolCall(context(), toolCall(), input, false, 42)
         assertSame(input, out1, "LoggingHook must not rewrite results")
     }
@@ -130,7 +130,7 @@ class LoggingHookTest {
                 AgentResult.ToolCallRecord(
                     callId = "c1", toolName = "echo",
                     arguments = JsonObject(emptyMap()),
-                    result = ToolExecutionResult("ok"),
+                    result = ToolExecutionResult.success("ok"),
                     timestamp = java.time.Instant.now()
                 )
             ),
@@ -156,7 +156,7 @@ class LoggingHookTest {
         pipeline.beforeLlmCall(context(), request)
         pipeline.afterLlmResponse(context(), emptyResponse())
         pipeline.beforeToolCall(context(), toolCall())
-        pipeline.afterToolCall(context(), toolCall(), ToolExecutionResult("x"), false, 1)
+        pipeline.afterToolCall(context(), toolCall(), ToolExecutionResult.success("x"), false, 1)
         pipeline.onRunFailed(context(), AgentException.LlmError(RuntimeException("e")))
         pipeline.onRunCompleted(
             context(),

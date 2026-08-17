@@ -9,8 +9,10 @@ import io.github.yeyi.agent.demo.agent.demo.DemoAgentFactory
 import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.session.SessionManager
+import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -156,7 +158,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                         is io.github.yeyi.agent.AgentEvent.Initial -> {
                             _uiState.value = _uiState.value.copy(
                                 messages = _uiState.value.messages + UiMessage.User(
-                                    text = event.query.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text },
+                                    text = event.query.parts.text,
                                     id = nextUiId(),
                                 ),
                                 liveBubble = null,
@@ -280,7 +282,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
 private fun ChatMessage.toUiMessage(): UiMessage {
     return when (this) {
         is ChatMessage.User -> UiMessage.User(
-                text = parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text },
+                text = parts.text,
                 id = UUID.randomUUID().toString(),
             )
         is ChatMessage.Assistant -> UiMessage.Assistant(text = content ?: "", id = UUID.randomUUID().toString())
@@ -288,10 +290,7 @@ private fun ChatMessage.toUiMessage(): UiMessage {
         is ChatMessage.ToolResult -> UiMessage.ToolExecution(
             callId = toolCallId,
             toolName = toolName,
-            result = io.github.yeyi.agent.tool.ToolExecutionResult(
-                content = content,
-                isError = isError
-            )
+            result = ToolExecutionResult(parts, isError)
         )
     }
 }

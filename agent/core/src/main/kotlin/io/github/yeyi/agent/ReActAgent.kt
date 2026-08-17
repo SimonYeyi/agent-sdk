@@ -175,8 +175,10 @@ public class ReActAgent internal constructor(
 
             memory.add(
                 ChatMessage.ToolResult(
-                    toolCallId = call.id, toolName = call.name,
-                    content = final.content, isError = final.isError,
+                    toolCallId = call.id,
+                    toolName = call.name,
+                    parts = final.parts,
+                    isError = final.isError,
                 )
             )
 
@@ -201,13 +203,21 @@ public class ReActAgent internal constructor(
     }
 
     private suspend fun buildRequest(): ChatRequest {
-        val history = memory.history()
-        // 当前 round 是最后一条 User 消息 —— 整个 round 内所有 iter 都保留原图,
-        // 跨 round 的历史 User 才占位。这样 iter #2+ 仍可重看图,
-        // 但旧 round 的图不再每轮重传,避免 token 膨胀。
+        val history = memory.history().toMutableList()
+        // 1. 末条 ToolResult 含 media 时拆成 text-only ToolResult + 合成的 User。
+        //    只在请求边界做这个拆分,memory 始终保留原始多模态信息。
+        if (history.lastOrNull() is ChatMessage.ToolResult) {
+            val lastIdx = history.lastIndex
+            val modalityMessages = (history[lastIdx] as ChatMessage.ToolResult).adaptModality()
+            history.removeAt(lastIdx)
+            history.addAll(modalityMessages)
+        }
+        // 2. 当前 round 是最后一条 User —— 可能是原始 User,也可能是 adaptModality
+        //    合成的 User。整个 round 内所有 iter 都保留原图,跨 round 的历史 User 才占位。
+        //    这样 iter #2+ 仍可重看图,但旧 round 的图不再每轮重传,避免 token 膨胀。
         val lastUserIdx = history.indexOfLast { it is ChatMessage.User }
         val rendered = history.mapIndexed { i, message ->
-            if (i == lastUserIdx) message else message.toTextContent()
+            if (i == lastUserIdx) message else message.toTextMessage()
         }
         return ChatRequest(
             messages = buildList {

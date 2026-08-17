@@ -20,7 +20,7 @@ class SecurityMonitorTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.Empty
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(3000)
-        return ToolExecutionResult(content = "安防监控正常")
+        return ToolExecutionResult.success("安防监控正常")
     }
 }
 
@@ -32,7 +32,7 @@ class SecurityAlertTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(2000)
-        return ToolExecutionResult(content = "警报已发送")
+        return ToolExecutionResult.success("警报已发送")
     }
 }
 

@@ -4,6 +4,7 @@ import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.ToolContext
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
@@ -32,7 +33,7 @@ class AllToolsTest {
     fun `GetCurrentTimeTool returns ISO-8601 string`() = runTest {
         val tool = GetCurrentTimeTool()
         val result = tool.execute(buildJsonObject {}, stubContext())
-        assertTrue(result.content.startsWith("Current UTC time: "), "got: ${result.content}")
+        assertTrue(result.parts.text.startsWith("Current UTC time: "), "got: ${result.parts.text}")
         assertFalse(result.isError)
     }
 
@@ -41,7 +42,7 @@ class AllToolsTest {
         val tool = CalculatorTool()
         val arguments = buildJsonObject { put("expression", JsonPrimitive("(3+5)*7")) }
         val result = tool.execute(arguments, stubContext())
-        assertEquals("(3+5)*7 = 56", result.content)
+        assertEquals("(3+5)*7 = 56", result.parts.text)
         assertFalse(result.isError)
     }
 
@@ -50,7 +51,7 @@ class AllToolsTest {
         val tool = CalculatorTool()
         val arguments = buildJsonObject { put("expression", JsonPrimitive("abc")) }
         val result = tool.execute(arguments, stubContext())
-        assertTrue(result.isError, "expected error result, got: ${result.content}")
+        assertTrue(result.isError, "expected error result, got: ${result.parts.text}")
     }
 
     @Test
@@ -58,7 +59,7 @@ class AllToolsTest {
         val tool = WebSearchTool()
         val arguments = buildJsonObject { put("query", JsonPrimitive("kotlin coroutines")) }
         val result = tool.execute(arguments, stubContext())
-        assertTrue(result.content.contains("kotlin coroutines"), "got: ${result.content}")
+        assertTrue(result.parts.text.contains("kotlin coroutines"), "got: ${result.parts.text}")
         assertFalse(result.isError)
     }
 }

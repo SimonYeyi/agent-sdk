@@ -74,7 +74,7 @@ class SubagentTest {
         override val parametersSchema: ToolParameters = ToolParameters.Empty,
     ) : Tool {
         override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
-            ToolExecutionResult("ok")
+            ToolExecutionResult.success("ok")
     }
 
     private fun chatResponse(content: String): ChatResponse =

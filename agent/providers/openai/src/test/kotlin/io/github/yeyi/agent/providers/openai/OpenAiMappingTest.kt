@@ -26,7 +26,7 @@ class OpenAiMappingTest {
                 ChatMessage.Assistant(content = "let me check", toolCalls = listOf(
                     ToolCall("c1", "echo", JsonObject(mapOf("text" to JsonPrimitive("x"))))
                 )),
-                ChatMessage.ToolResult(toolCallId = "c1", toolName = "echo", content = "x")
+                ChatMessage.ToolResult(toolCallId = "c1", toolName = "echo", parts = listOf(ContentPart.Text("x")))
             )
         )
         val out = mapToOpenAi("gpt-4o-mini", req, stream = false)

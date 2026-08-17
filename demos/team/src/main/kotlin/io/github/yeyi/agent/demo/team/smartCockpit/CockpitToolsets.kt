@@ -18,7 +18,7 @@ class AcTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(3000)
-        return ToolExecutionResult(content = "空调已设置")
+        return ToolExecutionResult.success("空调已设置")
     }
 }
 
@@ -30,7 +30,7 @@ class SeatTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(2000)
-        return ToolExecutionResult(content = "座椅控制成功")
+        return ToolExecutionResult.success("座椅控制成功")
     }
 }
 
@@ -49,7 +49,7 @@ class WindowTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(2000)
-        return ToolExecutionResult(content = "车窗控制成功")
+        return ToolExecutionResult.success("车窗控制成功")
     }
 }
 
@@ -61,7 +61,7 @@ class AmbientLightTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(1500)
-        return ToolExecutionResult(content = "氛围灯已设置")
+        return ToolExecutionResult.success("氛围灯已设置")
     }
 }
 
@@ -80,7 +80,7 @@ class NavigateTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(4000)
-        return ToolExecutionResult(content = "导航已启动")
+        return ToolExecutionResult.success("导航已启动")
     }
 }
 
@@ -92,7 +92,7 @@ class DashCamTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(2000)
-        return ToolExecutionResult(content = "行车记录仪控制成功")
+        return ToolExecutionResult.success("行车记录仪控制成功")
     }
 }
 

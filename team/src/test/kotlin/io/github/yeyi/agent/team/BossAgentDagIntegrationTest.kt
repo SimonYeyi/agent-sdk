@@ -44,7 +44,7 @@ class BossAgentDagIntegrationTest {
         override val description = "Echo."
         override val parametersSchema = ToolParameters.Empty
         override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
-            ToolExecutionResult("echoed")
+            ToolExecutionResult.success("echoed")
     }
 
     private val BEAST_FINAL: ChatResponse = ChatResponse(

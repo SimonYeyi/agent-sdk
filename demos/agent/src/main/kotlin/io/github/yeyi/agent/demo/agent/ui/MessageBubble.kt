@@ -11,6 +11,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.yeyi.agent.demo.agent.vm.UiMessage
+import io.github.yeyi.agent.llm.text
 
 @Composable
 fun MessageBubble(message: UiMessage, modifier: Modifier = Modifier) {
@@ -70,7 +71,7 @@ fun MessageBubble(message: UiMessage, modifier: Modifier = Modifier) {
                     .padding(12.dp)
             ) {
                 Text(
-                    "✅ ${message.toolName}: ${message.result.content}",
+                    "✅ ${message.toolName}: ${message.result.parts.text}",
                     color = onColor,
                 )
             }

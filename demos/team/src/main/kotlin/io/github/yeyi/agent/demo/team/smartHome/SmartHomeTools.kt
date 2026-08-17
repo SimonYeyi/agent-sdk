@@ -15,7 +15,7 @@ class GetTimeTool : Tool {
 
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(200)
-        return ToolExecutionResult(content = "当前时间: ${java.time.LocalDateTime.now()}")
+        return ToolExecutionResult.success("当前时间: ${java.time.LocalDateTime.now()}")
     }
 }
 
@@ -27,7 +27,7 @@ class GetDateTool : Tool {
 
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(100)
-        return ToolExecutionResult(content = "当前日期: ${java.time.LocalDate.now()}")
+        return ToolExecutionResult.success("当前日期: ${java.time.LocalDate.now()}")
     }
 }
 
@@ -41,7 +41,7 @@ class GetWeatherTool : Tool {
 
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(3000)
-        return ToolExecutionResult(content = "天气: 晴, 26°C")
+        return ToolExecutionResult.success("天气: 晴, 26°C")
     }
 }
 
@@ -53,6 +53,6 @@ class GetIndoorTempTool : Tool {
 
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(500)
-        return ToolExecutionResult(content = "室内温度: 24°C")
+        return ToolExecutionResult.success("室内温度: 24°C")
     }
 }

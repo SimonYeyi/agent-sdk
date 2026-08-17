@@ -7,6 +7,7 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
@@ -34,7 +35,7 @@ class SubToolDelegateTest {
 
     private class CapturingTool(
         override val name: String,
-        private val result: ToolExecutionResult = ToolExecutionResult("ok"),
+        private val result: ToolExecutionResult = ToolExecutionResult.success("ok"),
     ) : Tool {
         override val description: String = "capturing"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
@@ -110,7 +111,7 @@ class SubToolDelegateTest {
             emptyContext(),
         )
         assertTrue(out.isError)
-        assertTrue("toolset_name" in out.content, "expected error to mention 'toolset_name', got: ${out.content}")
+        assertTrue("toolset_name" in out.parts.text, "expected error to mention 'toolset_name', got: ${out.parts.text}")
     }
 
     @Test
@@ -123,7 +124,7 @@ class SubToolDelegateTest {
             emptyContext(),
         )
         assertTrue(out.isError)
-        assertTrue("sub_tool_name" in out.content, "expected error to mention 'sub_tool_name', got: ${out.content}")
+        assertTrue("sub_tool_name" in out.parts.text, "expected error to mention 'sub_tool_name', got: ${out.parts.text}")
     }
 
     @Test
@@ -146,7 +147,7 @@ class SubToolDelegateTest {
             emptyContext(),
         )
         assertFalse(out.isError)
-        assertEquals("ok", out.content)
+        assertEquals("ok", out.parts.text)
         assertEquals(1, sub.execCalls.size, "sub tool should have been invoked exactly once")
     }
 
@@ -191,7 +192,7 @@ class SubToolDelegateTest {
             emptyContext(),
         )
         assertTrue(out.isError)
-        assertEquals("kaboom", out.content)
+        assertEquals("kaboom", out.parts.text)
     }
 
     // ---------- Error paths through the registry ----------
@@ -223,14 +224,14 @@ class SubToolDelegateTest {
             emptyContext(),
         )
         assertTrue(out.isError)
-        assertTrue("'ghost'" in out.content, "expected missing-name in error, got: ${out.content}")
-        assertTrue("known" in out.content, "expected available list in error, got: ${out.content}")
+        assertTrue("'ghost'" in out.parts.text, "expected missing-name in error, got: ${out.parts.text}")
+        assertTrue("known" in out.parts.text, "expected available list in error, got: ${out.parts.text}")
     }
 
     @Test
     fun `execute routes to the right toolset when multiple are registered`() = runTest {
-        val subA = CapturingTool("x", result = ToolExecutionResult("from-A"))
-        val subB = CapturingTool("x", result = ToolExecutionResult("from-B"))
+        val subA = CapturingTool("x", result = ToolExecutionResult.success("from-A"))
+        val subB = CapturingTool("x", result = ToolExecutionResult.success("from-B"))
         val r = ToolsetRegistry().apply {
             register(Toolset("A", "dA").apply { add(subA) })
             register(Toolset("B", "dB").apply { add(subB) })
@@ -249,7 +250,7 @@ class SubToolDelegateTest {
             },
             emptyContext(),
         )
-        assertEquals("from-A", outA.content)
-        assertEquals("from-B", outB.content)
+        assertEquals("from-A", outA.parts.text)
+        assertEquals("from-B", outB.parts.text)
     }
 }

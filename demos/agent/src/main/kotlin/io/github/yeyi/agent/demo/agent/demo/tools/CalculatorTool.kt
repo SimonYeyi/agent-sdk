@@ -33,12 +33,12 @@ class CalculatorTool : Tool {
 
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         val expr = (arguments as JsonObject)["expression"]?.jsonPrimitive?.content
-            ?: return ToolExecutionResult(content = "ERROR: missing 'expression' field", isError = true)
+            ?: return ToolExecutionResult.error("ERROR: missing 'expression' field")
         return try {
             val result = evaluate(expr)
-            ToolExecutionResult(content = "$expr = $result")
+            ToolExecutionResult.success("$expr = $result")
         } catch (e: Throwable) {
-            ToolExecutionResult(content = "ERROR: ${e.message}", isError = true)
+            ToolExecutionResult.error("ERROR: ${e.message}")
         }
     }
 

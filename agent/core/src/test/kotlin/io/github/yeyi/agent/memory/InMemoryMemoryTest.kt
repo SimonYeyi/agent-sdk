@@ -2,6 +2,7 @@ package io.github.yeyi.agent.memory
 
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
+import io.github.yeyi.agent.llm.text
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.test.runTest
@@ -10,9 +11,9 @@ import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 private fun ChatMessage.firstTextOrEmpty(): String = when (this) {
-    is ChatMessage.User -> parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text }
+    is ChatMessage.User -> parts.text
     is ChatMessage.Assistant -> content ?: ""
-    is ChatMessage.ToolResult -> content
+    is ChatMessage.ToolResult -> parts.text
     is ChatMessage.System -> content
 }
 

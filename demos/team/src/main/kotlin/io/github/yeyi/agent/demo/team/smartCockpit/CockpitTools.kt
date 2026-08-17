@@ -15,7 +15,7 @@ class GetTimeTool : Tool {
 
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(200)
-        return ToolExecutionResult(content = "当前时间: ${java.time.LocalDateTime.now()}")
+        return ToolExecutionResult.success("当前时间: ${java.time.LocalDateTime.now()}")
     }
 }
 
@@ -27,7 +27,7 @@ class GetDateTool : Tool {
 
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(100)
-        return ToolExecutionResult(content = "当前日期: ${java.time.LocalDate.now()}")
+        return ToolExecutionResult.success("当前日期: ${java.time.LocalDate.now()}")
     }
 }
 
@@ -39,7 +39,7 @@ class GetCarStatusTool : Tool {
 
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(2500)
-        return ToolExecutionResult(content = "车辆状态: 正常, 电量 85%")
+        return ToolExecutionResult.success("车辆状态: 正常, 电量 85%")
     }
 }
 
@@ -51,6 +51,6 @@ class GetEnergyTool : Tool {
 
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(2000)
-        return ToolExecutionResult(content = "能耗: 电耗 18.5kWh/100km")
+        return ToolExecutionResult.success("能耗: 电耗 18.5kWh/100km")
     }
 }

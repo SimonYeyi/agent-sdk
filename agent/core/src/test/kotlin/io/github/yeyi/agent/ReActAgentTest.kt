@@ -5,7 +5,9 @@ import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.fakes.registryOf
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
+import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.llm.Role
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ToolCall
@@ -90,7 +92,7 @@ class ReActAgentTest {
         val h = mem.history()
         assertEquals(4, h.size)
         assertEquals(Role.Tool, h[2].role)
-        assertEquals("hello", (h[2] as ChatMessage.ToolResult).content)
+        assertEquals("hello", ((h[2] as ChatMessage.ToolResult).parts.single() as ContentPart.Text).text)
     }
 
     @Test
@@ -174,7 +176,7 @@ class ReActAgentTest {
         assertEquals("recovered", result.message.content)
         val toolResult = mem.history().filterIsInstance<ChatMessage.ToolResult>().single()
         assertTrue(toolResult.isError)
-        assertTrue(toolResult.content.contains("kaboom"))
+        assertTrue(toolResult.parts.any { it is ContentPart.Text && it.text.contains("kaboom") })
     }
 
     @Test
@@ -193,8 +195,8 @@ class ReActAgentTest {
         agent.run(AgentQuery.text("hi")).awaitResult()
         val toolResult = mem.history().filterIsInstance<ChatMessage.ToolResult>().single()
         assertTrue(toolResult.isError)
-        assertTrue(toolResult.content.contains("missing"))
-        assertTrue(toolResult.content.contains("echo"))
+        assertTrue(toolResult.parts.any { it is ContentPart.Text && it.text.contains("missing") })
+        assertTrue(toolResult.parts.any { it is ContentPart.Text && it.text.contains("echo") })
     }
 
     @Test
@@ -358,5 +360,72 @@ class ReActAgentTest {
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
         val ex = failed.cause as AgentException.MaxIterations
         assertEquals(2, ex.max)
+    }
+
+    @Test
+    fun `synthetic User from adaptModality keeps media while old-round User media gets placeholdered`() = runTest {
+        val toolCall = ToolCall(id = "c1", name = "image_tool", arguments = JsonNull)
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    ChatMessage.Assistant(content = null, toolCalls = listOf(toolCall)),
+                    finishReason = FinishReason.ToolCalls
+                ),
+                ChatResponse(ChatMessage.Assistant(content = "done"), finishReason = FinishReason.Stop)
+            )
+        )
+        val imageTool = object : Tool {
+            override val name = "image_tool"
+            override val description = "returns text + image"
+            override val parametersSchema = ToolParameters.Empty
+            override suspend fun execute(arguments: JsonElement, context: ToolContext) =
+                ToolExecutionResult.success(
+                    content = "result text",
+                    parts = listOf(ContentPart.Image(MediaSource.Http("https://example.com/cat.jpg")))
+                )
+        }
+        val agent = ReActAgent(
+            persona = Persona(""),
+            llmProvider = provider,
+            toolRegistry = registryOf(imageTool),
+            memory = InMemoryMemory(),
+            maxRounds = 20,
+            maxIterations = 5
+        )
+        agent.run(
+            AgentQuery(
+                listOf(
+                    ContentPart.Text("see this:"),
+                    ContentPart.Image(MediaSource.Http("https://example.com/dog.jpg"))
+                )
+            )
+        ).awaitResult()
+
+        // recordedRequests[1] = iter 2 时的 buildRequest:在工具执行后发起。
+        // 期望布局: [System, 原User(占位), Assistant(toolCalls), ToolResult(text-only), 合成User(原图)]
+        val msgs = provider.recordedRequests[1].messages
+        assertEquals(Role.System, msgs[0].role)
+        assertEquals(Role.User, msgs[1].role)
+        assertEquals(Role.Assistant, msgs[2].role)
+        assertEquals(Role.Tool, msgs[3].role)
+        assertEquals(Role.User, msgs[4].role)
+
+        // 老 round User(原图) → toTextMessage → 图片转占位文字
+        val originalUser = msgs[1] as ChatMessage.User
+        assertTrue(
+            originalUser.parts.none { it is ContentPart.Image },
+            "old-round User's Image should be placeholdered, got: ${originalUser.parts}"
+        )
+        assertTrue(
+            originalUser.parts.any { it is ContentPart.Text && "[image]" in it.text },
+            "old-round User should contain [image] placeholder, got: ${originalUser.parts}"
+        )
+
+        // 当前 round 合成 User(来自 adaptModality)→ 原图透传
+        val syntheticUser = msgs[4] as ChatMessage.User
+        assertTrue(
+            syntheticUser.parts.any { it is ContentPart.Image },
+            "synthetic User's Image should pass through unchanged, got: ${syntheticUser.parts}"
+        )
     }
 }

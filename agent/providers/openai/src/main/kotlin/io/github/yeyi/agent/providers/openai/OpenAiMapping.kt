@@ -9,6 +9,7 @@ import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
+import io.github.yeyi.agent.llm.text
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 
@@ -34,12 +35,14 @@ internal fun mapToOpenAi(model: String, request: ChatRequest, stream: Boolean): 
                     )
                 }
             )
-            is ChatMessage.ToolResult -> OpenAiMessage(
-                role = "tool",
-                content = OpenAiContent.StringValue(msg.content),
-                toolCallId = msg.toolCallId,
-                name = msg.toolName
-            )
+            is ChatMessage.ToolResult -> {
+                OpenAiMessage(
+                    role = "tool",
+                    content = OpenAiContent.StringValue(msg.parts.text),
+                    toolCallId = msg.toolCallId,
+                    name = msg.toolName
+                )
+            }
         }
     }
     val tools = if (request.tools.isEmpty()) null else request.tools.map { td ->

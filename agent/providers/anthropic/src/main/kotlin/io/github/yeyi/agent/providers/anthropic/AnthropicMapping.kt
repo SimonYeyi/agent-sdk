@@ -9,6 +9,7 @@ import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
+import io.github.yeyi.agent.llm.text
 
 internal fun mapToAnthropic(model: String, request: ChatRequest): AnthropicChatRequest {
     // Anthropic 协议把 system 提升为顶层字段, 且 messages 数组只接受 user/assistant 角色。
@@ -25,14 +26,7 @@ internal fun mapToAnthropic(model: String, request: ChatRequest): AnthropicChatR
             is ChatMessage.System -> Unit
 
             is ChatMessage.User -> {
-                val blocks = msg.parts.map { part ->
-                    when (part) {
-                        is ContentPart.Text -> AnthropicContentBlock.Text(part.text)
-                        is ContentPart.Image -> AnthropicContentBlock.Image(mapImageToAnthropic(part.source))
-                        is ContentPart.Audio -> AnthropicContentBlock.Audio(mapImageToAnthropic(part.source))
-                        is ContentPart.Video -> AnthropicContentBlock.Video(mapVideoToAnthropic(part.source))
-                    }
-                }
+                val blocks = msg.parts.map(::mapContentPart)
                 messages.add(AnthropicMessage(role = "user", content = blocks))
             }
 
@@ -49,7 +43,7 @@ internal fun mapToAnthropic(model: String, request: ChatRequest): AnthropicChatR
             is ChatMessage.ToolResult -> {
                 val block = AnthropicContentBlock.ToolResult(
                     toolUseId = msg.toolCallId,
-                    content = msg.content,
+                    content = msg.parts.text,
                     isError = msg.isError,
                 )
                 messages.add(AnthropicMessage(role = "user", content = listOf(block)))
@@ -113,10 +107,19 @@ private fun mapImageToAnthropic(source: MediaSource): AnthropicContentBlock.Imag
     is MediaSource.FileId -> AnthropicContentBlock.Image.FileSource(source.id)
 }
 
+private fun mapAudioToAnthropic(source: MediaSource): AnthropicContentBlock.Image.Source = mapImageToAnthropic(source)
+
 private fun mapVideoToAnthropic(source: MediaSource): AnthropicContentBlock.Image.Source = when (source) {
     is MediaSource.Http -> AnthropicContentBlock.Image.UrlSource(source.url)
     is MediaSource.FileId -> AnthropicContentBlock.Image.FileSource(source.id)
     is MediaSource.Data -> throw AgentException.UnsupportedContent(
         "Anthropic does not support video base64 inline; use Http or FileId"
     )
+}
+
+private fun mapContentPart(part: ContentPart): AnthropicContentBlock = when (part) {
+    is ContentPart.Text -> AnthropicContentBlock.Text(part.text)
+    is ContentPart.Image -> AnthropicContentBlock.Image(mapImageToAnthropic(part.source))
+    is ContentPart.Audio -> AnthropicContentBlock.Audio(mapAudioToAnthropic(part.source))
+    is ContentPart.Video -> AnthropicContentBlock.Video(mapVideoToAnthropic(part.source))
 }

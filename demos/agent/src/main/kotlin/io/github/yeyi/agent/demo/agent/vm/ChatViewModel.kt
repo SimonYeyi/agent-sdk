@@ -7,8 +7,10 @@ import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.demo.agent.demo.DemoAgentFactory
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -58,7 +60,7 @@ class ChatViewModel(
     private fun ChatMessage.toUiMessage(): UiMessage {
         return when (this) {
             is ChatMessage.User -> UiMessage.User(
-                text = parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text },
+                text = parts.text,
                 id = nextUiId(),
             )
             is ChatMessage.Assistant -> UiMessage.Assistant(text = content ?: "", id = nextUiId())
@@ -66,10 +68,7 @@ class ChatViewModel(
             is ChatMessage.ToolResult -> UiMessage.ToolExecution(
                 callId = toolCallId,
                 toolName = toolName,
-                result = io.github.yeyi.agent.tool.ToolExecutionResult(
-                    content = content,
-                    isError = isError
-                )
+                result = ToolExecutionResult(parts, isError)
             )
         }
     }
@@ -120,7 +119,7 @@ class ChatViewModel(
         when (event) {
             is AgentEvent.Initial -> {
                 _messages.update { it + UiMessage.User(
-                    text = event.query.parts.filterIsInstance<ContentPart.Text>().joinToString("") { it.text },
+                    text = event.query.parts.text,
                     id = nextUiId(),
                 ) }
                 _liveBubble.value = null

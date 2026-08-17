@@ -18,7 +18,7 @@ class LightTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(2000)
-        return ToolExecutionResult(content = "灯光控制成功")
+        return ToolExecutionResult.success("灯光控制成功")
     }
 }
 
@@ -30,7 +30,7 @@ class AcTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(3000)
-        return ToolExecutionResult(content = "空调已设置")
+        return ToolExecutionResult.success("空调已设置")
     }
 }
 
@@ -42,7 +42,7 @@ class CurtainTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(2000)
-        return ToolExecutionResult(content = "窗帘控制成功")
+        return ToolExecutionResult.success("窗帘控制成功")
     }
 }
 
@@ -62,7 +62,7 @@ class WaterHeaterTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(2500)
-        return ToolExecutionResult(content = "热水器控制成功")
+        return ToolExecutionResult.success("热水器控制成功")
     }
 }
 
@@ -74,7 +74,7 @@ class RobotCleanerTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(3000)
-        return ToolExecutionResult(content = "扫地机器人控制成功")
+        return ToolExecutionResult.success("扫地机器人控制成功")
     }
 }
 
@@ -93,7 +93,7 @@ class DoorLockTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(1500)
-        return ToolExecutionResult(content = "门锁控制成功")
+        return ToolExecutionResult.success("门锁控制成功")
     }
 }
 
@@ -105,7 +105,7 @@ class CameraTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(2000)
-        return ToolExecutionResult(content = "摄像头控制成功")
+        return ToolExecutionResult.success("摄像头控制成功")
     }
 }
 

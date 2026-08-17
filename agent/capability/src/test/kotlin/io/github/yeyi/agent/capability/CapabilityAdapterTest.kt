@@ -5,6 +5,7 @@ import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
@@ -199,7 +200,7 @@ class CapabilityAdapterTest {
             context = stubToolContext(),
         )
 
-        assertEquals("ok:alpha:hello", result.content)
+        assertEquals("ok:alpha:hello", result.parts.text)
         assertEquals(false, result.isError)
         assertEquals(1, cap.callCount)
         assertEquals(EchoArgs("hello"), cap.lastArgs)
@@ -219,7 +220,7 @@ class CapabilityAdapterTest {
             context = stubToolContext(),
         )
 
-        assertEquals("ok:alpha:<null>", result.content)
+        assertEquals("ok:alpha:<null>", result.parts.text)
         assertNull(cap.lastArgs)
     }
 
@@ -301,7 +302,7 @@ class CapabilityAdapterTest {
             context = stubToolContext(),
         )
 
-        assertEquals("ok:beta:hi", result.content)
+        assertEquals("ok:beta:hi", result.parts.text)
         assertEquals(false, result.isError)
         assertEquals(1, beta.callCount)
         assertEquals(0, alpha.callCount, "alpha must not be invoked")
@@ -323,7 +324,7 @@ class CapabilityAdapterTest {
             context = stubToolContext(),
         )
 
-        assertEquals("ok:alpha:<null>", result.content)
+        assertEquals("ok:alpha:<null>", result.parts.text)
         assertEquals(false, result.isError)
         assertNull(cap.lastArgs)
     }
@@ -342,7 +343,7 @@ class CapabilityAdapterTest {
         )
 
         assertEquals(true, result.isError)
-        assertTrue(result.content.contains("name"))
+        assertTrue(result.parts.text.contains("name"))
     }
 
     @Test
@@ -362,7 +363,7 @@ class CapabilityAdapterTest {
         )
 
         assertEquals(true, result.isError)
-        assertTrue(result.content.contains("ghost"))
-        assertTrue(result.content.contains("cat"))
+        assertTrue(result.parts.text.contains("ghost"))
+        assertTrue(result.parts.text.contains("cat"))
     }
 }

@@ -43,7 +43,7 @@ class WebSearchTool : Tool {
 
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         val query = (arguments as JsonObject)["query"]?.jsonPrimitive?.content
-            ?: return ToolExecutionResult(content = "ERROR: missing 'query' field", isError = true)
+            ?: return ToolExecutionResult.error("ERROR: missing 'query' field")
 
         return try {
             val encodedQuery = withContext(Dispatchers.IO) { URLEncoder.encode(query, "UTF-8") }
@@ -62,9 +62,9 @@ class WebSearchTool : Tool {
             } else {
                 "未找到与「$query」相关的搜索结果"
             }
-            ToolExecutionResult(content = content)
+            ToolExecutionResult.success(content)
         } catch (e: Exception) {
-            ToolExecutionResult(content = "搜索「$query」失败：${e.message}", isError = true)
+            ToolExecutionResult.error("搜索「$query」失败：${e.message}")
         }
     }
 

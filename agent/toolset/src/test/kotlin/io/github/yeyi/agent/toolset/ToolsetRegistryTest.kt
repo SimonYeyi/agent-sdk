@@ -6,6 +6,7 @@ import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
@@ -30,7 +31,7 @@ class ToolsetRegistryTest {
         override val description: String = "stub"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
         override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
-            ToolExecutionResult("ok")
+            ToolExecutionResult.success("ok")
     }
 
     private object UnusedLlm : LlmProvider {
@@ -97,7 +98,7 @@ class ToolsetRegistryTest {
         assertSame(ts, resolved)
         // Sanity: the resolved toolset is functional (dispatch works through the instance)
         val out = resolved.dispatch("inner", JsonNull, emptyContext())
-        assertEquals("ok", out.content)
+        assertEquals("ok", out.parts.text)
     }
 
     @Test

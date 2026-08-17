@@ -101,7 +101,7 @@ class AnthropicMappingTest {
                     content = null,
                     toolCalls = listOf(ToolCall("call_1", "get_weather", buildJsonObject {})),
                 ),
-                ChatMessage.ToolResult(toolCallId = "call_1", toolName = "get_weather", content = "25C sunny", isError = false),
+                ChatMessage.ToolResult(toolCallId = "call_1", toolName = "get_weather", parts = listOf(ContentPart.Text("25C sunny")), isError = false),
             ),
         )
         val mapped = mapToAnthropic("claude-sonnet-4-6", req)

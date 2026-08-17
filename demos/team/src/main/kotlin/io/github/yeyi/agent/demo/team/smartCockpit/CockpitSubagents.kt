@@ -22,7 +22,7 @@ class MediaControlTool : Tool {
     )
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
         delay(2500)
-        return ToolExecutionResult(content = "媒体控制成功")
+        return ToolExecutionResult.success("媒体控制成功")
     }
 }
 

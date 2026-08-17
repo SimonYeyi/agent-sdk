@@ -32,7 +32,7 @@ class ToolsetExtensionsTest {
         override val description: String = "stub"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
         override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
-            ToolExecutionResult("ok")
+            ToolExecutionResult.success("ok")
     }
 
     /** A minimal LlmProvider that records every request and returns a stop response. */

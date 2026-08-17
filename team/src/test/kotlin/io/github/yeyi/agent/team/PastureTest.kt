@@ -32,7 +32,7 @@ private val EchoTool = object : Tool {
     override val description: String = "Echo back the argument."
     override val parametersSchema: ToolParameters = ToolParameters.Empty
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
-        ToolExecutionResult("echoed")
+        ToolExecutionResult.success("echoed")
 }
 
 private val ToolSetTool = object : Tool {
@@ -40,7 +40,7 @@ private val ToolSetTool = object : Tool {
     override val description: String = "From a toolset."
     override val parametersSchema: ToolParameters = ToolParameters.Empty
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
-        ToolExecutionResult("ts")
+        ToolExecutionResult.success("ts")
 }
 
 /**

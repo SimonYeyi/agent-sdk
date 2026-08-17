@@ -20,6 +20,6 @@ class EchoTool(
         invocations += arguments
         val text = (arguments as? JsonObject)?.get("text")
             ?.let { it as? JsonPrimitive }?.content ?: arguments.toString()
-        return ToolExecutionResult(content = text)
+        return ToolExecutionResult.success(text)
     }
 }

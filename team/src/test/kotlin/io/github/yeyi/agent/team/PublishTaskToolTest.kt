@@ -6,6 +6,7 @@ import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.launch
@@ -54,8 +55,8 @@ class PublishTaskToolTest {
         }
 
         val result = tool.execute(args, ctx())
-        assertTrue(result.content.contains("1 task(s) published"))
-        assertTrue(result.content.contains("tool(echo)"))
+        assertTrue(result.parts.text.contains("1 task(s) published"))
+        assertTrue(result.parts.text.contains("tool(echo)"))
     }
 
     @Test
@@ -66,7 +67,7 @@ class PublishTaskToolTest {
 
         val result = tool.execute(args, ctx())
         assertTrue(result.isError)
-        assertEquals("Missing 'tasks' array", result.content)
+        assertEquals("Missing 'tasks' array", result.parts.text)
     }
 
     @Test
@@ -87,7 +88,7 @@ class PublishTaskToolTest {
 
         val result = tool.execute(args, ctx())
         assertTrue(result.isError)
-        assertTrue(result.content.contains("Missing 'ref'"))
+        assertTrue(result.parts.text.contains("Missing 'ref'"))
     }
 
     @Test
@@ -109,7 +110,7 @@ class PublishTaskToolTest {
 
         val result = tool.execute(args, ctx())
         assertTrue(result.isError)
-        assertTrue(result.content.contains("Unknown selection type"))
+        assertTrue(result.parts.text.contains("Unknown selection type"))
     }
 
     @Test
@@ -138,7 +139,7 @@ class PublishTaskToolTest {
         }
 
         val result = tool.execute(args, ctx())
-        assertTrue(result.content.contains("2 task(s) published"))
+        assertTrue(result.parts.text.contains("2 task(s) published"))
     }
 
     @Test

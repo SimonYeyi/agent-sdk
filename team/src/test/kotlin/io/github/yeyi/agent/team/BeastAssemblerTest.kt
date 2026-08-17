@@ -18,7 +18,7 @@ private fun tool(name: String): Tool = object : Tool {
     override val description: String = "fake $name"
     override val parametersSchema = ToolParameters.Empty
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
-        ToolExecutionResult("ok")
+        ToolExecutionResult.success("ok")
 }
 
 class BeastAssemblerTest {

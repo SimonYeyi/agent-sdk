@@ -27,7 +27,7 @@ private val EchoTool = object : Tool {
     override val description = "Echo."
     override val parametersSchema = ToolParameters.Empty
     override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
-        ToolExecutionResult("echoed")
+        ToolExecutionResult.success("echoed")
 }
 
 class BossAgentIntegrationTest {
