@@ -28,7 +28,10 @@ class BossAgentBuilderTest {
 
         override suspend fun beforeMemoryCompress(context: AgentContext, summaries: List<Summary>) = Unit
         override suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>) = Unit
-        override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest) { llmCalls++ }
+        override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest): ChatRequest {
+            llmCalls++
+            return request
+        }
         override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) = Unit
         override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? = null
         override suspend fun afterToolCall(

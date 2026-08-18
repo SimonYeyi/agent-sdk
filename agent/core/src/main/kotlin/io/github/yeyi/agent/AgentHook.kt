@@ -48,7 +48,12 @@ public interface AgentHook {
     public suspend fun beforeMemoryCompress(context: AgentContext, summaries: List<Summary>)
     public suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>)
 
-    public suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest)
+    /**
+     * LLM 调用前的请求改写点。
+     *
+     * @return 主流程将使用该返回值发起 LLM 调用。多个 hook 时按注册顺序链式改写。
+     */
+    public suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest): ChatRequest
     public suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse)
 
     /**
@@ -98,8 +103,10 @@ internal object NoOpAgentHook : AgentHook {
     ) {
     }
 
-    override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest) {
-    }
+    override suspend fun beforeLlmCall(
+        context: AgentContext,
+        request: ChatRequest,
+    ): ChatRequest = request
 
     override suspend fun afterLlmResponse(
         context: AgentContext,

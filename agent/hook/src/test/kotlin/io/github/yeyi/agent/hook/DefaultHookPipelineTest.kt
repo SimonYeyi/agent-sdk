@@ -147,6 +147,44 @@ class DefaultHookPipelineTest {
         )
     }
 
+    // --- Chain: beforeLlmCall ---
+
+    @Test
+    fun `beforeLlmCall chains each hook through the previous request`() = runTest {
+        val seenMaxTokens = mutableListOf<Int?>()
+        fun rewritingHook(name: String, maxTokens: Int) = object : Hook {
+            override val name: String = name
+            override val events = setOf(AgentHookEvent.BeforeLlmCall::class)
+
+            override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
+                val request = (event as AgentHookEvent.BeforeLlmCall).request
+                seenMaxTokens += request.maxTokens
+                return HookResult.Modify(request.copy(maxTokens = maxTokens))
+            }
+        }
+        val composite = DefaultHookPipeline(
+            listOf(
+                rewritingHook("a", 200),
+                rewritingHook("b", 300),
+            )
+        )
+        val initial = request.copy(maxTokens = 100)
+
+        val final = composite.beforeLlmCall(context(), initial)
+
+        assertEquals(listOf<Int?>(100, 200), seenMaxTokens)
+        assertEquals(300, final.maxTokens)
+    }
+
+    @Test
+    fun `beforeLlmCall returns input when no hook rewrites`() = runTest {
+        val composite = DefaultHookPipeline(listOf(RecordingHook("a"), RecordingHook("b")))
+
+        val output = composite.beforeLlmCall(context(), request)
+
+        assertSame(request, output)
+    }
+
     // --- Vote-mode: beforeToolCall Refuse is aggregated, not short-circuit ---
 
     @Test
@@ -231,7 +269,8 @@ class DefaultHookPipelineTest {
         }
         val b = RecordingHook("b")
         val composite = DefaultHookPipeline(listOf(throwing, b))
-        composite.beforeLlmCall(context(1), request)
+        val result = composite.beforeLlmCall(context(1), request)
+        assertSame(request, result)
         assertEquals(listOf("b:beforeLlmCall(1)"), b.recordedEvents)
     }
 

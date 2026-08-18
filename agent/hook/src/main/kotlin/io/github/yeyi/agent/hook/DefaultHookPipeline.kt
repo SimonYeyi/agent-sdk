@@ -115,8 +115,14 @@ internal class DefaultHookPipeline(
         run(AgentHookEvent.AfterMemoryCompress(summaries), HookContext(context))
     }
 
-    override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest) {
-        run(AgentHookEvent.BeforeLlmCall(request), HookContext(context))
+    override suspend fun beforeLlmCall(
+        context: AgentContext,
+        request: ChatRequest,
+    ): ChatRequest {
+        return when (val result = run(AgentHookEvent.BeforeLlmCall(request), HookContext(context))) {
+            is HookResult.Modify -> result.newResult as ChatRequest
+            else -> request
+        }
     }
 
     override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {

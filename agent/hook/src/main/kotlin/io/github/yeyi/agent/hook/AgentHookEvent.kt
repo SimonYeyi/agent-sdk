@@ -24,7 +24,10 @@ public sealed interface AgentHookEvent : HookEvent {
     /** 每次 LLM 调用前触发。 */
     public data class BeforeLlmCall(
         val request: ChatRequest
-    ) : AgentHookEvent
+    ) : AgentHookEvent {
+        override fun copyWith(newResult: Any): HookEvent =
+            copy(request = newResult as ChatRequest)
+    }
 
     /** 每次 LLM 响应后触发，response 含 LLM 本次回复内容。 */
     public data class AfterLlmResponse(
@@ -48,15 +51,8 @@ public sealed interface AgentHookEvent : HookEvent {
         val synthetic: Boolean,
         val durationMs: Long
     ) : AgentHookEvent {
-        override fun copyWith(newResult: Any): HookEvent {
-            return copy(result = newResult as? ToolExecutionResult
-                ?: throw IllegalArgumentException(
-                    "Hook returned HookResult.Modify for ${this::class.simpleName}, " +
-                            "but newResult is ${newResult::class.qualifiedName}; " +
-                            "${this::class.simpleName} requires newResult to be a ToolExecutionResult."
-                )
-            )
-        }
+        override fun copyWith(newResult: Any): HookEvent =
+            copy(result = newResult as ToolExecutionResult)
     }
 
     /** Agent 成功完成时触发，对应 [AgentResult] 正常返回。 */

@@ -25,8 +25,10 @@ internal open class EmptyAgentHook : AgentHook {
     ) {
     }
 
-    override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest) {
-    }
+    override suspend fun beforeLlmCall(
+        context: AgentContext,
+        request: ChatRequest,
+    ): ChatRequest = request
 
     override suspend fun afterLlmResponse(
         context: AgentContext,

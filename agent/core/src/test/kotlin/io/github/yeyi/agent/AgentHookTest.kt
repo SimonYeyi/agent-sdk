@@ -30,8 +30,12 @@ class AgentHookTest {
 
     private class RecordingHook : EmptyAgentHook() {
         val events: MutableList<String> = mutableListOf()
-        override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest) {
+        override suspend fun beforeLlmCall(
+            context: AgentContext,
+            request: ChatRequest,
+        ): ChatRequest {
             events += "beforeLlmCall(${context.currentIteration})"
+            return request
         }
         override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
             events += "afterLlmResponse(${context.currentIteration})"
@@ -122,6 +126,29 @@ class AgentHookTest {
     }
 
     @Test
+    fun `beforeLlmCall return value is sent to provider`() = runTest {
+        val hook = object : EmptyAgentHook() {
+            override suspend fun beforeLlmCall(
+                context: AgentContext,
+                request: ChatRequest,
+            ): ChatRequest = request.copy(maxTokens = 321)
+        }
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = ReActAgent(
+            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(),
+            memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5, hook = hook,
+        )
+
+        agent.run(AgentQuery.text("hi")).awaitResult()
+
+        assertEquals(321, provider.recordedRequests.single().maxTokens)
+    }
+
+    @Test
     fun `internal context overflow retry does not duplicate LLM hooks`() = runTest {
         val hook = RecordingHook()
         // 第一次 chat() 抛 context overflow,触发 handleContextOverflow + 内部重试,第二次成功。
@@ -168,7 +195,10 @@ class AgentHookTest {
     @Test
     fun `exception in hook does not crash agent`() = runTest {
         val throwingHook = object : EmptyAgentHook() {
-            override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest) {
+            override suspend fun beforeLlmCall(
+                context: AgentContext,
+                request: ChatRequest,
+            ): ChatRequest {
                 throw RuntimeException("hook fail")
             }
         }
@@ -460,8 +490,12 @@ class AgentHookTest {
     fun `metadata is shared between hooks`() = runTest {
         var capturedMetadata: Map<String, String>? = null
         val hook = object : EmptyAgentHook() {
-            override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest) {
+            override suspend fun beforeLlmCall(
+                context: AgentContext,
+                request: ChatRequest,
+            ): ChatRequest {
                 context.metadata["key"] = "value"
+                return request
             }
             override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {
                 capturedMetadata = context.metadata
