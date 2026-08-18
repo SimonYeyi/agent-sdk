@@ -107,21 +107,20 @@ internal class DelegationProcessor(
             runDelegation: (task: String) -> Unit,
         ): RealtimeEvent {
             when (event) {
-                is RealtimeEvent.UserTranscriptCompleted -> {
-                    pendingAsr = event.text
-                    return event
+                is RealtimeEvent.UserTranscriptCompleted -> pendingAsr = event.text
+
+                is RealtimeEvent.AssistantTextDelta if (event.text.startsWith(DELEGATION_MARKER)) -> {
+                    pendingAsr?.let { asr -> runDelegation(asr) }
+                    return event.copy(text = event.text.removePrefix(DELEGATION_MARKER))
                 }
 
-                is RealtimeEvent.AssistantTextDelta -> {
-                    if (event.text.startsWith(DELEGATION_MARKER)) {
-                        pendingAsr?.let { asr -> runDelegation(asr) }
-                        return event.copy(text = event.text.removePrefix(DELEGATION_MARKER))
-                    }
-                    return event
+                is RealtimeEvent.AssistantTextDone if (event.text.startsWith(DELEGATION_MARKER)) -> {
+                    return event.copy(text = event.text.removePrefix(DELEGATION_MARKER))
                 }
 
-                else -> return event
+                else -> Unit
             }
+            return event
         }
 
         private companion object {
