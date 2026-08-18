@@ -104,21 +104,21 @@ class DelegationProcessorTest {
     }
 
     @Test
-    fun `start collects replies and invokes onReply`() = runTest {
+    fun `start collects replies and invokes onReply`() = kotlinx.coroutines.runBlocking {
         val delegation = FakeDelegation(capabilities = emptyList())
         val received = mutableListOf<String>()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val handler = newHandler(delegation, scope, onReply = { text -> received.add(text) })
 
         handler.start()
-        // Give the collection coroutine time to start before emitting
-        delay(50)
 
+        // 延迟发送事件,给 start() 内部的 collect 协程足够时间在 Dispatchers.Default 上注册。
+        // runTest 的 delay 是虚拟时间,这里改用 runBlocking 让 delay 是真实时间。
+        delay(100)
         delegation.emit(DelegationReply.Confirmation("正在处理"))
         delegation.emit(DelegationReply.Success("完成"))
         delegation.emit(DelegationReply.Failure("参数错误"))
-
-        delay(200)
+        delay(300)
 
         assertEquals(listOf("正在处理", "完成", "参数错误"), received)
         scope.cancel()
