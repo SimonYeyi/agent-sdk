@@ -110,6 +110,7 @@ class S2sViewModel(
         bridge?.events?.collect { event ->
             when (event) {
                 is RealtimeEvent.UserTranscriptStarted -> {
+                    log.info("event: $event")
                     if (_state.value.pendingAssistant.isNotBlank()) {
                         _state.value = _state.value.copy(
                             messages = _state.value.messages + UiMessage(
@@ -126,6 +127,7 @@ class S2sViewModel(
                 }
 
                 is RealtimeEvent.UserTranscriptCompleted -> {
+                    log.info("event: $event")
                     val text = event.text.ifBlank { _state.value.pendingUser }
                     if (text.isNotBlank()) {
                         _state.value = _state.value.copy(
@@ -141,22 +143,26 @@ class S2sViewModel(
                     )
                 }
 
+                is RealtimeEvent.AssistantTextDone -> {
+                    log.info("event: $event")
+                    // 用 event.text 替换之前的累加预览（服务器给的最终权威文本），
+                    // 提交到 messages + 清空 pendingAssistant
+                    val finalText = event.text
+                    _state.value = _state.value.copy(
+                        pendingAssistant = finalText,
+                        messages = _state.value.messages + UiMessage("assistant", finalText),
+                    )
+                    _state.value = _state.value.copy(pendingAssistant = "")
+                }
+
                 is RealtimeEvent.AssistantAudioStarted -> {
                 }
 
                 is RealtimeEvent.AssistantAudioDone -> {
-                    if (_state.value.pendingAssistant.isNotBlank()) {
-                        _state.value = _state.value.copy(
-                            messages = _state.value.messages + UiMessage(
-                                "assistant",
-                                _state.value.pendingAssistant.trim()
-                            ),
-                            pendingAssistant = "",
-                        )
-                    }
                 }
 
                 is RealtimeEvent.ResponseDone -> {
+                    // 兜底：若 TextDone 未触发（协议差异），用累加的 pendingAssistant 提交
                     if (_state.value.pendingAssistant.isNotBlank()) {
                         _state.value = _state.value.copy(
                             messages = _state.value.messages + UiMessage(
