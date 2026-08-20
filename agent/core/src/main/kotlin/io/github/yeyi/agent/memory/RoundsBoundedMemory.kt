@@ -14,6 +14,8 @@ internal class RoundsBoundedMemory(
     private val maxRounds: Int = 20,
     private val llmProvider: LlmProvider,
 ) : Memory {
+    override val mediaArchive: MediaArchive get() = underlying.mediaArchive
+
     private val retainRatio: Double = 0.3
     private val maxSummaries: Int = 10
     private var summaries: MutableList<Summary>? = null

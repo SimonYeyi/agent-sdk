@@ -26,6 +26,8 @@ private fun ChatMessage.contentOrFirstText(): String = when (this) {
 }
 
 private class FailingMemory(private val failOnRebuild: Boolean = true) : Memory {
+    override val mediaArchive: MediaArchive = InMemoryMemory().mediaArchive
+
     private val messages = mutableListOf<ChatMessage>()
     var rebuildFailureCount = 0
         private set
