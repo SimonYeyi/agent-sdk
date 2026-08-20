@@ -8,7 +8,7 @@ import io.github.yeyi.agent.memory.MediaArchive
 /**
  * 多模态消息适配器,在 LLM 请求边界做三件事:
  *
- * 1. **拆末条 ToolResult**: 含 media 时拆成 text-only + 合成的 User ([ChatMessage.ToolResult.adaptModalityToRequest])
+ * 1. **拆末条 ToolResult**: 含 media 时拆成 text-only + 合成的 User ([ChatMessage.ToolResult.adaptModality])
  * 2. **找最后 User**: 从 messages 找到最后一条 User 的索引
  * 3. **渲染**:
  *    - 末条 User → [MediaArchive.resolve] 把 Local 转 Data, 其他 media 透传
@@ -63,7 +63,7 @@ public class DefaultModalityAdapter : ModalityAdapter {
         if (messages.lastOrNull() !is ChatMessage.ToolResult) return messages
         val mutable = messages.toMutableList()
         val lastIdx = mutable.lastIndex
-        val modalityMessages = (mutable[lastIdx] as ChatMessage.ToolResult).adaptModalityToRequest()
+        val modalityMessages = (mutable[lastIdx] as ChatMessage.ToolResult).adaptModality()
         mutable.removeAt(lastIdx)
         mutable.addAll(modalityMessages)
         return mutable
@@ -111,13 +111,8 @@ public class DefaultModalityAdapter : ModalityAdapter {
  * 把含 media 的 [ChatMessage.ToolResult] 拆成 text-only ToolResult + 合成的 User。
  * 从 `AgentExtensions.kt` 的 internal 扩展下沉为本文件内的 file-private extension
  * —— 只被 [DefaultModalityAdapter] 使用, 不再对外暴露。
- *
- * 名字改为 `adaptModalityToRequest` (而非 `adaptModality`) 是为了规避与
- * `AgentExtensions.kt` 内同名 `internal` 扩展的 Kotlin 层 overload 冲突
- * (`@JvmName` 只能解 JVM 层, 不能解 Kotlin 层歧义)。T4 任务会删除
- * `AgentExtensions.kt` 的版本, 届时可一并把此函数重命名回 `adaptModality`。
  */
-private fun ChatMessage.ToolResult.adaptModalityToRequest(): List<ChatMessage> {
+private fun ChatMessage.ToolResult.adaptModality(): List<ChatMessage> {
     val mediaParts = parts.filter { it !is ContentPart.Text }
     if (mediaParts.isEmpty()) return listOf(this)
     val textParts = parts.filterIsInstance<ContentPart.Text>()

@@ -83,23 +83,3 @@ public fun ChatMessage.toTextMessage(): ChatMessage {
     }
 }
 
-/**
- * 把多模态 [ChatMessage.ToolResult] 调整成对话流可呈现的形态:
- * 拆成 1 条 text-only 的 [ChatMessage.ToolResult] + 1 条合成的 [ChatMessage.User]
- * - text parts 留在新的 ToolResult 中(可空)
- * - media 全部抽到合成的 User 消息,首 part 为 `[from $toolName]` 指明来源
- *
- * 无 media 时返回原 ToolResult 单元素列表。
- */
-internal fun ChatMessage.ToolResult.adaptModality(): List<ChatMessage> {
-    val mediaParts = parts.filter { it !is ContentPart.Text }
-    if (mediaParts.isEmpty()) return listOf(this)
-    val textParts = parts.filterIsInstance<ContentPart.Text>()
-    val textOnly = copy(parts = textParts)
-    return listOf(
-        textOnly,
-        ChatMessage.User(
-            parts = listOf(ContentPart.Text("[from $toolName]")) + mediaParts
-        )
-    )
-}
