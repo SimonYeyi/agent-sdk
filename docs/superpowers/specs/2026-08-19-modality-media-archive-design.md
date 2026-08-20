@@ -1,8 +1,9 @@
 # Modality MediaArchive 设计
 
-> 日期：2026-08-19 · 状态：**Draft v2**（综合讨论后整合稿）
+> 日期：2026-08-19 · 状态：**Draft v3**(实施回顾后修正)
 > 模块：`agent/core` + `agent/memory` + `agent/session`
 > 范围：用 `MediaSource.Local` 表达本地文件持久化引用 + `MediaArchive` 抽象封装 IO + `ModalityAdapter` 在 agent/core 内置做 LLM 边界适配 + `ArchivingMemory` 外层装饰器在 agent/session 默认开启归档
+> 偏离记录：详见 §14 (DEV-1 plain interface / DEV-2 suspend contract / DEV-3 T1 commit body 误述)
 
 ---
 
@@ -42,7 +43,7 @@
 - **持久化路径默认开归档**：`SessionRepository.hydrateSession()` 把 `ArchivingMemory` 嵌在链最外层（`ArchivingMemory → JsonlConversation → JsonlBackedMemory`），保证 `page*.jsonl` + `memory.jsonl` 两处落盘形态一致。caller 拿到的 `session.memory` 已经是归档路径；裸 `JsonlConversation` 是"未归档 raw 存储"模式，文档需注明。
 - **`Memory.mediaArchive` 单一注入点,装饰链透明转发**：`Memory` 接口的 `mediaArchive` 是纯 abstract contract(无默认实现);archive 实体只注入装饰链最下层 —— 持久化场景 `JsonlBackedMemory` 在构造时接收 archive,`InMemoryMemory` 内部实例化 `InMemoryMediaArchive()`。其他层 `JsonlConversation` / `ArchivingMemory` / `RoundsBoundedMemory` / `ReadOnlyMemory` 通过 Kotlin `Memory by` delegate 或 `get() = inner.mediaArchive` 透明转发,`add()` 自身不接触 archive(archiving 逻辑由 `ArchivingMemory` 通过 `decorated.mediaArchive` 访问)。caller 拿到的最外层 `Memory.mediaArchive` 永远有效。
 - **装饰器零决策**：`RoundsBoundedMemory` 装饰 `ArchivingMemory` 时，`add()` 直接转发到 inner；归档是 `ArchivingMemory` 单一职责，别的装饰器不掺和。
-- **`ModalityAdapter` 是 `agent/core` 内置 fun interface,不是 hook**:跟 caller 写的扩展点(`AgentHook`)严格分开。`MediaArchive` 放在 `adapt(messages, archive)` 方法签名而非构造器 —— 适配工作核心是处理归档,显式化在契约里;实现类无隐藏状态;fun interface 允许 lambda 直接构造,测试方便。
+- **`ModalityAdapter` 是 `agent/core` 内置 interface,不是 hook**:跟 caller 写的扩展点(`AgentHook`)严格分开。`MediaArchive` 放在 `adapt(messages, archive)` 方法签名而非构造器 —— 适配工作核心是处理归档,显式化在契约里;实现类无隐藏状态。使用 plain `interface`(非 `fun interface`)是为 future extensibility 预留 —— 当前只 1 个 `adapt` 方法但将来加多个抽象方法(如 `resolveLocal` / `describePlaceholders`)无需破坏 SAM 兼容性。
 - **`ModalityAdapter` 默认 ON**:`ReActAgent` 构造参数必填 `modalityAdapter: ModalityAdapter`;默认值由 `AgentBuilder.build()` 决定(caller 未显式设置时填 `DefaultModalityAdapter()` 无参构造,archive 在 `adapt()` 时由 `ReActAgent` 传 `memory.mediaArchive`)。
 - **跨 round 不读盘**：Adapter 看到 Local 不一定 resolve——跨 round 直接转 `[image] local fileId=<前8字符>...` 占位文本（占位截断前缀;模型若需读图,在末条 User 的 `[local] fileId=<完整 uuid>` 引用处用整串调工具）。
 - **Provider fail-fast 兜底**：正常路径下 `ModalityAdapter` 在 `buildRequest` 里 resolve 完所有 Local；非正常路径（边界情况）由 provider 抛 `UnsupportedContent`。
@@ -85,27 +86,33 @@ public sealed interface MediaSource {
 
 更新 `MediaSource` KDoc 把"三种变体"改为"四种变体"，列出 Local 的用途与限制。
 
-### 3.2 `MediaArchive`（fun interface）
+### 3.2 `MediaArchive`（plain interface）
 
 合入 `agent/core/src/main/kotlin/io/github/yeyi/agent/memory/Memory.kt`：
 
 ```kotlin
-fun interface MediaArchive {
+public interface MediaArchive {
     /**
      * 存储 [MediaSource.Data] 的字节并返回 [MediaSource.Local] 引用。
      * 实现负责生成 opaque ID 并保证后续 [resolve] 能找到对应字节。
      * 与 [resolve] 返回 [MediaSource.Data] 对称——archive 边界统一用
      * `Data` 类型表达字节内容。
+     *
+     * 声明为 `suspend` 是为了让实现内部用 [kotlinx.coroutines.sync.Mutex]
+     * 序列化并发 IO(与 [Memory] 的线程安全契约保持一致);同步实现可直接
+     * `return` 不挂起。
      */
-    fun store(data: MediaSource.Data): MediaSource.Local
+    public suspend fun store(data: MediaSource.Data): MediaSource.Local
 
     /**
      * 解析 [MediaSource.Local] 引用，返回 [MediaSource.Data]。archive 内部
      * 缺失该 id 时抛 [IllegalStateException]——这是 caller 数据错误，不该被吞。
      */
-    fun resolve(local: MediaSource.Local): MediaSource.Data
+    public suspend fun resolve(local: MediaSource.Local): MediaSource.Data
 }
 ```
+
+`MediaArchive` 是 plain `interface` 而非 `fun interface`(原 spec v2 写了 `fun interface`,但 2 个抽象方法不允许 `fun interface` —— 见 §14 DEV-1)。
 
 `MediaArchive` 只表达 IO 能力（store / resolve），**不**承担"是否落盘"的策略。归档阈值（什么 Data 算值得单独存文件）由持久化 `Memory` 实现层在 `add()` 内决定，不暴露在 archive 接口契约里。
 
@@ -164,12 +171,12 @@ public class InMemoryMemory : Memory {
         // 直接存 base64 字符串,跳过 store 的 decode 和 resolve 的 encode。
         // 内存场景下不需要还原 bytes——base64 占内存略多但省两次编解码开销。
         private val store = mutableMapOf<String, String>()
-        override fun store(data: MediaSource.Data): MediaSource.Local {
+        override suspend fun store(data: MediaSource.Data): MediaSource.Local {
             val fileId = UUID.randomUUID().toString()
             store[fileId] = data.base64
             return MediaSource.Local(fileId, data.mimeType)
         }
-        override fun resolve(local: MediaSource.Local): MediaSource.Data {
+        override suspend fun resolve(local: MediaSource.Local): MediaSource.Data {
             val base64 = store[local.fileId]
                 ?: throw IllegalStateException("MediaArchive missing fileId=${local.fileId}")
             return MediaSource.Data(local.mimeType, base64)
@@ -433,10 +440,14 @@ import io.github.yeyi.agent.memory.MediaArchive
  *
  * `MediaArchive` 放在方法签名而非构造器 —— 适配工作的核心就是处理归档，
  * 把它显式化在契约里：caller 一眼看得出"做适配需要 archive",实现类无隐藏
- * 状态,fun interface 允许 lambda 直接构造。
+ * 状态。
+ *
+ * plain `interface` 而非 `fun interface`,为 future extensibility 预留
+ * (若加 `resolveLocal` / `describePlaceholders` 等方法,SAM 兼容性自动保留)。
+ * `adapt` 声明为 `suspend` 是因为其内会调 [MediaArchive.resolve](后者 suspend) —— 同步实现可直接 `return` 不挂起。
  */
-fun interface ModalityAdapter {
-    fun adapt(messages: List<ChatMessage>, archive: MediaArchive): List<ChatMessage>
+public interface ModalityAdapter {
+    public suspend fun adapt(messages: List<ChatMessage>, archive: MediaArchive): List<ChatMessage>
 }
 ```
 
@@ -452,7 +463,7 @@ import io.github.yeyi.agent.memory.MediaArchive
 
 class DefaultModalityAdapter : ModalityAdapter {
 
-    override fun adapt(messages: List<ChatMessage>, archive: MediaArchive): List<ChatMessage> {
+    override suspend fun adapt(messages: List<ChatMessage>, archive: MediaArchive): List<ChatMessage> {
         // 1. 末条 ToolResult 拆出 media(只对末条做,跨 round 历史在 mapIndexed 阶段占位)
         val history = adaptToolResult(messages)
         // 2. 当前 round 是最后一条 User —— 可能是原始 User,也可能是拆出来的合成 User。
@@ -708,14 +719,14 @@ agent.query(parts = listOf(ContentPart.Image(MediaSource.Http("https://..."))))
 
 ### 新增
 
-- `agent/core/src/main/kotlin/io/github/yeyi/agent/ModalityAdapter.kt` — `ModalityAdapter` fun interface(`adapt(messages, archive)`,把 MediaArchive 显式化在契约里) + `DefaultModalityAdapter` 默认实现(无构造参数) + `ChatMessage.ToolResult.adaptModality()` file-private extension(从 `AgentExtensions.kt` 下沉)
+- `agent/core/src/main/kotlin/io/github/yeyi/agent/ModalityAdapter.kt` — `ModalityAdapter` plain `interface`(`suspend fun adapt(messages, archive)`,把 MediaArchive 显式化在契约里) + `DefaultModalityAdapter` 默认实现(无构造参数) + `ChatMessage.ToolResult.adaptModality()` file-private extension(从 `AgentExtensions.kt` 下沉)
 - `agent/session/src/main/kotlin/io/github/yeyi/agent/session/FilesystemMediaArchive.kt` — 持久化 archive 实现；纯 IO（store/resolve），不持有归档阈值策略
 - `agent/session/src/main/kotlin/io/github/yeyi/agent/session/ArchivingMemory.kt` — 归档外层装饰器；`add()` 先调 `archiveLargeMedia(message)` 把超过 1KB 的 Data 转 Local，再把 archived 版本转给 downstream `Memory`；`history()` / `rebuild()` 透传（下游已是 archived 状态）
 
 ### 修改
 
 - `agent/core/src/main/kotlin/io/github/yeyi/agent/llm/ChatRequest.kt` — `MediaSource.Local` 加进现有 sealed interface
-- `agent/core/src/main/kotlin/io/github/yeyi/agent/memory/Memory.kt` — 加 `mediaArchive` 字段 + `MediaArchive` fun interface
+- `agent/core/src/main/kotlin/io/github/yeyi/agent/memory/Memory.kt` — 加 `mediaArchive` 字段 + `MediaArchive` plain `interface`(`suspend fun store` / `suspend fun resolve`)
 - `agent/core/src/main/kotlin/io/github/yeyi/agent/memory/InMemoryMemory.kt` — 实现 `mediaArchive`（内部 `InMemoryMediaArchive` private nested class）
 - `agent/core/src/main/kotlin/io/github/yeyi/agent/memory/RoundsBoundedMemory.kt` — 转发 inner `mediaArchive`
 - `agent/core/src/main/kotlin/io/github/yeyi/agent/memory/ReadOnlyMemory.kt` — 转发 inner `mediaArchive`
@@ -805,4 +816,37 @@ agent.query(parts = listOf(ContentPart.Image(MediaSource.Http("https://..."))))
 | `FilesystemMediaArchive` 路径失效（agent 销毁/重启后 path 失效）| 由 `agent/session` 模块自管：实现内 `mkdirs` 兜底；caller 文档说明路径迁移 / 跨进程语义 |
 | `archive.resolve()` 找不到 fileId | 抛 `IllegalStateException`（入参错误, 不包装成 `AgentException`, 让 caller catch 决策）|
 | Local ID 是 UUID，序列化进 ChatMessage 后跨设备失效 | 文档说明 Local 默认单进程内引用,跨进程用 `FileId` |
-| `ArchivingMemory` 硬编码 1KB 阈值是 magic number | 阈值 = `JsonlConversation.pageSizeThreshold / 10`, 避免单图占满整 page;下沉到 `archiveIfLarge` 不暴露给 caller;如未来真出现反馈需要调整，再考虑提升为构造参数 |
+| `ArchivingMemory` 硬编码 1KB 阈值是 magic number | 阈值 = `JsonlConversation.pageSizeThreshold / 10`, 避免单图占满整 page;下沉到 `ARCHIVE_THRESHOLD` 私有 `companion object const`(不再 inline 1024 字面量);如未来真出现反馈需要调整，再考虑提升为构造参数 |
+| `FilesystemMediaArchive` 并发 IO（多个 `add()` 同时 `store` 同 fileId / 写一半被覆盖）| `store` / `resolve` 均通过 `kotlinx.coroutines.sync.Mutex.withLock` 序列化(与 `InMemoryMemory` 的线程安全契约一致);类 KDoc 已声明"线程安全:多个并发 add() 调用通过 Mutex 序列化"。`MediaArchive` 接口方法声明为 `suspend` 是为了让实现能用 `withLock`(见 §14 DEV-2)。|
+
+---
+
+## 14. 与初版 spec 的偏离(实施回顾)
+
+实施过程中 3 项偏离,均经用户确认接受:
+
+### DEV-1: `MediaArchive` / `ModalityAdapter` 用 plain `interface` 而非 `fun interface`
+
+**原 spec**:§3.2 写 `fun interface MediaArchive`(2 抽象方法)、§5 写 `fun interface ModalityAdapter`(1 抽象方法)。`fun interface` 仅允许 1 个抽象方法,所以 `MediaArchive` 用 `fun interface` 会编译失败。`ModalityAdapter` 当时 1 个抽象方法本可 `fun interface`,但为 future extensibility(预留 `resolveLocal` / `describePlaceholders` 等)统一改 plain `interface`。
+
+**影响**:caller 不能用 SAM lambda 直接构造 `ModalityAdapter`(如 `modalityAdapter = { msgs, arc -> ... }`),需显式 `class MyAdapter : ModalityAdapter`。本项目无此类用法,影响为零。
+
+**修正**:§3.2 / §5 / §11 已改为 plain `interface` 描述。
+
+### DEV-2: `MediaArchive.store` / `resolve` / `ModalityAdapter.adapt` 改为 `suspend`
+
+**原 spec**:所有方法声明为 `fun`(非 `suspend`)。
+
+**触发**:final review (commit `649cc02`) 给 `FilesystemMediaArchive` 加 `Mutex.withLock` 保证线程安全时,`Mutex.withLock` 必须在 coroutine 上下文内,需要接口方法 `suspend`。cascade 路径:`MediaArchive.store/resolve` → `InMemoryMediaArchive.store/resolve` → `ModalityAdapter.adapt/resolveLocal` → `ArchivingMemory.archiveLargeMedia/archiveIfLarge` + 4 个 test fixture 全部改为 `suspend`。`ReActAgent.buildRequest` 自身已是 suspend,无 caller 受影响。
+
+**影响**:`MediaArchive` 自定义实现(若 caller 已基于 v2 spec 实现)需加 `suspend` 修饰符。`InMemoryMediaArchive` + `FilesystemMediaArchive` + 4 个测试 spy 同步更新。
+
+**修正**:§3.2 / §5 / §11 已加 `suspend` 说明;§13 风险表新增 FilesystemMediaArchive 线程安全行,引用此偏离。
+
+### DEV-3: T1 commit body claim 误述(Local 分支同 commit 已加,非下游后续任务)
+
+**原 commit `e123829`**:commit body 写 "下游消费者在后续任务添加 when 分支" —— 但 Kotlin sealed interface 编译时强制 exhaustiveness,`MediaSource.Local` 加进 sealed 后 `AgentExtensions.describeMediaSource` + `OpenAiMapping` / `AnthropicMapping` 的 `when (source)` 必须同 commit 补全 Local 分支(否则 `agent/core` + `agent/providers/*` 编译失败)。所以 T1 commit 实际上**已**在 `AgentExtensions.kt` + `OpenAiMapping.kt` + `AnthropicMapping.kt` 3 处加 `is MediaSource.Local -> ...` 分支。
+
+**影响**:commit body 描述与实际不符,reviewer/reader 可能误以为 Local 分支是后续 T10 才加的,导致重复审查。T10 实际只补了 4 条测试,生产代码未动。
+
+**修正**:ledger (`.superpowers/sdd/modality-media-archive-ledger.md`) 已记录此事实;T4 / T10 实施 brief 已明确"Local 分支已存在,不要重添",避免重复工作。
