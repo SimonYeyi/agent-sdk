@@ -1,0 +1,129 @@
+package io.github.yeyi.agent
+
+import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ContentPart
+import io.github.yeyi.agent.llm.MediaSource
+import io.github.yeyi.agent.memory.MediaArchive
+
+/**
+ * 多模态消息适配器,在 LLM 请求边界做三件事:
+ *
+ * 1. **拆末条 ToolResult**: 含 media 时拆成 text-only + 合成的 User ([ChatMessage.ToolResult.adaptModalityToRequest])
+ * 2. **找最后 User**: 从 messages 找到最后一条 User 的索引
+ * 3. **渲染**:
+ *    - 末条 User → [MediaArchive.resolve] 把 Local 转 Data, 其他 media 透传
+ *    - 其他消息 → [toTextMessage] 把 media 转 `[image] local fileId=xxx` 占位文本
+ *
+ * Adapter **不依赖**整个 [io.github.yeyi.agent.memory.Memory], 只通过 [MediaArchive] 拿读桥。
+ * 这是纯变换接口, IO 通过 [MediaArchive] 注入; 测试里直接 lambda mock。
+ *
+ * `MediaArchive` 放在方法签名而非构造器 —— 适配工作的核心就是处理归档, 显式化在契约里:
+ * caller 一眼看得出"做适配需要 archive", 实现类无隐藏状态, fun interface 允许 lambda 直接构造。
+ *
+ * 注意: 本接口使用普通 `interface` 而非 `fun interface`, 因未来可能扩展其他 adapter 方法
+ * (如 `shouldAdapt(message): Boolean` 旁路控制); 1 个抽象方法的 fun interface 限制后续若需要
+ * 加方法会被锁死。
+ */
+public interface ModalityAdapter {
+    public fun adapt(messages: List<ChatMessage>, archive: MediaArchive): List<ChatMessage>
+}
+
+/**
+ * 默认实现: [ModalityAdapter] 的开箱即用版本。caller 未显式设置时由 [AgentBuilder.build]
+ * 注入([ReActAgent] 构造参数必填)。
+ */
+public class DefaultModalityAdapter : ModalityAdapter {
+
+    public override fun adapt(
+        messages: List<ChatMessage>,
+        archive: MediaArchive,
+    ): List<ChatMessage> {
+        // 1. 末条 ToolResult 拆出 media (只对末条做, 跨 round 历史在 mapIndexed 阶段占位)
+        val history = adaptToolResult(messages)
+        // 2. 当前 round 是最后一条 User —— 可能是原始 User, 也可能是拆出来的合成 User。
+        //    整个 round 内所有 iter 都保留原图, 跨 round 的历史 User 才占位。
+        //    这样 iter #2+ 仍可重看图, 但旧 round 的图不再每轮重传, 避免 token 膨胀。
+        val lastUserIdx = history.indexOfLast { it is ChatMessage.User }
+        return history.mapIndexed { i, message ->
+            if (i == lastUserIdx && message is ChatMessage.User) {
+                resolveUserMedia(message, archive)
+            } else {
+                message.toTextMessage()
+            }
+        }
+    }
+
+    /**
+     * 若末条是 [ChatMessage.ToolResult], 拆成 text-only ToolResult + 合成 User;
+     * 否则原样返回 — 避免无谓的 toMutableList 拷贝。
+     *
+     * 只在请求边界做这个拆分, memory 始终保留原始多模态信息。
+     */
+    private fun adaptToolResult(messages: List<ChatMessage>): List<ChatMessage> {
+        if (messages.lastOrNull() !is ChatMessage.ToolResult) return messages
+        val mutable = messages.toMutableList()
+        val lastIdx = mutable.lastIndex
+        val modalityMessages = (mutable[lastIdx] as ChatMessage.ToolResult).adaptModalityToRequest()
+        mutable.removeAt(lastIdx)
+        mutable.addAll(modalityMessages)
+        return mutable
+    }
+
+    /**
+     * 末条 User 的 [MediaSource.Local] 经 [MediaArchive.resolve] 转 [MediaSource.Data],
+     * 同时前置一条 `[local] fileId=xxx` 文本 part — 模型既看得到图 (Data), 也拿到
+     * 完整 fileId, 想用工具读/操作该文件时把整串传回即可。
+     *
+     * "末条 User" 的判断由 [adapt] 负责, 本方法只做 resolve + 引用注入。
+     */
+    private fun resolveUserMedia(
+        user: ChatMessage.User,
+        archive: MediaArchive,
+    ): ChatMessage.User =
+        user.copy(parts = user.parts.flatMap { part -> resolveLocal(part, archive) })
+
+    /**
+     * Local → `[fileId 文本 part, resolve 后的 media part]`; 其余 (Text / Http /
+     * Data / FileId) 原样单 part 返回。
+     */
+    private fun resolveLocal(part: ContentPart, archive: MediaArchive): List<ContentPart> {
+        val local = when (part) {
+            is ContentPart.Image -> part.source
+            is ContentPart.Audio -> part.source
+            is ContentPart.Video -> part.source
+            is ContentPart.Text -> null
+        } as? MediaSource.Local ?: return listOf(part)
+
+        val data = archive.resolve(local)
+        return listOf(
+            ContentPart.Text("[local] fileId=${local.fileId}"),
+            when (part) {
+                is ContentPart.Image -> part.copy(source = data)
+                is ContentPart.Audio -> part.copy(source = data)
+                is ContentPart.Video -> part.copy(source = data)
+                is ContentPart.Text -> part
+            },
+        )
+    }
+}
+
+/**
+ * 把含 media 的 [ChatMessage.ToolResult] 拆成 text-only ToolResult + 合成的 User。
+ * 从 `AgentExtensions.kt` 的 internal 扩展下沉为本文件内的 file-private extension
+ * —— 只被 [DefaultModalityAdapter] 使用, 不再对外暴露。
+ *
+ * 名字改为 `adaptModalityToRequest` (而非 `adaptModality`) 是为了规避与
+ * `AgentExtensions.kt` 内同名 `internal` 扩展的 Kotlin 层 overload 冲突
+ * (`@JvmName` 只能解 JVM 层, 不能解 Kotlin 层歧义)。T4 任务会删除
+ * `AgentExtensions.kt` 的版本, 届时可一并把此函数重命名回 `adaptModality`。
+ */
+private fun ChatMessage.ToolResult.adaptModalityToRequest(): List<ChatMessage> {
+    val mediaParts = parts.filter { it !is ContentPart.Text }
+    if (mediaParts.isEmpty()) return listOf(this)
+    val textParts = parts.filterIsInstance<ContentPart.Text>()
+    val textOnly = copy(parts = textParts)
+    return listOf(
+        textOnly,
+        ChatMessage.User(parts = listOf(ContentPart.Text("[from $toolName]")) + mediaParts),
+    )
+}
