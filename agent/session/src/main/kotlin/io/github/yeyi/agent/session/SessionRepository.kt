@@ -22,20 +22,27 @@ public class SessionRepository(baseDir: File) {
         return File(getUserDir(accountId), "sessions.jsonl")
     }
 
-    private fun getMemoryFile(accountId: String, sessionId: String): File {
-        return File(
-            File(getUserDir(accountId), "memories"),
-            "${sanitizeForPath(sessionId)}.jsonl"
-        ).also {
-            it.parentFile.mkdirs()
-        }
-    }
+    /**
+     * 每个 session 一个独立目录,位于 `sessions/{accountId}/{sessionId}/` 下,
+     * 内部三块同级:
+     * - `memory.jsonl` —— [JsonlBackedMemory] 持久化 (Memory 接口)
+     * - `conversations/page*.jsonl` —— [JsonlConversation] 分页存储 (Conversation 接口)
+     * - `media/{uuid}` —— [FilesystemMediaArchive] 字节存档
+     *
+     * deleteSession 时整 `getSessionDir()` 目录 deleteRecursively 一并清理。
+     */
+    private fun getSessionDir(accountId: String, sessionId: String): File =
+        File(getUserDir(accountId), sanitizeForPath(sessionId))
+            .also { it.mkdirs() }
 
-    private fun getConversationDir(accountId: String, sessionId: String): File {
-        return File(File(getUserDir(accountId), "conversations"), sanitizeForPath(sessionId)).also {
-            it.mkdirs()
-        }
-    }
+    private fun getMemoryFile(accountId: String, sessionId: String): File =
+        File(getSessionDir(accountId, sessionId), "memory.jsonl")
+
+    private fun getConversationDir(accountId: String, sessionId: String): File =
+        File(getSessionDir(accountId, sessionId), "conversations")
+
+    private fun getMediaRoot(accountId: String, sessionId: String): File =
+        File(getSessionDir(accountId, sessionId), "media")
 
     private fun readSessionsFromFile(accountId: String): List<Session> {
         val file = getSessionsFile(accountId)
@@ -68,13 +75,31 @@ public class SessionRepository(baseDir: File) {
         return session
     }
 
+    /**
+     * 构造链:FilesystemMediaArchive + ArchivingMemory(外层归档) →
+     * JsonlConversation → JsonlBackedMemory。
+     *
+     * archive 由 session 模块内部创建,不暴露给 caller —— SDK 不该决定 IO 路径。
+     * ArchivingMemory 在链的最外层负责归档,JsonlConversation / JsonlBackedMemory
+     * 都只做纯存储,两边 (page*.jsonl + memory.jsonl) 落盘形态由 ArchivingMemory
+     * 统一保证一致。
+     */
     private fun hydrateSession(session: Session): Session {
-        val rawMemory = JsonlBackedMemory(getMemoryFile(session.accountId, session.id))
-        val conversation =
-            JsonlConversation(getConversationDir(session.accountId, session.id), rawMemory)
+        val archive = FilesystemMediaArchive(
+            getMediaRoot(session.accountId, session.id),
+        )
+        val rawMemory = JsonlBackedMemory(
+            getMemoryFile(session.accountId, session.id),
+            archive,  // 注入到最下层,所有上层通过 Memory by 自动转发
+        )
+        val conversation = JsonlConversation(
+            getConversationDir(session.accountId, session.id),
+            rawMemory,
+        )
+        val memory = ArchivingMemory(conversation)
         return session.copy(
-            _memory = conversation,
-            _conversation = conversation
+            _memory = memory,
+            _conversation = conversation,
         )
     }
 
@@ -101,9 +126,11 @@ public class SessionRepository(baseDir: File) {
     }
 
     /**
-     * 删除指定 session，清理关联的 memory 和 conversation 文件。
+     * 删除 session 下的所有内容 (`memory.jsonl` + `conversations/` + `media/`),
+     * 索引条目同步从 `sessions.jsonl` 移除。整 session 目录在 [getSessionDir]
+     * 下,一行 deleteRecursively 覆盖三块。
      *
-     * @return 被删除的 session（删除前状态），找不到返回 null
+     * @return 被删除的 session(删除前状态),找不到返回 null
      */
     public fun deleteSession(accountId: String, sessionId: String): Session? {
         val sessions = readSessionsFromFile(accountId)
@@ -113,16 +140,13 @@ public class SessionRepository(baseDir: File) {
         val sessionsFile = getSessionsFile(accountId)
         sessionsFile.writeText(remaining.joinToString("\n") { json.encodeToString(it) })
 
-        val memoryFile = getMemoryFile(accountId, sessionId)
-        if (memoryFile.exists()) {
-            memoryFile.delete()
+        val sessionDir = getSessionDir(accountId, sessionId)
+        if (sessionDir.exists()) {
+            sessionDir.deleteRecursively()
         }
 
-        val conversationDir = getConversationDir(accountId, sessionId)
-        if (conversationDir.exists()) {
-            conversationDir.deleteRecursively()
-        }
-
-        return hydrateSession(toDelete)
+        // 返回删除前的快照(transient memory/conversation 仍为 null —— session 已删,
+        // 不重新 hydrate 避免 mkdirs() 复活 session 目录)
+        return toDelete
     }
 }
