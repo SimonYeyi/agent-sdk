@@ -1,9 +1,11 @@
 package io.github.yeyi.agent.providers.anthropic
 
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.FinishReason
+import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.ToolDefinition
 import kotlinx.serialization.json.Json
@@ -12,7 +14,9 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class AnthropicMappingTest {
 
@@ -177,5 +181,31 @@ class AnthropicMappingTest {
         assertEquals("get_weather", call.name)
         assertEquals(arguments, call.arguments)
         assertEquals(FinishReason.ToolCalls, core.finishReason)
+    }
+
+    @Test
+    fun `mapToAnthropic throws UnsupportedContent when User Image has Local MediaSource`() {
+        val req = ChatRequest(
+            messages = listOf(
+                ChatMessage.User(listOf(ContentPart.Image(MediaSource.Local("id1", "image/jpeg")))),
+            ),
+        )
+        val ex = assertFailsWith<AgentException.UnsupportedContent> {
+            mapToAnthropic("claude-sonnet-4-6", req)
+        }
+        assertTrue(ex.message!!.contains("Local"))
+    }
+
+    @Test
+    fun `mapToAnthropic throws UnsupportedContent when User Video has Local MediaSource`() {
+        val req = ChatRequest(
+            messages = listOf(
+                ChatMessage.User(listOf(ContentPart.Video(MediaSource.Local("id3", "video/mp4")))),
+            ),
+        )
+        val ex = assertFailsWith<AgentException.UnsupportedContent> {
+            mapToAnthropic("claude-sonnet-4-6", req)
+        }
+        assertTrue(ex.message!!.contains("Local"))
     }
 }

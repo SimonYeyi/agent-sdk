@@ -5,6 +5,7 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.FinishReason
+import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.ToolDefinition
 import kotlinx.serialization.json.Json
@@ -14,6 +15,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class OpenAiMappingTest {
 
@@ -175,5 +177,31 @@ class OpenAiMappingTest {
     fun `mapFromOpenAi with empty choices throws InvalidResponse`() {
         val raw = OpenAiChatResponse(choices = emptyList())
         assertFailsWith<AgentException.InvalidResponse> { mapFromOpenAi(raw) }
+    }
+
+    @Test
+    fun `mapToOpenAi throws UnsupportedContent when User Image has Local MediaSource`() {
+        val req = ChatRequest(
+            messages = listOf(
+                ChatMessage.User(listOf(ContentPart.Image(MediaSource.Local("id1", "image/jpeg")))),
+            ),
+        )
+        val ex = assertFailsWith<AgentException.UnsupportedContent> {
+            mapToOpenAi("gpt-4o-mini", req, stream = false)
+        }
+        assertTrue(ex.message!!.contains("Local"))
+    }
+
+    @Test
+    fun `mapToOpenAi throws UnsupportedContent when User Audio has Local MediaSource`() {
+        val req = ChatRequest(
+            messages = listOf(
+                ChatMessage.User(listOf(ContentPart.Audio(MediaSource.Local("id2", "audio/wav")))),
+            ),
+        )
+        val ex = assertFailsWith<AgentException.UnsupportedContent> {
+            mapToOpenAi("gpt-4o-mini", req, stream = false)
+        }
+        assertTrue(ex.message!!.contains("Local"))
     }
 }
