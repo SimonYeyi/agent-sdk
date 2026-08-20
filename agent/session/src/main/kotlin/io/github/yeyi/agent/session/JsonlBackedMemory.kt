@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.session
 
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.memory.MediaArchive
 import io.github.yeyi.agent.memory.Memory
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
@@ -10,7 +11,10 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
-public class JsonlBackedMemory(private val file: File) : Memory {
+public class JsonlBackedMemory(
+    private val file: File,
+    override val mediaArchive: MediaArchive,
+) : Memory {
 
     private val json = Json {
         ignoreUnknownKeys = true

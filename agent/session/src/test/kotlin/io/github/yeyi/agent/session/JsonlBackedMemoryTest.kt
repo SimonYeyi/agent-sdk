@@ -2,24 +2,34 @@ package io.github.yeyi.agent.session
 
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
+import io.github.yeyi.agent.llm.MediaSource
+import io.github.yeyi.agent.memory.MediaArchive
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import kotlin.test.assertSame
 
 class JsonlBackedMemoryTest {
 
     private lateinit var tempDir: File
     private lateinit var memoryFile: File
+    private lateinit var archive: MediaArchive
     private lateinit var memory: JsonlBackedMemory
 
     @Before
     fun setup() {
         tempDir = createTempDir()
         memoryFile = File(tempDir, "test-memory.jsonl")
-        memory = JsonlBackedMemory(memoryFile)
+        archive = object : MediaArchive {
+            override fun store(data: MediaSource.Data): MediaSource.Local =
+                MediaSource.Local("unused", data.mimeType)
+            override fun resolve(local: MediaSource.Local): MediaSource.Data =
+                throw UnsupportedOperationException("not used in memory tests")
+        }
+        memory = JsonlBackedMemory(memoryFile, archive)
     }
 
     @After
@@ -49,7 +59,7 @@ class JsonlBackedMemoryTest {
         memory.add(ChatMessage.User(listOf(ContentPart.Text("first"))))
         memory.add(ChatMessage.User(listOf(ContentPart.Text("second"))))
 
-        val reloaded = JsonlBackedMemory(memoryFile)
+        val reloaded = JsonlBackedMemory(memoryFile, archive)
         val history = reloaded.history()
         assertEquals(2, history.size)
         assertEquals("first", (history[0] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
@@ -89,7 +99,7 @@ class JsonlBackedMemoryTest {
 
         memory.rebuild(listOf(ChatMessage.User(listOf(ContentPart.Text("replaced")))))
 
-        val reloaded = JsonlBackedMemory(memoryFile)
+        val reloaded = JsonlBackedMemory(memoryFile, archive)
         val history = reloaded.history()
         assertEquals(1, history.size)
         assertEquals("replaced", (history[0] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
@@ -134,5 +144,10 @@ class JsonlBackedMemoryTest {
         assertEquals(2, history.size)
         assertEquals("first", (history[0] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
         assertEquals("second", (history[1] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
+    }
+
+    @Test
+    fun `mediaArchive field returns injected archive instance`() = runTest {
+        assertSame(archive, memory.mediaArchive)
     }
 }
