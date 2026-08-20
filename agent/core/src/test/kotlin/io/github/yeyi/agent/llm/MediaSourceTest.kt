@@ -36,4 +36,40 @@ class MediaSourceTest {
         val back: MediaSource = json.decodeFromString(text)
         assertEquals(src, back)
     }
+
+    @Test
+    fun `serializes Local variant with fileId and mimeType`() {
+        val src: MediaSource = MediaSource.Local(
+            fileId = "550e8400-e29b-41d4-a716-446655440000",
+            mimeType = "image/jpeg",
+        )
+        assertEquals(
+            """{"type":"local","fileId":"550e8400-e29b-41d4-a716-446655440000","mimeType":"image/jpeg"}""",
+            json.encodeToString(src),
+        )
+    }
+
+    @Test
+    fun `deserializes Local variant from JSON`() {
+        val text = """{"type":"local","fileId":"abc-123","mimeType":"image/png"}"""
+        val src: MediaSource = json.decodeFromString(text)
+        assertEquals(MediaSource.Local("abc-123", "image/png"), src)
+    }
+
+    @Test
+    fun `Local equals by data class equality`() {
+        val a = MediaSource.Local("id1", "image/jpeg")
+        val b = MediaSource.Local("id1", "image/jpeg")
+        val c = MediaSource.Local("id2", "image/jpeg")
+        assertEquals(a, b)
+        assertEquals(a.hashCode(), b.hashCode())
+        assertEquals(false, a == c)
+    }
+
+    @Test
+    fun `Local is not equal to FileId even with same id field`() {
+        val local = MediaSource.Local("id1", "image/jpeg")
+        val fileId = MediaSource.FileId("id1")
+        assertEquals(false, local == fileId)
+    }
 }

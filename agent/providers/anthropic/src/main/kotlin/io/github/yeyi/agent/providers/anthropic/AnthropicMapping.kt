@@ -105,6 +105,9 @@ private fun mapImageToAnthropic(source: MediaSource): AnthropicContentBlock.Imag
         data = source.base64
     )
     is MediaSource.FileId -> AnthropicContentBlock.Image.FileSource(source.id)
+    is MediaSource.Local -> throw AgentException.UnsupportedContent(
+        "Anthropic does not accept Local media; resolve to Data via ModalityAdapter first"
+    )
 }
 
 private fun mapAudioToAnthropic(source: MediaSource): AnthropicContentBlock.Image.Source = mapImageToAnthropic(source)
@@ -114,6 +117,9 @@ private fun mapVideoToAnthropic(source: MediaSource): AnthropicContentBlock.Imag
     is MediaSource.FileId -> AnthropicContentBlock.Image.FileSource(source.id)
     is MediaSource.Data -> throw AgentException.UnsupportedContent(
         "Anthropic does not support video base64 inline; use Http or FileId"
+    )
+    is MediaSource.Local -> throw AgentException.UnsupportedContent(
+        "Anthropic does not accept Local media; resolve to Data via ModalityAdapter first"
     )
 }
 

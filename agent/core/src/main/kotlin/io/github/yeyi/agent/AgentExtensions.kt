@@ -63,6 +63,7 @@ public fun ChatMessage.toTextMessage(): ChatMessage {
 
         is MediaSource.Data -> "inline ${source.base64.length * 3 / 4 / 1024}KB"
         is MediaSource.FileId -> "file:${source.id.take(8)}"
+        is MediaSource.Local -> "local fileId=${source.fileId.take(8)}..."
     }
 
     fun mediaPlaceholder(part: ContentPart): String = when (part) {

@@ -137,11 +137,15 @@ public val Collection<ContentPart>.text: String
     get() = filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
 
 /**
- * 多媒体资源的统一来源抽象，三种模态 (image/audio/video) 共用同一组变体。
+ * 多媒体资源的统一来源抽象，四种模态 (image/audio/video) 共用同一组变体。
  *
  * - [Http]  : 公网 URL 或内网可路由 URL，由 LLM provider 主动 fetch。
  * - [Data]  : base64 内联；适用于 image 和短 audio；video 由 provider 实现层拒绝。
  * - [FileId]: provider 托管的文件 ID（OpenAI files API、Anthropic files API）。
+ * - [Local] : agent 持有的本地文件引用(UUID)，由 [io.github.yeyi.agent.memory.MediaArchive]
+ *             解析为字节；caller 跨 query 复用同一图时用此避免重复 inline base64。
+ *             Provider 实现层**不支持** [Local]，由 [io.github.yeyi.agent.ModalityAdapter]
+ *             在送 LLM 前 resolve 为 [Data]。
  */
 @Serializable
 public sealed interface MediaSource {
@@ -164,6 +168,13 @@ public sealed interface MediaSource {
     @Serializable
     @SerialName("fileId")
     public data class FileId(public val id: String) : MediaSource
+
+    @Serializable
+    @SerialName("local")
+    public data class Local(
+        public val fileId: String,
+        public val mimeType: String,
+    ) : MediaSource
 }
 
 /**

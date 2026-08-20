@@ -97,6 +97,9 @@ private fun mapImageToOpenAi(source: MediaSource): OpenAiContentPart.ImageUrl = 
         "OpenAI Chat Completions image_url does not support file_id; " +
         "use Responses API or upload first and inline as Data"
     )
+    is MediaSource.Local -> throw AgentException.UnsupportedContent(
+        "OpenAI does not accept Local media; resolve to Data via ModalityAdapter first"
+    )
 }
 
 private fun mapAudioToOpenAi(source: MediaSource): OpenAiContentPart.InputAudio = when (source) {
@@ -111,6 +114,9 @@ private fun mapAudioToOpenAi(source: MediaSource): OpenAiContentPart.InputAudio 
     )
     is MediaSource.FileId -> throw AgentException.UnsupportedContent(
         "OpenAI input_audio does not support file_id in Chat Completions"
+    )
+    is MediaSource.Local -> throw AgentException.UnsupportedContent(
+        "OpenAI does not accept Local media; resolve to Data via ModalityAdapter first"
     )
 }
 
