@@ -39,7 +39,7 @@ class ReActAgentTest {
         )
         val memory = InMemoryMemory()
         val agent = ReActAgent(
-            persona = Persona("you are helpful"), llmProvider = provider, toolRegistry = registryOf(), memory = memory, maxRounds = 20, maxIterations = 5
+            persona = Persona("you are helpful"), llmProvider = provider, toolRegistry = registryOf(), memory = memory, modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 5
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("hello", result.message.content)
@@ -58,7 +58,7 @@ class ReActAgentTest {
                 ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
             )
         )
-        val agent = ReActAgent(persona = Persona("ROLE"), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
+        val agent = ReActAgent(persona = Persona("ROLE"), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 5)
         agent.run(AgentQuery.text("q")).awaitResult()
         val msgs = provider.recordedRequests.single().messages
         assertEquals(Role.System, msgs[0].role)
@@ -82,7 +82,7 @@ class ReActAgentTest {
             )
         )
         val mem = InMemoryMemory()
-        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = mem, maxRounds = 20, maxIterations = 5)
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = mem, modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 5)
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("done: hello", result.message.content)
         assertEquals(2, result.iterations)
@@ -117,7 +117,7 @@ class ReActAgentTest {
                 ChatResponse(ChatMessage.Assistant(content = "done"), finishReason = FinishReason.Stop)
             )
         )
-        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 5)
         val events = agent.run(AgentQuery.text("hi")).toList()
 
         val explanations = events.filterIsInstance<AgentEvent.ToolCallExplanation>()
@@ -146,7 +146,7 @@ class ReActAgentTest {
                 ChatResponse(ChatMessage.Assistant(content = "final"), finishReason = FinishReason.Stop)
             )
         )
-        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 5)
         agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals(2, echo.invocations.size)
     }
@@ -171,7 +171,7 @@ class ReActAgentTest {
             )
         )
         val mem = InMemoryMemory()
-        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(failingTool), memory = mem, maxRounds = 20, maxIterations = 5)
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(failingTool), memory = mem, modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 5)
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("recovered", result.message.content)
         val toolResult = mem.history().filterIsInstance<ChatMessage.ToolResult>().single()
@@ -191,7 +191,7 @@ class ReActAgentTest {
             )
         )
         val mem = InMemoryMemory()
-        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = mem, maxRounds = 20, maxIterations = 5)
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = mem, modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 5)
         agent.run(AgentQuery.text("hi")).awaitResult()
         val toolResult = mem.history().filterIsInstance<ChatMessage.ToolResult>().single()
         assertTrue(toolResult.isError)
@@ -208,7 +208,7 @@ class ReActAgentTest {
             finishReason = FinishReason.ToolCalls
         )
         val provider = FakeLlmProvider(nonStreamResponses = listOf(toolResp, toolResp, toolResp))
-        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 2)
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 2)
         val events = agent.run(AgentQuery.text("hi")).toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
         val ex = failed.cause as AgentException.MaxIterations
@@ -233,7 +233,7 @@ class ReActAgentTest {
                 )
             )
         )
-        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(cancellingTool), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(cancellingTool), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 5)
         assertFailsWith<kotlinx.coroutines.CancellationException> {
             agent.run(AgentQuery.text("hi")).toList()
         }
@@ -250,7 +250,7 @@ class ReActAgentTest {
                 )
             )
         )
-        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 5)
         val events = agent.runStream(AgentQuery.text("hi")).toList()
         val texts = events.filterIsInstance<AgentEvent.TextDelta>().map { it.text }
         assertEquals(listOf("hel", "lo"), texts)
@@ -276,7 +276,7 @@ class ReActAgentTest {
                 )
             )
         )
-        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 5)
         val events = agent.runStream(AgentQuery.text("hi")).toList()
         assertTrue(events.any { it is AgentEvent.ToolCallStart && it.toolName == "echo" })
         assertTrue(events.any { it is AgentEvent.ToolCallEnd })
@@ -301,7 +301,7 @@ class ReActAgentTest {
                 )
             )
         )
-        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 5)
         val events = agent.runStream(AgentQuery.text("hi")).toList()
 
         val startedIdx = events.indexOfFirst { it is AgentEvent.ToolCallStart }
@@ -323,7 +323,7 @@ class ReActAgentTest {
                 )
             )
         )
-        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 5)
         val events = agent.runStream(AgentQuery.text("hi")).toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
         // Failed 直接携带原始 Throwable,不做任何包装,因此 cause 即 boom 本体。
@@ -341,7 +341,7 @@ class ReActAgentTest {
                 )
             )
         )
-        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 5)
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 5)
         val events = agent.runStream(AgentQuery.text("ping")).toList()
         val final = events.filterIsInstance<AgentEvent.Final>().single()
         assertEquals(expectedUsage, final.result.usage)
@@ -355,7 +355,7 @@ class ReActAgentTest {
             ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
         )
         val provider = FakeLlmProvider(streamScripts = listOf(toolResp, toolResp, toolResp))
-        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), maxRounds = 20, maxIterations = 2)
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(), maxRounds = 20, maxIterations = 2)
         val events = agent.runStream(AgentQuery.text("hi")).toList()
         val failed = events.filterIsInstance<AgentEvent.Failed>().single()
         val ex = failed.cause as AgentException.MaxIterations
@@ -389,6 +389,7 @@ class ReActAgentTest {
             llmProvider = provider,
             toolRegistry = registryOf(imageTool),
             memory = InMemoryMemory(),
+            modalityAdapter = DefaultModalityAdapter(),
             maxRounds = 20,
             maxIterations = 5
         )

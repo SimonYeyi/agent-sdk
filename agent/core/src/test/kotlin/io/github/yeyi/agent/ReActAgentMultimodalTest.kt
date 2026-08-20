@@ -20,6 +20,7 @@ class ReActAgentMultimodalTest {
         llmProvider = provider,
         toolRegistry = ToolRegistry(),
         memory = InMemoryMemory(),
+        modalityAdapter = DefaultModalityAdapter(),
         maxRounds = 20,
         maxIterations = 5
     )

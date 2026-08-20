@@ -33,6 +33,7 @@ public class AgentBuilder {
     private var toolRegistry = ToolRegistry()
 
     private var hook: AgentHook = NoOpAgentHook
+    private var modalityAdapter: ModalityAdapter? = null
 
     /** 设置最大迭代次数（LLM 调用次数），默认 20。 */
     public fun maxIterations(iterations: Int) {
@@ -85,6 +86,16 @@ public class AgentBuilder {
     }
 
     /**
+     * 设置多模态适配器。`ModalityAdapter` 在 LLM 请求边界完成"末条 User 的 Local
+     * → Data resolve + 跨 round 占位 + 末条 ToolResult 拆 text"三件事。
+     *
+     * 未设置时 [build] 内默认 [DefaultModalityAdapter] (无构造参数)。
+     */
+    public fun modalityAdapter(adapter: ModalityAdapter) {
+        this.modalityAdapter = adapter
+    }
+
+    /**
      * Terminal operation: snapshots the current builder state and returns a fresh [ReActAgent].
      *
      * Re-calling `build()` on the same builder produces two independent agents (the captured
@@ -95,12 +106,14 @@ public class AgentBuilder {
      */
     public fun build(): Agent {
         val provider = requireNotNull(llmProvider) { "llmProvider must be set" }
+        val adapter = modalityAdapter ?: DefaultModalityAdapter()
 
         return ReActAgent(
             persona = persona ?: Persona("You are a helpful assistant."),
             llmProvider = provider,
             toolRegistry = toolRegistry,
             memory = memory,
+            modalityAdapter = adapter,
             maxRounds = maxRounds,
             maxIterations = maxIterations,
             hook = hook,
