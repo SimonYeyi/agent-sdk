@@ -204,11 +204,11 @@ public class ReActAgent internal constructor(
     }
 
     private suspend fun buildRequest(): ChatRequest {
-        val rendered = modalityAdapter.adapt(memory.history(), memory.mediaArchive)
+        val messages = modalityAdapter.adapt(memory.history(), memory.mediaArchive)
         return ChatRequest(
             messages = buildList {
                 add(ChatMessage.System(persona.toString()))
-                addAll(rendered)
+                addAll(messages)
             },
             tools = toolRegistry.all().map(Tool::toDefinition)
         )

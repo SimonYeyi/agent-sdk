@@ -29,11 +29,11 @@ public class AgentBuilder {
     private var maxIterations: Int = 20
     private var llmProvider: LlmProvider? = null
     private var memory: Memory = InMemoryMemory()
-    private var maxRounds: Int = 20
-    private var toolRegistry = ToolRegistry()
-
-    private var hook: AgentHook = NoOpAgentHook
     private var modalityAdapter: ModalityAdapter? = null
+    private var maxRounds: Int = 20
+
+    private var toolRegistry = ToolRegistry()
+    private var hook: AgentHook = NoOpAgentHook
 
     /** 设置最大迭代次数（LLM 调用次数），默认 20。 */
     public fun maxIterations(iterations: Int) {
@@ -106,14 +106,14 @@ public class AgentBuilder {
      */
     public fun build(): Agent {
         val provider = requireNotNull(llmProvider) { "llmProvider must be set" }
-        val adapter = modalityAdapter ?: DefaultModalityAdapter()
+        val modalityAdapter = modalityAdapter ?: DefaultModalityAdapter()
 
         return ReActAgent(
             persona = persona ?: Persona("You are a helpful assistant."),
             llmProvider = provider,
             toolRegistry = toolRegistry,
             memory = memory,
-            modalityAdapter = adapter,
+            modalityAdapter = modalityAdapter,
             maxRounds = maxRounds,
             maxIterations = maxIterations,
             hook = hook,

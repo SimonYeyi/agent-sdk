@@ -27,6 +27,6 @@ class AgentExtensionsTest {
 
         val rendered = (message.toTextMessage() as ChatMessage.User).parts.single()
         val text = (rendered as ContentPart.Text).text
-        assertEquals("[image] local fileId=abcd1234...", text)
+        assertEquals("[image] local fileId=abcd1234", text)
     }
 }

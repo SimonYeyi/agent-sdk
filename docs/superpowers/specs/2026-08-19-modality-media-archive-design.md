@@ -45,7 +45,7 @@
 - **装饰器零决策**：`RoundsBoundedMemory` 装饰 `ArchivingMemory` 时，`add()` 直接转发到 inner；归档是 `ArchivingMemory` 单一职责，别的装饰器不掺和。
 - **`ModalityAdapter` 是 `agent/core` 内置 interface,不是 hook**:跟 caller 写的扩展点(`AgentHook`)严格分开。`MediaArchive` 放在 `adapt(messages, archive)` 方法签名而非构造器 —— 适配工作核心是处理归档,显式化在契约里;实现类无隐藏状态。使用 plain `interface`(非 `fun interface`)是为 future extensibility 预留 —— 当前只 1 个 `adapt` 方法但将来加多个抽象方法(如 `resolveLocal` / `describePlaceholders`)无需破坏 SAM 兼容性。
 - **`ModalityAdapter` 默认 ON**:`ReActAgent` 构造参数必填 `modalityAdapter: ModalityAdapter`;默认值由 `AgentBuilder.build()` 决定(caller 未显式设置时填 `DefaultModalityAdapter()` 无参构造,archive 在 `adapt()` 时由 `ReActAgent` 传 `memory.mediaArchive`)。
-- **跨 round 不读盘**：Adapter 看到 Local 不一定 resolve——跨 round 直接转 `[image] local fileId=<前8字符>...` 占位文本（占位截断前缀;模型若需读图,在末条 User 的 `[local] fileId=<完整 uuid>` 引用处用整串调工具）。
+- **跨 round 不读盘**：Adapter 看到 Local 不一定 resolve——跨 round 直接转 `[image] local fileId=<前8字符>` 占位文本（占位截断前缀;模型若需读图,在末条 User 的 `[local] fileId=<完整 uuid>` 引用处用整串调工具）。
 - **Provider fail-fast 兜底**：正常路径下 `ModalityAdapter` 在 `buildRequest` 里 resolve 完所有 Local；非正常路径（边界情况）由 provider 抛 `UnsupportedContent`。
 - **IO 异常正常传播**：不吞 caller 数据错误，让 caller 决定重试或丢弃。
 
@@ -556,7 +556,7 @@ private fun ChatMessage.ToolResult.adaptModality(): List<ChatMessage> {
 函数结构不动：
 
 ```kotlin
-is MediaSource.Local -> "local fileId=${source.fileId.take(8)}..."   // 截断前缀,占位识别
+is MediaSource.Local -> "local fileId=${source.fileId.take(8)}"   // 截断前缀,占位识别
 // 跨 round 只生成占位文本,不调 archive.resolve(),不读盘
 ```
 
@@ -569,7 +569,7 @@ is MediaSource.Local -> "local fileId=${source.fileId.take(8)}..."   // 截断�
 **关键设计**：
 
 - 末条 User 的 Local → 产出双 part:`Text("[local] fileId=xxx")` + `archive.resolve()` 后的 `Data`(`FilesystemMediaArchive` 读盘 + Base64 编码;`InMemoryMediaArchive` 直接取 base64 字符串)。模型既可看到图,又持有 fileId 引用供后续工具调使用
-- 跨 round 的 Local → 单 part 占位 `Text("[image] local fileId=<前8字符>...")`,**不读盘** —— 模型若要操作,把末条 User 引用处的完整 fileId 传回工具即可,语义自洽
+- 跨 round 的 Local → 单 part 占位 `Text("[image] local fileId=<前8字符>")`,**不读盘** —— 模型若要操作,把末条 User 引用处的完整 fileId 传回工具即可,语义自洽
 
 ---
 
@@ -612,8 +612,8 @@ public class AgentBuilder {
 
     public fun build(): Agent {
         ...
-        val adapter = modalityAdapter ?: DefaultModalityAdapter()
-        return ReActAgent(..., modalityAdapter = adapter)
+        val modalityAdapter = modalityAdapter ?: DefaultModalityAdapter()
+        return ReActAgent(..., modalityAdapter = modalityAdapter)
     }
 }
 ```
@@ -735,7 +735,7 @@ agent.query(parts = listOf(ContentPart.Image(MediaSource.Http("https://..."))))
 - `agent/session/src/main/kotlin/io/github/yeyi/agent/session/SessionRepository.kt` — 统一路径到 `sessions/{accountId}/{sessionId}/`(`memory.jsonl` + `conversations/` + `media/` 三者同级 sibling);`hydrateSession()` 构造链:`FilesystemMediaArchive(getMediaRoot(...))` → `JsonlBackedMemory(getMemoryFile(...), archive)`(archive 注入到最下层)→ `JsonlConversation(getConversationDir(...), innerMemory)`(`Memory by` 透明转发)→ `ArchivingMemory(conversation)`(自身不持 archive,通过 `decorated.mediaArchive` 访问);`deleteSession()` 改为 `getSessionDir(...).deleteRecursively()` 一行清理全部
 - `agent/core/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` — 加 `modalityAdapter` 必填构造参数 + `buildRequest` 改走 `modalityAdapter.adapt(raw, memory.mediaArchive)`(每次调用传入 archive)
 - `agent/core/src/main/kotlin/io/github/yeyi/agent/AgentBuilder.kt` — 加 `modalityAdapter()` 设置方法 + `build()` 内默认 `DefaultModalityAdapter()`(无构造参数)
-- `agent/core/src/main/kotlin/io/github/yeyi/agent/AgentExtensions.kt` — `toTextMessage` 内部 `describeMediaSource` 的 when 加 `Local -> "local fileId=${fileId.take(8)}..."` 分支（占位截断前缀, 跟 `FileId` 同步策略），函数结构不动
+- `agent/core/src/main/kotlin/io/github/yeyi/agent/AgentExtensions.kt` — `toTextMessage` 内部 `describeMediaSource` 的 when 加 `Local -> "local fileId=${fileId.take(8)}"` 分支（占位截断前缀, 跟 `FileId` 同步策略），函数结构不动
 - `agent/providers/openai/src/main/kotlin/.../OpenAiMapping.kt` — Local fail-fast
 - `agent/providers/anthropic/src/main/kotlin/.../AnthropicMapping.kt` — Local fail-fast
 
@@ -758,7 +758,7 @@ agent.query(parts = listOf(ContentPart.Image(MediaSource.Http("https://..."))))
 ### `ModalityAdapterTest`
 
 - 末条 User + Local → `archive.resolve()` 调用一次，该 part 展开为两个 part：`Text("[local] fileId=xxx")` + Data
-- 跨 round User + Local → 不调 archive，parts 变为 Text 占位（`[image] local fileId=<前8字符>...`，前缀截断）
+- 跨 round User + Local → 不调 archive，parts 变为 Text 占位（`[image] local fileId=<前8字符>`，前缀截断）
 - 末条 User + Data → 不动
 - 末条 User + Http → 不动
 - 末条 User + FileId → 不动

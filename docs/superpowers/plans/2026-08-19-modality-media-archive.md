@@ -16,7 +16,7 @@
 - **每次创建新 commit 而非 `--amend`**
 - **`Memory.mediaArchive` 是纯 abstract 字段**（无默认实现），所有 Memory 实现必须 override。装饰器必须显式转发：`RoundsBoundedMemory` / `ReadOnlyMemory` 用 `get() = underlying.mediaArchive`（**注意：两者目前用显式 override 而非 `Memory by` delegate，详见 Task 2 Step 3-4**）；`JsonlConversation` / `ArchivingMemory` 用 `Memory by` delegate 自动转发
 - **`MediaArchive` 注入到最下层**：`InMemoryMemory` 内部 new 一个 `InMemoryMediaArchive`；`JsonlBackedMemory` 构造参数接收 archive（由 `SessionRepository.hydrateSession()` 注入 `FilesystemMediaArchive`）；上层一律通过 `Memory by` / `get() = inner.mediaArchive` 透明转发
-- **占位文本截断前缀**：`toTextMessage` 的 `describeMediaSource` 中 `Local -> "local fileId=${source.fileId.take(8)}..."`（跟现有 `FileId` 的 `take(8)` 同步）；`ModalityAdapter` 注入末条 User 的 `[local] fileId=完整id`（**不截断**，模型可整串调工具）
+- **占位文本截断前缀**：`toTextMessage` 的 `describeMediaSource` 中 `Local -> "local fileId=${source.fileId.take(8)}"`（跟现有 `FileId` 的 `take(8)` 同步；不加 `...` 后缀，保持与 `FileId` 行对称）；`ModalityAdapter` 注入末条 User 的 `[local] fileId=完整id`（**不截断**，模型可整串调工具）
 - **`archive.resolve()` 抛 `IllegalStateException`**（入参错误，不包装成 `AgentException`），让 caller 决策
 - **Provider fail-fast**：OpenAI/Anthropic mapping 收到 `Local` 立即抛 `AgentException.UnsupportedContent`（adapter 应已在 `buildRequest` 内 resolve）
 - **1KB 阈值硬编码**：阈值 1024 = `JsonlConversation.pageSizeThreshold / 10`（避免单图占满整 page），下沉到 `ArchivingMemory.archiveIfLarge` 私有方法，不暴露构造参数
@@ -834,7 +834,7 @@ EOF
 
 **Interfaces:**
 - Consumes: Task 1 的 `MediaSource.Local`
-- Produces: `toTextMessage` 对 Local 占位返回 `"local fileId=<前8字符>..."`；不再导出 `adaptModality`（已迁移到 ModalityAdapter.kt）
+- Produces: `toTextMessage` 对 Local 占位返回 `"local fileId=<前8字符>"`；不再导出 `adaptModality`（已迁移到 ModalityAdapter.kt）
 
 - [ ] **Step 1: 修改 `AgentExtensionsTest.kt`：删 4 条 adaptModality 用例 + 加 Local 占位用例**
 
@@ -863,7 +863,7 @@ fun `User with Local Image is replaced by truncated placeholder`() {
     val parts = (out as ChatMessage.User).parts
     assertEquals(1, parts.size)
     val ph = parts[0] as ContentPart.Text
-    assertEquals("[image] local fileId=550e8400...", ph.text)
+    assertEquals("[image] local fileId=550e8400", ph.text)
 }
 
 @Test
@@ -871,11 +871,11 @@ fun `Local Audio and Video are replaced by truncated placeholder too`() {
     val local = MediaSource.Local("abcdef00-1234-5678-9abc-def012345678", "video/mp4")
     val msg = ChatMessage.User(listOf(ContentPart.Audio(local)))
     val ph = (msg.toTextMessage() as ChatMessage.User).parts[0] as ContentPart.Text
-    assertEquals("[audio] local fileId=abcdef00...", ph.text)
+    assertEquals("[audio] local fileId=abcdef00", ph.text)
 
     val msg2 = ChatMessage.User(listOf(ContentPart.Video(local)))
     val ph2 = (msg2.toTextMessage() as ChatMessage.User).parts[0] as ContentPart.Text
-    assertEquals("[video] local fileId=abcdef00...", ph2.text)
+    assertEquals("[video] local fileId=abcdef00", ph2.text)
 }
 ```
 
@@ -898,7 +898,7 @@ a) 修改 `describeMediaSource`（line 60-66）—— 加 Local 分支：
         is MediaSource.Data -> "inline ${source.base64.length * 3 / 4 / 1024}KB"
         is MediaSource.FileId -> "file:${source.id.take(8)}"
         // 跨 round 占位截断前缀;末条 User 的引用走 ModalityAdapter 注入完整 fileId
-        is MediaSource.Local -> "local fileId=${source.fileId.take(8)}..."
+        is MediaSource.Local -> "local fileId=${source.fileId.take(8)}"
     }
 ```
 
@@ -928,7 +928,7 @@ Expected: 仅 `ModalityAdapter.kt` 和 `ModalityAdapterTest.kt` 中出现（说�
 refactor(core): toTextMessage 加 Local 占位 + 移除 adaptModality
 
 toTextMessage.describeMediaSource 加 Local 分支:
-"local fileId=<前8字符>..."(占位截断前缀,跟 FileId 的
+"local fileId=<前8字符>"(占位截断前缀,跟 FileId 的
 take(8) 同步策略)。末条 User 的引用文本由 ModalityAdapter
 注入完整 fileId,模型调工具时整串传回 —— 两处形态不同
 但语义自洽。
@@ -993,7 +993,7 @@ public class ReActAgent internal constructor(
 b) 修改 `buildRequest()`（line 205-229）—— 替换为：
 ```kotlin
     private suspend fun buildRequest(): ChatRequest {
-        val rendered = modalityAdapter.adapt(memory.history(), memory.mediaArchive)
+        val messages = modalityAdapter.adapt(memory.history(), memory.mediaArchive)
         return ChatRequest(
             messages = buildList {
                 add(ChatMessage.System(persona.toString()))
@@ -1036,14 +1036,14 @@ d) 修改 `build()`（line 96-108）：
 ```kotlin
     public fun build(): Agent {
         val provider = requireNotNull(llmProvider) { "llmProvider must be set" }
-        val adapter = modalityAdapter ?: DefaultModalityAdapter()
+        val modalityAdapter = modalityAdapter ?: DefaultModalityAdapter()
 
         return ReActAgent(
             persona = persona ?: Persona("You are a helpful assistant."),
             llmProvider = provider,
             toolRegistry = toolRegistry,
             memory = memory,
-            modalityAdapter = adapter,
+            modalityAdapter = modalityAdapter,
             maxRounds = maxRounds,
             maxIterations = maxIterations,
             hook = hook,
