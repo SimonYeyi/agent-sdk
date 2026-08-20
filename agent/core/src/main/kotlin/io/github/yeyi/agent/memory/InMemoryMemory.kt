@@ -32,12 +32,12 @@ public class InMemoryMemory : Memory {
      */
     private class InMemoryMediaArchive : MediaArchive {
         private val store: MutableMap<String, String> = mutableMapOf()
-        override fun store(data: MediaSource.Data): MediaSource.Local {
+        override suspend fun store(data: MediaSource.Data): MediaSource.Local {
             val fileId = UUID.randomUUID().toString()
             store[fileId] = data.base64
             return MediaSource.Local(fileId, data.mimeType)
         }
-        override fun resolve(local: MediaSource.Local): MediaSource.Data {
+        override suspend fun resolve(local: MediaSource.Local): MediaSource.Data {
             val base64 = store[local.fileId]
                 ?: throw IllegalStateException("MediaArchive missing fileId=${local.fileId}")
             return MediaSource.Data(local.mimeType, base64)

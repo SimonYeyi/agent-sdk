@@ -19,6 +19,10 @@ public interface Memory {
      * [io.github.yeyi.agent.session.JsonlBackedMemory],或单 session 场景的
      * [InMemoryMemory]);其他层通过 `Memory by` delegate / `get() = inner.mediaArchive`
      * 透明转发。caller 拿到的最外层 `Memory.mediaArchive` 永远有效。
+     *
+     * **是抽象字段而非默认实现**:Kotlin 的 interface delegation (`Memory by inner`)
+     * 要求所有成员在 delegate 目标上已存在;若此处给默认值,下游装饰器无法通过
+     * `Memory by` 透传 archive,会重复注入。
      */
     public val mediaArchive: MediaArchive
 
@@ -54,6 +58,9 @@ public interface Memory {
  * **只**承担 IO 能力,不决定"什么 Data 值得单独存文件"——归档阈值由持久化
  * [Memory] 实现层([io.github.yeyi.agent.session.ArchivingMemory])在 `add()` 内决定。
  *
+ * 方法声明为 `suspend` 是为了让实现内部用 `Mutex.withLock` 序列化并发 IO(与
+ * [Memory] 的线程安全契约保持一致);同步实现可以直接 `return` 不挂起。
+ *
  * SDK 默认实现:
  * - 测试场景:[InMemoryMemory] 内部嵌套 `InMemoryMediaArchive`(纯内存 map)
  * - 持久化场景:[io.github.yeyi.agent.session.FilesystemMediaArchive](per-session `media/` 目录)
@@ -61,6 +68,6 @@ public interface Memory {
  * 实现由 caller 注入(持久化场景)或 Memory 自己实例化(单 session 场景)。
  */
 public interface MediaArchive {
-    public fun store(data: MediaSource.Data): MediaSource.Local
-    public fun resolve(local: MediaSource.Local): MediaSource.Data
+    public suspend fun store(data: MediaSource.Data): MediaSource.Local
+    public suspend fun resolve(local: MediaSource.Local): MediaSource.Data
 }

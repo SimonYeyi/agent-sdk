@@ -18,14 +18,14 @@ import io.github.yeyi.agent.memory.MediaArchive
  * 这是纯变换接口, IO 通过 [MediaArchive] 注入; 测试里直接 lambda mock。
  *
  * `MediaArchive` 放在方法签名而非构造器 —— 适配工作的核心就是处理归档, 显式化在契约里:
- * caller 一眼看得出"做适配需要 archive", 实现类无隐藏状态, fun interface 允许 lambda 直接构造。
+ * caller 一眼看得出"做适配需要 archive", 实现类无隐藏状态。
  *
- * 注意: 本接口使用普通 `interface` 而非 `fun interface`, 因未来可能扩展其他 adapter 方法
- * (如 `shouldAdapt(message): Boolean` 旁路控制); 1 个抽象方法的 fun interface 限制后续若需要
- * 加方法会被锁死。
+ * 注意: 本接口使用普通 `interface` 而非 `fun interface`, 为未来扩展留口子(如
+ * `shouldAdapt(message): Boolean` 旁路控制等); fun interface 一旦后续加方法就被锁死,
+ * 不值得为"现在能 lambda 构造"换掉未来灵活性。
  */
 public interface ModalityAdapter {
-    public fun adapt(messages: List<ChatMessage>, archive: MediaArchive): List<ChatMessage>
+    public suspend fun adapt(messages: List<ChatMessage>, archive: MediaArchive): List<ChatMessage>
 }
 
 /**
@@ -34,7 +34,7 @@ public interface ModalityAdapter {
  */
 public class DefaultModalityAdapter : ModalityAdapter {
 
-    public override fun adapt(
+    public override suspend fun adapt(
         messages: List<ChatMessage>,
         archive: MediaArchive,
     ): List<ChatMessage> {
@@ -76,7 +76,7 @@ public class DefaultModalityAdapter : ModalityAdapter {
      *
      * "末条 User" 的判断由 [adapt] 负责, 本方法只做 resolve + 引用注入。
      */
-    private fun resolveUserMedia(
+    private suspend fun resolveUserMedia(
         user: ChatMessage.User,
         archive: MediaArchive,
     ): ChatMessage.User =
@@ -86,7 +86,7 @@ public class DefaultModalityAdapter : ModalityAdapter {
      * Local → `[fileId 文本 part, resolve 后的 media part]`; 其余 (Text / Http /
      * Data / FileId) 原样单 part 返回。
      */
-    private fun resolveLocal(part: ContentPart, archive: MediaArchive): List<ContentPart> {
+    private suspend fun resolveLocal(part: ContentPart, archive: MediaArchive): List<ContentPart> {
         val local = when (part) {
             is ContentPart.Image -> part.source
             is ContentPart.Audio -> part.source

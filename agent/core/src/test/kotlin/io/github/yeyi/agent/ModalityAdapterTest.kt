@@ -4,6 +4,7 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.memory.MediaArchive
+import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -24,13 +25,13 @@ class ModalityAdapterTest {
         var resolveCount: Int = 0,
         var storeCount: Int = 0,
     ) : MediaArchive {
-        override fun store(data: MediaSource.Data): MediaSource.Local {
+        override suspend fun store(data: MediaSource.Data): MediaSource.Local {
             storeCount++
             val id = "stored-${storeCount}"
             backing[id] = data.base64
             return MediaSource.Local(id, data.mimeType)
         }
-        override fun resolve(local: MediaSource.Local): MediaSource.Data {
+        override suspend fun resolve(local: MediaSource.Local): MediaSource.Data {
             resolveCount++
             return MediaSource.Data(
                 mimeType = local.mimeType,
@@ -40,7 +41,7 @@ class ModalityAdapterTest {
     }
 
     @Test
-    fun `last User with Local resolves to Text ref + Data, archive called once`() {
+    fun `last User with Local resolves to Text ref + Data, archive called once`() = runTest {
         val archive = SpyArchive(backing = mutableMapOf("550e8400..." to "BASE64BYTES"))
         // 用一个确定性 fileId 的 Local 让 spy 找到 backing map
         val local = MediaSource.Local("550e8400...", "image/jpeg")
@@ -59,7 +60,7 @@ class ModalityAdapterTest {
     }
 
     @Test
-    fun `last User with Data passes through unchanged`() {
+    fun `last User with Data passes through unchanged`() = runTest {
         val archive = SpyArchive()
         val lastUser = ChatMessage.User(listOf(dataPart))
 
@@ -72,7 +73,7 @@ class ModalityAdapterTest {
     }
 
     @Test
-    fun `last User with Http and FileId passes through unchanged`() {
+    fun `last User with Http and FileId passes through unchanged`() = runTest {
         val archive = SpyArchive()
         val lastUser = ChatMessage.User(listOf(httpPart, fileIdPart))
 
@@ -85,7 +86,7 @@ class ModalityAdapterTest {
     }
 
     @Test
-    fun `cross-round User with Local becomes placeholder without archive resolve`() {
+    fun `cross-round User with Local becomes placeholder without archive resolve`() = runTest {
         val archive = SpyArchive()
         val history = ChatMessage.User(listOf(localPart))    // cross-round (i < lastUserIdx)
         val current = ChatMessage.User(listOf(ContentPart.Text("next question")))
@@ -101,7 +102,7 @@ class ModalityAdapterTest {
     }
 
     @Test
-    fun `last User parts order preserved when Local expands mid-list`() {
+    fun `last User parts order preserved when Local expands mid-list`() = runTest {
         // 输入 [Text, Local, Http], Local 展开为 [Text引用, Data],
         // 期望 [Text, Text引用, Data, Http] (Http 相对 Local 位置保持)
         val archive = SpyArchive(backing = mutableMapOf("id1" to "B64"))
@@ -128,7 +129,7 @@ class ModalityAdapterTest {
     }
 
     @Test
-    fun `last ToolResult with media splits into text-only ToolResult and synthetic User`() {
+    fun `last ToolResult with media splits into text-only ToolResult and synthetic User`() = runTest {
         val archive = SpyArchive()
         val tr = ChatMessage.ToolResult(
             toolCallId = "c1",
@@ -150,7 +151,7 @@ class ModalityAdapterTest {
     }
 
     @Test
-    fun `System and Assistant pass through unchanged`() {
+    fun `System and Assistant pass through unchanged`() = runTest {
         val archive = SpyArchive()
         val messages = listOf(
             ChatMessage.System("you are helpful"),
@@ -167,10 +168,10 @@ class ModalityAdapterTest {
     }
 
     @Test
-    fun `archive resolve failure propagates as IllegalStateException`() {
+    fun `archive resolve failure propagates as IllegalStateException`() = runTest {
         val throwing = object : MediaArchive {
-            override fun store(data: MediaSource.Data) = MediaSource.Local("x", data.mimeType)
-            override fun resolve(local: MediaSource.Local): MediaSource.Data =
+            override suspend fun store(data: MediaSource.Data) = MediaSource.Local("x", data.mimeType)
+            override suspend fun resolve(local: MediaSource.Local): MediaSource.Data =
                 throw IllegalStateException("MediaArchive missing fileId=${local.fileId}")
         }
         val local = MediaSource.Local("x", "image/jpeg")

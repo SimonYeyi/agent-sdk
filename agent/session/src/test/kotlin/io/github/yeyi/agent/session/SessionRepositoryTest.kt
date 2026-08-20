@@ -36,14 +36,39 @@ class SessionRepositoryTest {
         val sessionDir = File(File(tempDir, "agent/sessions/alice"), session.id)
         assertTrue(sessionDir.isDirectory)
 
-        assertTrue(File(sessionDir, "memory.jsonl").exists().not() ||
-            File(sessionDir, "memory.jsonl").exists(),
-            "memory.jsonl path should be defined")
-        assertTrue(File(sessionDir, "conversations").isDirectory ||
-            !File(sessionDir, "conversations").exists(),
-            "conversations dir should exist after first add")
+        // createSession 仅做 mkdirs,不触发 archive 或 write:
+        // memory.jsonl / conversations 都还不存在
+        assertTrue(!File(sessionDir, "memory.jsonl").exists(),
+            "memory.jsonl should not exist before any add()")
+        assertTrue(!File(sessionDir, "conversations").exists(),
+            "conversations dir should not exist before any add()")
+        // media root 由 FilesystemMediaArchive.init 在 hydrate 时 mkdirs,
+        // 所以 createSession 后立刻存在
         assertTrue(File(sessionDir, "media").isDirectory,
-            "media dir should exist after first archive")
+            "media dir should exist after hydrate (FilesystemMediaArchive.init)")
+    }
+
+    @Test
+    fun `first add populates memory conversations and media siblings`() = runTest {
+        val session = repo.createSession("alice", "chat1", null)
+        val sessionDir = File(File(tempDir, "agent/sessions/alice"), session.id)
+
+        // 触发 archive (base64 length 2048 > 1024 阈值)
+        session.memory.add(ChatMessage.User(listOf(
+            ContentPart.Image(MediaSource.Data("image/jpeg", "x".repeat(2048)))
+        )))
+
+        // memory.jsonl 由 JsonlBackedMemory.add 写入
+        assertTrue(File(sessionDir, "memory.jsonl").exists(),
+            "memory.jsonl should exist after add")
+        // conversations/page1.jsonl 由 JsonlConversation.ensureInitialized 创建
+        assertTrue(File(File(sessionDir, "conversations"), "page1.jsonl").isFile,
+            "conversations/page1.jsonl should exist after first add")
+        // media/{uuid} 由 FilesystemMediaArchive.store 写入
+        val mediaFiles = File(sessionDir, "media").listFiles()
+            ?.filter { it.isFile } ?: emptyList()
+        assertTrue(mediaFiles.size == 1,
+            "media dir should contain exactly one archived file, got ${mediaFiles.size}")
     }
 
     @Test

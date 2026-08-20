@@ -17,7 +17,7 @@ import io.github.yeyi.agent.memory.Memory
  * `history()` / `rebuild()` 透传 —— 下游返回的 message 已经是 archived 状态
  * (即:本装饰器写入时已转 Local, history() 读到一致)。
  *
- * 阈值 1024 = base64 长度 (≈ 768B 原始字节),设计依据:
+ * 阈值 [ARCHIVE_THRESHOLD] = 1024 base64 长度 (≈ 768B 原始字节),设计依据:
  * [JsonlConversation.pageSizeThreshold] 默认 10KB 的 1/10,避免单图占满整 page。
  * 下沉到 [archiveIfLarge] 私有方法不暴露 caller —— 如未来真出现反馈需要调整,
  * 再考虑提升为构造参数。
@@ -33,7 +33,7 @@ public class ArchivingMemory(
         decorated.add(archiveLargeMedia(message))
     }
 
-    private fun archiveLargeMedia(message: ChatMessage): ChatMessage = when (message) {
+    private suspend fun archiveLargeMedia(message: ChatMessage): ChatMessage = when (message) {
         is ChatMessage.User -> message.copy(
             parts = message.parts.map { archiveIfLarge(it) },
         )
@@ -43,14 +43,14 @@ public class ArchivingMemory(
         is ChatMessage.System, is ChatMessage.Assistant -> message
     }
 
-    private fun archiveIfLarge(part: ContentPart): ContentPart {
+    private suspend fun archiveIfLarge(part: ContentPart): ContentPart {
         val src: MediaSource? = when (part) {
             is ContentPart.Image -> part.source
             is ContentPart.Audio -> part.source
             is ContentPart.Video -> part.source
             is ContentPart.Text -> null
         }
-        return if (src is MediaSource.Data && src.base64.length > 1024) {
+        return if (src is MediaSource.Data && src.base64.length > ARCHIVE_THRESHOLD) {
             when (part) {
                 is ContentPart.Image -> part.copy(source = decorated.mediaArchive.store(src))
                 is ContentPart.Audio -> part.copy(source = decorated.mediaArchive.store(src))
@@ -58,5 +58,10 @@ public class ArchivingMemory(
                 is ContentPart.Text -> part
             }
         } else part
+    }
+
+    private companion object {
+        /** base64 长度阈值 (≈ 768B 原始字节);详见 class KDoc 设计依据 */
+        const val ARCHIVE_THRESHOLD: Int = 1024
     }
 }

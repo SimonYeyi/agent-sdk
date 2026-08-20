@@ -34,11 +34,11 @@ class ArchivingMemoryTest {
     private class CountingArchive : MediaArchive {
         var storeCount: Int = 0
             private set
-        override fun store(data: MediaSource.Data): MediaSource.Local {
+        override suspend fun store(data: MediaSource.Data): MediaSource.Local {
             storeCount++
             return MediaSource.Local(fileId = "id-$storeCount", mimeType = data.mimeType)
         }
-        override fun resolve(local: MediaSource.Local): MediaSource.Data {
+        override suspend fun resolve(local: MediaSource.Local): MediaSource.Data {
             throw UnsupportedOperationException("not used in ArchivingMemory tests")
         }
     }

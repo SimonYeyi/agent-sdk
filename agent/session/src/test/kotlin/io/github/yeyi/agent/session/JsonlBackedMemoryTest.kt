@@ -24,9 +24,9 @@ class JsonlBackedMemoryTest {
         tempDir = createTempDir()
         memoryFile = File(tempDir, "test-memory.jsonl")
         archive = object : MediaArchive {
-            override fun store(data: MediaSource.Data): MediaSource.Local =
+            override suspend fun store(data: MediaSource.Data): MediaSource.Local =
                 MediaSource.Local("unused", data.mimeType)
-            override fun resolve(local: MediaSource.Local): MediaSource.Data =
+            override suspend fun resolve(local: MediaSource.Local): MediaSource.Data =
                 throw UnsupportedOperationException("not used in memory tests")
         }
         memory = JsonlBackedMemory(memoryFile, archive)
