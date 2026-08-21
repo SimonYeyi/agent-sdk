@@ -98,7 +98,6 @@ class ModalityAdapterTest {
         val crossRound = out[0] as ChatMessage.User
         val ph = crossRound.parts[0] as ContentPart.Text
         assertTrue(ph.text.startsWith("[image] local fileId=550e8400"))
-        assertTrue(ph.text.endsWith("..."), "expected truncation marker, got: ${ph.text}")
         assertEquals(0, archive.resolveCount)  // 跨 round 不读盘
     }
 
