@@ -5,9 +5,8 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import io.github.yeyi.agent.tool.ToolRegistry
-import kotlinx.coroutines.flow.filterIsInstance
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test

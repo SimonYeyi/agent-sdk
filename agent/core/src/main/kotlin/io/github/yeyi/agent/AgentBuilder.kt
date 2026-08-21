@@ -3,6 +3,8 @@ package io.github.yeyi.agent
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.modality.DefaultModalityAdapter
+import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolRegistry
 
@@ -89,7 +91,7 @@ public class AgentBuilder {
      * 设置多模态适配器。`ModalityAdapter` 在 LLM 请求边界完成"末条 User 的 Local
      * → Data resolve + 跨 round 占位 + 末条 ToolResult 拆 text"三件事。
      *
-     * 未设置时 [build] 内默认 [DefaultModalityAdapter] (无构造参数)。
+     * 未设置时 [build] 内默认 [io.github.yeyi.agent.modality.DefaultModalityAdapter] (无构造参数)。
      */
     public fun modalityAdapter(adapter: ModalityAdapter) {
         this.modalityAdapter = adapter

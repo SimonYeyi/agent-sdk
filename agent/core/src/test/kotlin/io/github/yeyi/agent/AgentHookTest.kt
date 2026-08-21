@@ -13,7 +13,7 @@ import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
-import io.github.yeyi.agent.memory.ReadOnlyMemory
+import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
