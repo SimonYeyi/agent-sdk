@@ -14,6 +14,7 @@ public data class Session(
     @Transient private val _memory: Memory? = null,
     @Transient private val _conversation: Conversation? = null
 ) {
-    val memory: Memory get() = _memory!!
-    val conversation: Conversation get() = _conversation!!
+    val memory: Memory get() = _memory ?: throw IllegalStateException("Memory not found")
+    val conversation: Conversation
+        get() = _conversation ?: throw IllegalStateException("Conversation not found")
 }

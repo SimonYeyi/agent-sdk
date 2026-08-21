@@ -18,16 +18,14 @@ import io.github.yeyi.agent.memory.Memory
  * (即:本装饰器写入时已转 Local, history() 读到一致)。
  *
  * 阈值 [ARCHIVE_THRESHOLD] = 1024 base64 长度 (≈ 768B 原始字节),设计依据:
- * [JsonlConversation.pageSizeThreshold] 默认 10KB 的 1/10,避免单图占满整 page。
+ * [JsonlConversation.pageSizeThreshold] 默认 20KB 的 1/20,避免单图占满整 page。
  * 下沉到 [archiveIfLarge] 私有方法不暴露 caller —— 如未来真出现反馈需要调整,
  * 再考虑提升为构造参数。
  *
  * 仅 [ChatMessage.User] / [ChatMessage.ToolResult] 内的 Image/Audio/Video
  * parts 会被检查;System / Assistant 不含 media 透传。
  */
-public class ArchivingMemory(
-    private val decorated: Memory,
-) : Memory by decorated {
+internal class ArchivingMemory(private val decorated: Memory) : Memory by decorated {
 
     override suspend fun add(message: ChatMessage) {
         decorated.add(archiveLargeMedia(message))
@@ -37,9 +35,11 @@ public class ArchivingMemory(
         is ChatMessage.User -> message.copy(
             parts = message.parts.map { archiveIfLarge(it) },
         )
+
         is ChatMessage.ToolResult -> message.copy(
             parts = message.parts.map { archiveIfLarge(it) },
         )
+
         is ChatMessage.System, is ChatMessage.Assistant -> message
     }
 
@@ -51,6 +51,7 @@ public class ArchivingMemory(
             is ContentPart.Text -> null
         }
         return if (src is MediaSource.Data && src.base64.length > ARCHIVE_THRESHOLD) {
+            @Suppress("KotlinConstantConditions")
             when (part) {
                 is ContentPart.Image -> part.copy(source = decorated.mediaArchive.store(src))
                 is ContentPart.Audio -> part.copy(source = decorated.mediaArchive.store(src))

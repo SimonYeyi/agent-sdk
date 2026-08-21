@@ -60,7 +60,6 @@ internal class DefaultModalityAdapter : ModalityAdapter {
      * Local → `[fileId 文本 part, resolve 后的 media part]`; 其余 (Text / Http /
      * Data / FileId) 原样单 part 返回。
      */
-    @Suppress("KotlinConstantConditions")
     private suspend fun resolveLocal(part: ContentPart, archive: MediaArchive): List<ContentPart> {
         val local = when (part) {
             is ContentPart.Image -> part.source
@@ -70,6 +69,7 @@ internal class DefaultModalityAdapter : ModalityAdapter {
         } as? MediaSource.Local ?: return listOf(part)
 
         val data = archive.resolve(local)
+        @Suppress("KotlinConstantConditions")
         return listOf(
             ContentPart.Text("[local] fileId=${local.fileId}"),
             when (part) {

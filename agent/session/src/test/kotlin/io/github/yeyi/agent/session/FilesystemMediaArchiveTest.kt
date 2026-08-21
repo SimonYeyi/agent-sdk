@@ -60,17 +60,6 @@ class FilesystemMediaArchiveTest {
     }
 
     @Test
-    fun `init creates rootDir if not exists`() {
-        val root = File(tempDir, "nested/media")
-        assertTrue(!root.exists())
-
-        FilesystemMediaArchive(root)
-
-        assertTrue(root.exists())
-        assertTrue(root.isDirectory)
-    }
-
-    @Test
     fun `large base64 round-trips correctly`() = runTest {
         // 用 ~10KB base64 (7680B 原始字节) 验证 base64 解码路径不走捷径
         val big = "A".repeat(10_240)

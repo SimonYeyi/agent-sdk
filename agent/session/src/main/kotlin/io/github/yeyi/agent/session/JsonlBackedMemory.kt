@@ -11,7 +11,7 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
-public class JsonlBackedMemory(
+internal class JsonlBackedMemory(
     private val file: File,
     override val mediaArchive: MediaArchive,
 ) : Memory {

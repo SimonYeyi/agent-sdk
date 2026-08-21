@@ -19,7 +19,7 @@
 - **占位文本截断前缀**：`toTextMessage` 的 `describeMediaSource` 中 `Local -> "local fileId=${source.fileId.take(8)}"`（跟现有 `FileId` 的 `take(8)` 同步；不加 `...` 后缀，保持与 `FileId` 行对称）；`ModalityAdapter` 注入末条 User 的 `[local] fileId=完整id`（**不截断**，模型可整串调工具）
 - **`archive.resolve()` 抛 `IllegalStateException`**（入参错误，不包装成 `AgentException`），让 caller 决策
 - **Provider fail-fast**：OpenAI/Anthropic mapping 收到 `Local` 立即抛 `AgentException.UnsupportedContent`（adapter 应已在 `buildRequest` 内 resolve）
-- **1KB 阈值硬编码**：阈值 1024 = `JsonlConversation.pageSizeThreshold / 10`（避免单图占满整 page），下沉到 `ArchivingMemory.archiveIfLarge` 私有方法，不暴露构造参数
+- **1KB 阈值硬编码**：阈值 1024 = `JsonlConversation.pageSizeThreshold / 20`（避免单图占满整 page），下沉到 `ArchivingMemory.archiveIfLarge` 私有方法，不暴露构造参数
 - **`adaptModality` 下沉到 `ModalityAdapter.kt`**：从 `AgentExtensions.kt` 移除，改为 `ModalityAdapter.kt` 内的 file-private 顶层扩展函数（`private fun ChatMessage.ToolResult.adaptModality(): List<ChatMessage>`）
 - **`toTextMessage` 结构不动**：只在 `describeMediaSource` 的 when 加一个 `Local` 分支；保持 public（`RoundsBoundedMemory` 跨模块使用）
 - **测试文件路径**：`agent/<module>/src/test/kotlin/io/github/yeyi/agent/...`（mirror 主源码路径）
@@ -1473,7 +1473,7 @@ import io.github.yeyi.agent.memory.Memory
  * (即:本装饰器写入时已转 Local, history() 读到一致)。
  *
  * 阈值 1024 = base64 长度 (≈ 768B 原始字节),设计依据:
- * [JsonlConversation.pageSizeThreshold] 默认 10KB 的 1/10,避免单图占满整 page。
+ * [JsonlConversation.pageSizeThreshold] 默认 20KB 的 1/20,避免单图占满整 page。
  * 下沉到 [archiveIfLarge] 私有方法不暴露 caller —— 如未来真出现反馈需要调整,
  * 再考虑提升为构造参数。
  *
@@ -1521,7 +1521,7 @@ Data 转 Local,再把 archived 版本转给 decorated。
 history()/rebuild() 透传(下游返回的 message 已是
 archived 状态,保持一致)。
 
-阈值 1024 = JsonlConversation.pageSizeThreshold / 10,
+阈值 1024 = JsonlConversation.pageSizeThreshold / 20,
 下沉到 archiveIfLarge 私有方法,不暴露构造参数。设计
 依据:1KB 以下的纯色 logo / favicon 之类 inline 更划算,
 避免磁盘 IO + 多一条 cleanup entry。

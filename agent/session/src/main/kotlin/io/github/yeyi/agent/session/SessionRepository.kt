@@ -5,7 +5,7 @@ import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.UUID
 
-public class SessionRepository(baseDir: File) {
+internal class SessionRepository(baseDir: File) {
 
     private val sessionsDir = File(baseDir, "agent/sessions")
 
@@ -14,12 +14,12 @@ public class SessionRepository(baseDir: File) {
     private fun sanitizeForPath(s: String): String =
         s.replace(Regex("""[<>:"/\\|?*]"""), "-")
 
-    private fun getUserDir(accountId: String): File {
+    private fun getAccountDir(accountId: String): File {
         return File(sessionsDir, sanitizeForPath(accountId)).also { it.mkdirs() }
     }
 
     private fun getSessionsFile(accountId: String): File {
-        return File(getUserDir(accountId), "sessions.jsonl")
+        return File(getAccountDir(accountId), "sessions.jsonl")
     }
 
     /**
@@ -32,7 +32,7 @@ public class SessionRepository(baseDir: File) {
      * deleteSession 时整 `getSessionDir()` 目录 deleteRecursively 一并清理。
      */
     private fun getSessionDir(accountId: String, sessionId: String): File =
-        File(getUserDir(accountId), sanitizeForPath(sessionId))
+        File(getAccountDir(accountId), sanitizeForPath(sessionId))
             .also { it.mkdirs() }
 
     private fun getMemoryFile(accountId: String, sessionId: String): File =
@@ -41,7 +41,7 @@ public class SessionRepository(baseDir: File) {
     private fun getConversationDir(accountId: String, sessionId: String): File =
         File(getSessionDir(accountId, sessionId), "conversations")
 
-    private fun getMediaRoot(accountId: String, sessionId: String): File =
+    private fun getMediaDir(accountId: String, sessionId: String): File =
         File(getSessionDir(accountId, sessionId), "media")
 
     private fun readSessionsFromFile(accountId: String): List<Session> {
@@ -60,7 +60,7 @@ public class SessionRepository(baseDir: File) {
      * @param sessionId 可选指定 ID，不传则自动生成 UUID
      * @throws IllegalArgumentException sessionId 已存在
      */
-    public fun createSession(accountId: String, sessionName: String, sessionId: String?): Session {
+    fun createSession(accountId: String, sessionName: String, sessionId: String?): Session {
         val now = Clock.System.now()
         val id = sessionId ?: UUID.randomUUID().toString()
         require(findSession(accountId, id) == null) { "Session already exists: $id" }
@@ -86,7 +86,7 @@ public class SessionRepository(baseDir: File) {
      */
     private fun hydrateSession(session: Session): Session {
         val archive = FilesystemMediaArchive(
-            getMediaRoot(session.accountId, session.id),
+            getMediaDir(session.accountId, session.id),
         )
         val rawMemory = JsonlBackedMemory(
             getMemoryFile(session.accountId, session.id),
@@ -104,12 +104,12 @@ public class SessionRepository(baseDir: File) {
     }
 
     /** 列出账号下所有 session。 */
-    public fun findSessions(accountId: String): List<Session> {
+    fun findSessions(accountId: String): List<Session> {
         return readSessionsFromFile(accountId).map { hydrateSession(it) }
     }
 
     /** 按 ID 查找 session，找不到返回 null。 */
-    public fun findSession(accountId: String, sessionId: String): Session? {
+    fun findSession(accountId: String, sessionId: String): Session? {
         return findSessions(accountId).find { it.id == sessionId }
     }
 
@@ -132,7 +132,7 @@ public class SessionRepository(baseDir: File) {
      *
      * @return 被删除的 session(删除前状态),找不到返回 null
      */
-    public fun deleteSession(accountId: String, sessionId: String): Session? {
+    fun deleteSession(accountId: String, sessionId: String): Session? {
         val sessions = readSessionsFromFile(accountId)
         val toDelete = sessions.firstOrNull { it.id == sessionId } ?: return null
         val remaining = sessions.filterNot { it.id == sessionId }

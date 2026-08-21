@@ -21,26 +21,21 @@ import java.util.UUID
  * **线程安全**:多个并发 add() 调用通过 [Mutex] 序列化,单 archive 实例可被多 coroutine 共享
  * (与 [io.github.yeyi.agent.memory.InMemoryMemory] 的 contract 一致)。
  *
- * @param rootDir 字节文件存储根目录。init 时若不存在则 `mkdirs` 创建。
- *                路径失效语义(agent 重启 / 跨进程):[resolve] 找不到 fileId 时
- *                抛 [IllegalStateException], 由 caller 决策恢复策略。
+ * @param rootDir 字节文件存储根目录。[store] 首次调用时负责 mkdirs
+ *                (consumer-owned-dir 模式,与 [JsonlConversation] 一致);
+ *                [resolve] 找不到 fileId 时抛 [IllegalStateException]
+ *                —— 路径失效语义(agent 重启 / 跨进程)由 caller 决策恢复策略。
  */
-public class FilesystemMediaArchive(
-    private val rootDir: File,
-) : MediaArchive {
+internal class FilesystemMediaArchive(private val rootDir: File) : MediaArchive {
     private val mutex: Mutex = Mutex()
 
-    init {
-        require(rootDir.exists() || rootDir.mkdirs()) {
-            "Cannot create media root: $rootDir"
-        }
-    }
-
     /**
-     * 写入 base64 解码后的 bytes 到 `rootDir/{uuid}`。Bytes 写入异常 (IOException)
-     * 正常传播,不包装 —— 与 [resolve] 行为一致。
+     * 写入 base64 解码后的 bytes 到 `rootDir/{uuid}`。首次调用时确保 rootDir 存在
+     * (mkdirs —— 镜像 [JsonlConversation.ensureInitialized] 的 consumer-owned-dir 模式)。
+     * Bytes 写入异常 (IOException) 正常传播,不包装 —— 与 [resolve] 行为一致。
      */
     override suspend fun store(data: MediaSource.Data): MediaSource.Local = mutex.withLock {
+        rootDir.mkdirs()
         val fileId = UUID.randomUUID().toString()
         File(rootDir, fileId).writeBytes(Base64.getDecoder().decode(data.base64))
         MediaSource.Local(fileId, data.mimeType)

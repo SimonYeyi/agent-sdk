@@ -10,11 +10,11 @@ import kotlinx.serialization.modules.polymorphic
 import kotlinx.serialization.modules.subclass
 import java.io.File
 
-public class JsonlConversation(
+internal class JsonlConversation(
     private val conversationDir: File,
-    private val innerMemory: Memory,
-    private val pageSizeThreshold: Long = 10 * 1024  // 10KB
-) : Conversation, Memory by innerMemory {
+    private val rawMemory: Memory,
+    private val pageSizeThreshold: Long = 20 * 1024  // 20KB
+) : Conversation, Memory by rawMemory {
 
     private val json = Json {
         ignoreUnknownKeys = true
@@ -66,7 +66,7 @@ public class JsonlConversation(
             File(conversationDir, "page$maxPage.jsonl").appendText(json.encodeToString(message) + "\n")
         }
 
-        innerMemory.add(message)
+        rawMemory.add(message)
     }
 
     /**
@@ -74,7 +74,7 @@ public class JsonlConversation(
      *
      * ## 分页存储
      *
-     * 消息按页存储，每页达到阈值（默认10KB）后创建新页。
+     * 消息按页存储，每页达到阈值（默认20KB）后创建新页。
      * 文件命名：page1.jsonl, page2.jsonl, ...
      *
      * ## 翻页锚点机制

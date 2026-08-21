@@ -42,10 +42,10 @@ class SessionRepositoryTest {
             "memory.jsonl should not exist before any add()")
         assertTrue(!File(sessionDir, "conversations").exists(),
             "conversations dir should not exist before any add()")
-        // media root 由 FilesystemMediaArchive.init 在 hydrate 时 mkdirs,
-        // 所以 createSession 后立刻存在
-        assertTrue(File(sessionDir, "media").isDirectory,
-            "media dir should exist after hydrate (FilesystemMediaArchive.init)")
+        // media root 由 FilesystemMediaArchive.store() 首次 archive 时 mkdirs,
+        // createSession 后尚未触发 store, 所以 dir 还不存在
+        assertTrue(!File(sessionDir, "media").exists(),
+            "media dir should not exist before first archive.store()")
     }
 
     @Test

@@ -464,13 +464,13 @@ baseDir/agent/sessions/{accountId}/
   sessions.jsonl              ← Session 元数据
   memories/{sessionId}.jsonl  ← 扁平消息历史
   conversations/{sessionId}/
-    page1.jsonl               ← 分页对话记录 (10KB/页)
+    page1.jsonl               ← 分页对话记录 (20KB/页)
     page2.jsonl
 ```
 
 ### 16.3 分页存储
 
-`JsonlConversation` 实现分页存储，每页达到阈值（默认 10KB）后创建新页。锚点机制：首次调用 `messages(1)` 记录当前最大页码，后续翻页基于锚点计算，防止新增消息导致页码错位。
+`JsonlConversation` 实现分页存储，每页达到阈值（默认 20KB）后创建新页。锚点机制：首次调用 `messages(1)` 记录当前最大页码，后续翻页基于锚点计算，防止新增消息导致页码错位。
 
 ## 17. Provider 实现要点
 

@@ -244,7 +244,7 @@ public class ArchivingMemory(
      * 之类 inline 更划算 —— 避免磁盘 IO + 多一条 cleanup entry。
      *
      * 阈值 1024 = base64 长度（≈ 768B 原始字节），设计依据：
-     * [JsonlConversation.pageSizeThreshold] 默认 10KB 的 1/10，避免单图占满整 page。
+     * [JsonlConversation.pageSizeThreshold] 默认 20KB 的 1/20，避免单图占满整 page。
      *
      * 仅 [ChatMessage.User] / [ChatMessage.ToolResult] 内的 Image/Audio/Video
      * parts 会被检查；System / Assistant 不含 media 透传。
@@ -816,7 +816,7 @@ agent.query(parts = listOf(ContentPart.Image(MediaSource.Http("https://..."))))
 | `FilesystemMediaArchive` 路径失效（agent 销毁/重启后 path 失效）| 由 `agent/session` 模块自管：实现内 `mkdirs` 兜底；caller 文档说明路径迁移 / 跨进程语义 |
 | `archive.resolve()` 找不到 fileId | 抛 `IllegalStateException`（入参错误, 不包装成 `AgentException`, 让 caller catch 决策）|
 | Local ID 是 UUID，序列化进 ChatMessage 后跨设备失效 | 文档说明 Local 默认单进程内引用,跨进程用 `FileId` |
-| `ArchivingMemory` 硬编码 1KB 阈值是 magic number | 阈值 = `JsonlConversation.pageSizeThreshold / 10`, 避免单图占满整 page;下沉到 `ARCHIVE_THRESHOLD` 私有 `companion object const`(不再 inline 1024 字面量);如未来真出现反馈需要调整，再考虑提升为构造参数 |
+| `ArchivingMemory` 硬编码 1KB 阈值是 magic number | 阈值 = `JsonlConversation.pageSizeThreshold / 20`, 避免单图占满整 page;下沉到 `ARCHIVE_THRESHOLD` 私有 `companion object const`(不再 inline 1024 字面量);如未来真出现反馈需要调整，再考虑提升为构造参数 |
 | `FilesystemMediaArchive` 并发 IO（多个 `add()` 同时 `store` 同 fileId / 写一半被覆盖）| `store` / `resolve` 均通过 `kotlinx.coroutines.sync.Mutex.withLock` 序列化(与 `InMemoryMemory` 的线程安全契约一致);类 KDoc 已声明"线程安全:多个并发 add() 调用通过 Mutex 序列化"。`MediaArchive` 接口方法声明为 `suspend` 是为了让实现能用 `withLock`(见 §14 DEV-2)。|
 
 ---
