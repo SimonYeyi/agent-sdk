@@ -76,13 +76,7 @@ internal class SessionRepository(baseDir: File) {
     }
 
     /**
-     * 构造链:FilesystemMediaArchive + ArchivingMemory(外层归档) →
-     * JsonlConversation → JsonlBackedMemory。
-     *
-     * archive 由 session 模块内部创建,不暴露给 caller —— SDK 不该决定 IO 路径。
-     * ArchivingMemory 在链的最外层负责归档,JsonlConversation / JsonlBackedMemory
-     * 都只做纯存储,两边 (page*.jsonl + memory.jsonl) 落盘形态由 ArchivingMemory
-     * 统一保证一致。
+     * 构造链:FilesystemMediaArchive → JsonlBackedMemory → JsonlConversation。
      */
     private fun hydrateSession(session: Session): Session {
         val archive = FilesystemMediaArchive(
@@ -96,9 +90,8 @@ internal class SessionRepository(baseDir: File) {
             getConversationDir(session.accountId, session.id),
             rawMemory,
         )
-        val memory = ArchivingMemory(conversation)
         return session.copy(
-            _memory = memory,
+            _memory = conversation,
             _conversation = conversation,
         )
     }

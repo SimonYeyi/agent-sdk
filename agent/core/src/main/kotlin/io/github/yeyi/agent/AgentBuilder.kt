@@ -87,12 +87,7 @@ public class AgentBuilder {
         this.hook = hook
     }
 
-    /**
-     * 设置多模态适配器。`ModalityAdapter` 在 LLM 请求边界完成"末条 User 的 Local
-     * → Data resolve + 跨 round 占位 + 末条 ToolResult 拆 text"三件事。
-     *
-     * 未设置时 [build] 内默认 [io.github.yeyi.agent.modality.DefaultModalityAdapter] (无构造参数)。
-     */
+    /** 设置多模态适配器。用于自定义模型对于历史消息中 media 的可见性 */
     public fun modalityAdapter(adapter: ModalityAdapter) {
         this.modalityAdapter = adapter
     }
@@ -108,7 +103,7 @@ public class AgentBuilder {
      */
     public fun build(): Agent {
         val provider = requireNotNull(llmProvider) { "llmProvider must be set" }
-        val modalityAdapter = modalityAdapter ?: DefaultModalityAdapter()
+        val modalityAdapter = modalityAdapter ?: DefaultModalityAdapter(memory.mediaArchive)
 
         return ReActAgent(
             persona = persona ?: Persona("You are a helpful assistant."),

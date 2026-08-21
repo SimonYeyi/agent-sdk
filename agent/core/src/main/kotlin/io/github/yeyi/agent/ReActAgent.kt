@@ -14,6 +14,7 @@ import io.github.yeyi.agent.memory.ReadOnlyMemory
 import io.github.yeyi.agent.memory.RoundsBoundedMemory
 import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.modality.ModalityAdapter
+import io.github.yeyi.agent.modality.ToolResultModalityAdapter
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -105,7 +106,7 @@ public class ReActAgent internal constructor(
             emit(AgentEvent.Initial(query))
 
             memory.attachHook(ProxyHook(hook, emit), buildContext(0))
-            memory.add(ChatMessage.User(query.parts))
+            memory.add(modalityAdapter.archive(ChatMessage.User(query.parts)))
 
             while (iterations < maxIterations) {
                 loopOnce(++iterations, toolCalls, llmCall, emit)?.let { return }
@@ -176,11 +177,13 @@ public class ReActAgent internal constructor(
             )
 
             memory.add(
-                ChatMessage.ToolResult(
-                    toolCallId = call.id,
-                    toolName = call.name,
-                    parts = final.parts,
-                    isError = final.isError,
+                modalityAdapter.archive(
+                    ChatMessage.ToolResult(
+                        toolCallId = call.id,
+                        toolName = call.name,
+                        parts = final.parts,
+                        isError = final.isError,
+                    )
                 )
             )
 
@@ -205,7 +208,7 @@ public class ReActAgent internal constructor(
     }
 
     private suspend fun buildRequest(): ChatRequest {
-        val messages = modalityAdapter.adapt(memory.history(), memory.mediaArchive)
+        val messages = modalityAdapter.resolve(ToolResultModalityAdapter.adapt(memory.history()))
         return ChatRequest(
             messages = buildList {
                 add(ChatMessage.System(persona.toString()))

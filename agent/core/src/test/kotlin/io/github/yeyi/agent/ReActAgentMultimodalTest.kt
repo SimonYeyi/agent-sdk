@@ -14,15 +14,18 @@ import kotlin.test.assertEquals
 
 class ReActAgentMultimodalTest {
 
-    private fun makeAgent(provider: FakeLlmProvider): Agent = ReActAgent(
-        persona = Persona("you are helpful"),
-        llmProvider = provider,
-        toolRegistry = ToolRegistry(),
-        memory = InMemoryMemory(),
-        modalityAdapter = DefaultModalityAdapter(),
-        maxRounds = 20,
-        maxIterations = 5
-    )
+    private fun makeAgent(provider: FakeLlmProvider): Agent {
+        val memory = InMemoryMemory()
+        return ReActAgent(
+            persona = Persona("you are helpful"),
+            llmProvider = provider,
+            toolRegistry = ToolRegistry(),
+            memory = memory,
+            modalityAdapter = DefaultModalityAdapter(memory.mediaArchive),
+            maxRounds = 20,
+            maxIterations = 5
+        )
+    }
 
     @Test
     fun `run with AgentQuery text equivalent to old String run`() = runTest {

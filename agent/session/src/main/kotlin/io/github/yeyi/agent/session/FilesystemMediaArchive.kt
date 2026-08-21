@@ -10,7 +10,9 @@ import java.util.UUID
 
 /**
  * [MediaArchive] 的文件系统默认实现 —— 作为 agent/core 的 caller 由 agent/session 模块提供。
- * 纯 IO(store/resolve), 不决定"什么值不值得落盘"——阈值由 [ArchivingMemory] 内部决定。
+ * 纯 IO(store/resolve), 不决定"什么值不值得落盘"——阈值由
+ * [io.github.yeyi.agent.modality.ModalityAdapter] 内部决定
+ * (参见 `ARCHIVE_THRESHOLD` 与 `archiveIfLarge`)。
  *
  * 注入点:[SessionRepository.hydrateSession] 把 archive 实例传给 [JsonlBackedMemory],
  * 所有上层 Memory 通过 `Memory by` delegate 自动转发。

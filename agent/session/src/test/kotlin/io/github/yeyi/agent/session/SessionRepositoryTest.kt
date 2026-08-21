@@ -53,10 +53,11 @@ class SessionRepositoryTest {
         val session = repo.createSession("alice", "chat1", null)
         val sessionDir = File(File(tempDir, "agent/sessions/alice"), session.id)
 
-        // 触发 archive (base64 length 2048 > 1024 阈值)
-        session.memory.add(ChatMessage.User(listOf(
-            ContentPart.Image(MediaSource.Data("image/jpeg", "x".repeat(2048)))
-        )))
+        // 模拟 caller: 先 archive 大 Data 落盘, 再把 Local 加进 memory
+        // (旧 ArchivingMemory 装饰器已删, 归档现在由 caller 的 ModalityAdapter 完成)
+        val data = MediaSource.Data("image/jpeg", "x".repeat(2048))
+        val local = session.memory.mediaArchive.store(data)
+        session.memory.add(ChatMessage.User(listOf(ContentPart.Image(local))))
 
         // memory.jsonl 由 JsonlBackedMemory.add 写入
         assertTrue(File(sessionDir, "memory.jsonl").exists(),
@@ -72,26 +73,30 @@ class SessionRepositoryTest {
     }
 
     @Test
-    fun `hydrateSession builds ArchivingMemory containing JsonlConversation`() {
+    fun `hydrateSession builds JsonlConversation as the top-level memory`() {
         val session = repo.createSession("alice", "chat1", null)
 
-        // session.memory 真实类型应该是 ArchivingMemory
-        assertTrue(session.memory is ArchivingMemory,
-            "expected ArchivingMemory, got ${session.memory::class.simpleName}")
+        // session.memory 真实类型应该是 JsonlConversation (归档由 caller 的
+        // ModalityAdapter 在 memory.add() 前完成, 不再走外层 ArchivingMemory 装饰器)
+        assertTrue(session.memory is JsonlConversation,
+            "expected JsonlConversation, got ${session.memory::class.simpleName}")
     }
 
     @Test
-    fun `large Data added to session memory gets archived and resolves back`() = runTest {
+    fun `large Data archived by caller then added resolves back through mediaArchive`() = runTest {
         val session = repo.createSession("alice", "chat1", null)
         val data = MediaSource.Data("image/jpeg", "x".repeat(2048))
 
-        session.memory.add(ChatMessage.User(listOf(ContentPart.Image(data))))
+        // 模拟 caller: 先 archive, 再 memory.add(Local)
+        val local = session.memory.mediaArchive.store(data)
+        session.memory.add(ChatMessage.User(listOf(ContentPart.Image(local))))
+
         val history = session.memory.history()
         val stored = history[0] as ChatMessage.User
         val src = (stored.parts[0] as ContentPart.Image).source
 
         assertTrue(src is MediaSource.Local,
-            "Data > 1024 base64 should be archived to Local, got ${src::class.simpleName}")
+            "stored source should be Local, got ${src::class.simpleName}")
 
         // 验证 mediaArchive 能 resolve 落盘字节
         val resolved = session.memory.mediaArchive.resolve(src)
@@ -104,9 +109,10 @@ class SessionRepositoryTest {
         val sessionDir = File(File(tempDir, "agent/sessions/alice"), session.id)
 
         // 触发 archive 创建 media/
-        session.memory.add(ChatMessage.User(listOf(ContentPart.Image(
+        val local = session.memory.mediaArchive.store(
             MediaSource.Data("image/jpeg", "x".repeat(2048))
-        ))))
+        )
+        session.memory.add(ChatMessage.User(listOf(ContentPart.Image(local))))
         assertTrue(sessionDir.isDirectory)
         assertTrue(File(sessionDir, "media").isDirectory)
 

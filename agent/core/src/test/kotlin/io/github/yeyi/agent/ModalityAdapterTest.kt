@@ -5,12 +5,20 @@ import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.memory.MediaArchive
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
+import io.github.yeyi.agent.modality.ModalityAdapter
+import io.github.yeyi.agent.modality.ToolResultModalityAdapter
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
+/**
+ * 三组测试, 分别覆盖:
+ * - [ModalityAdapter.archive]: write 边 Data → Local(阈值规则)
+ * - [DefaultModalityAdapter.resolve]: read 边 Local → Data(只对末条 User)
+ * - [ToolResultModalityAdapter.adapt]: 末条 ToolResult 拆 text + 合成 User
+ */
 class ModalityAdapterTest {
 
     private val dataPart = ContentPart.Image(MediaSource.Data("image/jpeg", "BASE64"))
@@ -20,7 +28,7 @@ class ModalityAdapterTest {
         MediaSource.Local(fileId = "550e8400-e29b-41d4-a716-446655440000", mimeType = "image/jpeg"),
     )
 
-    /** Spy archive: 记录 store/resolve 调用次数,resolve 时按 fileId 找 base64 */
+    /** 记录 store/resolve 次数, resolve 时按 fileId 找 base64 */
     private class SpyArchive(
         private val backing: MutableMap<String, String> = mutableMapOf(),
         var resolveCount: Int = 0,
@@ -28,7 +36,7 @@ class ModalityAdapterTest {
     ) : MediaArchive {
         override suspend fun store(data: MediaSource.Data): MediaSource.Local {
             storeCount++
-            val id = "stored-${storeCount}"
+            val id = "stored-$storeCount"
             backing[id] = data.base64
             return MediaSource.Local(id, data.mimeType)
         }
@@ -41,14 +49,98 @@ class ModalityAdapterTest {
         }
     }
 
+    // ───────── archive() — write 边 Data → Local ─────────
+
     @Test
-    fun `last User with Local resolves to Text ref + Data, archive called once`() = runTest {
+    fun `archive User with small Data passes through unchanged`() = runTest {
+        val archive = SpyArchive()
+        val adapter = DefaultModalityAdapter(archive)
+
+        val out = adapter.archive(ChatMessage.User(listOf(dataPart)))
+
+        assertEquals(0, archive.storeCount)
+        assertEquals(dataPart, (out as ChatMessage.User).parts.single())
+    }
+
+    @Test
+    fun `archive User with large Data converts to Local and calls store once`() = runTest {
+        val archive = SpyArchive()
+        val adapter = DefaultModalityAdapter(archive)
+        val large = ContentPart.Image(MediaSource.Data("image/png", "x".repeat(2048)))
+
+        val out = adapter.archive(ChatMessage.User(listOf(large))) as ChatMessage.User
+
+        assertEquals(1, archive.storeCount)
+        val src = (out.parts.single() as ContentPart.Image).source
+        assertTrue(src is MediaSource.Local, "expected Local, got $src")
+        assertEquals("image/png", (src as MediaSource.Local).mimeType)
+    }
+
+    @Test
+    fun `archive ToolResult with large media also archives`() = runTest {
+        val archive = SpyArchive()
+        val adapter = DefaultModalityAdapter(archive)
+        val large = ContentPart.Audio(MediaSource.Data("audio/mp3", "y".repeat(2048)))
+
+        val out = adapter.archive(
+            ChatMessage.ToolResult(
+                toolCallId = "tc-1",
+                toolName = "fetch",
+                parts = listOf(large),
+            )
+        ) as ChatMessage.ToolResult
+
+        assertEquals(1, archive.storeCount)
+        val src = (out.parts.single() as ContentPart.Audio).source
+        assertTrue(src is MediaSource.Local, "expected Local, got $src")
+    }
+
+    @Test
+    fun `archive User with Local Http FileId passes through unchanged`() = runTest {
+        val archive = SpyArchive()
+        val adapter = DefaultModalityAdapter(archive)
+
+        for (part in listOf(localPart, httpPart, fileIdPart)) {
+            val out = adapter.archive(ChatMessage.User(listOf(part))) as ChatMessage.User
+            assertEquals(part, out.parts.single())
+        }
+        assertEquals(0, archive.storeCount)
+    }
+
+    @Test
+    fun `archive System and Assistant messages pass through unchanged`() = runTest {
+        val archive = SpyArchive()
+        val adapter = DefaultModalityAdapter(archive)
+
+        val systemOut = adapter.archive(ChatMessage.System("sys"))
+        val assistantOut = adapter.archive(ChatMessage.Assistant(content = "ok", toolCalls = emptyList()))
+
+        assertEquals(ChatMessage.System("sys"), systemOut)
+        assertEquals("ok", (assistantOut as ChatMessage.Assistant).content)
+        assertEquals(0, archive.storeCount)
+    }
+
+    @Test
+    fun `archive boundary 1024 base64 does not trigger store`() = runTest {
+        val archive = SpyArchive()
+        val adapter = DefaultModalityAdapter(archive)
+        val boundary = ContentPart.Image(MediaSource.Data("image/png", "x".repeat(1024)))
+
+        adapter.archive(ChatMessage.User(listOf(boundary)))
+
+        assertEquals(0, archive.storeCount)
+    }
+
+    // ───────── resolve() — read 边 Local → Data(只对末条 User) ─────────
+
+    @Test
+    fun `resolve last User with Local resolves to Text ref plus Data`() = runTest {
         val archive = SpyArchive(backing = mutableMapOf("550e8400..." to "BASE64BYTES"))
-        // 用一个确定性 fileId 的 Local 让 spy 找到 backing map
+        val adapter = DefaultModalityAdapter(archive)
         val local = MediaSource.Local("550e8400...", "image/jpeg")
         val lastUser = ChatMessage.User(listOf(ContentPart.Image(local)))
 
-        val out = DefaultModalityAdapter().adapt(listOf(lastUser), archive)
+        val out = adapter.resolve(listOf(lastUser))
 
         assertEquals(1, out.size)
         val user = out[0] as ChatMessage.User
@@ -61,38 +153,27 @@ class ModalityAdapterTest {
     }
 
     @Test
-    fun `last User with Data passes through unchanged`() = runTest {
+    fun `resolve last User with Data Http FileId passes through unchanged`() = runTest {
         val archive = SpyArchive()
-        val lastUser = ChatMessage.User(listOf(dataPart))
+        val adapter = DefaultModalityAdapter(archive)
+        val lastUser = ChatMessage.User(listOf(dataPart, httpPart, fileIdPart))
 
-        val out = DefaultModalityAdapter().adapt(listOf(lastUser), archive)
+        val out = adapter.resolve(listOf(lastUser))
 
         assertEquals(1, out.size)
         val user = out[0] as ChatMessage.User
-        assertEquals(listOf(dataPart), user.parts)
+        assertEquals(listOf(dataPart, httpPart, fileIdPart), user.parts)
         assertEquals(0, archive.resolveCount)
     }
 
     @Test
-    fun `last User with Http and FileId passes through unchanged`() = runTest {
+    fun `resolve cross-round User with Local becomes placeholder without archive resolve`() = runTest {
         val archive = SpyArchive()
-        val lastUser = ChatMessage.User(listOf(httpPart, fileIdPart))
-
-        val out = DefaultModalityAdapter().adapt(listOf(lastUser), archive)
-
-        assertEquals(1, out.size)
-        val user = out[0] as ChatMessage.User
-        assertEquals(listOf(httpPart, fileIdPart), user.parts)
-        assertEquals(0, archive.resolveCount)
-    }
-
-    @Test
-    fun `cross-round User with Local becomes placeholder without archive resolve`() = runTest {
-        val archive = SpyArchive()
-        val history = ChatMessage.User(listOf(localPart))    // cross-round (i < lastUserIdx)
+        val adapter = DefaultModalityAdapter(archive)
+        val history = ChatMessage.User(listOf(localPart))    // 跨 round (i < lastUserIdx)
         val current = ChatMessage.User(listOf(ContentPart.Text("next question")))
 
-        val out = DefaultModalityAdapter().adapt(listOf(history, current), archive)
+        val out = adapter.resolve(listOf(history, current))
 
         assertEquals(2, out.size)
         val crossRound = out[0] as ChatMessage.User
@@ -102,10 +183,9 @@ class ModalityAdapterTest {
     }
 
     @Test
-    fun `last User parts order preserved when Local expands mid-list`() = runTest {
-        // 输入 [Text, Local, Http], Local 展开为 [Text引用, Data],
-        // 期望 [Text, Text引用, Data, Http] (Http 相对 Local 位置保持)
+    fun `resolve last User parts order preserved when Local expands mid-list`() = runTest {
         val archive = SpyArchive(backing = mutableMapOf("id1" to "B64"))
+        val adapter = DefaultModalityAdapter(archive)
         val local = MediaSource.Local("id1", "image/png")
         val lastUser = ChatMessage.User(
             listOf(
@@ -115,7 +195,7 @@ class ModalityAdapterTest {
             ),
         )
 
-        val out = DefaultModalityAdapter().adapt(listOf(lastUser), archive)
+        val out = adapter.resolve(listOf(lastUser))
 
         val user = out[0] as ChatMessage.User
         assertEquals(4, user.parts.size)
@@ -129,21 +209,56 @@ class ModalityAdapterTest {
     }
 
     @Test
-    fun `last ToolResult with media splits into text-only ToolResult and synthetic User`() = runTest {
+    fun `resolve System and Assistant pass through unchanged`() = runTest {
         val archive = SpyArchive()
+        val adapter = DefaultModalityAdapter(archive)
+        val messages = listOf(
+            ChatMessage.System("you are helpful"),
+            ChatMessage.Assistant("ok"),
+            ChatMessage.User(listOf(dataPart)),  // last User, 不动
+        )
+
+        val out = adapter.resolve(messages)
+
+        assertEquals(3, out.size)
+        assertEquals(ChatMessage.System("you are helpful"), out[0])
+        assertEquals(ChatMessage.Assistant("ok"), out[1])
+        assertEquals(messages[2], out[2])
+    }
+
+    @Test
+    fun `resolve archive failure propagates as IllegalStateException`() = runTest {
+        val throwing = object : MediaArchive {
+            override suspend fun store(data: MediaSource.Data) = MediaSource.Local("x", data.mimeType)
+            override suspend fun resolve(local: MediaSource.Local): MediaSource.Data =
+                throw IllegalStateException("MediaArchive missing fileId=${local.fileId}")
+        }
+        val adapter = DefaultModalityAdapter(throwing)
+        val local = MediaSource.Local("x", "image/jpeg")
+        val lastUser = ChatMessage.User(listOf(ContentPart.Image(local)))
+
+        assertFailsWith<IllegalStateException> {
+            adapter.resolve(listOf(lastUser))
+        }
+    }
+
+    // ───────── ToolResultModalityAdapter.adapt() — 拆 ToolResult ─────────
+
+    @Test
+    fun `adapt last ToolResult with media splits into text-only ToolResult and synthetic User`() = runTest {
         val tr = ChatMessage.ToolResult(
             toolCallId = "c1",
             toolName = "echo",
             parts = listOf(ContentPart.Text("result:"), httpPart),
         )
 
-        val out = DefaultModalityAdapter().adapt(listOf(tr), archive)
+        val out = ToolResultModalityAdapter.adapt(listOf(tr))
 
         assertEquals(2, out.size)
         // 1. text-only ToolResult
         val textOnly = out[0] as ChatMessage.ToolResult
         assertEquals(listOf<ContentPart>(ContentPart.Text("result:")), textOnly.parts)
-        // 2. 合成 User 是最后 User
+        // 2. 合成 User 是最后 User, 后续由 resolve 处理
         val synthetic = out[1] as ChatMessage.User
         assertEquals(2, synthetic.parts.size)
         assertEquals("[from echo]", (synthetic.parts[0] as ContentPart.Text).text)
@@ -151,34 +266,31 @@ class ModalityAdapterTest {
     }
 
     @Test
-    fun `System and Assistant pass through unchanged`() = runTest {
-        val archive = SpyArchive()
-        val messages = listOf(
-            ChatMessage.System("you are helpful"),
-            ChatMessage.Assistant("ok"),
-            ChatMessage.User(listOf(dataPart)),  // last User,不动
+    fun `adapt last ToolResult with only text passes through unchanged`() = runTest {
+        val tr = ChatMessage.ToolResult(
+            toolCallId = "c1",
+            toolName = "echo",
+            parts = listOf(ContentPart.Text("just text")),
         )
 
-        val out = DefaultModalityAdapter().adapt(messages, archive)
+        val out = ToolResultModalityAdapter.adapt(listOf(tr))
 
-        assertEquals(3, out.size)
-        assertEquals(ChatMessage.System("you are helpful"), out[0])
-        assertEquals(ChatMessage.Assistant("ok"), out[1])
-        assertEquals(messages[2], out[2])  // last User unchanged
+        assertEquals(1, out.size)
+        assertEquals(tr, out[0])
     }
 
     @Test
-    fun `archive resolve failure propagates as IllegalStateException`() = runTest {
-        val throwing = object : MediaArchive {
-            override suspend fun store(data: MediaSource.Data) = MediaSource.Local("x", data.mimeType)
-            override suspend fun resolve(local: MediaSource.Local): MediaSource.Data =
-                throw IllegalStateException("MediaArchive missing fileId=${local.fileId}")
-        }
-        val local = MediaSource.Local("x", "image/jpeg")
-        val lastUser = ChatMessage.User(listOf(ContentPart.Image(local)))
+    fun `adapt non-last ToolResult passes through unchanged`() = runTest {
+        val tr = ChatMessage.ToolResult(
+            toolCallId = "c1",
+            toolName = "echo",
+            parts = listOf(httpPart),
+        )
+        val user = ChatMessage.User(listOf(ContentPart.Text("next")))
 
-        assertFailsWith<IllegalStateException> {
-            DefaultModalityAdapter().adapt(listOf(lastUser), throwing)
-        }
+        val out = ToolResultModalityAdapter.adapt(listOf(tr, user))
+
+        // 末条是 User, 不是 ToolResult → 透传
+        assertEquals(listOf(tr, user), out)
     }
 }
