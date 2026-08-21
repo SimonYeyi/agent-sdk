@@ -4,7 +4,7 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.memory.MediaArchive
-import io.github.yeyi.agent.toTextMessage
+import io.github.yeyi.agent.llm.toTextMessage
 
 internal class DefaultModalityAdapter : ModalityAdapter {
 

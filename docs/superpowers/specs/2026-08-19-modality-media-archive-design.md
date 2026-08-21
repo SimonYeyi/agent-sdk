@@ -735,7 +735,7 @@ agent.query(parts = listOf(ContentPart.Image(MediaSource.Http("https://..."))))
 - `agent/session/src/main/kotlin/io/github/yeyi/agent/session/SessionRepository.kt` — 统一路径到 `sessions/{accountId}/{sessionId}/`(`memory.jsonl` + `conversations/` + `media/` 三者同级 sibling);`hydrateSession()` 构造链:`FilesystemMediaArchive(getMediaRoot(...))` → `JsonlBackedMemory(getMemoryFile(...), archive)`(archive 注入到最下层)→ `JsonlConversation(getConversationDir(...), innerMemory)`(`Memory by` 透明转发)→ `ArchivingMemory(conversation)`(自身不持 archive,通过 `decorated.mediaArchive` 访问);`deleteSession()` 改为 `getSessionDir(...).deleteRecursively()` 一行清理全部
 - `agent/core/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` — 加 `modalityAdapter` 必填构造参数 + `buildRequest` 改走 `modalityAdapter.adapt(raw, memory.mediaArchive)`(每次调用传入 archive)
 - `agent/core/src/main/kotlin/io/github/yeyi/agent/AgentBuilder.kt` — 加 `modalityAdapter()` 设置方法 + `build()` 内默认 `DefaultModalityAdapter()`(无构造参数)
-- `agent/core/src/main/kotlin/io/github/yeyi/agent/AgentExtensions.kt` — `toTextMessage` 内部 `describeMediaSource` 的 when 加 `Local -> "local fileId=${fileId.take(8)}"` 分支（占位截断前缀, 跟 `FileId` 同步策略），函数结构不动
+- `agent/core/src/main/kotlin/io/github/yeyi/agent/llm/ChatRequest.kt` — `toTextMessage` 内部 `describeMediaSource` 的 when 加 `Local -> "local fileId=${fileId.take(8)}"` 分支（占位截断前缀, 跟 `FileId` 同步策略），函数结构不动
 - `agent/providers/openai/src/main/kotlin/.../OpenAiMapping.kt` — Local fail-fast
 - `agent/providers/anthropic/src/main/kotlin/.../AnthropicMapping.kt` — Local fail-fast
 

@@ -5,7 +5,7 @@ import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.toTextMessage
+import io.github.yeyi.agent.llm.toTextMessage
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 

@@ -24,24 +24,6 @@ public data class ChatRequest(
     override fun toString(): String = "ChatRequest(message=${messages.lastOrNull() ?: "empty"})"
 }
 
-/**
- * 消息角色枚举。
- *
- * @property System 系统消息（通常放 persona 文本）
- * @property User 用户消息
- * @property Assistant LLM 回复消息
- * @property Tool 工具执行结果（tool result 反馈给 LLM）
- */
-public enum class Role { System, User, Assistant, Tool }
-
-/** LLM 生成的工具调用请求。 */
-@Serializable
-public data class ToolCall(
-    public val id: String,
-    public val name: String,
-    public val arguments: JsonElement
-)
-
 @Serializable
 public sealed interface ChatMessage {
     public val role: Role
@@ -99,6 +81,24 @@ public sealed interface ChatMessage {
 }
 
 /**
+ * 消息角色枚举。
+ *
+ * @property System 系统消息（通常放 persona 文本）
+ * @property User 用户消息
+ * @property Assistant LLM 回复消息
+ * @property Tool 工具执行结果（tool result 反馈给 LLM）
+ */
+public enum class Role { System, User, Assistant, Tool }
+
+/** LLM 生成的工具调用请求。 */
+@Serializable
+public data class ToolCall(
+    public val id: String,
+    public val name: String,
+    public val arguments: JsonElement
+)
+
+/**
  * 单条内容块，[ChatMessage.User] 与 [ChatMessage.ToolResult] 共用。
  * 4 个变体独立 sealed 而非合并为 Media(kind, source), 三种媒体未来会
  * 各自演化出差异化约束 (image 的 detail、audio 的 format、video 的 clip window)。
@@ -131,10 +131,6 @@ public sealed interface ContentPart {
     @SerialName("video")
     public data class Video(public val source: MediaSource) : ContentPart
 }
-
-/** 集合中的文本部分，多段以换行拼接；媒体块不参与。 */
-public val Collection<ContentPart>.text: String
-    get() = filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
 
 /**
  * 多媒体资源的统一来源抽象，四种模态 (image/audio/video) 共用同一组变体。
@@ -200,3 +196,41 @@ public data class ToolDefinition(
         return """{"name": "$name", "description": "$escapedDesc", "parameters_schema": $parametersSchema}"""
     }
 }
+
+/**
+ * 把消息转成给 LLM 看的形态:非当前 turn 的 media part 一律用占位 Text 替换,
+ * 避免旧轮次的图片/音频/视频每轮重传,造成 token 膨胀。
+ *
+ * - [ChatMessage.User] / [ChatMessage.ToolResult]:把非 Text part 转成 Text(占位)
+ * - 其他类型([ChatMessage.System] / [ChatMessage.Assistant])已经是文本,直接返回
+ */
+public fun ChatMessage.toTextMessage(): ChatMessage {
+    fun describeMediaSource(source: MediaSource): String = when (source) {
+        is MediaSource.Http -> source.url.substringAfterLast('/')
+            .ifEmpty { source.url.take(64) }
+
+        is MediaSource.Data -> "inline ${source.base64.length * 3 / 4 / 1024}KB"
+        is MediaSource.FileId -> "file:${source.id.take(8)}"
+        is MediaSource.Local -> "local fileId=${source.fileId.take(8)}"
+    }
+
+    fun mediaPlaceholder(part: ContentPart): String = when (part) {
+        is ContentPart.Text -> part.text
+        is ContentPart.Image -> "[image] ${describeMediaSource(part.source)}"
+        is ContentPart.Audio -> "[audio] ${describeMediaSource(part.source)}"
+        is ContentPart.Video -> "[video] ${describeMediaSource(part.source)}"
+    }
+
+    fun List<ContentPart>.stripNonText(): List<ContentPart> =
+        map { it as? ContentPart.Text ?: ContentPart.Text(mediaPlaceholder(it)) }
+
+    return when (this) {
+        is ChatMessage.User -> copy(parts = parts.stripNonText())
+        is ChatMessage.ToolResult -> copy(parts = parts.stripNonText())
+        else -> this
+    }
+}
+
+/** 集合中的文本部分，多段以换行拼接；媒体块不参与。 */
+public val Collection<ContentPart>.text: String
+    get() = filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }

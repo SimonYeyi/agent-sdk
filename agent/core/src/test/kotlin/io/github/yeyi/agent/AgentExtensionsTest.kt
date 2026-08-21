@@ -3,6 +3,7 @@ package io.github.yeyi.agent
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.MediaSource
+import io.github.yeyi.agent.llm.toTextMessage
 import kotlin.test.Test
 import kotlin.test.assertEquals
 

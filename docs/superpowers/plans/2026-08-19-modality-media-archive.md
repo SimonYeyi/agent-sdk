@@ -44,7 +44,7 @@
 - `agent/core/src/main/kotlin/io/github/yeyi/agent/memory/InMemoryMemory.kt` — 实现 `mediaArchive`，嵌套 `InMemoryMediaArchive` private class
 - `agent/core/src/main/kotlin/io/github/yeyi/agent/memory/RoundsBoundedMemory.kt` — 显式 `override val mediaArchive: MediaArchive get() = underlying.mediaArchive`
 - `agent/core/src/main/kotlin/io/github/yeyi/agent/memory/ReadOnlyMemory.kt` — 同上
-- `agent/core/src/main/kotlin/io/github/yeyi/agent/AgentExtensions.kt` — 删除 `internal fun ChatMessage.ToolResult.adaptModality`；`toTextMessage.describeMediaSource` 加 Local 分支
+- `agent/core/src/main/kotlin/io/github/yeyi/agent/llm/ChatRequest.kt` — `toTextMessage.describeMediaSource` 加 Local 分支
 - `agent/core/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` — 加 `modalityAdapter` 必填构造参数；`buildRequest` 改走 `modalityAdapter.adapt(...)`
 - `agent/core/src/main/kotlin/io/github/yeyi/agent/AgentBuilder.kt` — 加 `modalityAdapter()` 设置方法 + `build()` 默认 `DefaultModalityAdapter()`
 - `agent/session/src/main/kotlin/io/github/yeyi/agent/session/JsonlBackedMemory.kt` — 加 `mediaArchive: MediaArchive` 构造参数
@@ -73,7 +73,7 @@
 
 **Interfaces:**
 - Consumes: 现有 `MediaSource.Http` / `MediaSource.Data` / `MediaSource.FileId` 序列化形态不变
-- Produces: `MediaSource.Local(fileId: String, mimeType: String)`，JSON 形式 `{"type":"local","fileId":"...","mimeType":"..."}`；下游消费方（`AgentExtensions.toTextMessage` / `OpenAiMapping.mapImageToOpenAi` / `AnthropicMapping.mapImageToAnthropic`）将在 Task 4 / Task 10 添加对应 `when` 分支
+- Produces: `MediaSource.Local(fileId: String, mimeType: String)`，JSON 形式 `{"type":"local","fileId":"...","mimeType":"..."}`；下游消费方（`ChatRequest.toTextMessage` / `OpenAiMapping.mapImageToOpenAi` / `AnthropicMapping.mapImageToAnthropic`）将在 Task 4 / Task 10 添加对应 `when` 分支
 
 - [ ] **Step 1: 在 `MediaSourceTest.kt` 加 4 条 Local 序列化用例**
 

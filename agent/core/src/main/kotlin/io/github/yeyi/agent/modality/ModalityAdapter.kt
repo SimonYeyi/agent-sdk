@@ -10,7 +10,7 @@ import io.github.yeyi.agent.memory.MediaArchive
  * 2. **找最后 User**: 从 messages 找到最后一条 User 的索引
  * 3. **渲染**:
  *    - 末条 User → [MediaArchive.resolve] 把 Local 转 Data, 其他 media 透传
- *    - 其他消息 → [io.github.yeyi.agent.toTextMessage] 把 media 转 `[image] local fileId=xxx` 占位文本
+ *    - 其他消息 → [io.github.yeyi.agent.llm.toTextMessage] 把 media 转 `[image] local fileId=xxx` 占位文本
  *
  * Adapter **不依赖**整个 [io.github.yeyi.agent.memory.Memory], 只通过 [MediaArchive] 拿读桥。
  * 这是纯变换接口, IO 通过 [MediaArchive] 注入; 测试里直接 lambda mock。
