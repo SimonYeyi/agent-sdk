@@ -28,7 +28,7 @@ public class InMemoryMemory : Memory {
     /**
      * 内存测试用 archive —— 直接存 base64 字符串,跳过 store 的 decode
      * 和 resolve 的 encode。内存场景下不需要还原 bytes —— base64 占内存
-     * 略多但省两次编解码开销。生产场景用 [io.github.yeyi.agent.session.FilesystemMediaArchive]。
+     * 略多但省两次编解码开销。
      */
     private class InMemoryMediaArchive : MediaArchive {
         private val store: MutableMap<String, String> = mutableMapOf()

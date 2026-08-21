@@ -141,11 +141,11 @@ import io.github.yeyi.agent.llm.ChatMessage
 
 public interface Memory {
     /**
-     * 本实例持有的 [MediaArchive],供 [io.github.yeyi.agent.ModalityAdapter]
-     * 在末条 User 上读 Local → Data。archive 实体只注入到装饰链最下层(典型为
-     * 持久化场景的 [JsonlBackedMemory],或单 session 场景的 [InMemoryMemory]),
-     * 其他层通过 [Memory by] delegate / `get() = inner.mediaArchive` 透明转发,
-     * caller 拿到的最外层 `Memory.mediaArchive` 永远有效。
+     * 本实例持有的 [MediaArchive],用于在请求边界把 [io.github.yeyi.agent.llm.MediaSource.Local]
+     * 解析为 [io.github.yeyi.agent.llm.MediaSource.Data]。
+     *
+     * 必须由实现类持有实例(而非给默认值):装饰链需要逐层透传到最下层那一档,
+     * 默认值会被重复注入。
      */
     public val mediaArchive: MediaArchive
 

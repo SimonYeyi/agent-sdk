@@ -142,10 +142,9 @@ public val Collection<ContentPart>.text: String
  * - [Http]  : 公网 URL 或内网可路由 URL，由 LLM provider 主动 fetch。
  * - [Data]  : base64 内联；适用于 image 和短 audio；video 由 provider 实现层拒绝。
  * - [FileId]: provider 托管的文件 ID（OpenAI files API、Anthropic files API）。
- * - [Local] : agent 持有的本地文件引用(UUID)，由 [io.github.yeyi.agent.memory.MediaArchive]
- *             解析为字节；caller 跨 query 复用同一图时用此避免重复 inline base64。
- *             Provider 实现层**不支持** [Local]，由 [io.github.yeyi.agent.ModalityAdapter]
- *             在送 LLM 前 resolve 为 [Data]。
+ * - [Local] : agent 持有的本地文件引用(UUID);在请求边界由适配层解析为字节,
+ *             跨 query 复用同一图时用此避免重复 inline base64。
+ *             Provider 实现层**不支持** [Local]。
  */
 @Serializable
 public sealed interface MediaSource {

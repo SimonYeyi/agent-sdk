@@ -46,11 +46,6 @@ internal class RoundsBoundedMemory(
         return underlying.history()
     }
 
-    /**
-     * 直接透传 [underlying.rebuild] —— 不会触发 archive,因为本地 [MediaSource.Local]
-     * refs 在保留消息中保持原样:archiving 是 write-side only by design(见
-     * [io.github.yeyi.agent.session.ArchivingMemory])。
-     */
     override suspend fun rebuild(messages: List<ChatMessage>) {
         underlying.rebuild(messages)
     }

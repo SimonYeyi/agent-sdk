@@ -276,13 +276,11 @@ import io.github.yeyi.agent.llm.MediaSource
  */
 public interface Memory {
     /**
-     * 本实例持有的 [MediaArchive]。供 [io.github.yeyi.agent.ModalityAdapter] 在
-     * 末条 User 上读 Local → Data。
+     * 本实例持有的 [MediaArchive],用于在请求边界把 [io.github.yeyi.agent.llm.MediaSource.Local]
+     * 解析为 [io.github.yeyi.agent.llm.MediaSource.Data]。
      *
-     * archive 实体**只**注入到装饰链最下层（典型为持久化场景的
-     * [io.github.yeyi.agent.session.JsonlBackedMemory],或单 session 场景的
-     * [InMemoryMemory]）；其他层通过 `Memory by` delegate / `get() = inner.mediaArchive`
-     * 透明转发。caller 拿到的最外层 `Memory.mediaArchive` 永远有效。
+     * 必须由实现类持有实例(而非给默认值):装饰链需要逐层透传到最下层那一档,
+     * 默认值会被重复注入。
      */
     public val mediaArchive: MediaArchive
 
