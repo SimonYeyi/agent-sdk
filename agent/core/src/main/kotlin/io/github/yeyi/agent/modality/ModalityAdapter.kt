@@ -19,10 +19,9 @@ import io.github.yeyi.agent.memory.MediaArchive
  *
  * ## 与 ToolResult 的关系
  *
- * [ChatMessage.ToolResult] 含 media 时, [ToolResultModalityAdapter.adapt] 在
- * [io.github.yeyi.agent.ReActAgent] 的 `buildRequest()` 边界已经把它拆成
- * "text-only ToolResult + 合成 User",合成 User 内的 media 自然走 User 路径
- * 走 [resolve]。**ToolResult 的 media 不在本适配器职责内**。
+ * 调用顺序: [resolve] 先执行（把 ToolResult 中的 Local 转 Data），再由
+ * [ToolResultModalityAdapter.adapt] 在请求边界把 ToolResult 拆成
+ * "text-only ToolResult + 合成 User"。
  *
  * ## archive / resolve 共用 MediaArchive
  *
@@ -39,8 +38,8 @@ public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive) 
 
     /**
      * Write 边:把 message 内"大的" [MediaSource.Data] 转 [MediaSource.Local] 后返回。
-     * 只处理 [ChatMessage.User] 和 [ChatMessage.ToolResult](后者由
-     * [ToolResultModalityAdapter] 在请求边界进一步拆出 media;此处只保证落盘形态)。
+     * 只处理 [ChatMessage.User] 和 [ChatMessage.ToolResult]
+     * 后者由 [ToolResultModalityAdapter] 在请求边界进一步拆出 media;此处只保证落盘形态。
      *
      * 在 [io.github.yeyi.agent.ReActAgent] 的 `memory.add(...)` 前调用,让 memory 始终持有 Local 引用,
      *
@@ -50,11 +49,8 @@ public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive) 
 
     /**
      * Read 边:把 messages 渲染成"可直接喂 LLM"的形态 — 把 [MediaSource.Local]
-     * 还原成 LLM 能消费的形式(Data / 占位文本等),具体策略由实现选择。
+     * 还原成 LLM 能消费的形式(Data / 占位文本等)，具体策略由实现选择。
      *
-     * 调用前置条件:[ChatMessage.ToolResult] 的 media 已由
-     * [ToolResultModalityAdapter.adapt] 在请求边界拆出(media 通过合成 User 形式
-     * 进入 messages),本方法不需要重复处理 ToolResult。
      */
     public abstract suspend fun resolve(messages: List<ChatMessage>): List<ChatMessage>
 

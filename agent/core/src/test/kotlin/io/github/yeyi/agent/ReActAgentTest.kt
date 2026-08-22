@@ -404,7 +404,7 @@ class ReActAgentTest {
         ).awaitResult()
 
         // recordedRequests[1] = iter 2 时的 buildRequest:在工具执行后发起。
-        // 期望布局: [System, 原User(占位), Assistant(toolCalls), ToolResult(text-only), 合成User(原图)]
+        // 期望布局: [System, 末轮User(原图), Assistant(toolCalls), ToolResult(text-only), 合成User(原图)]
         val msgs = provider.recordedRequests[1].messages
         assertEquals(Role.System, msgs[0].role)
         assertEquals(Role.User, msgs[1].role)
@@ -412,18 +412,14 @@ class ReActAgentTest {
         assertEquals(Role.Tool, msgs[3].role)
         assertEquals(Role.User, msgs[4].role)
 
-        // 老 round User(原图) → toTextMessage → 图片转占位文字
-        val originalUser = msgs[1] as ChatMessage.User
+        // 末轮 User(原图) → 保留原图不转占位
+        val lastRoundUser = msgs[1] as ChatMessage.User
         assertTrue(
-            originalUser.parts.none { it is ContentPart.Image },
-            "old-round User's Image should be placeholdered, got: ${originalUser.parts}"
-        )
-        assertTrue(
-            originalUser.parts.any { it is ContentPart.Text && "[image]" in it.text },
-            "old-round User should contain [image] placeholder, got: ${originalUser.parts}"
+            lastRoundUser.parts.any { it is ContentPart.Image },
+            "last-round User's Image should be preserved, got: ${lastRoundUser.parts}"
         )
 
-        // 当前 round 合成 User(来自 adaptModality)→ 原图透传
+        // 合成 User(来自 adaptModality)→ 原图透传
         val syntheticUser = msgs[4] as ChatMessage.User
         assertTrue(
             syntheticUser.parts.any { it is ContentPart.Image },

@@ -280,7 +280,7 @@ class ModalityAdapterTest {
     }
 
     @Test
-    fun `adapt non-last ToolResult passes through unchanged`() = runTest {
+    fun `adapt all ToolResults with media get split`() = runTest {
         val tr = ChatMessage.ToolResult(
             toolCallId = "c1",
             toolName = "echo",
@@ -290,7 +290,12 @@ class ModalityAdapterTest {
 
         val out = ToolResultModalityAdapter.adapt(listOf(tr, user))
 
-        // 末条是 User, 不是 ToolResult → 透传
-        assertEquals(listOf(tr, user), out)
+        // 所有含 media 的 ToolResult 都会被拆分，不再区分是否末尾
+        // tr (Image+Http) → text-only ToolResult + synthetic User(Image)
+        assertEquals(3, out.size)
+        assertTrue(out[0] is ChatMessage.ToolResult)
+        assertTrue((out[0] as ChatMessage.ToolResult).parts.all { it is ContentPart.Text })
+        assertTrue(out[1] is ChatMessage.User)
+        assertEquals(user, out[2])
     }
 }
