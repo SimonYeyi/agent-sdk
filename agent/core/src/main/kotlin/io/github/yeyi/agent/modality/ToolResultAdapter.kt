@@ -3,7 +3,7 @@ package io.github.yeyi.agent.modality
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 
-internal object ToolResultModalityAdapter {
+internal class ToolResultAdapter {
     /**
      * 遍历 messages，把所有含 media 的 [ChatMessage.ToolResult] 拆成
      * text-only ToolResult + 合成 User；其余消息原样返回。
@@ -23,7 +23,7 @@ internal object ToolResultModalityAdapter {
 
 /**
  * 把含 media 的 [ChatMessage.ToolResult] 拆成 text-only ToolResult + 合成的 User。
- * file-private extension —— 仅被 [ToolResultModalityAdapter.adapt] 使用,
+ * file-private extension —— 仅被 [ToolResultAdapter.adapt] 使用,
  * 不暴露给其他 caller。
  */
 private fun ChatMessage.ToolResult.adaptModality(): List<ChatMessage> {

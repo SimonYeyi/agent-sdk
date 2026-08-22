@@ -6,7 +6,7 @@ import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.memory.MediaArchive
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import io.github.yeyi.agent.modality.ModalityAdapter
-import io.github.yeyi.agent.modality.ToolResultModalityAdapter
+import io.github.yeyi.agent.modality.ToolResultAdapter
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -17,7 +17,7 @@ import kotlin.test.assertTrue
  * 三组测试, 分别覆盖:
  * - [ModalityAdapter.archive]: write 边 Data → Local(阈值规则)
  * - [DefaultModalityAdapter.resolve]: read 边 Local → Data(只对末条 User)
- * - [ToolResultModalityAdapter.adapt]: 末条 ToolResult 拆 text + 合成 User
+ * - [ToolResultAdapter.adapt]: 所有 ToolResult 含 media 时拆 text + 合成 User
  */
 class ModalityAdapterTest {
 
@@ -242,7 +242,7 @@ class ModalityAdapterTest {
         }
     }
 
-    // ───────── ToolResultModalityAdapter.adapt() — 拆 ToolResult ─────────
+    // ───────── ToolResultAdapter.adapt() — 拆 ToolResult ─────────
 
     @Test
     fun `adapt last ToolResult with media splits into text-only ToolResult and synthetic User`() = runTest {
@@ -252,7 +252,7 @@ class ModalityAdapterTest {
             parts = listOf(ContentPart.Text("result:"), httpPart),
         )
 
-        val out = ToolResultModalityAdapter.adapt(listOf(tr))
+        val out = ToolResultAdapter().adapt(listOf(tr))
 
         assertEquals(2, out.size)
         // 1. text-only ToolResult
@@ -273,7 +273,7 @@ class ModalityAdapterTest {
             parts = listOf(ContentPart.Text("just text")),
         )
 
-        val out = ToolResultModalityAdapter.adapt(listOf(tr))
+        val out = ToolResultAdapter().adapt(listOf(tr))
 
         assertEquals(1, out.size)
         assertEquals(tr, out[0])
@@ -288,13 +288,14 @@ class ModalityAdapterTest {
         )
         val user = ChatMessage.User(listOf(ContentPart.Text("next")))
 
-        val out = ToolResultModalityAdapter.adapt(listOf(tr, user))
+        val out = ToolResultAdapter().adapt(listOf(tr, user))
 
         // 所有含 media 的 ToolResult 都会被拆分，不再区分是否末尾
         // tr (Image+Http) → text-only ToolResult + synthetic User(Image)
         assertEquals(3, out.size)
         assertTrue(out[0] is ChatMessage.ToolResult)
-        assertTrue((out[0] as ChatMessage.ToolResult).parts.all { it is ContentPart.Text })
+        val textOnlyTr = out[0] as ChatMessage.ToolResult
+        assertTrue(textOnlyTr.parts.all { (it as? ContentPart.Text) != null })
         assertTrue(out[1] is ChatMessage.User)
         assertEquals(user, out[2])
     }

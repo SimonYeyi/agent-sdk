@@ -204,7 +204,7 @@ public data class ToolDefinition(
  * - [ChatMessage.User] / [ChatMessage.ToolResult]:把非 Text part 转成 Text(占位)
  * - 其他类型([ChatMessage.System] / [ChatMessage.Assistant])已经是文本,直接返回
  */
-public fun ChatMessage.toTextMessage(): ChatMessage {
+internal fun ChatMessage.toTextMessage(): ChatMessage {
     fun describeMediaSource(source: MediaSource): String = when (source) {
         is MediaSource.Http -> source.url.substringAfterLast('/')
             .ifEmpty { source.url.take(64) }

@@ -1,8 +1,8 @@
 package io.github.yeyi.agent.modality
 
 import io.github.yeyi.agent.llm.ChatMessage
-import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.MediaSource
+import io.github.yeyi.agent.llm.toTextMessage
 import io.github.yeyi.agent.memory.MediaArchive
 
 /**
@@ -20,7 +20,7 @@ import io.github.yeyi.agent.memory.MediaArchive
  * ## 与 ToolResult 的关系
  *
  * 调用顺序: [resolve] 先执行（把 ToolResult 中的 Local 转 Data），再由
- * [ToolResultModalityAdapter.adapt] 在请求边界把 ToolResult 拆成
+ * [ToolResultAdapter.adapt] 在请求边界把 ToolResult 拆成
  * "text-only ToolResult + 合成 User"。
  *
  * ## archive / resolve 共用 MediaArchive
@@ -35,57 +35,40 @@ import io.github.yeyi.agent.memory.MediaArchive
  * 是为了 (1) 复用 archive 默认实现, (2) 未来加方法不破坏 SAM 契约。
  */
 public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive) {
+    private val archiveAdapter = ArchiveAdapter(mediaArchive)
+    private val resolveAdapter = ResolveAdapter(mediaArchive)
+    private val toolResultAdapter = ToolResultAdapter()
 
     /**
      * Write 边:把 message 内"大的" [MediaSource.Data] 转 [MediaSource.Local] 后返回。
      * 只处理 [ChatMessage.User] 和 [ChatMessage.ToolResult]
-     * 后者由 [ToolResultModalityAdapter] 在请求边界进一步拆出 media;此处只保证落盘形态。
+     * 后者由 [ToolResultAdapter] 在请求边界进一步拆出 media;此处只保证落盘形态。
      *
      * 在 [io.github.yeyi.agent.ReActAgent] 的 `memory.add(...)` 前调用,让 memory 始终持有 Local 引用,
      *
      * @return 原 message(若不含大 Data)或替换过大 Data 为 Local 的 message
      */
-    internal suspend fun archive(message: ChatMessage): ChatMessage = archiveLargeMedia(message)
+    internal suspend fun archive(message: ChatMessage): ChatMessage =
+        archiveAdapter.archive(message)
 
     /**
      * Read 边:把 messages 渲染成"可直接喂 LLM"的形态 — 把 [MediaSource.Local]
      * 还原成 LLM 能消费的形式(Data / 占位文本等)，具体策略由实现选择。
-     *
      */
-    public abstract suspend fun resolve(messages: List<ChatMessage>): List<ChatMessage>
-
-    private suspend fun archiveLargeMedia(message: ChatMessage): ChatMessage = when (message) {
-        is ChatMessage.User -> message.copy(
-            parts = message.parts.map { archiveIfLarge(it) },
-        )
-
-        is ChatMessage.ToolResult -> message.copy(
-            parts = message.parts.map { archiveIfLarge(it) },
-        )
-
-        else -> message
-    }
-
-    private suspend fun archiveIfLarge(part: ContentPart): ContentPart {
-        val src: MediaSource? = when (part) {
-            is ContentPart.Image -> part.source
-            is ContentPart.Audio -> part.source
-            is ContentPart.Video -> part.source
-            is ContentPart.Text -> null
+    internal suspend fun resolve(messages: List<ChatMessage>): List<ChatMessage> {
+        return resolve(messages) { message, visible ->
+            if (visible) resolveAdapter.resolve(message) else message.toTextMessage()
+        }.run {
+            toolResultAdapter.adapt(this)
         }
-        return if (src is MediaSource.Data && src.base64.length > ARCHIVE_THRESHOLD) {
-            @Suppress("KotlinConstantConditions")
-            when (part) {
-                is ContentPart.Image -> part.copy(source = mediaArchive.store(src))
-                is ContentPart.Audio -> part.copy(source = mediaArchive.store(src))
-                is ContentPart.Video -> part.copy(source = mediaArchive.store(src))
-                is ContentPart.Text -> part
-            }
-        } else part
     }
 
-    private companion object {
-        /** base64 长度阈值 (≈ 768B 原始字节)。 */
-        const val ARCHIVE_THRESHOLD: Int = 1024
+    protected abstract suspend fun resolve(
+        messages: List<ChatMessage>,
+        resolver: Resolver
+    ): List<ChatMessage>
+
+    public fun interface Resolver {
+        public suspend fun resolve(message: ChatMessage, visible: Boolean): ChatMessage
     }
 }

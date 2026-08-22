@@ -14,7 +14,6 @@ import io.github.yeyi.agent.memory.ReadOnlyMemory
 import io.github.yeyi.agent.memory.RoundsBoundedMemory
 import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.modality.ModalityAdapter
-import io.github.yeyi.agent.modality.ToolResultModalityAdapter
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolContext
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -208,7 +207,7 @@ public class ReActAgent internal constructor(
     }
 
     private suspend fun buildRequest(): ChatRequest {
-        val messages = ToolResultModalityAdapter.adapt(modalityAdapter.resolve(memory.history()))
+        val messages = modalityAdapter.resolve(memory.history())
         return ChatRequest(
             messages = buildList {
                 add(ChatMessage.System(persona.toString()))
