@@ -5,19 +5,19 @@ import io.github.yeyi.agent.llm.ContentPart
 
 internal object ToolResultModalityAdapter {
     /**
-     * 若末条是 [ChatMessage.ToolResult], 拆成 text-only ToolResult + 合成 User;
-     * 否则原样返回 — 避免无谓的 toMutableList 拷贝。
+     * 遍历 messages，把所有含 media 的 [ChatMessage.ToolResult] 拆成
+     * text-only ToolResult + 合成 User；其余消息原样返回。
      *
      * 只在请求边界做这个拆分, memory 始终保留原始多模态信息。
      */
     fun adapt(messages: List<ChatMessage>): List<ChatMessage> {
-        if (messages.lastOrNull() !is ChatMessage.ToolResult) return messages
-        val mutable = messages.toMutableList()
-        val lastIdx = mutable.lastIndex
-        val modalityMessages = (mutable[lastIdx] as ChatMessage.ToolResult).adaptModality()
-        mutable.removeAt(lastIdx)
-        mutable.addAll(modalityMessages)
-        return mutable
+        return messages.flatMap {
+            if (it is ChatMessage.ToolResult) {
+                it.adaptModality()
+            } else {
+                listOf(it)
+            }
+        }
     }
 }
 
