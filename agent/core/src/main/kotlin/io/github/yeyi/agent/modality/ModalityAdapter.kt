@@ -31,8 +31,7 @@ import io.github.yeyi.agent.memory.MediaArchive
  * ## 为什么是 abstract class 而非 interface
  *
  * [archive] 是通用逻辑(Data→Local 阈值规则共享),放基类避免每个实现重写;
- * [resolve] 因策略差异大,留给子类。abstract class 而非 `fun interface`
- * 是为了 (1) 复用 archive 默认实现, (2) 未来加方法不破坏 SAM 契约。
+ * [resolve] 因策略差异大,留给子类。
  */
 public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive) {
     private val archiveAdapter = ArchiveAdapter(mediaArchive)
@@ -52,8 +51,14 @@ public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive) 
         archiveAdapter.archive(message)
 
     /**
-     * Read 边:把 messages 渲染成"可直接喂 LLM"的形态 — 把 [MediaSource.Local]
-     * 还原成 LLM 能消费的形式(Data / 占位文本等)，具体策略由实现选择。
+     * Read 边:把 messages 渲染成"可直接喂 LLM"的形态。
+     *
+     * 流程:先调用子类 [resolve](messages, resolver) 处理每条消息(Local→Data 或占位),
+     * 再由 [ToolResultAdapter] 把含 media 的 [ChatMessage.ToolResult] 拆成
+     * text-only ToolResult + 合成的 [ChatMessage.User]。
+     *
+     * @param messages memory 中的消息(按时间顺序)
+     * @return 处理后的消息列表
      */
     internal suspend fun resolve(messages: List<ChatMessage>): List<ChatMessage> {
         return resolve(messages) { message, visible ->
@@ -63,12 +68,31 @@ public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive) 
         }
     }
 
+    /**
+     * 把 [messages] 渲染成"可直接喂 LLM"的形态。
+     *
+     * **契约**:实现必须对 [messages] 中**每一个**元素调用一次 [resolver],
+     * 并按原顺序组成新列表返回 — 不允许跳过、合并或重排。
+     *
+     * @param messages memory 中的消息(按时间顺序)
+     * @param resolver 每条消息的处理入口,封装了基于 `visible` 解码(Local→Data)/占位的处理
+     * @return 处理后的消息列表,长度等于 [messages].size
+     */
     protected abstract suspend fun resolve(
         messages: List<ChatMessage>,
         resolver: Resolver
     ): List<ChatMessage>
 
     public fun interface Resolver {
+        /**
+         * 对单条消息应用 resolve 策略。
+         *
+         * @param message 待处理的消息
+         * @param visible 是否"可见":
+         *  - `true`: 解码 Local→Data,供 LLM 直接消费 media
+         *  - `false`: 不解码,把消息转为占位文本(让模型仍知道历史上有 media)
+         * @return 处理后的消息
+         */
         public suspend fun resolve(message: ChatMessage, visible: Boolean): ChatMessage
     }
 }

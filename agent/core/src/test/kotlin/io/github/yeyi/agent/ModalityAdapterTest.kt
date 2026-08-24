@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
 /**
  * 三组测试, 分别覆盖:
  * - [ModalityAdapter.archive]: write 边 Data → Local(阈值规则)
- * - [DefaultModalityAdapter.resolve]: read 边 Local → Data(只对末条 User)
+ * - [DefaultModalityAdapter.resolve]: read 边 Local → Data(末轮消息可见)
  * - [ToolResultAdapter.adapt]: 所有 ToolResult 含 media 时拆 text + 合成 User
  */
 class ModalityAdapterTest {
@@ -131,7 +131,7 @@ class ModalityAdapterTest {
         assertEquals(0, archive.storeCount)
     }
 
-    // ───────── resolve() — read 边 Local → Data(只对末条 User) ─────────
+    // ───────── resolve() — read 边 Local → Data(末轮消息可见) ─────────
 
     @Test
     fun `resolve last User with Local resolves to Text ref plus Data`() = runTest {
@@ -180,6 +180,84 @@ class ModalityAdapterTest {
         val ph = crossRound.parts[0] as ContentPart.Text
         assertTrue(ph.text.startsWith("[image] local fileId=550e8400"))
         assertEquals(0, archive.resolveCount)  // 跨 round 不读盘
+    }
+
+    @Test
+    fun `resolve last-round ToolResult with Local gets resolved to Data and split`() = runTest {
+        // resolve() 内部在 subclass resolve 之后还会跑 toolResultAdapter.adapt(),
+        // 所以末轮 ToolResult 最终输出是 text-only TR + synthetic User,
+        // synthetic User 内的 Image 应是已 resolve 的 Data(走完 Local → Data 全链路)
+        val archive = SpyArchive(backing = mutableMapOf("550e8400..." to "BASE64BYTES"))
+        val adapter = DefaultModalityAdapter(archive)
+        val local = MediaSource.Local("550e8400...", "image/jpeg")
+        val messages = listOf(
+            ChatMessage.User(listOf(ContentPart.Text("old"))),                // 跨 round, 占位
+            ChatMessage.User(listOf(ContentPart.Text("current"))),             // last User
+            ChatMessage.Assistant("thought"),                                  // 末轮 Assistant, 透传
+            ChatMessage.ToolResult(
+                toolCallId = "c1",
+                toolName = "fetch",
+                parts = listOf(ContentPart.Image(local)),
+            ),
+        )
+
+        val out = adapter.resolve(messages)
+
+        // 全链路后: 5 条 (User 占位, User 透传, Assistant 透传, textOnly TR, synthetic User)
+        assertEquals(5, out.size)
+        assertEquals(ContentPart.Text("old"), (out[0] as ChatMessage.User).parts.single())
+        assertEquals(ContentPart.Text("current"), (out[1] as ChatMessage.User).parts.single())
+        assertEquals(ChatMessage.Assistant("thought"), out[2])
+
+        // textOnly TR: 原 Image 已剥离, 只剩 [local] fileId 文本 part
+        val textOnlyTr = out[3] as ChatMessage.ToolResult
+        assertEquals(1, textOnlyTr.parts.size)
+        assertEquals(
+            "[local] fileId=550e8400...",
+            (textOnlyTr.parts.single() as ContentPart.Text).text,
+        )
+
+        // synthetic User 拿到 resolved Data — 证明 resolve 链路打通了
+        val synthetic = out[4] as ChatMessage.User
+        assertEquals(2, synthetic.parts.size)
+        assertEquals("[from fetch]", (synthetic.parts[0] as ContentPart.Text).text)
+        val data = (synthetic.parts[1] as ContentPart.Image).source as MediaSource.Data
+        assertEquals("BASE64BYTES", data.base64)
+        assertEquals(1, archive.resolveCount)
+    }
+
+    @Test
+    fun `resolve cross-round ToolResult with Local gets placeholdered`() = runTest {
+        // 跨 round ToolResult(在 last User 之前)的 Local 转占位文本, 不读盘
+        val archive = SpyArchive()
+        val adapter = DefaultModalityAdapter(archive)
+        val local = MediaSource.Local(
+            fileId = "550e8400-e29b-41d4-a716-446655440000",
+            mimeType = "image/jpeg",
+        )
+        val messages = listOf(
+            ChatMessage.User(listOf(ContentPart.Text("first"))),
+            ChatMessage.ToolResult(
+                toolCallId = "old",
+                toolName = "fetch",
+                parts = listOf(ContentPart.Text("old result:"), ContentPart.Image(local)),
+            ),
+            ChatMessage.User(listOf(ContentPart.Text("current"))),  // last User
+        )
+
+        val out = adapter.resolve(messages)
+
+        // 跨 round ToolResult(1): text 保留, Image 转占位文本 (走 toTextMessage)
+        val tr = out[1] as ChatMessage.ToolResult
+        assertEquals(2, tr.parts.size)
+        assertEquals("old result:", (tr.parts[0] as ContentPart.Text).text)
+        val placeholder = (tr.parts[1] as ContentPart.Text).text
+        assertTrue(
+            placeholder.startsWith("[image] local fileId=550e8400"),
+            "expected image placeholder, got: $placeholder",
+        )
+        // 跨 round 不触发 MediaArchive.resolve
+        assertEquals(0, archive.resolveCount)
     }
 
     @Test
