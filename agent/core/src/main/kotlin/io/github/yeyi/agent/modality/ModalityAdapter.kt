@@ -34,6 +34,7 @@ import io.github.yeyi.agent.memory.MediaArchive
  * [resolve] 因策略差异大,留给子类。
  */
 public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive) {
+    private val freshDataState = FreshDataState()
     private val archiveAdapter = ArchiveAdapter(mediaArchive)
     private val resolveAdapter = ResolveAdapter(mediaArchive)
     private val toolResultAdapter = ToolResultAdapter()
@@ -48,21 +49,23 @@ public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive) 
      * @return 原 message(若不含大 Data)或替换过大 Data 为 Local 的 message
      */
     internal suspend fun archive(message: ChatMessage): ChatMessage =
-        archiveAdapter.archive(message)
+        archiveAdapter.archive(message, freshDataState)
 
     /**
      * Read 边:把 messages 渲染成"可直接喂 LLM"的形态。
      *
-     * 流程:先调用子类 [resolve](messages, resolver) 处理每条消息(Local→Data 或占位),
-     * 再由 [ToolResultAdapter] 把含 media 的 [ChatMessage.ToolResult] 拆成
+     * 流程:先 [FreshDataState.consume] 拿到同轮 archive 写入的 fileId → Data 快照并清空,
+     * 再调用子类 [resolve](messages, resolver) 处理每条消息(Local→Data 或占位),
+     * 最后由 [ToolResultAdapter] 把含 media 的 [ChatMessage.ToolResult] 拆成
      * text-only ToolResult + 合成的 [ChatMessage.User]。
      *
      * @param messages memory 中的消息(按时间顺序)
      * @return 处理后的消息列表
      */
     internal suspend fun resolve(messages: List<ChatMessage>): List<ChatMessage> {
+        val snapshot = freshDataState.consume()
         return resolve(messages) { message, visible ->
-            if (visible) resolveAdapter.resolve(message) else message.toTextMessage()
+            if (visible) resolveAdapter.resolve(message, snapshot) else message.toTextMessage()
         }.run {
             toolResultAdapter.adapt(this)
         }
@@ -94,5 +97,19 @@ public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive) 
          * @return 处理后的消息
          */
         public suspend fun resolve(message: ChatMessage, visible: Boolean): ChatMessage
+    }
+}
+
+internal class FreshDataState {
+    private val map: MutableMap<String, MediaSource.Data> = mutableMapOf()
+
+    fun record(fileId: String, data: MediaSource.Data) {
+        map[fileId] = data
+    }
+
+    fun consume(): Map<String, MediaSource.Data> {
+        val snapshot = map.toMap()
+        map.clear()
+        return snapshot
     }
 }

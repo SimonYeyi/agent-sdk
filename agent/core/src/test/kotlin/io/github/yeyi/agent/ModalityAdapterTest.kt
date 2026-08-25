@@ -320,6 +320,81 @@ class ModalityAdapterTest {
         }
     }
 
+    // ───────── freshData 缓冲 — 同轮 archive→resolve 命中 ─────────
+
+    @Test
+    fun `resolve Local from same-turn archive hits freshData without media archive resolve`() = runTest {
+        val archive = SpyArchive()
+        val adapter = DefaultModalityAdapter(archive)
+        val fresh = MediaSource.Data("image/jpeg", "X".repeat(2048))
+        val archived = adapter.archive(ChatMessage.User(listOf(ContentPart.Image(fresh)))) as ChatMessage.User
+        val fileId = ((archived.parts.single() as ContentPart.Image).source as MediaSource.Local).fileId
+
+        // resolve 同一轮内, freshData 命中, MediaArchive.resolve 不该被调
+        val out = adapter.resolve(listOf(archived))
+        assertEquals(0, archive.resolveCount)
+        assertEquals(1, archive.storeCount)
+
+        // 拿到的是 fresh Data, 而不是 SpyArchive backing 的默认值
+        val user = out[0] as ChatMessage.User
+        assertEquals(2, user.parts.size)
+        assertEquals("[local] fileId=$fileId", (user.parts[0] as ContentPart.Text).text)
+        val resolved = (user.parts[1] as ContentPart.Image).source as MediaSource.Data
+        assertEquals("X".repeat(2048), resolved.base64)
+    }
+
+    @Test
+    fun `freshData accumulates across multiple archive calls before resolve`() = runTest {
+        val archive = SpyArchive()
+        // 全 visible adapter: 一次 resolve 同时验证多个 freshData entry 都命中
+        val adapter = object : ModalityAdapter(archive) {
+            override suspend fun resolve(
+                messages: List<ChatMessage>,
+                resolver: ModalityAdapter.Resolver,
+            ): List<ChatMessage> = messages.map { resolver.resolve(it, true) }
+        }
+
+        val d1 = "X".repeat(2048)
+        val d2 = "Y".repeat(2048)
+        val a1 = adapter.archive(
+            ChatMessage.User(listOf(ContentPart.Image(MediaSource.Data("image/jpeg", d1)))),
+        ) as ChatMessage.User
+        val a2 = adapter.archive(
+            ChatMessage.User(listOf(ContentPart.Image(MediaSource.Data("image/png", d2)))),
+        ) as ChatMessage.User
+
+        assertEquals(2, archive.storeCount)
+
+        // 一次 resolve 处理两条消息, freshData 两个 entry 都命中
+        val out = adapter.resolve(listOf(a1, a2))
+
+        assertEquals(0, archive.resolveCount)
+        val r1 = ((out[0] as ChatMessage.User).parts[1] as ContentPart.Image).source as MediaSource.Data
+        val r2 = ((out[1] as ChatMessage.User).parts[1] as ContentPart.Image).source as MediaSource.Data
+        assertEquals(d1, r1.base64)
+        assertEquals(d2, r2.base64)
+    }
+
+    @Test
+    fun `resolve falls back to media archive resolve on next turn after freshData cleared`() = runTest {
+        val archive = SpyArchive()
+        val adapter = DefaultModalityAdapter(archive)
+        val original = "X".repeat(2048)
+        val archived = adapter.archive(
+            ChatMessage.User(listOf(ContentPart.Image(MediaSource.Data("image/jpeg", original)))),
+        ) as ChatMessage.User
+
+        // Turn 1: resolve 命中 freshData, MediaArchive.resolve 不该被调
+        adapter.resolve(listOf(archived))
+        assertEquals(0, archive.resolveCount)
+
+        // Turn 2: freshData 已 clear, 走 MediaArchive.resolve 兜底
+        val out = adapter.resolve(listOf(archived))
+        assertEquals(1, archive.resolveCount)
+        val data = ((out[0] as ChatMessage.User).parts[1] as ContentPart.Image).source as MediaSource.Data
+        assertEquals(original, data.base64)
+    }
+
     // ───────── ToolResultAdapter.adapt() — 拆 ToolResult ─────────
 
     @Test
