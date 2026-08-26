@@ -10,8 +10,9 @@ import kotlinx.serialization.json.JsonElement
  * - [StdioTransport]: For local subprocess servers (communicates via stdin/stdout)
  * - [SseTransport]: For remote servers using Streamable HTTP (MCP 2025-06-18)
  *
- * The JSON-RPC message types [JsonRpcRequest] / [JsonRpcResponse] are
- * declared in `McpServer.kt` alongside the rest of the protocol contract.
+ * The JSON-RPC message types [JsonRpcRequest] / [JsonRpcResponse] /
+ * [JsonRpcNotification] are declared in `McpServer.kt` alongside the rest
+ * of the protocol contract.
  */
 public interface McpTransport {
 

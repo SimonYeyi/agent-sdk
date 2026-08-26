@@ -278,8 +278,10 @@ public data class JsonRpcResponse<T>(
 )
 
 /**
- * JSON-RPC 2.0 notification message — server-to-client one-way message
- * with no `id` and no response expected.
+ * JSON-RPC 2.0 notification message — a one-way message with no `id` and
+ * no response expected. Used in both directions: client → server for
+ * `notifications/initialized`, `notifications/cancelled`; server → client
+ * for `notifications/tools/list_changed` etc.
  *
  * The [params] type parameter carries the notification payload; callers
  * decode to the typed structure via [kotlinx.serialization.json.decodeFromJsonElement].

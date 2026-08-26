@@ -95,7 +95,7 @@ public class SseTransport(
         try {
             val response: HttpResponse = httpClient.post(endpoint) {
                 contentType(ContentType.Application.Json)
-                withCommHeaders()
+                withCommonHeaders()
                 header(
                     HttpHeaders.Accept,
                     "${ContentType.Application.Json}, ${ContentType.Text.EventStream}"
@@ -130,7 +130,7 @@ public class SseTransport(
 
         httpClient.post(endpoint) {
             contentType(ContentType.Application.Json)
-            withCommHeaders()
+            withCommonHeaders()
             header(
                 HttpHeaders.Accept,
                 "${ContentType.Application.Json}, ${ContentType.Text.EventStream}"
@@ -159,7 +159,7 @@ public class SseTransport(
                 try {
                     val response: HttpResponse = httpClient.get(endpoint) {
                         accept(ContentType.Text.EventStream)
-                        withCommHeaders()
+                        withCommonHeaders()
                         header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
                         sessionId?.let { header(Defaults.MCP_SESSION_ID_HEADER, it) }
                     }
@@ -270,7 +270,7 @@ public class SseTransport(
         return response
     }
 
-    private fun HttpMessageBuilder.withCommHeaders() {
+    private fun HttpMessageBuilder.withCommonHeaders() {
         httpHeaders?.forEach { header(it.key, it.value) }
     }
 }
