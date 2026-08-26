@@ -14,6 +14,7 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMessageBuilder
 import io.ktor.http.contentType
+import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readUTF8Line
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -32,6 +33,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.jsonObject
 
 /**
  * Transport implementation using the MCP 2025-06-18 Streamable HTTP transport.
@@ -114,7 +116,7 @@ public class SseTransport(
             val contentType = response.contentType()
             return if (contentType != null && ContentType.Text.EventStream.match(contentType)) {
                 val channel = response.bodyAsChannel()
-                readSseEvents(channel, request.id)!!
+                readSseEvents(channel) ?: throw IllegalStateException("SSE stream closed without returning a response")
             } else {
                 val bodyText = response.bodyAsText()
                 parseJsonResponse(bodyText, request.id)
@@ -178,60 +180,39 @@ public class SseTransport(
         }
     }
 
-    private suspend fun readSseEvents(
-        channel: io.ktor.utils.io.ByteReadChannel,
-        expectedId: Int? = null
-    ): JsonRpcResponse<JsonElement>? {
+    private suspend fun readSseEvents(channel: ByteReadChannel): JsonRpcResponse<JsonElement>? {
         val currentEvent = StringBuilder()
 
         while (!channel.isClosedForRead) {
             val line = channel.readUTF8Line() ?: break
 
             if (line.isEmpty()) {
-                if (currentEvent.isNotEmpty()) {
-                    val result = processSseEvent(currentEvent.toString(), expectedId)
-                    if (result != null) return result
-                    currentEvent.clear()
-                }
+                val result = processSseEvent(currentEvent.toString())
+                if (result != null) return result
+                currentEvent.clear()
             } else {
                 if (currentEvent.isNotEmpty()) currentEvent.append('\n')
                 currentEvent.append(line)
             }
         }
 
-        if (currentEvent.isNotEmpty()) {
-            val result = processSseEvent(currentEvent.toString(), expectedId)
-            if (result != null) return result
-        }
-
-        if (expectedId != null) {
-            throw RuntimeException("SSE response stream ended without finding response for id $expectedId")
-        }
-        return null
+        return processSseEvent(currentEvent.toString())
     }
 
-    private fun processSseEvent(raw: String, expectedId: Int?): JsonRpcResponse<JsonElement>? {
+    private fun processSseEvent(raw: String): JsonRpcResponse<JsonElement>? {
         val parsed = SseEventParser.parse(raw) ?: return null
         if (parsed.data.isEmpty()) return null
-        val element =
-            runCatching { json.parseToJsonElement(parsed.data) }.getOrNull() ?: return null
-        val obj = element as? JsonObject ?: return null
+        val obj = json.parseToJsonElement(parsed.data).jsonObject
 
         when {
-            obj["method"] != null && obj["id"] == null -> {
+            obj["id"] == null -> {
                 val notification = json.decodeFromJsonElement<JsonRpcNotification<JsonElement>>(obj)
                 notificationsSharedFlow.tryEmit(notification)
                 return null
             }
 
             else -> {
-                val response =
-                    runCatching { json.decodeFromJsonElement<JsonRpcResponse<JsonElement>>(obj) }.getOrNull()
-                        ?: return null
-                if (expectedId != null && response.id != expectedId) {
-                    throw RuntimeException("MCP response ID mismatch: expected $expectedId, got ${response.id}")
-                }
-                return response
+                return json.decodeFromJsonElement<JsonRpcResponse<JsonElement>>(obj)
             }
         }
     }
