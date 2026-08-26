@@ -37,7 +37,7 @@ public interface McpTransport {
      * Used for one-way messages such as `notifications/initialized`,
      * `notifications/cancelled`, and `notifications/tools/list_changed`.
      */
-    public suspend fun sendNotification(request: JsonRpcRequest<JsonElement>)
+    public suspend fun sendNotification(notification: JsonRpcNotification<JsonElement>)
 
     /**
      * Release all resources held by this transport.

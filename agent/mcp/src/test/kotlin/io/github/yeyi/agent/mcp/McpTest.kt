@@ -102,7 +102,7 @@ class McpTest {
             }
         }
 
-        override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) = Unit
+        override suspend fun sendNotification(notification: JsonRpcNotification<JsonElement>) = Unit
         override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
         override suspend fun close() = Unit
     }
@@ -148,7 +148,7 @@ class McpTest {
             }
         }
 
-        override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) = Unit
+        override suspend fun sendNotification(notification: JsonRpcNotification<JsonElement>) = Unit
         override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
         override suspend fun close() = Unit
     }
@@ -310,7 +310,7 @@ class McpTest {
             override val description: String = "d"
             override val client: McpClient = McpClient(object : McpTransport {
                 override suspend fun send(request: JsonRpcRequest<JsonElement>) = error("not used")
-                override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) = Unit
+                override suspend fun sendNotification(notification: JsonRpcNotification<JsonElement>) = Unit
                 override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
                 override suspend fun close() { closed += name }
             })

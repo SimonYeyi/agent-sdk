@@ -136,8 +136,7 @@ public class McpClient(override val transport: McpTransport) : McpServer {
 
         // Send the initialized notification as the final handshake step.
         val notificationParams = json.encodeToJsonElement(serializer<EmptyParams>(), EmptyParams)
-        val notification = JsonRpcRequest<JsonElement>(
-            id = 0,
+        val notification = JsonRpcNotification(
             method = McpMethods.NOTIFICATIONS_INITIALIZED,
             params = notificationParams,
         )

@@ -287,7 +287,7 @@ public data class JsonRpcResponse<T>(
  */
 @Serializable
 public data class JsonRpcNotification<T>(
-    val jsonrpc: String,
+    val jsonrpc: String = "2.0",
     val method: String,
     val params: T? = null,
 )

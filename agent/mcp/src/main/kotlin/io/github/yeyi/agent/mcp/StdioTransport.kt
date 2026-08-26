@@ -75,6 +75,63 @@ public class StdioTransport(
         extraBufferCapacity = 64,
     )
 
+    override val notifications: Flow<JsonRpcNotification<JsonElement>> =
+        notificationsSharedFlow.asSharedFlow()
+
+    override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
+        // The id is provided by the caller (McpClient). Transport
+        // does not allocate IDs; it merely forwards the request and matches
+        // the response back to the caller-provided id.
+        val id = request.id
+
+        val requestLine = json.encodeToString(request)
+
+        return try {
+            withContext(Dispatchers.IO) {
+                ensureStarted()
+                requestMutex.withLock {
+                    val writer = stdinWriter
+                        ?: throw RuntimeException("MCP server process not started")
+                    val reader = stdoutReader
+                        ?: throw RuntimeException("MCP server process not started")
+
+                    try {
+                        withTimeout(requestTimeoutMillis) {
+                            writer.write(requestLine)
+                            writer.newLine()
+                            writer.flush()
+
+                            readResponseWithNotifications(reader, id)
+                        }
+                    } catch (e: TimeoutCancellationException) {
+                        throw RuntimeException(
+                            "MCP request timed out after ${requestTimeoutMillis}ms", e
+                        )
+                    }
+                }
+            }
+        } catch (e: CancellationException) {
+            // Caller (e.g. Agent loop) cancelled this request. Per MCP spec
+            // we should send notifications/cancelled so the server can free
+            // its in-flight resources, then propagate the cancellation.
+            notifyCancelledAsync(id)
+            throw e
+        }
+    }
+
+    override suspend fun sendNotification(notification: JsonRpcNotification<JsonElement>) {
+        withContext(Dispatchers.IO) {
+            ensureStarted()
+            requestMutex.withLock {
+                val writer = stdinWriter
+                    ?: throw RuntimeException("MCP server process not started")
+                writer.write(json.encodeToString(notification))
+                writer.newLine()
+                writer.flush()
+            }
+        }
+    }
+
     private suspend fun ensureStarted() = startMutex.withLock {
         if (process?.isAlive != true) {
             startProcess()
@@ -125,63 +182,6 @@ public class StdioTransport(
         }
     }
 
-    override val notifications: Flow<JsonRpcNotification<JsonElement>> =
-        notificationsSharedFlow.asSharedFlow()
-
-    override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
-        // The id is provided by the caller (McpClient). Transport
-        // does not allocate IDs; it merely forwards the request and matches
-        // the response back to the caller-provided id.
-        val id = request.id
-
-        val requestLine = json.encodeToString(request)
-
-        return try {
-            withContext(Dispatchers.IO) {
-                ensureStarted()
-                requestMutex.withLock {
-                    val writer = stdinWriter
-                        ?: throw RuntimeException("MCP server process not started")
-                    val reader = stdoutReader
-                        ?: throw RuntimeException("MCP server process not started")
-
-                    try {
-                        withTimeout(requestTimeoutMillis) {
-                            writer.write(requestLine)
-                            writer.newLine()
-                            writer.flush()
-
-                            readResponseWithNotifications(reader, id)
-                        }
-                    } catch (e: TimeoutCancellationException) {
-                        throw RuntimeException(
-                            "MCP request timed out after ${requestTimeoutMillis}ms", e
-                        )
-                    }
-                }
-            }
-        } catch (e: CancellationException) {
-            // Caller (e.g. Agent loop) cancelled this request. Per MCP spec
-            // we should send notifications/cancelled so the server can free
-            // its in-flight resources, then propagate the cancellation.
-            notifyCancelledAsync(id)
-            throw e
-        }
-    }
-
-    override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) {
-        withContext(Dispatchers.IO) {
-            ensureStarted()
-            requestMutex.withLock {
-                val writer = stdinWriter
-                    ?: throw RuntimeException("MCP server process not started")
-                writer.write(json.encodeToString(request))
-                writer.newLine()
-                writer.flush()
-            }
-        }
-    }
-
     private fun notifyCancelledAsync(requestId: Int) {
         val params = CancelledNotificationParams(requestId)
         val paramsElement =
@@ -189,8 +189,7 @@ public class StdioTransport(
         cancellationScope.launch {
             runCatching {
                 sendNotification(
-                    JsonRpcRequest(
-                        id = 0,
+                    JsonRpcNotification(
                         method = McpMethods.NOTIFICATIONS_CANCELLED,
                         params = paramsElement,
                     )

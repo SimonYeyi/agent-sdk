@@ -110,8 +110,8 @@ public class LocalTransport(private val localServer: McpServer) : McpTransport {
         )
     }
 
-    override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) {
-        localServer.transport.sendNotification(request)
+    override suspend fun sendNotification(notification: JsonRpcNotification<JsonElement>) {
+        localServer.transport.sendNotification(notification)
     }
 
     override suspend fun close() {
@@ -145,7 +145,7 @@ public class LocalTransport(private val localServer: McpServer) : McpTransport {
          */
         public fun forServer(
             notifications: Flow<JsonRpcNotification<JsonElement>> = flow { },
-            sendNotification: (request: JsonRpcRequest<JsonElement>) -> Unit = {}
+            sendNotification: (notification: JsonRpcNotification<JsonElement>) -> Unit = {}
         ): McpTransport {
             return object : McpTransport {
                 override val notifications: Flow<JsonRpcNotification<JsonElement>> = notifications
@@ -153,8 +153,8 @@ public class LocalTransport(private val localServer: McpServer) : McpTransport {
                 override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> =
                     throw UnsupportedOperationException()
 
-                override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) =
-                    sendNotification.invoke(request)
+                override suspend fun sendNotification(notification: JsonRpcNotification<JsonElement>) =
+                    sendNotification.invoke(notification)
 
                 override suspend fun close() {}
             }

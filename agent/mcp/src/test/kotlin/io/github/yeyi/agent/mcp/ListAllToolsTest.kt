@@ -46,7 +46,7 @@ class ListAllToolsTest {
             }
         }
 
-        override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) = Unit
+        override suspend fun sendNotification(notification: JsonRpcNotification<JsonElement>) = Unit
         override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
         override suspend fun close() = Unit
     }

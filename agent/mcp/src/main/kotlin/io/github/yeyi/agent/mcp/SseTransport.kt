@@ -125,8 +125,8 @@ public class SseTransport(
         }
     }
 
-    override suspend fun sendNotification(request: JsonRpcRequest<JsonElement>) {
-        val body = json.encodeToString(request)
+    override suspend fun sendNotification(notification: JsonRpcNotification<JsonElement>) {
+        val body = json.encodeToString(notification)
 
         httpClient.post(endpoint) {
             contentType(ContentType.Application.Json)
@@ -243,8 +243,7 @@ public class SseTransport(
         val job = backgroundScope.launch {
             runCatching {
                 sendNotification(
-                    JsonRpcRequest(
-                        id = 0,
+                    JsonRpcNotification(
                         method = McpMethods.NOTIFICATIONS_CANCELLED,
                         params = paramsElement,
                     )
