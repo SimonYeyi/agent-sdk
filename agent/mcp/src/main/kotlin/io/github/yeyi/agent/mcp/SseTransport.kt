@@ -2,6 +2,7 @@ package io.github.yeyi.agent.mcp
 
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.ServerResponseException
+import io.ktor.client.plugins.expectSuccess
 import io.ktor.client.request.accept
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -31,7 +32,6 @@ import kotlinx.coroutines.launch
 import kotlinx.io.IOException
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonObject
 
@@ -65,7 +65,7 @@ public class SseTransport(
     }
 
     private val protocolVersion: String = McpServer.SUPPORTED_PROTOCOL_VERSION
-    private val httpClient = httpClient ?: HttpClient { expectSuccess = true }
+    private val httpClient = httpClient ?: HttpClient()
     private val isDefaultHttpClient = httpClient == null
 
     private val json = Json {
@@ -96,6 +96,7 @@ public class SseTransport(
 
         try {
             val response: HttpResponse = httpClient.post(endpoint) {
+                expectSuccess = true
                 contentType(ContentType.Application.Json)
                 withCommonHeaders()
                 header(
@@ -131,6 +132,7 @@ public class SseTransport(
         val body = json.encodeToString(notification)
 
         httpClient.post(endpoint) {
+            expectSuccess = true
             contentType(ContentType.Application.Json)
             withCommonHeaders()
             header(
@@ -160,6 +162,7 @@ public class SseTransport(
             while (isActive) {
                 try {
                     val response: HttpResponse = httpClient.get(endpoint) {
+                        expectSuccess = true
                         accept(ContentType.Text.EventStream)
                         withCommonHeaders()
                         header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
