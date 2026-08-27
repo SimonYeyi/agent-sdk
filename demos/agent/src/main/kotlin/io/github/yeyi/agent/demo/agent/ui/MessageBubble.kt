@@ -71,7 +71,7 @@ fun MessageBubble(message: UiMessage, modifier: Modifier = Modifier) {
                     .padding(12.dp)
             ) {
                 Text(
-                    "✅ ${message.toolName}: ${message.result.parts.text}",
+                    "${if (message.result.isError) "❌" else "✅"} ${message.toolName}: ${message.result.parts.text}",
                     color = onColor,
                 )
             }
