@@ -82,7 +82,8 @@ public class StdioTransport(
     // In-flight request responses, keyed by the caller-provided request id.
     // Populated by send() before writing the request, drained by the stdout
     // reader when the matching response arrives.
-    private val pendingRequests = ConcurrentHashMap<Int, CompletableDeferred<JsonRpcResponse<JsonElement>>>()
+    private val pendingRequests =
+        ConcurrentHashMap<Int, CompletableDeferred<JsonRpcResponse<JsonElement>>>()
 
     private val notificationsSharedFlow = MutableSharedFlow<JsonRpcNotification<JsonElement>>(
         replay = 0,
@@ -204,7 +205,7 @@ public class StdioTransport(
                         reader.readLine()
                     }
                     if (line == null) {
-                        failAllPending(RuntimeException("MCP server process terminated"))
+                        failAllPending("MCP server process terminated")
                         break
                     }
                     dispatchLine(line)
@@ -232,10 +233,10 @@ public class StdioTransport(
         // Orphan response (id not in pending) — silently drop.
     }
 
-    private fun failAllPending(cause: Throwable) {
+    private fun failAllPending(reason: String) {
         val pending = pendingRequests.values.toList()
         pendingRequests.clear()
-        pending.forEach { it.completeExceptionally(cause) }
+        pending.forEach { it.completeExceptionally(IllegalStateException(reason)) }
     }
 
     private fun notifyCancelledAsync(requestId: Int) {
@@ -283,7 +284,7 @@ public class StdioTransport(
             stdoutReader = null
             stderrReader = null
         }
-        failAllPending(RuntimeException("MCP transport closed"))
+        failAllPending("MCP transport closed")
         cancellationScope.cancel()
     }
 }
