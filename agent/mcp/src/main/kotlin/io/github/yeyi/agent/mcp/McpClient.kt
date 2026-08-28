@@ -138,7 +138,12 @@ public class McpClient(override val transport: McpTransport) : McpServer {
             method = McpMethods.INITIALIZE,
             params = paramsElement,
         )
-        val response = sendWithCancelNotification(request)
+        // Bypass sendWithCancelNotification during the handshake: if this request
+        // is cancelled, sending notifications/cancelled would interfere with the
+        // server's initialize processing. Retry-on-IllegalStateException is also
+        // unnecessary here — transport.send has already disposed the dead process
+        // reference, so the next attempt will naturally hit the startProcess branch.
+        val response = transport.send(request)
         if (response.error != null) {
             throw McpException(response.error.toString())
         }
@@ -172,6 +177,15 @@ public class McpClient(override val transport: McpTransport) : McpServer {
         } catch (e: CancellationException) {
             notifyCancelledIfOpen(request.id)
             throw e
+        } catch (_: IllegalStateException) {
+            // Transport reports a dead/never-started session (e.g. stdio process
+            // crashed mid-life). The cached InitializeResult is stale — the new
+            // process has no init state — so drop it, re-run the handshake, and
+            // retry once. DoInitialize uses transport.send directly to avoid
+            // recursing back into this wrapper.
+            initResult = null
+            initialize()
+            return transport.send(request)
         }
     }
 

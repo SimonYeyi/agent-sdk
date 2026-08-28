@@ -128,9 +128,15 @@ public class StdioTransport(
     }
 
     private suspend fun ensureStarted() = startMutex.withLock {
-        if (process?.isAlive != true) {
-            disposeCurrentProcess()
-            startProcess()
+        val proc = process
+        when {
+            proc == null -> startProcess()
+            !proc.isAlive -> {
+                disposeCurrentProcess()
+                throw IllegalStateException(
+                    "MCP stdio process is no longer alive; caller should reinitialize"
+                )
+            }
         }
     }
 
