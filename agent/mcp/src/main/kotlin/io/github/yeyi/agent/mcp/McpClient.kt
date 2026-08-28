@@ -1,11 +1,18 @@
 package io.github.yeyi.agent.mcp
 
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.serializer
 
 /**
@@ -29,6 +36,18 @@ public class McpClient(override val transport: McpTransport) : McpServer {
     private var initResult: InitializeResult? = null
     private val nextId = java.util.concurrent.atomic.AtomicInteger(1)
 
+    // Set by [close] before tearing down the transport. Used by
+    // [notifyCancelledIfOpen] to suppress notifications/cancelled once the
+    // client has stopped using the wire — the server will discover the
+    // disconnection anyway, and firing one more notification would either
+    // race with close() or, in stdio's case, resurrect a dead subprocess.
+    @Volatile
+    private var closed = false
+
+    // Detached scope so the fire-and-forget notifications/cancelled can be
+    // flushed even after the caller's coroutine has been cancelled.
+    private val cancellationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
@@ -51,7 +70,7 @@ public class McpClient(override val transport: McpTransport) : McpServer {
             method = McpMethods.TOOLS_LIST,
             params = paramsElement,
         )
-        val response = transport.send(request)
+        val response = sendWithCancelNotification(request)
         if (response.error != null) {
             throw McpException(response.error.toString())
         }
@@ -69,7 +88,7 @@ public class McpClient(override val transport: McpTransport) : McpServer {
             params = paramsElement,
         )
 
-        val response = transport.send(rpcRequest)
+        val response = sendWithCancelNotification(rpcRequest)
 
         if (response.error != null) {
             throw McpException(response.error.toString())
@@ -94,11 +113,13 @@ public class McpClient(override val transport: McpTransport) : McpServer {
             method = McpMethods.PING,
             params = paramsElement,
         )
-        val response = transport.send(request)
+        val response = sendWithCancelNotification(request)
         return response.error == null
     }
 
     override suspend fun close() {
+        closed = true
+        cancellationScope.cancel()
         transport.close()
     }
 
@@ -117,7 +138,7 @@ public class McpClient(override val transport: McpTransport) : McpServer {
             method = McpMethods.INITIALIZE,
             params = paramsElement,
         )
-        val response = transport.send(request)
+        val response = sendWithCancelNotification(request)
         if (response.error != null) {
             throw McpException(response.error.toString())
         }
@@ -143,6 +164,29 @@ public class McpClient(override val transport: McpTransport) : McpServer {
         transport.sendNotification(notification)
 
         return result
+    }
+
+    private suspend fun sendWithCancelNotification(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
+        try {
+            return transport.send(request)
+        } catch (e: CancellationException) {
+            notifyCancelledIfOpen(request.id)
+            throw e
+        }
+    }
+
+    private fun notifyCancelledIfOpen(requestId: Int) {
+        if (closed) return
+        cancellationScope.launch {
+            runCatching {
+                transport.sendNotification(
+                    JsonRpcNotification(
+                        method = McpMethods.NOTIFICATIONS_CANCELLED,
+                        params = json.encodeToJsonElement(CancelledNotificationParams(requestId)),
+                    )
+                )
+            }
+        }
     }
 
     private companion object {

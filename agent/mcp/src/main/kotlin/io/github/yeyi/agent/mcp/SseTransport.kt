@@ -17,7 +17,6 @@ import io.ktor.http.HttpMessageBuilder
 import io.ktor.http.contentType
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readUTF8Line
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -79,8 +78,6 @@ public class SseTransport(
 
     private var sseJob: Job? = null
 
-    private val cancellationJobs = mutableListOf<Job>()
-
     private val backgroundScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val notificationsSharedFlow = MutableSharedFlow<JsonRpcNotification<JsonElement>>(
@@ -94,37 +91,28 @@ public class SseTransport(
     override suspend fun send(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
         val body = json.encodeToString(request)
 
-        try {
-            val response: HttpResponse = httpClient.post(endpoint) {
-                expectSuccess = true
-                contentType(ContentType.Application.Json)
-                withCommonHeaders()
-                header(
-                    HttpHeaders.Accept,
-                    "${ContentType.Application.Json}, ${ContentType.Text.EventStream}"
-                )
-                header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
-                sessionId?.let { header(Defaults.MCP_SESSION_ID_HEADER, it) }
-                setBody(body)
-            }
+        val response: HttpResponse = httpClient.post(endpoint) {
+            expectSuccess = true
+            contentType(ContentType.Application.Json)
+            withCommonHeaders()
+            header(
+                HttpHeaders.Accept,
+                "${ContentType.Application.Json}, ${ContentType.Text.EventStream}"
+            )
+            header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
+            sessionId?.let { header(Defaults.MCP_SESSION_ID_HEADER, it) }
+            setBody(body)
+        }
 
-            if (request.method == McpMethods.INITIALIZE && enableNotifications) {
-                startSseConnection()
-            }
+        response.headers[Defaults.MCP_SESSION_ID_HEADER]?.let { sessionId = it }
 
-            response.headers[Defaults.MCP_SESSION_ID_HEADER]?.let { sessionId = it }
-
-            val contentType = response.contentType()
-            return if (contentType != null && ContentType.Text.EventStream.match(contentType)) {
-                val channel = response.bodyAsChannel()
-                readSseEvents(channel) ?: throw IllegalStateException("SSE stream closed without returning a response")
-            } else {
-                val bodyText = response.bodyAsText()
-                parseJsonResponse(bodyText, request.id)
-            }
-        } catch (e: CancellationException) {
-            notifyCancelledAsync(request.id)
-            throw e
+        val contentType = response.contentType()
+        return if (contentType != null && ContentType.Text.EventStream.match(contentType)) {
+            val channel = response.bodyAsChannel()
+            readSseEvents(channel) ?: throw IllegalStateException("SSE stream closed without returning a response")
+        } else {
+            val bodyText = response.bodyAsText()
+            parseJsonResponse(bodyText, request.id)
         }
     }
 
@@ -143,14 +131,15 @@ public class SseTransport(
             sessionId?.let { header(Defaults.MCP_SESSION_ID_HEADER, it) }
             setBody(body)
         }
+
+        if (notification.method == McpMethods.NOTIFICATIONS_INITIALIZED && enableNotifications) {
+            startSseConnection()
+        }
     }
 
     override suspend fun close() {
         sseJob?.cancel()
         sseJob = null
-
-        cancellationJobs.forEach { it.cancel() }
-        cancellationJobs.clear()
 
         backgroundScope.cancel()
 
@@ -216,30 +205,6 @@ public class SseTransport(
 
             else -> {
                 return json.decodeFromJsonElement<JsonRpcResponse<JsonElement>>(obj)
-            }
-        }
-    }
-
-    private fun notifyCancelledAsync(requestId: Int) {
-        val params = CancelledNotificationParams(requestId)
-        val paramsElement =
-            json.encodeToJsonElement(CancelledNotificationParams.serializer(), params)
-        val job = backgroundScope.launch {
-            runCatching {
-                sendNotification(
-                    JsonRpcNotification(
-                        method = McpMethods.NOTIFICATIONS_CANCELLED,
-                        params = paramsElement,
-                    )
-                )
-            }
-        }
-        synchronized(cancellationJobs) {
-            cancellationJobs.add(job)
-        }
-        job.invokeOnCompletion {
-            synchronized(cancellationJobs) {
-                cancellationJobs.remove(job)
             }
         }
     }
