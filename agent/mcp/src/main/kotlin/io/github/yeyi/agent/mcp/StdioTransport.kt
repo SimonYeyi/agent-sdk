@@ -6,7 +6,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -107,10 +106,6 @@ public class StdioTransport(
             return withTimeout(requestTimeoutMillis) {
                 deferred.await()
             }
-        } catch (e: TimeoutCancellationException) {
-            throw RuntimeException(
-                "MCP request timed out after ${requestTimeoutMillis}ms", e
-            )
         } finally {
             pendingRequests.remove(id)
         }
