@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -64,11 +66,13 @@ fun TaskGroupCard(
             onDismissRequest = { showDetail = false },
             title = { Text("任务详情") },
             text = {
-                TaskGroupBody(
-                    groupState = groupState,
-                    createdTime = createdTime,
-                    expanded = true
-                )
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    TaskGroupBody(
+                        groupState = groupState,
+                        createdTime = createdTime,
+                        expanded = true
+                    )
+                }
             },
             confirmButton = {
                 TextButton(onClick = { showDetail = false }) { Text("关闭") }
