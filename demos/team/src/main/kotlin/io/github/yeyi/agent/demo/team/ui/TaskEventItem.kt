@@ -18,34 +18,39 @@ import io.github.yeyi.agent.llm.text
 
 /**
  * Displays a single task event with appropriate icon and content.
+ * When [singleLine] is true (dashboard card), text is truncated to one line with ellipsis.
+ * When false (detail dialog), text wraps freely with no truncation.
  */
 @Composable
 fun TaskEventItem(
     event: AgentEvent,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    singleLine: Boolean = true
 ) {
+    val maxLines = if (singleLine) 1 else Int.MAX_VALUE
+    val overflow = if (singleLine) TextOverflow.Ellipsis else TextOverflow.Clip
     val (icon, color, text) = when (event) {
         is AgentEvent.ToolCallStart -> Triple("⏳", MaterialTheme.colorScheme.primary, "开始: ${event.toolName}")
         is AgentEvent.ToolCallEnd -> {
-            val result = event.result.parts.text.take(50).takeIf { it.isNotEmpty() } ?: "完成"
+            val result = event.result.parts.text.takeIf { it.isNotEmpty() } ?: "完成"
             Triple("✓", MaterialTheme.colorScheme.tertiary, "完成: $result")
         }
         is AgentEvent.Final -> {
             val content = (event.result as? AgentResult)?.message?.content ?: "完成"
             Triple("🏁", MaterialTheme.colorScheme.tertiary, content)
         }
-        is AgentEvent.Failed -> Triple("✗", MaterialTheme.colorScheme.error, "失败: ${event.cause.message?.take(30) ?: "未知错误"}")
+        is AgentEvent.Failed -> Triple("✗", MaterialTheme.colorScheme.error, "失败: ${event.cause.message ?: "未知错误"}")
         is AgentEvent.Initial -> Triple("•", MaterialTheme.colorScheme.secondary, "初始化")
         is AgentEvent.ToolCallExplanation -> Triple("💬", MaterialTheme.colorScheme.secondary, event.text ?: "说明")
         is AgentEvent.TextDelta -> Triple("📝", MaterialTheme.colorScheme.secondary, event.text)
-        else -> Triple("•", MaterialTheme.colorScheme.onSurface, event.toString().take(30))
+        else -> Triple("•", MaterialTheme.colorScheme.onSurface, event.toString())
     }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .padding(start = 16.dp, top = 2.dp, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically
+        verticalAlignment = if (singleLine) Alignment.CenterVertically else Alignment.Top
     ) {
         Text(text = icon, style = MaterialTheme.typography.bodySmall)
         Spacer(modifier = Modifier.width(4.dp))
@@ -53,8 +58,8 @@ fun TaskEventItem(
             text = text,
             style = MaterialTheme.typography.bodySmall,
             color = color,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            maxLines = maxLines,
+            overflow = overflow,
             modifier = Modifier.weight(1f)
         )
     }
