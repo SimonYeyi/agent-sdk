@@ -7,7 +7,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
-import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -21,7 +20,6 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
-import kotlinx.serialization.serializer
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.InputStreamReader
@@ -74,11 +72,6 @@ public class StdioTransport(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
-    // Detached scope used to dispatch notifications/cancelled even after the
-    // caller's coroutine has been cancelled. Survives the caller's lifetime so
-    // the cancel notification can be flushed to the server.
-    private val cancellationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-
     // In-flight request responses, keyed by the caller-provided request id.
     // Populated by send() before writing the request, drained by the stdout
     // reader when the matching response arrives.
@@ -118,9 +111,6 @@ public class StdioTransport(
             throw RuntimeException(
                 "MCP request timed out after ${requestTimeoutMillis}ms", e
             )
-        } catch (e: CancellationException) {
-            notifyCancelledAsync(id)
-            throw e
         } finally {
             pendingRequests.remove(id)
         }
@@ -128,7 +118,6 @@ public class StdioTransport(
 
     override suspend fun sendNotification(notification: JsonRpcNotification<JsonElement>) {
         withContext(Dispatchers.IO) {
-            ensureStarted()
             writeMutex.withLock {
                 val writer = stdinWriter!!
                 writer.write(json.encodeToString(notification))
@@ -239,22 +228,6 @@ public class StdioTransport(
         pending.forEach { it.completeExceptionally(IllegalStateException(reason)) }
     }
 
-    private fun notifyCancelledAsync(requestId: Int) {
-        val params = CancelledNotificationParams(requestId)
-        val paramsElement =
-            json.encodeToJsonElement(serializer<CancelledNotificationParams>(), params)
-        cancellationScope.launch {
-            runCatching {
-                sendNotification(
-                    JsonRpcNotification(
-                        method = McpMethods.NOTIFICATIONS_CANCELLED,
-                        params = paramsElement,
-                    )
-                )
-            }
-        }
-    }
-
     override suspend fun close() {
         withContext(Dispatchers.IO) {
             // Stage 1: close stdin so the server can detect EOF and exit gracefully.
@@ -285,6 +258,5 @@ public class StdioTransport(
             stderrReader = null
         }
         failAllPending("MCP transport closed")
-        cancellationScope.cancel()
     }
 }
