@@ -34,8 +34,8 @@ public abstract class Mcp : Toolset {
     private var delegate: Toolset? = null
 
     /**
-     * MCP 子工具是动态管理的，调用本方法抛 [UnsupportedOperationException]。
-     * 静态子 Tool 集合请直接使用 [io.github.yeyi.agent.toolset.Toolset]。
+     * MCP 成员 Tool 是动态管理的，调用本方法抛 [UnsupportedOperationException]。
+     * 静态成员 Tool 集合请直接使用 [io.github.yeyi.agent.toolset.Toolset]。
      */
     final override fun add(tool: Tool) {
         throw UnsupportedOperationException(
@@ -43,7 +43,7 @@ public abstract class Mcp : Toolset {
         )
     }
 
-    /** MCP 子工具是动态管理的，调用本方法抛 [UnsupportedOperationException]。 */
+    /** MCP 成员 Tool 是动态管理的，调用本方法抛 [UnsupportedOperationException]。 */
     final override fun add(tools: Iterable<Tool>) {
         throw UnsupportedOperationException(
             "Mcp '$name' tools are dynamic, managed by the MCP server"

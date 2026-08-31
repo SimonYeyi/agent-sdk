@@ -26,7 +26,7 @@ import kotlin.test.assertTrue
 
 class ToolsetExtensionsTest {
 
-    private class StubSubTool(
+    private class StubMemberTool(
         override val name: String,
     ) : Tool {
         override val description: String = "stub"
@@ -64,7 +64,7 @@ class ToolsetExtensionsTest {
     ): ToolsetRegistry {
         val r = ToolsetRegistry()
         toolsets.forEach { (name, desc) ->
-            r.register(Toolset(name, desc).apply { add(StubSubTool("${name}_inner")) })
+            r.register(Toolset(name, desc).apply { add(StubMemberTool("${name}_inner")) })
         }
         return r
     }
@@ -96,13 +96,13 @@ class ToolsetExtensionsTest {
     }
 
     @Test
-    fun `Delegate mode registers sub_tool_delegate tool`() = runTest {
+    fun `Delegate mode registers member_tool_delegate tool`() = runTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
         b.toolsets(registryWith("weather" to "d"))
         b.build().run(AgentQuery.text("hi")).toList()
         val names = llm.recorded.single().tools.map { it.name }
-        assertTrue("sub_tool_delegate" in names, "expected sub_tool_delegate in $names")
+        assertTrue("member_tool_delegate" in names, "expected member_tool_delegate in $names")
     }
 
     @Test
@@ -119,13 +119,13 @@ class ToolsetExtensionsTest {
     }
 
     @Test
-    fun `Delegate mode exposes only load_toolset and sub_tool_delegate when registry has one toolset`() = runTest {
+    fun `Delegate mode exposes only load_toolset and member_tool_delegate when registry has one toolset`() = runTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
         b.toolsets(registryWith("weather" to "d"))
         b.build().run(AgentQuery.text("hi")).toList()
         val names = llm.recorded.single().tools.map { it.name }.toSet()
-        assertEquals(setOf("load_toolset", "sub_tool_delegate"), names)
+        assertEquals(setOf("load_toolset", "member_tool_delegate"), names)
     }
 
     // ---------- OneToOne mode ----------
@@ -155,13 +155,13 @@ class ToolsetExtensionsTest {
     }
 
     @Test
-    fun `OneToOne mode still registers sub_tool_delegate`() = runTest {
+    fun `OneToOne mode still registers member_tool_delegate`() = runTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
         b.toolsets(registryWith("weather" to "d"), enableDelegateAdaptMode = false)
         b.build().run(AgentQuery.text("hi")).toList()
         val names = llm.recorded.single().tools.map { it.name }
-        assertTrue("sub_tool_delegate" in names, "sub_tool_delegate must be registered in both modes, got: $names")
+        assertTrue("member_tool_delegate" in names, "member_tool_delegate must be registered in both modes, got: $names")
     }
 
     @Test

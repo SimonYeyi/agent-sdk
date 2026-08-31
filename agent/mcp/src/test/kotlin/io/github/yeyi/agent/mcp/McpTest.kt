@@ -179,7 +179,7 @@ class McpTest {
 
         val result = mcp.activate(null, ToolsetContext())
 
-        assertTrue(result.startsWith("Toolset 'calc' 包含以下子工具 (完整 schema):\n"))
+        assertTrue(result.startsWith("Toolset 'calc' 包含以下成员 Tool (完整 schema):\n"))
         assertTrue("tool1" in result)
         assertTrue("tool2" in result)
     }
@@ -188,7 +188,7 @@ class McpTest {
     fun `activate with empty tools returns the header and an empty array`() = runTest {
         val mcp = fakeMcp(name = "empty", transport = FakeServerTransport())
         val result = mcp.activate(null, ToolsetContext())
-        assertTrue(result.startsWith("Toolset 'empty' 包含以下子工具 (完整 schema):\n"))
+        assertTrue(result.startsWith("Toolset 'empty' 包含以下成员 Tool (完整 schema):\n"))
         assertTrue(result.endsWith("[]"))
     }
 
@@ -223,7 +223,7 @@ class McpTest {
     // ---------- Mcp.dispatch ----------
 
     @Test
-    fun `dispatch wraps sub_tool_name and sub_tool_arguments into MCP tools-call envelope`() = runTest {
+    fun `dispatch wraps tool_name and tool_arguments into MCP tools-call envelope`() = runTest {
         val transport = CapturingTransport(
             listToolsResult = ListToolsResult(listOf(ToolDef("add", "add", buildJsonObject { put("type", JsonPrimitive("object")) }))),
             callToolResult = CallToolResult(content = JsonPrimitive("42")),
@@ -328,7 +328,7 @@ class McpTest {
     // ---------- mcps DSL ----------
 
     @Test
-    fun `mcps DSL installs load_toolset and sub_tool_delegate on Agent`() = runTest {
+    fun `mcps DSL installs load_toolset and member_tool_delegate on Agent`() = runTest {
         val llm = StubLlm()
         val registry = McpRegistry(ToolsetRegistry(), ClientInfo("", "")).apply {
             register(fakeMcp(name = "calc", description = "calc-desc"))
@@ -340,7 +340,7 @@ class McpTest {
 
         val names = llm.recorded.single().tools.map { it.name }.toSet()
         assertTrue("load_toolset" in names, "expected load_toolset in $names")
-        assertTrue("sub_tool_delegate" in names, "expected sub_tool_delegate in $names")
+        assertTrue("member_tool_delegate" in names, "expected member_tool_delegate in $names")
     }
 
     @Test

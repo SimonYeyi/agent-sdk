@@ -10,24 +10,24 @@ import io.github.yeyi.agent.toDefinition
 import kotlinx.serialization.json.JsonElement
 
 /**
- * 工具集 — 子 Tool 的容器，自身同时是 [Capability] / [ToolDispatcher]：
+ * 工具集 — 成员 Tool 的容器，自身同时是 [Capability] / [ToolDispatcher]：
  * - 作为 [Capability] 由能力框架自动适配为 `load_toolset`（委托模式）或 `toolset_<name>`（一一映射模式）
- * - 作为 [ToolDispatcher] 把 LLM 生成的子 Tool 调用转发给对应子 Tool
+ * - 作为 [ToolDispatcher] 把 LLM 生成的成员 Tool 调用转发给对应成员 Tool
  *
- * 子 Tool **不**注册到 [io.github.yeyi.agent.tool.ToolRegistry]，只能通过 [dispatch] 调用。
+ * 成员 Tool **不**注册到 [io.github.yeyi.agent.tool.ToolRegistry]，只能通过 [dispatch] 调用。
  *
  * 多 Toolset 统一管理请用 [ToolsetRegistry] + [toolsets] DSL。
  *
  * @see io.github.yeyi.agent.toolset.toolsets 一次性注册多个 Toolset
  */
 public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
-    /** 添加单个子 Tool。重复名抛 [IllegalArgumentException]。 */
+    /** 添加单个成员 Tool。重复名抛 [IllegalArgumentException]。 */
     public fun add(tool: Tool)
 
-    /** 批量添加子 Tool。 */
+    /** 批量添加成员 Tool。 */
     public fun add(tools: Iterable<Tool>)
 
-    /** 返回当前 Toolset 持有的所有子 Tool 快照。 */
+    /** 返回当前 Toolset 持有的所有成员 Tool 快照。 */
     public fun all(): List<Tool>
 
     /**
@@ -37,7 +37,7 @@ public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
     public override suspend fun activate(
         arguments: Unit?,
         context: ToolsetContext,
-    ): String = "Toolset '$name' 包含以下子工具 (完整 schema):\n${all().map { it.toDefinition() }}"
+    ): String = "Toolset '$name' 包含以下成员 Tool (完整 schema):\n${all().map { it.toDefinition() }}"
 
     public companion object {
         /** 能力框架中的路由类别名，生成工具名 `load_toolset`、路由字段 `toolset_name`。 */
@@ -46,26 +46,26 @@ public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
 }
 
 /**
- * 默认本地实现 — 持有 subTools Map，提供 add / dispatch / activate 的完整实现。
+ * 默认本地实现 — 持有 memberTools Map，提供 add / dispatch / activate 的完整实现。
  */
 private class DefaultToolset(
     override val name: String,
     override val description: String,
 ) : Toolset {
-    private val subTools: MutableMap<String, Tool> = LinkedHashMap()
+    private val memberTools: MutableMap<String, Tool> = LinkedHashMap()
 
     override fun add(tool: Tool) {
-        require(tool.name !in subTools) {
+        require(tool.name !in memberTools) {
             "Tool '${tool.name}' already in toolset '$name'"
         }
-        subTools[tool.name] = tool
+        memberTools[tool.name] = tool
     }
 
     override fun add(tools: Iterable<Tool>) {
         tools.forEach(::add)
     }
 
-    override fun all(): List<Tool> = subTools.values.toList()
+    override fun all(): List<Tool> = memberTools.values.toList()
 
 
     override suspend fun dispatch(
@@ -73,11 +73,11 @@ private class DefaultToolset(
         arguments: JsonElement,
         context: ToolContext
     ): ToolExecutionResult {
-        val tool = subTools[name]
+        val tool = memberTools[name]
             ?: return ToolExecutionResult.error(
                 AgentException.ToolNotFound(
                     name,
-                    subTools.keys
+                    memberTools.keys
                 ).message
             )
         return tool.execute(arguments, context)

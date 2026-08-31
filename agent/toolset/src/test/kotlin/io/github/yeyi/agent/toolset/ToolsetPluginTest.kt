@@ -49,7 +49,7 @@ class ToolsetPluginTest {
     }
 
     @Test
-    fun `installOn installs load_toolset and sub_tool_delegate tools`() {
+    fun `installOn installs load_toolset and member_tool_delegate tools`() {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))
         }
@@ -58,7 +58,7 @@ class ToolsetPluginTest {
         installer.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
         assertContains(toolNames, "load_toolset")
-        assertContains(toolNames, "sub_tool_delegate")
+        assertContains(toolNames, "member_tool_delegate")
     }
 
     @Test

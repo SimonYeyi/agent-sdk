@@ -6,10 +6,10 @@ import io.github.yeyi.agent.capability.CapabilityPlugin
 /**
  * DSL — 将 [ToolsetRegistry] 中所有 Toolset 注册到 [AgentBuilder]。
  *
- * @param enableDelegateAdaptMode true (默认) — 单 Load Tool `load_toolset` + 共享 `sub_tool_delegate`；
- *                                false — 每个 Toolset 暴露为独立 Tool `toolset_<name>` + 共享 `sub_tool_delegate`。
+ * @param enableDelegateAdaptMode true (默认) — 单 Load Tool `load_toolset` + 共享 `member_tool_delegate`；
+ *                                false — 每个 Toolset 暴露为独立 Tool `toolset_<name>` + 共享 `member_tool_delegate`。
  *
- * **不能重复注入** —— 本 DSL 会安装 `load_toolset` / `sub_tool_delegate`,这两个是
+ * **不能重复注入** —— 本 DSL 会安装 `load_toolset` / `member_tool_delegate`,这两个是
  * toolset 框架对外暴露的 discovery/delegation 工具,任何走 toolset 框架的 capability
  * DSL 都会安装同一对(直接 `toolsets()` 调用,或在其之上封装的更高层 DSL)。同一 Agent
  * 上只能出现一次;直接调用 grep `toolsets` 关键字即可找到,封装型 DSL 需要看它的

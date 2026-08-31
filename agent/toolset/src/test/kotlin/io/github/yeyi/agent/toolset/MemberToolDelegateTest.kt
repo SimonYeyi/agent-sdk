@@ -31,7 +31,7 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class SubToolDelegateTest {
+class MemberToolDelegateTest {
 
     private class CapturingTool(
         override val name: String,
@@ -49,7 +49,7 @@ class SubToolDelegateTest {
     private object UnusedLlm : LlmProvider {
         override val name: String = "unused"
         override suspend fun chat(request: ChatRequest): ChatResponse =
-            error("LlmProvider.chat must not be called in SubToolDelegateTest")
+            error("LlmProvider.chat must not be called in MemberToolDelegateTest")
         override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> =
             flowOf(ChatResponseEvent.Error(IllegalStateException("unused")))
     }
@@ -68,35 +68,35 @@ class SubToolDelegateTest {
     )
 
     private fun buildRegistry(): Pair<ToolsetRegistry, CapturingTool> {
-        val sub = CapturingTool("inner")
-        val ts = Toolset("weather", "d").apply { add(sub) }
+        val captured = CapturingTool("inner")
+        val ts = Toolset("weather", "d").apply { add(captured) }
         val r = ToolsetRegistry().apply { register(ts) }
-        return r to sub
+        return r to captured
     }
 
     // ---------- Tool identity & schema ----------
 
     @Test
-    fun `name is sub_tool_delegate`() {
+    fun `name is member_tool_delegate`() {
         val (r, _) = buildRegistry()
-        assertEquals("sub_tool_delegate", SubToolDelegate(r).name)
+        assertEquals("member_tool_delegate", MemberToolDelegate(r).name)
     }
 
     @Test
-    fun `schema declares toolset_name, sub_tool_name, sub_tool_arguments with required keys`() {
+    fun `schema declares toolset_name, tool_name, tool_arguments with required keys`() {
         val (r, _) = buildRegistry()
-        val schema = SubToolDelegate(r).parametersSchema
+        val schema = MemberToolDelegate(r).parametersSchema
         val parsed = when (schema) {
             is ToolParameters.JsonSchema -> Json.parseToJsonElement(schema.schema) as JsonObject
             ToolParameters.Empty -> error("expected JsonSchema, got Empty")
         }
         val props = parsed["properties"] as JsonObject
         assertTrue("toolset_name" in props)
-        assertTrue("sub_tool_name" in props)
-        assertTrue("sub_tool_arguments" in props)
+        assertTrue("tool_name" in props)
+        assertTrue("tool_arguments" in props)
         val required = (parsed["required"] as JsonArray).map { it.jsonPrimitive.content }.toSet()
         assertTrue("toolset_name" in required)
-        assertTrue("sub_tool_name" in required)
+        assertTrue("tool_name" in required)
     }
 
     // ---------- Validation errors ----------
@@ -104,9 +104,9 @@ class SubToolDelegateTest {
     @Test
     fun `execute returns error when toolset_name is missing`() = runTest {
         val (r, _) = buildRegistry()
-        val out = SubToolDelegate(r).execute(
+        val out = MemberToolDelegate(r).execute(
             buildJsonObject {
-                put("sub_tool_name", "inner")
+                put("tool_name", "inner")
             },
             emptyContext(),
         )
@@ -115,79 +115,79 @@ class SubToolDelegateTest {
     }
 
     @Test
-    fun `execute returns error when sub_tool_name is missing`() = runTest {
+    fun `execute returns error when tool_name is missing`() = runTest {
         val (r, _) = buildRegistry()
-        val out = SubToolDelegate(r).execute(
+        val out = MemberToolDelegate(r).execute(
             buildJsonObject {
                 put("toolset_name", "weather")
             },
             emptyContext(),
         )
         assertTrue(out.isError)
-        assertTrue("sub_tool_name" in out.parts.text, "expected error to mention 'sub_tool_name', got: ${out.parts.text}")
+        assertTrue("tool_name" in out.parts.text, "expected error to mention 'tool_name', got: ${out.parts.text}")
     }
 
     @Test
     fun `execute returns error when both required fields are missing`() = runTest {
         val (r, _) = buildRegistry()
-        val out = SubToolDelegate(r).execute(JsonObject(emptyMap()), emptyContext())
+        val out = MemberToolDelegate(r).execute(JsonObject(emptyMap()), emptyContext())
         assertTrue(out.isError)
     }
 
     // ---------- Routing ----------
 
     @Test
-    fun `execute dispatches to the named sub tool and returns its result`() = runTest {
-        val (r, sub) = buildRegistry()
-        val out = SubToolDelegate(r).execute(
+    fun `execute dispatches to the named tool and returns its result`() = runTest {
+        val (r, captured) = buildRegistry()
+        val out = MemberToolDelegate(r).execute(
             buildJsonObject {
                 put("toolset_name", "weather")
-                put("sub_tool_name", "inner")
+                put("tool_name", "inner")
             },
             emptyContext(),
         )
         assertFalse(out.isError)
         assertEquals("ok", out.parts.text)
-        assertEquals(1, sub.execCalls.size, "sub tool should have been invoked exactly once")
+        assertEquals(1, captured.execCalls.size, "tool should have been invoked exactly once")
     }
 
     @Test
-    fun `execute forwards sub_tool_arguments as the sub tool's arguments`() = runTest {
-        val (r, sub) = buildRegistry()
+    fun `execute forwards tool_arguments as the tool's arguments`() = runTest {
+        val (r, captured) = buildRegistry()
         val args = buildJsonObject { put("city", JsonPrimitive("Beijing")) }
-        SubToolDelegate(r).execute(
+        MemberToolDelegate(r).execute(
             buildJsonObject {
                 put("toolset_name", "weather")
-                put("sub_tool_name", "inner")
-                put("sub_tool_arguments", args)
+                put("tool_name", "inner")
+                put("tool_arguments", args)
             },
             emptyContext(),
         )
-        assertEquals(args, sub.execCalls.single())
+        assertEquals(args, captured.execCalls.single())
     }
 
     @Test
-    fun `execute uses JsonNull when sub_tool_arguments is absent`() = runTest {
-        val (r, sub) = buildRegistry()
-        SubToolDelegate(r).execute(
+    fun `execute uses JsonNull when tool_arguments is absent`() = runTest {
+        val (r, captured) = buildRegistry()
+        MemberToolDelegate(r).execute(
             buildJsonObject {
                 put("toolset_name", "weather")
-                put("sub_tool_name", "inner")
+                put("tool_name", "inner")
             },
             emptyContext(),
         )
-        assertEquals(JsonNull, sub.execCalls.single())
+        assertEquals(JsonNull, captured.execCalls.single())
     }
 
     @Test
-    fun `execute returns the sub tool's error result unchanged`() = runTest {
-        val sub = CapturingTool("boom", result = ToolExecutionResult.error("kaboom"))
-        val ts = Toolset("weather", "d").apply { add(sub) }
+    fun `execute returns the tool's error result unchanged`() = runTest {
+        val captured = CapturingTool("boom", result = ToolExecutionResult.error("kaboom"))
+        val ts = Toolset("weather", "d").apply { add(captured) }
         val r = ToolsetRegistry().apply { register(ts) }
-        val out = SubToolDelegate(r).execute(
+        val out = MemberToolDelegate(r).execute(
             buildJsonObject {
                 put("toolset_name", "weather")
-                put("sub_tool_name", "boom")
+                put("tool_name", "boom")
             },
             emptyContext(),
         )
@@ -201,10 +201,10 @@ class SubToolDelegateTest {
     fun `execute throws NoSuchElementException when toolset is unknown`() = runTest {
         val r = ToolsetRegistry()  // empty
         assertFailsWith<NoSuchElementException> {
-            SubToolDelegate(r).execute(
+            MemberToolDelegate(r).execute(
                 buildJsonObject {
                     put("toolset_name", "ghost")
-                    put("sub_tool_name", "x")
+                    put("tool_name", "x")
                 },
                 emptyContext(),
             )
@@ -212,14 +212,14 @@ class SubToolDelegateTest {
     }
 
     @Test
-    fun `execute returns ToolNotFound error when sub tool is unknown within the toolset`() = runTest {
+    fun `execute returns ToolNotFound error when tool is unknown within the toolset`() = runTest {
         val r = ToolsetRegistry().apply {
             register(Toolset("weather", "d").apply { add(CapturingTool("known")) })
         }
-        val out = SubToolDelegate(r).execute(
+        val out = MemberToolDelegate(r).execute(
             buildJsonObject {
                 put("toolset_name", "weather")
-                put("sub_tool_name", "ghost")
+                put("tool_name", "ghost")
             },
             emptyContext(),
         )
@@ -230,23 +230,23 @@ class SubToolDelegateTest {
 
     @Test
     fun `execute routes to the right toolset when multiple are registered`() = runTest {
-        val subA = CapturingTool("x", result = ToolExecutionResult.success("from-A"))
-        val subB = CapturingTool("x", result = ToolExecutionResult.success("from-B"))
+        val capturedA = CapturingTool("x", result = ToolExecutionResult.success("from-A"))
+        val capturedB = CapturingTool("x", result = ToolExecutionResult.success("from-B"))
         val r = ToolsetRegistry().apply {
-            register(Toolset("A", "dA").apply { add(subA) })
-            register(Toolset("B", "dB").apply { add(subB) })
+            register(Toolset("A", "dA").apply { add(capturedA) })
+            register(Toolset("B", "dB").apply { add(capturedB) })
         }
-        val outA = SubToolDelegate(r).execute(
+        val outA = MemberToolDelegate(r).execute(
             buildJsonObject {
                 put("toolset_name", "A")
-                put("sub_tool_name", "x")
+                put("tool_name", "x")
             },
             emptyContext(),
         )
-        val outB = SubToolDelegate(r).execute(
+        val outB = MemberToolDelegate(r).execute(
             buildJsonObject {
                 put("toolset_name", "B")
-                put("sub_tool_name", "x")
+                put("tool_name", "x")
             },
             emptyContext(),
         )

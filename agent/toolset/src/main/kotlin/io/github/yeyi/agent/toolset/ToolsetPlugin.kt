@@ -20,5 +20,5 @@ internal class ToolsetPlugin(
 
     override fun arguments(): CapabilityArguments<Unit>? = null
 
-    override fun auxiliaryTools(): List<Tool> = listOf(SubToolDelegate(registry))
+    override fun auxiliaryTools(): List<Tool> = listOf(MemberToolDelegate(registry))
 }

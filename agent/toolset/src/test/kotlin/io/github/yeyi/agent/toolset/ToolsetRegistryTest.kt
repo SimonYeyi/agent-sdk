@@ -25,7 +25,7 @@ import kotlin.test.assertTrue
 
 class ToolsetRegistryTest {
 
-    private class StubSubTool(
+    private class StubMemberTool(
         override val name: String,
     ) : Tool {
         override val description: String = "stub"
@@ -92,7 +92,7 @@ class ToolsetRegistryTest {
     @Test
     fun `get returns the same toolset instance by name`() = runTest {
         val r = ToolsetRegistry()
-        val ts = Toolset("weather", "d").apply { add(StubSubTool("inner")) }
+        val ts = Toolset("weather", "d").apply { add(StubMemberTool("inner")) }
         r.register(ts)
         val resolved = r.get("weather")
         assertSame(ts, resolved)
