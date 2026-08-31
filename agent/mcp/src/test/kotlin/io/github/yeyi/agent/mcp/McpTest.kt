@@ -179,7 +179,7 @@ class McpTest {
 
         val result = mcp.activate(null, ToolsetContext())
 
-        assertTrue(result.startsWith("Toolset 'calc' 包含以下成员 Tool (完整 schema):\n"))
+        assertTrue(result.startsWith("Toolset 'calc' 包含以下成员 Tool（通过 member_tool_delegate 调用它们）:\n"))
         assertTrue("tool1" in result)
         assertTrue("tool2" in result)
     }
@@ -188,7 +188,7 @@ class McpTest {
     fun `activate with empty tools returns the header and an empty array`() = runTest {
         val mcp = fakeMcp(name = "empty", transport = FakeServerTransport())
         val result = mcp.activate(null, ToolsetContext())
-        assertTrue(result.startsWith("Toolset 'empty' 包含以下成员 Tool (完整 schema):\n"))
+        assertTrue(result.startsWith("Toolset 'empty' 包含以下成员 Tool（通过 member_tool_delegate 调用它们）:\n"))
         assertTrue(result.endsWith("[]"))
     }
 
