@@ -37,7 +37,7 @@ public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
     public override suspend fun activate(
         arguments: Unit?,
         context: ToolsetContext,
-    ): String = "Toolset '$name' 包含以下成员 Tool（通过 member_tool_delegate 调用它们）:\n${all().map { it.toDefinition() }}"
+    ): String = "Toolset '$name' 包含以下成员 Tool（通过 member_tool_delegate 调用）:\n${all().map { it.toDefinition() }}"
 
     public companion object {
         /** 能力框架中的路由类别名，生成工具名 `load_toolset`、路由字段 `toolset_name`。 */

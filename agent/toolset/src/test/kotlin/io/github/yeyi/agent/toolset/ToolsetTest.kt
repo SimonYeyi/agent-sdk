@@ -193,6 +193,18 @@ class ToolsetTest {
         assertTrue("a" in result && "b" in result, "definitions body should list both tools")
     }
 
+    @Test
+    fun `activate header tells LLM to invoke tools via member_tool_delegate`() = runTest {
+        val ts = Toolset("weather", "d")
+        ts.add(StubTool("a"))
+        val result = ts.activate(null, ToolsetContext())
+        val header = result.substringBefore('\n')
+        assertTrue(
+            "member_tool_delegate" in header,
+            "header must hint at member_tool_delegate so LLM knows how to call the listed tools, got: $header",
+        )
+    }
+
     // ---------- dispatch (routing) ----------
 
     @Test

@@ -167,7 +167,7 @@ class McpTest {
     // ---------- Mcp.activate ----------
 
     @Test
-    fun `activate returns the tools list with Toolset-format prefix`() = runTest {
+    fun `activate includes each MCP server tool name in the output`() = runTest {
         val tools = listOf(
             ToolDef("tool1", "tool1 desc", buildJsonObject { put("type", JsonPrimitive("object")) }),
             ToolDef("tool2", "tool2 desc", buildJsonObject { put("type", JsonPrimitive("object")) }),
@@ -179,17 +179,18 @@ class McpTest {
 
         val result = mcp.activate(null, ToolsetContext())
 
-        assertTrue(result.startsWith("Toolset 'calc' 包含以下成员 Tool（通过 member_tool_delegate 调用它们）:\n"))
-        assertTrue("tool1" in result)
-        assertTrue("tool2" in result)
+        assertTrue("tool1" in result, "expected 'tool1' in activate output, got: $result")
+        assertTrue("tool2" in result, "expected 'tool2' in activate output, got: $result")
     }
 
     @Test
-    fun `activate with empty tools returns the header and an empty array`() = runTest {
+    fun `activate succeeds when the MCP server returns no tools`() = runTest {
         val mcp = fakeMcp(name = "empty", transport = FakeServerTransport())
         val result = mcp.activate(null, ToolsetContext())
-        assertTrue(result.startsWith("Toolset 'empty' 包含以下成员 Tool（通过 member_tool_delegate 调用它们）:\n"))
-        assertTrue(result.endsWith("[]"))
+        // Empty-output formatting belongs to Toolset's own tests; here we only verify
+        // MCP doesn't crash and the toolset name is mentioned so the LLM can scope later calls.
+        assertTrue(result.isNotEmpty(), "activate should still return a header for an empty toolset, got empty")
+        assertTrue("empty" in result, "activate output should mention the MCP name, got: $result")
     }
 
     // ---------- Mcp.add 抛异常 ----------
