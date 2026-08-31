@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.skill
 
 import io.github.yeyi.agent.capability.CapabilityArguments
-import io.github.yeyi.agent.capability.CapabilityInstaller
+import io.github.yeyi.agent.capability.CapabilityPlugin
 import io.github.yeyi.agent.tool.Tool
 
 /**
@@ -10,9 +10,9 @@ import io.github.yeyi.agent.tool.Tool
  * 仅供 Skill 模块内部 `skills(registry, ...)` 扩展函数使用;
  * 外部调用方应直接使用扩展函数,不感知本类。
  */
-internal class SkillInstaller(
+internal class SkillPlugin(
     private val registry: SkillRegistry,
-) : CapabilityInstaller<Skill, Unit, SkillContext>() {
+) : CapabilityPlugin<Skill, Unit, SkillContext>() {
 
     override fun registry(): SkillRegistry = registry
 
@@ -21,8 +21,7 @@ internal class SkillInstaller(
     override fun arguments(): CapabilityArguments<Unit>? = null
 
     override fun auxiliaryTools(): List<Tool> {
-        return if (registry.allTools().isNotEmpty()) {
-            listOf(SkillToolLoader(registry), SkillToolCaller(registry))
-        } else emptyList()
+        return if (registry.allTools().isEmpty()) emptyList()
+        else listOf(SkillToolLoader(registry), SkillToolCaller(registry))
     }
 }

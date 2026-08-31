@@ -16,7 +16,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 
-class ToolsetInstallerTest {
+class ToolsetPluginTest {
 
     private object StubLlm : LlmProvider {
         override val name: String = "stub"
@@ -42,8 +42,8 @@ class ToolsetInstallerTest {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))
         }
-        val installer = ToolsetInstaller(registry)
-        val m = io.github.yeyi.agent.capability.CapabilityInstaller::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
+        val installer = ToolsetPlugin(registry)
+        val m = io.github.yeyi.agent.capability.CapabilityPlugin::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
         assertEquals(registry, m.invoke(installer))
     }
@@ -53,7 +53,7 @@ class ToolsetInstallerTest {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))
         }
-        val installer = ToolsetInstaller(registry)
+        val installer = ToolsetPlugin(registry)
         val builder = newBuilder()
         installer.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
@@ -66,10 +66,10 @@ class ToolsetInstallerTest {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))
         }
-        val installer = ToolsetInstaller(registry)
+        val installer = ToolsetPlugin(registry)
         val builder = newBuilder()
         installer.installOn(builder)
-        assertFailsWith<io.github.yeyi.agent.capability.CapabilityInstaller.InstallException> {
+        assertFailsWith<io.github.yeyi.agent.capability.CapabilityPlugin.InstallException> {
             installer.installOn(builder)
         }
     }

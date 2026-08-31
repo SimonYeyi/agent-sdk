@@ -20,7 +20,7 @@ import kotlin.test.assertContains
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
-class SkillInstallerTest {
+class SkillPluginTest {
 
     private class StubSkill(
         override val name: String,
@@ -58,8 +58,8 @@ class SkillInstallerTest {
     @Test
     fun `installer exposes the same registry passed in`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
-        val installer = SkillInstaller(registry)
-        val m = io.github.yeyi.agent.capability.CapabilityInstaller::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
+        val installer = SkillPlugin(registry)
+        val m = io.github.yeyi.agent.capability.CapabilityPlugin::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
         assertEquals(registry, m.invoke(installer))
     }
@@ -67,7 +67,7 @@ class SkillInstallerTest {
     @Test
     fun `installOn installs load_skill tool`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
-        val installer = SkillInstaller(registry)
+        val installer = SkillPlugin(registry)
         val builder = newBuilder()
         installer.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
@@ -77,7 +77,7 @@ class SkillInstallerTest {
     @Test
     fun `installOn does NOT install SkillToolLoader or SkillToolCaller when registry has no tools`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
-        val installer = SkillInstaller(registry)
+        val installer = SkillPlugin(registry)
         val builder = newBuilder()
         installer.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }
@@ -91,7 +91,7 @@ class SkillInstallerTest {
             register(StubSkill("alpha"))
             registerTools(listOf(StubSkillTool("helper_a")))
         }
-        val installer = SkillInstaller(registry)
+        val installer = SkillPlugin(registry)
         val builder = newBuilder()
         installer.installOn(builder)
         val toolNames = builder.installedTools().map { it.name }

@@ -12,7 +12,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class CapabilityInstallerTest {
+class CapabilityPluginTest {
 
     private class StubContext : CapabilityContext
 
@@ -46,8 +46,8 @@ class CapabilityInstallerTest {
         registry: CapabilityRegistry<StubCapability, Unit, StubContext> =
             DefaultCapabilityRegistry<StubCapability, Unit, StubContext>("stub").apply { register(StubCapability("a", "desc a")) },
         auxiliaryTools: List<Tool> = emptyList(),
-    ): CapabilityInstaller<StubCapability, Unit, StubContext> =
-        object : CapabilityInstaller<StubCapability, Unit, StubContext>() {
+    ): CapabilityPlugin<StubCapability, Unit, StubContext> =
+        object : CapabilityPlugin<StubCapability, Unit, StubContext>() {
             override fun registry(): CapabilityRegistry<StubCapability, Unit, StubContext> = registry
             override fun contextFactory() = StubContextFactory()
             override fun arguments(): CapabilityArguments<Unit>? = null
@@ -60,7 +60,7 @@ class CapabilityInstallerTest {
     fun `installer exposes registry passed in constructor`() {
         val registry = DefaultCapabilityRegistry<StubCapability, Unit, StubContext>("stub")
         val installer = minimalInstaller(registry)
-        val m = CapabilityInstaller::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
+        val m = CapabilityPlugin::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
         assertEquals(registry, m.invoke(installer))
     }

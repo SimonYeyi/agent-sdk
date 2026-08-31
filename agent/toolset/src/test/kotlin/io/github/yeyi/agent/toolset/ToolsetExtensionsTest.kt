@@ -192,7 +192,7 @@ class ToolsetExtensionsTest {
     fun `toolsets DSL called twice throws InstallException with guidance`() {
         val r1 = ToolsetRegistry()
         val r2 = ToolsetRegistry()
-        val ex = assertFailsWith<io.github.yeyi.agent.capability.CapabilityInstaller.InstallException> {
+        val ex = assertFailsWith<io.github.yeyi.agent.capability.CapabilityPlugin.InstallException> {
             AgentBuilder().apply {
                 toolsets(r1)
                 toolsets(r2)

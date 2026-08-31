@@ -367,7 +367,7 @@ class McpTest {
         val mcpReg = McpRegistry(ToolsetRegistry(), ClientInfo("", ""))
         val tsReg = ToolsetRegistry()
 
-        val ex = assertFailsWith<io.github.yeyi.agent.capability.CapabilityInstaller.InstallException> {
+        val ex = assertFailsWith<io.github.yeyi.agent.capability.CapabilityPlugin.InstallException> {
             AgentBuilder().apply {
                 llmProvider(StubLlm())
                 toolsets(tsReg)
@@ -395,7 +395,7 @@ class McpTest {
         val mcpReg = McpRegistry(ToolsetRegistry(), ClientInfo("", ""))
         val tsReg = ToolsetRegistry()
 
-        val ex = assertFailsWith<io.github.yeyi.agent.capability.CapabilityInstaller.InstallException> {
+        val ex = assertFailsWith<io.github.yeyi.agent.capability.CapabilityPlugin.InstallException> {
             AgentBuilder().apply {
                 llmProvider(StubLlm())
                 mcps(mcpReg)

@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.toolset
 
 import io.github.yeyi.agent.AgentBuilder
-import io.github.yeyi.agent.capability.CapabilityInstaller
+import io.github.yeyi.agent.capability.CapabilityPlugin
 
 /**
  * DSL — 将 [ToolsetRegistry] 中所有 Toolset 注册到 [AgentBuilder]。
@@ -20,9 +20,9 @@ public fun AgentBuilder.toolsets(
     enableDelegateAdaptMode: Boolean = true,
 ) {
     try {
-        ToolsetInstaller(registry).installOn(this, enableDelegateAdaptMode)
-    } catch (e: CapabilityInstaller.InstallException) {
-        throw CapabilityInstaller.InstallException(
+        ToolsetPlugin(registry).installOn(this, enableDelegateAdaptMode)
+    } catch (e: CapabilityPlugin.InstallException) {
+        throw CapabilityPlugin.InstallException(
             "The toolset framework has been configured more than once on this Agent " +
                 "(only one source is allowed). To find the duplicate: grep `toolsets` " +
                 "for direct `toolsets()` calls, or read the kdoc of higher-level DSLs " +
