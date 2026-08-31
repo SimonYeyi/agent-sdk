@@ -189,10 +189,10 @@ class ToolsetExtensionsTest {
     }
 
     @Test
-    fun `toolsets DSL called twice throws ToolsetsInstallException with guidance`() {
+    fun `toolsets DSL called twice throws InstallException with guidance`() {
         val r1 = ToolsetRegistry()
         val r2 = ToolsetRegistry()
-        val ex = assertFailsWith<ToolsetsInstallException> {
+        val ex = assertFailsWith<io.github.yeyi.agent.capability.CapabilityInstaller.InstallException> {
             AgentBuilder().apply {
                 toolsets(r1)
                 toolsets(r2)
@@ -200,8 +200,8 @@ class ToolsetExtensionsTest {
         }
         val msg = ex.message ?: ""
         assertTrue(
-            "load_toolset" in msg && "sub_tool_delegate" in msg,
-            "message should name both conflicting tools: $msg",
+            "toolset framework" in msg && "configured more than once" in msg,
+            "message should explain DSL was invoked multiple times: $msg",
         )
         assertTrue(
             "higher-level DSL" in msg && "kdoc will mention" in msg,
@@ -209,7 +209,7 @@ class ToolsetExtensionsTest {
         )
         assertTrue(
             ex.cause is io.github.yeyi.agent.tool.ToolDuplicateException,
-            "cause should be ToolDuplicateException, got: ${ex.cause?.javaClass?.name}",
+            "cause should be ToolDuplicateException (InstallException middle layer is skipped), got: ${ex.cause?.javaClass?.name}",
         )
     }
 }

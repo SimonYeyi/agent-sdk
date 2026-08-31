@@ -1,13 +1,11 @@
 package io.github.yeyi.agent.toolset
 
-import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.capability.CapabilityArguments
 import io.github.yeyi.agent.capability.CapabilityInstaller
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolDuplicateException
 
 /**
- * Toolset 的接线模板 —— override installOn 套 try-catch 把 ToolDuplicateException 包装为 ToolsetsInstallException。
+ * Toolset 的接线模板 —— 实现全部 4 个接线方法。
  *
  * 仅供 Toolset 模块内部 `toolsets(registry, ...)` 扩展函数使用;
  * 外部调用方应直接使用扩展函数,不感知本类。
@@ -23,15 +21,4 @@ internal class ToolsetInstaller(
     override fun arguments(): CapabilityArguments<Unit>? = null
 
     override fun auxiliaryTools(): List<Tool> = listOf(SubToolDelegate(registry))
-
-    override fun installOn(
-        agentBuilder: AgentBuilder,
-        enableDelegateAdaptMode: Boolean,
-    ) {
-        try {
-            super.installOn(agentBuilder, enableDelegateAdaptMode)
-        } catch (e: ToolDuplicateException) {
-            throw ToolsetsInstallException(e)
-        }
-    }
 }

@@ -2,6 +2,7 @@ package io.github.yeyi.agent.capability
 
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.tool.ToolDuplicateException
 
 /**
  * Capability 包的接线契约 —— 模块实现者继承本抽象类并 override 接线部件 = 完成一个能力。
@@ -35,15 +36,29 @@ public abstract class CapabilityInstaller<C : Capability<T, Ctx>, T : Any, Ctx :
     /**
      * 安装到 [AgentBuilder]。
      *
+     * 工具名冲突抛 [InstallException](cause 链保留 [ToolDuplicateException])。
+     *
      * @param enableDelegateAdaptMode true 委托模式（单一 Delegate Tool），
      *                                false 一一映射模式（每个 Capability 一个 Tool）。
      */
-    public open fun installOn(
+    public fun installOn(
         agentBuilder: AgentBuilder,
         enableDelegateAdaptMode: Boolean = true,
     ) {
-        CapabilityAdapter.of(registry(), contextFactory(), arguments(), enableDelegateAdaptMode)
-            .installOn(agentBuilder)
-        auxiliaryTools().forEach { agentBuilder.tool(it) }
+        try {
+            CapabilityAdapter.of(registry(), contextFactory(), arguments(), enableDelegateAdaptMode)
+                .installOn(agentBuilder)
+            auxiliaryTools().forEach { agentBuilder.tool(it) }
+        } catch (e: ToolDuplicateException) {
+            throw InstallException("Capability installation failed", e)
+        }
     }
+
+    /**
+     * Capability 安装阶段冲突 —— 见 [installOn] 的捕获逻辑。
+     *
+     * cause 链保留原始异常信息(冲突 tool 名及已存在列表)。
+     */
+    public class InstallException(msg: String, cause: Throwable? = null) :
+        IllegalStateException(msg, cause)
 }

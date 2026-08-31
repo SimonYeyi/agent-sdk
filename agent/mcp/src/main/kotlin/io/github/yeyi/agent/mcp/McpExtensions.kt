@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.mcp
 
 import io.github.yeyi.agent.AgentBuilder
-import io.github.yeyi.agent.toolset.ToolsetsInstallException
+import io.github.yeyi.agent.capability.CapabilityInstaller
 import io.github.yeyi.agent.toolset.toolsets
 
 /**
@@ -15,9 +15,9 @@ import io.github.yeyi.agent.toolset.toolsets
  * **与 [io.github.yeyi.agent.toolset.toolsets] 互斥** —— 因为本 DSL 内部调用了
  * `toolsets()`,两者都会安装 `load_toolset` / `sub_tool_delegate`,同一 Agent
  * 只能由一个 capability DSL 安装。若先调 `toolsets()` 再调本 DSL,内部抛出的
- * [ToolsetsInstallException] 会被本 DSL 重新包装为带 `mcps` 关键字的
- * [IllegalStateException] 提示;若先调本 DSL 再调 `toolsets()`,则由
- * `toolsets()` 直接抛 [ToolsetsInstallException]。
+ * 安装冲突会被本 DSL 重新包装为带 `mcps` 关键字的
+ * [CapabilityInstaller.InstallException] 提示;
+ * 若先调本 DSL 再调 `toolsets()`,则由 `toolsets()` 直接抛出。
  *
  * 若需要混入普通 Toolset,在构造 [McpRegistry] 时通过第一个参数传入一个
  * 已经注册好它们的 [io.github.yeyi.agent.toolset.ToolsetRegistry] 即可。
@@ -41,12 +41,12 @@ import io.github.yeyi.agent.toolset.toolsets
 public fun AgentBuilder.mcps(registry: McpRegistry) {
     try {
         toolsets(registry.toolsetRegistry)
-    } catch (e: ToolsetsInstallException) {
-        throw IllegalStateException(
+    } catch (e: CapabilityInstaller.InstallException) {
+        throw CapabilityInstaller.InstallException(
             "mcps() and toolsets() cannot both be used on the same Agent — " +
-                    "load_toolset / sub_tool_delegate would conflict. Register " +
-                    "additional Toolsets via McpRegistry.toolsetRegistry instead.",
-            e,
+                    "the toolset framework can only be configured from one source. " +
+                    "Register additional Toolsets via McpRegistry.toolsetRegistry instead.",
+            e.cause,
         )
     }
 }

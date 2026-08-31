@@ -363,11 +363,11 @@ class McpTest {
     }
 
     @Test
-    fun `mcps and toolsets together throw IllegalStateException with mcps-specific guidance`() = runTest {
+    fun `mcps and toolsets together throw InstallException with mcps-specific guidance`() = runTest {
         val mcpReg = McpRegistry(ToolsetRegistry(), ClientInfo("", ""))
         val tsReg = ToolsetRegistry()
 
-        val ex = assertFailsWith<IllegalStateException> {
+        val ex = assertFailsWith<io.github.yeyi.agent.capability.CapabilityInstaller.InstallException> {
             AgentBuilder().apply {
                 llmProvider(StubLlm())
                 toolsets(tsReg)
@@ -375,27 +375,27 @@ class McpTest {
             }.build()
         }
         assertTrue(
-            ex !is io.github.yeyi.agent.toolset.ToolsetsInstallException,
-            "mcps() should re-wrap the exception as a plain IllegalStateException, got: ${ex.javaClass.name}",
+            ex.cause is io.github.yeyi.agent.tool.ToolDuplicateException,
+            "cause should be ToolDuplicateException, got: ${ex.cause?.javaClass?.name}",
         )
         val msg = ex.message ?: ""
         assertTrue("mcps" in msg, "message should mention mcps: $msg")
         assertTrue(
-            "toolsets" in msg && ("load_toolset" in msg || "sub_tool_delegate" in msg),
-            "message should mention toolsets and the conflicting tool name: $msg",
+            "toolsets" in msg && "toolset framework" in msg,
+            "message should mention toolsets and the framework constraint: $msg",
         )
         assertTrue(
-            ex.cause is io.github.yeyi.agent.toolset.ToolsetsInstallException,
-            "cause should be ToolsetsInstallException, got: ${ex.cause?.javaClass?.name}",
+            ex.cause is io.github.yeyi.agent.tool.ToolDuplicateException,
+            "cause should be ToolDuplicateException, got: ${ex.cause?.javaClass?.name}",
         )
     }
 
     @Test
-    fun `mcps then toolsets throws ToolsetsInstallException pointing user to grep toolsets (reverse direction)`() = runTest {
+    fun `mcps then toolsets throws InstallException pointing user to grep toolsets (reverse direction)`() = runTest {
         val mcpReg = McpRegistry(ToolsetRegistry(), ClientInfo("", ""))
         val tsReg = ToolsetRegistry()
 
-        val ex = assertFailsWith<io.github.yeyi.agent.toolset.ToolsetsInstallException> {
+        val ex = assertFailsWith<io.github.yeyi.agent.capability.CapabilityInstaller.InstallException> {
             AgentBuilder().apply {
                 llmProvider(StubLlm())
                 mcps(mcpReg)
@@ -404,8 +404,8 @@ class McpTest {
         }
         val msg = ex.message ?: ""
         assertTrue(
-            "load_toolset" in msg && "sub_tool_delegate" in msg,
-            "message should name both conflicting tools: $msg",
+            "toolset framework" in msg && "configured more than once" in msg,
+            "message should explain DSL was invoked multiple times: $msg",
         )
         assertTrue(
             "higher-level DSL" in msg && "kdoc will mention" in msg,
@@ -413,7 +413,7 @@ class McpTest {
         )
         assertTrue(
             ex.cause is io.github.yeyi.agent.tool.ToolDuplicateException,
-            "cause should be ToolDuplicateException, got: ${ex.cause?.javaClass?.name}",
+            "cause should be ToolDuplicateException (InstallException middle layer is skipped), got: ${ex.cause?.javaClass?.name}",
         )
     }
 }

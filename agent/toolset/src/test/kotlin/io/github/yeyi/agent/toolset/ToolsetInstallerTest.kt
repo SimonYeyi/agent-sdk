@@ -62,14 +62,14 @@ class ToolsetInstallerTest {
     }
 
     @Test
-    fun `installOn wraps ToolDuplicateException into ToolsetsInstallException`() {
+    fun `installOn wraps ToolDuplicateException into InstallException`() {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))
         }
         val installer = ToolsetInstaller(registry)
         val builder = newBuilder()
         installer.installOn(builder)
-        assertFailsWith<ToolsetsInstallException> {
+        assertFailsWith<io.github.yeyi.agent.capability.CapabilityInstaller.InstallException> {
             installer.installOn(builder)
         }
     }
