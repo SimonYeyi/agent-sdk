@@ -10,17 +10,16 @@ import kotlinx.coroutines.launch
  * MCP 服务注册表。
  *
  * 内部把 [Mcp] 作为一种特殊的 [io.github.yeyi.agent.toolset.Toolset] 复用 toolset
- * 框架的发现 (`load_toolset`) 与代理调用 (`member_tool_delegate`) 能力。本类对外只暴露
- * 类型收窄的 [register] / [unregisterAll],MCP 实现细节封装在模块内。
+ * 框架的发现与代理调用能力。本类对外只暴露类型收窄的 [register] / [unregisterAll],
+ * MCP 实现细节封装在模块内。
  *
  * `register` 时把 [clientInfo] 注入到每个 [Mcp] 实例的 [McpClient];
  * `unregisterAll` 时关闭所有 MCP 连接,然后清空注册表。
  *
  * @param toolsetRegistry MCP 作为 Toolset 注册的目标 [ToolsetRegistry]。该注册表最终由
  *  `mcps()` DSL 通过 [io.github.yeyi.agent.toolset.toolsets] 安装到 Agent 上,**占用**
- *  toolset 框架的 discovery/delegation 槽位 (`load_toolset` / `member_tool_delegate`) —
- *  因此本参数传入的注册表不能再额外单独走 `toolsets()` DSL;若还想混入其他普通
- *  Toolset,在同一个注册表里 `register` 它们即可。
+ *  toolset 框架的 discovery/delegation 槽位 —— 因此本参数传入的注册表不能再额外单独走
+ *  `toolsets()` DSL;若还想混入其他普通 Toolset,在同一个注册表里 `register` 它们即可。
  * @param clientInfo 注入到每个 MCP 客户端的 [ClientInfo]。
  *
  * 使用方式:
