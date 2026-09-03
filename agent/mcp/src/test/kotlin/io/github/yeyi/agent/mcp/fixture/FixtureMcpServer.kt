@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.mcp.fixture
 
 import io.github.yeyi.agent.mcp.CallToolParams
+import io.github.yeyi.agent.mcp.InitializeParams
 import io.github.yeyi.agent.mcp.InitializeResult
 import io.github.yeyi.agent.mcp.ListToolsResult
 import io.github.yeyi.agent.mcp.McpServer
@@ -27,7 +28,7 @@ class FixtureMcpServer : McpServer {
      */
     override val transport: StdioServerTransport = StdioServerTransport(this)
 
-    override suspend fun initialize(): InitializeResult =
+    override suspend fun initialize(params: InitializeParams): InitializeResult =
         InitializeResult(
             protocolVersion = McpServer.SUPPORTED_PROTOCOL_VERSION,
             serverInfo = ServerInfo(SERVER_NAME, SERVER_VERSION),

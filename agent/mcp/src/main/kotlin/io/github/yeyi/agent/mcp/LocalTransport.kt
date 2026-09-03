@@ -58,8 +58,12 @@ public class LocalTransport(private val localServer: McpServer) : McpTransport {
         val id = request.id
         val result: JsonElement = when (val method = request.method) {
             McpMethods.INITIALIZE -> {
+                val initParams: InitializeParams = request.params
+                    ?.let { json.decodeFromJsonElement(serializer<InitializeParams>(), it) }
+                    ?: return errorResponse(id, "Missing params for initialize")
                 val initResult: InitializeResult = initializeMutex.withLock {
-                    cachedInitResult ?: localServer.initialize().also { cachedInitResult = it }
+                    cachedInitResult ?: localServer.initialize(initParams)
+                        .also { cachedInitResult = it }
                 }
                 json.encodeToString(serializer<InitializeResult>(), initResult)
                     .let { json.parseToJsonElement(it) }

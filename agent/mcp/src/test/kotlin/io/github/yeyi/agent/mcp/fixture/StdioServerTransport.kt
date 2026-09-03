@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.mcp.fixture
 
+import io.github.yeyi.agent.mcp.InitializeParams
 import io.github.yeyi.agent.mcp.InitializeResult
 import io.github.yeyi.agent.mcp.JsonRpcNotification
 import io.github.yeyi.agent.mcp.JsonRpcRequest
@@ -94,7 +95,10 @@ public class StdioServerTransport(
     ): JsonRpcResponse<JsonElement> {
         val result = when (request.method) {
             McpMethods.INITIALIZE -> {
-                json.encodeToJsonElement(serializer<InitializeResult>(), server.initialize())
+                val params = request.params
+                    ?.let { json.decodeFromJsonElement(serializer<InitializeParams>(), it) }
+                    ?: error("initialize request missing params")
+                json.encodeToJsonElement(serializer<InitializeResult>(), server.initialize(params))
             }
 
             else -> error("unhandled method in fixture: ${request.method}")

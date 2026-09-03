@@ -56,7 +56,7 @@ private class LocalMcpServerForTest : McpServer {
         )
     )
 
-    override suspend fun initialize(): InitializeResult {
+    override suspend fun initialize(params: InitializeParams): InitializeResult {
         initialized = true
         return InitializeResult(
             protocolVersion = McpServer.SUPPORTED_PROTOCOL_VERSION,

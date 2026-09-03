@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.mcp.fixture
 
 import io.github.yeyi.agent.mcp.CallToolParams
+import io.github.yeyi.agent.mcp.InitializeParams
 import io.github.yeyi.agent.mcp.InitializeResult
 import io.github.yeyi.agent.mcp.JsonRpcNotification
 import io.github.yeyi.agent.mcp.ListToolsResult
@@ -42,8 +43,8 @@ class NotifyingFixtureMcpServer : McpServer {
         explicitNulls = false
     }
 
-    override suspend fun initialize(): InitializeResult {
-        val params = json.encodeToJsonElement(
+    override suspend fun initialize(params: InitializeParams): InitializeResult {
+        val notifyParams = json.encodeToJsonElement(
             serializer<ProgressNotificationParams>(),
             ProgressNotificationParams(progressToken = "init", progress = 1.0),
         )
@@ -52,7 +53,7 @@ class NotifyingFixtureMcpServer : McpServer {
             .tryEmit(
                 JsonRpcNotification(
                     method = McpMethods.NOTIFICATIONS_PROGRESS,
-                    params = params,
+                    params = notifyParams,
                 ),
             )
         return InitializeResult(

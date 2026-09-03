@@ -28,6 +28,12 @@ class McpClientSelfHealTest {
         explicitNulls = false
     }
 
+    private val testInitParams = InitializeParams(
+        protocolVersion = McpServer.SUPPORTED_PROTOCOL_VERSION,
+        capabilities = ClientCapabilities(),
+        clientInfo = ClientInfo("test", "0.0.1"),
+    )
+
     private fun initializeResponse(id: Int): JsonRpcResponse<JsonElement> = JsonRpcResponse(
         jsonrpc = "2.0",
         id = id,
@@ -68,7 +74,7 @@ class McpClientSelfHealTest {
 
     @Test
     fun `IllegalStateException on a post-init request triggers re-initialize and retries the original request`() = runTest {
-        // Simulate: client.initialize() succeeds normally; the transport then
+        // Simulate: client.initialize(testInitParams) succeeds normally; the transport then
         // reports a dead process for the *next* request (listTools). The retry
         // path should clear initResult, re-handshake, and re-issue listTools.
         var postInitSendCount = 0
@@ -88,7 +94,7 @@ class McpClientSelfHealTest {
         }
         val client = McpClient(transport)
 
-        client.initialize()
+        client.initialize(testInitParams)
         val result = client.listTools(null)
 
         assertEquals(emptyList(), result.tools)
@@ -122,7 +128,7 @@ class McpClientSelfHealTest {
             }
         }
         val client = McpClient(transport)
-        client.initialize()
+        client.initialize(testInitParams)
 
         val ex = assertFailsWith<IllegalStateException> {
             client.listTools(null)
@@ -147,7 +153,7 @@ class McpClientSelfHealTest {
             }
         }
         val client = McpClient(transport)
-        client.initialize()
+        client.initialize(testInitParams)
 
         assertFailsWith<CancellationException> {
             client.listTools(null)
@@ -178,7 +184,7 @@ class McpClientSelfHealTest {
             }
         }
         val client = McpClient(transport)
-        client.initialize()
+        client.initialize(testInitParams)
 
         // Close BEFORE the cancelled request — the cancelled notification should
         // be suppressed by the closed flag in notifyCancelledIfOpen.

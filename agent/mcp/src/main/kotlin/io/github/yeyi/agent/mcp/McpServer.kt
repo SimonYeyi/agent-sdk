@@ -8,9 +8,8 @@ import kotlinx.serialization.json.JsonObject
 /**
  * MCP 服务协议契约 —— 定义 MCP 协议的方法集与数据结构。
  *
- * 这是一个纯协议层接口，既可以由 [McpClient]（客户端代理，通过传输层调用远端服务）
- * 实现，也可以由进程内本地服务直接实现。接口中的每个方法对应 MCP 协议的一个
- * JSON-RPC 方法，本文件中声明的每个类型对应一个协议结构体。
+ * 这是一个纯协议层接口，由传输层代理或进程内本地服务实现：每个方法对应
+ * MCP 协议的一个 JSON-RPC 方法，本文件中声明的每个类型对应一个协议结构体。
  *
  * 实现细节（缓存、传输编解码、分页遍历）由具体实现类或 SDK 扩展函数负责，
  * 本接口只定义契约。
@@ -26,11 +25,17 @@ public interface McpServer {
     public val transport: McpTransport
 
     /**
-     * Establish the server's usable state.
+     * Handle the MCP `initialize` request from a client.
      *
-     * For remote servers this runs the MCP `initialize` handshake
-     * (initialize request + `notifications/initialized` notification).
-     * For in-process local servers this is where you'd set up resources.
+     * [params] carries what the client sent — its declared
+     * [InitializeParams.protocolVersion], [InitializeParams.capabilities]
+     * and [InitializeParams.clientInfo]. Implementations should validate
+     * the protocol version, negotiate capabilities, and return the
+     * server-side [InitializeResult].
+     *
+     * For in-process local servers this is also where you'd set up
+     * resources; the caller (transport layer) supplies [params] from its
+     * wire handshake state.
      *
      * Idempotent — calling on an already-initialized server returns the
      * cached [InitializeResult] without re-handshaking. Implementations
@@ -38,7 +43,7 @@ public interface McpServer {
      * / `callTool` call, so callers can use either the explicit or
      * implicit form.
      */
-    public suspend fun initialize(): InitializeResult
+    public suspend fun initialize(params: InitializeParams): InitializeResult
 
     /**
      * MCP protocol `tools/list` — list one page of tools.
@@ -53,12 +58,17 @@ public interface McpServer {
      * MCP 协议 `tools/call` —— 调用指定工具。
      *
      * **契约**：
-     * - 成功时直接返回工具的 content 数据(典型为 MCP content 数组 `[{type:"text", text:"..."}]`),
-     *   由传输层(LocalTransport / StdioTransport 等)统一包装为 [CallToolResult]。
+     * - 成功时直接返回工具的 content 数据(典型为 MCP content 数组
+     *   `[{type:"text", text:"..."}]`,但实现可返回任意 [JsonElement]),
+     *   由传输层([LocalTransport] / [StdioTransport] 等)统一包装为
+     *   [CallToolResult] 发回客户端 —— 实现者**不应**自行构造 [CallToolResult]。
      * - 失败时抛出业务异常(如参数校验失败、运行时错误),传输层会捕获并包装为
      *   [CallToolResult] `isError=true`。实现者**不应**自行构造 `isError` 协议格式。
      *
      * @param params 结构化参数，包含 `name`（工具名）和 `arguments`（工具入参）。
+     * @return 工具执行产出的 content 数据,典型为 MCP content 数组
+     *         `[{type:"text", text:"..."}]`(见 [CallToolResult.content] 的 wire shape)。
+     *         传输层会将其原样塞进 [CallToolResult.content] 发回客户端。
      */
     public suspend fun callTool(params: CallToolParams): JsonElement
 

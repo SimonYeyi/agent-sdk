@@ -56,12 +56,65 @@ public class McpClient(override val transport: McpTransport) : McpServer {
 
     internal var clientInfo: ClientInfo? = null
 
-    override suspend fun initialize(): InitializeResult = initializeMutex.withLock {
-        initResult ?: run { doInitialize() }.also { initResult = it }
+    override suspend fun initialize(params: InitializeParams): InitializeResult =
+        initializeMutex.withLock {
+            var result = initResult
+            if (result != null) return@withLock result
+
+            val paramsElement = json.encodeToJsonElement(serializer<InitializeParams>(), params)
+            val request = JsonRpcRequest<JsonElement>(
+                id = nextId.getAndIncrement(),
+                method = McpMethods.INITIALIZE,
+                params = paramsElement,
+            )
+            // Bypass sendWithCancelNotification during the handshake: if this request
+            // is cancelled, sending notifications/cancelled would interfere with the
+            // server's initialize processing. Retry-on-IllegalStateException is also
+            // unnecessary here — transport.send has already disposed the dead process
+            // reference, so the next attempt will naturally hit the startProcess branch.
+            val response = transport.send(request)
+            if (response.error != null) {
+                throw McpException(response.error.toString())
+            }
+            val resultElement = response.result
+                ?: throw McpException("MCP initialize response missing result")
+            result = json.decodeFromJsonElement<InitializeResult>(resultElement)
+
+            if (result.protocolVersion.isNotEmpty() &&
+                result.protocolVersion != McpServer.SUPPORTED_PROTOCOL_VERSION
+            ) {
+                throw McpException(
+                    "MCP server protocol version '${result.protocolVersion}' is not supported " +
+                            "(client supports $McpServer.SUPPORTED_PROTOCOL_VERSION)"
+                )
+            }
+
+            // Send the initialized notification as the final handshake step.
+            val notificationParams =
+                json.encodeToJsonElement(serializer<EmptyParams>(), EmptyParams)
+            val notification = JsonRpcNotification(
+                method = McpMethods.NOTIFICATIONS_INITIALIZED,
+                params = notificationParams,
+            )
+            transport.sendNotification(notification)
+
+            return result.also { initResult = it }
+        }
+
+    private suspend fun ensureInitialized(): InitializeResult {
+        val params = InitializeParams(
+            protocolVersion = McpServer.SUPPORTED_PROTOCOL_VERSION,
+            capabilities = ClientCapabilities(
+                roots = RootsObject(listChanged = true),
+                sampling = SamplingObject,
+            ),
+            clientInfo = clientInfo ?: DEFAULT_CLIENT_INFO,
+        )
+        return initialize(params)
     }
 
     override suspend fun listTools(cursor: String?): ListToolsResult {
-        initialize()
+        ensureInitialized()
 
         val params = cursor?.let { ListToolsParams(it) }
         val paramsElement = params?.let { json.encodeToJsonElement(serializer(), it) }
@@ -80,7 +133,7 @@ public class McpClient(override val transport: McpTransport) : McpServer {
     }
 
     override suspend fun callTool(params: CallToolParams): JsonElement {
-        initialize()
+        ensureInitialized()
         val paramsElement = json.encodeToJsonElement(serializer<CallToolParams>(), params)
         val rpcRequest = JsonRpcRequest<JsonElement>(
             id = nextId.getAndIncrement(),
@@ -106,7 +159,7 @@ public class McpClient(override val transport: McpTransport) : McpServer {
     }
 
     override suspend fun ping(): Boolean {
-        initialize()
+        ensureInitialized()
         val paramsElement = json.encodeToJsonElement(serializer<EmptyParams>(), EmptyParams)
         val request = JsonRpcRequest<JsonElement>(
             id = nextId.getAndIncrement(),
@@ -123,54 +176,6 @@ public class McpClient(override val transport: McpTransport) : McpServer {
         transport.close()
     }
 
-    private suspend fun doInitialize(): InitializeResult {
-        val params = InitializeParams(
-            protocolVersion = McpServer.SUPPORTED_PROTOCOL_VERSION,
-            capabilities = ClientCapabilities(
-                roots = RootsObject(listChanged = true),
-                sampling = SamplingObject,
-            ),
-            clientInfo = clientInfo ?: DEFAULT_CLIENT_INFO,
-        )
-        val paramsElement = json.encodeToJsonElement(serializer<InitializeParams>(), params)
-        val request = JsonRpcRequest<JsonElement>(
-            id = nextId.getAndIncrement(),
-            method = McpMethods.INITIALIZE,
-            params = paramsElement,
-        )
-        // Bypass sendWithCancelNotification during the handshake: if this request
-        // is cancelled, sending notifications/cancelled would interfere with the
-        // server's initialize processing. Retry-on-IllegalStateException is also
-        // unnecessary here — transport.send has already disposed the dead process
-        // reference, so the next attempt will naturally hit the startProcess branch.
-        val response = transport.send(request)
-        if (response.error != null) {
-            throw McpException(response.error.toString())
-        }
-        val resultElement = response.result
-            ?: throw McpException("MCP initialize response missing result")
-        val result = json.decodeFromJsonElement<InitializeResult>(resultElement)
-
-        if (result.protocolVersion.isNotEmpty() &&
-            result.protocolVersion != McpServer.SUPPORTED_PROTOCOL_VERSION
-        ) {
-            throw McpException(
-                "MCP server protocol version '${result.protocolVersion}' is not supported " +
-                        "(client supports $McpServer.SUPPORTED_PROTOCOL_VERSION)"
-            )
-        }
-
-        // Send the initialized notification as the final handshake step.
-        val notificationParams = json.encodeToJsonElement(serializer<EmptyParams>(), EmptyParams)
-        val notification = JsonRpcNotification(
-            method = McpMethods.NOTIFICATIONS_INITIALIZED,
-            params = notificationParams,
-        )
-        transport.sendNotification(notification)
-
-        return result
-    }
-
     private suspend fun sendWithCancelNotification(request: JsonRpcRequest<JsonElement>): JsonRpcResponse<JsonElement> {
         try {
             return transport.send(request)
@@ -184,7 +189,7 @@ public class McpClient(override val transport: McpTransport) : McpServer {
             // retry once. DoInitialize uses transport.send directly to avoid
             // recursing back into this wrapper.
             initResult = null
-            initialize()
+            ensureInitialized()
             return transport.send(request)
         }
     }

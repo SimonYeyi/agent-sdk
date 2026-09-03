@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.demo.agent.demo.mcp
 
 import io.github.yeyi.agent.mcp.CallToolParams
+import io.github.yeyi.agent.mcp.InitializeParams
 import io.github.yeyi.agent.mcp.InitializeResult
 import io.github.yeyi.agent.mcp.ListToolsResult
 import io.github.yeyi.agent.mcp.LocalTransport
@@ -97,7 +98,7 @@ private class CalculatorMcpServer : McpServer {
         ),
     )
 
-    override suspend fun initialize(): InitializeResult {
+    override suspend fun initialize(params: InitializeParams): InitializeResult {
         initialized = true
         return InitializeResult(
             protocolVersion = "2025-06-18",
