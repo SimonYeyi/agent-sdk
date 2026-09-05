@@ -14,7 +14,17 @@ import kotlinx.serialization.KSerializer
  */
 public interface CapabilityContext
 
+/**
+ * Factory that bridges agent-side [ToolContext] to capability-specific [Ctx].
+ *
+ * @param Ctx the capability-specific context type
+ */
 public interface CapabilityContextFactory<Ctx : CapabilityContext> {
+    /**
+     * Create a capability context from the agent's runtime tool context.
+     *
+     * @param context the agent's runtime tool context
+     */
     public fun create(context: ToolContext): Ctx
 }
 

@@ -7,6 +7,15 @@ import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 
+/**
+ * One-to-one mode Tool: exposes a single [Capability] as its own Tool.
+ *
+ * The tool name follows the pattern `{capabilityType}_{capabilityName}`.
+ * The description and parameters schema come directly from the capability.
+ *
+ * @param Ctx the capability-specific context type
+ * @param T the arguments type
+ */
 internal class CapabilityAdaptTool<Ctx : CapabilityContext, T : Any>(
     capabilityType: String,
     private val capability: Capability<T, Ctx>,

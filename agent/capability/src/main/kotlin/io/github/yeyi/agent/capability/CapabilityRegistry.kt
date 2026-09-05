@@ -29,6 +29,16 @@ public interface CapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : Capab
     public fun unregisterAll()
 }
 
+/**
+ * Default in-memory implementation of [CapabilityRegistry].
+ *
+ * Uses a [ConcurrentHashMap] for thread-safe storage. Registration is
+ * typically single-threaded during agent setup.
+ *
+ * @param C capability type
+ * @param T arguments type
+ * @param Ctx context type
+ */
 public class DefaultCapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext>(
     override val capabilityType: String
 ) : CapabilityRegistry<C, T, Ctx> {
