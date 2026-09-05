@@ -17,6 +17,7 @@ import io.github.yeyi.agent.demo.agent.demo.tools.getWeatherTool
 import io.github.yeyi.agent.demo.agent.log.HttpLogger
 import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.LlmProvider
+import io.github.yeyi.agent.log.LogDelegate
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.mcp.ClientInfo
 import io.github.yeyi.agent.mcp.McpRegistry
@@ -60,6 +61,19 @@ object DemoAgentFactory {
 
     private const val PROVIDER_OPENAI = "openai"
     private const val PROVIDER_ANTHROPIC = "anthropic"
+
+    init {
+        io.github.yeyi.agent.log.Logging.setDelegate { level, tag, msg ->
+            android.util.Log.println(level.toAndroidLevel(), tag, msg)
+        }
+    }
+
+    private fun io.github.yeyi.agent.log.LogLevel.toAndroidLevel(): Int = when (this) {
+        io.github.yeyi.agent.log.LogLevel.DEBUG -> android.util.Log.DEBUG
+        io.github.yeyi.agent.log.LogLevel.INFO -> android.util.Log.INFO
+        io.github.yeyi.agent.log.LogLevel.WARN -> android.util.Log.WARN
+        io.github.yeyi.agent.log.LogLevel.ERROR -> android.util.Log.ERROR
+    }
 
     fun create(memory: Memory? = null, hook: AgentHook? = null): Agent {
         val providerRaw = BuildConfig.MODEL_PROVIDER

@@ -13,7 +13,7 @@ public enum class LogLevel {
 /**
  * 日志委托接口。统一出口只接收格式化后的字符串。
  */
-public interface LogDelegate {
+public fun interface LogDelegate {
     public fun log(level: LogLevel, tag: String, msg: String)
 }
 
