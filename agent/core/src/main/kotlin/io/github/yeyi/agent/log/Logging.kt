@@ -3,6 +3,13 @@ package io.github.yeyi.agent.log
 import java.io.StringWriter
 import java.io.PrintWriter
 
+public interface LogDelegate {
+    public fun debug(tag: String, msg: String)
+    public fun info(tag: String, msg: String)
+    public fun warn(tag: String, msg: String? = null, e: Throwable? = null)
+    public fun error(tag: String, msg: String? = null, e: Throwable? = null)
+}
+
 /**
  * 极简 logger,可在 v2.x 替换为 SLF4J/Logback。
  *
