@@ -7,7 +7,6 @@ import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolRegistry
-import io.github.yeyi.agent.AgentPlugin
 
 /**
  * DSL builder for [Agent]. Obtain an instance via the top-level [agent] factory function.
@@ -37,6 +36,7 @@ public class AgentBuilder {
 
     private var toolRegistry = ToolRegistry()
     private var hook: AgentHook = NoOpAgentHook
+    private val pluginInstallers = mutableListOf<(AgentBuilder) -> Unit>()
 
     /** 设置最大迭代次数（LLM 调用次数），默认 20。 */
     public fun maxIterations(iterations: Int) {
@@ -105,13 +105,15 @@ public class AgentBuilder {
      *
      * 用法2 — 外部已有 config：
      * ```kotlin
-     * val config = MyConfig().apply { item(...) }
+     * val config = MyConfig().apply { configItem(...) }
      * install(MyPlugin(config))
      * ```
      */
     public fun <C : Any, P : AgentPlugin<C>> install(plugin: P, configure: (C) -> Unit = {}) {
-        configure(plugin.config)
-        plugin.install(this)
+        pluginInstallers.add { builder ->
+            configure(plugin.config)
+            plugin.install(builder)
+        }
     }
 
     /**
@@ -124,11 +126,14 @@ public class AgentBuilder {
      * @throws IllegalArgumentException if [llmProvider] has not been set.
      */
     public fun build(): Agent {
+        val persona = persona ?: Persona("You are a helpful assistant.")
         val provider = requireNotNull(llmProvider) { "llmProvider must be set" }
         val modalityAdapter = modalityAdapter ?: DefaultModalityAdapter(memory.mediaArchive)
 
+        pluginInstallers.forEach { it.invoke(this) }
+
         return ReActAgent(
-            persona = persona ?: Persona("You are a helpful assistant."),
+            persona = persona,
             llmProvider = provider,
             toolRegistry = toolRegistry,
             memory = memory,
