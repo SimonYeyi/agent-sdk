@@ -54,14 +54,15 @@ public interface AgentPlugin<C : Any> {
  */
 public interface AgentPluginContext {
     /**
-     * 注册一个工具。
+     * 向 [io.github.yeyi.agent.tool.ToolRegistry] 注册一个工具。
      */
     public fun registerTool(tool: Tool)
 
     /**
-     * 向 persona 追加额外提示词。
+     * 向 [Persona] 追加额外提示词。
      *
-     * 多次调用会追加多行，在 [build] 时统一合并到 persona。
+     * @param label 标签，渲染为 `label: content`
+     * @param content 追加的内容
      */
     public fun appendPersona(label: String, content: String)
 }
