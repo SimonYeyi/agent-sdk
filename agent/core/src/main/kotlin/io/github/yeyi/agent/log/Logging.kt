@@ -10,6 +10,35 @@ public interface LogDelegate {
     public fun error(tag: String, msg: String? = null, e: Throwable? = null)
 }
 
+private class DefaultLogDelegate : LogDelegate {
+    override fun debug(tag: String, msg: String) {
+        System.out.println("[DEBUG] $tag: $msg")
+    }
+
+    override fun info(tag: String, msg: String) {
+        System.out.println("[INFO] $tag: $msg")
+    }
+
+    override fun warn(tag: String, msg: String?, e: Throwable?) {
+        System.err.println("[WARN] $tag: ${buildMessage(msg, e)}")
+    }
+
+    override fun error(tag: String, msg: String?, e: Throwable?) {
+        System.err.println("[ERROR] $tag: ${buildMessage(msg, e)}")
+    }
+
+    private fun buildMessage(msg: String? = null, e: Throwable? = null): String {
+        return buildString {
+            if (msg != null) append(msg).append("\n")
+            e?.let { ex ->
+                val sw = StringWriter()
+                ex.printStackTrace(PrintWriter(sw))
+                append(sw.toString())
+            }
+        }.trimEnd()
+    }
+}
+
 /**
  * 极简 logger,可在 v2.x 替换为 SLF4J/Logback。
  *
