@@ -11,10 +11,8 @@ import io.github.yeyi.agent.tool.Tool
  * 外部调用方应直接使用扩展函数,不感知本类。
  */
 internal class SkillPlugin(
-    private val registry: SkillRegistry,
-) : CapabilityPlugin<Skill, Unit, SkillContext>() {
-
-    override fun registry(): SkillRegistry = registry
+    private val registry: SkillRegistry, enableDelegateAdaptMode: Boolean = true
+) : CapabilityPlugin<Skill, Unit, SkillContext>(registry, enableDelegateAdaptMode) {
 
     override fun contextFactory(): SkillContextFactory = SkillContextFactory()
 

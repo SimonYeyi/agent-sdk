@@ -9,10 +9,9 @@ import io.github.yeyi.agent.capability.CapabilityPlugin
  * 外部调用方应直接使用扩展函数,不感知本类。
  */
 internal class SubagentPlugin(
-    private val registry: SubagentRegistry,
-) : CapabilityPlugin<Subagent, SubagentTask, SubagentContext>() {
-
-    override fun registry(): SubagentRegistry = registry
+    registry: SubagentRegistry,
+    enableDelegateAdaptMode: Boolean = true,
+) : CapabilityPlugin<Subagent, SubagentTask, SubagentContext>(registry, enableDelegateAdaptMode) {
 
     override fun contextFactory(): SubagentContextFactory = SubagentContextFactory()
 

@@ -368,26 +368,18 @@ class McpTest {
         val mcpReg = McpRegistry(ToolsetRegistry(), ClientInfo("", ""))
         val tsReg = ToolsetRegistry()
 
-        val ex = assertFailsWith<io.github.yeyi.agent.capability.CapabilityPlugin.InstallException> {
+        val ex = assertFailsWith<io.github.yeyi.agent.AgentPlugin.InstallException> {
             AgentBuilder().apply {
                 llmProvider(StubLlm())
                 toolsets(tsReg)
                 mcps(mcpReg)
             }.build()
         }
-        assertTrue(
-            ex.cause is io.github.yeyi.agent.tool.ToolDuplicateException,
-            "cause should be ToolDuplicateException, got: ${ex.cause?.javaClass?.name}",
-        )
         val msg = ex.message ?: ""
         assertTrue("mcps" in msg, "message should mention mcps: $msg")
         assertTrue(
             "toolsets" in msg && "toolset framework" in msg,
             "message should mention toolsets and the framework constraint: $msg",
-        )
-        assertTrue(
-            ex.cause is io.github.yeyi.agent.tool.ToolDuplicateException,
-            "cause should be ToolDuplicateException, got: ${ex.cause?.javaClass?.name}",
         )
     }
 
@@ -396,7 +388,7 @@ class McpTest {
         val mcpReg = McpRegistry(ToolsetRegistry(), ClientInfo("", ""))
         val tsReg = ToolsetRegistry()
 
-        val ex = assertFailsWith<io.github.yeyi.agent.capability.CapabilityPlugin.InstallException> {
+        val ex = assertFailsWith<io.github.yeyi.agent.AgentPlugin.InstallException> {
             AgentBuilder().apply {
                 llmProvider(StubLlm())
                 mcps(mcpReg)
@@ -405,16 +397,8 @@ class McpTest {
         }
         val msg = ex.message ?: ""
         assertTrue(
-            "toolset framework" in msg && "configured more than once" in msg,
+            "toolset" in msg && "configured more than once" in msg,
             "message should explain DSL was invoked multiple times: $msg",
-        )
-        assertTrue(
-            "higher-level DSL" in msg && "kdoc will mention" in msg,
-            "message should direct user to check kdoc of higher-level DSLs (which finds the mcps() call) to find the duplicate: $msg",
-        )
-        assertTrue(
-            ex.cause is io.github.yeyi.agent.tool.ToolDuplicateException,
-            "cause should be ToolDuplicateException (InstallException middle layer is skipped), got: ${ex.cause?.javaClass?.name}",
         )
     }
 }

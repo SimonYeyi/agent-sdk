@@ -39,6 +39,12 @@ public interface AgentPlugin<C : Any> {
      * 或通过 [AgentPluginContext.appendPersona] 追加 persona 内容。
      */
     public fun install(context: AgentPluginContext)
+
+    /**
+     * 插件安装失败异常。
+     */
+    public class InstallException(msg: String, cause: Throwable? = null) :
+        IllegalStateException(msg, cause)
 }
 
 /**

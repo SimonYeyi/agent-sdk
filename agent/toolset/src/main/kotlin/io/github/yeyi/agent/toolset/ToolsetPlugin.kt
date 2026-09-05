@@ -12,9 +12,8 @@ import io.github.yeyi.agent.tool.Tool
  */
 internal class ToolsetPlugin(
     private val registry: ToolsetRegistry,
-) : CapabilityPlugin<Toolset, Unit, ToolsetContext>() {
-
-    override fun registry(): ToolsetRegistry = registry
+    enableDelegateAdaptMode: Boolean = true,
+) : CapabilityPlugin<Toolset, Unit, ToolsetContext>(registry, enableDelegateAdaptMode) {
 
     override fun contextFactory(): ToolsetContextFactory = ToolsetContextFactory()
 

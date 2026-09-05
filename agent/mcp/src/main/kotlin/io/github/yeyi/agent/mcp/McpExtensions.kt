@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.mcp
 
 import io.github.yeyi.agent.AgentBuilder
-import io.github.yeyi.agent.capability.CapabilityPlugin
+import io.github.yeyi.agent.AgentPlugin
 import io.github.yeyi.agent.toolset.toolsets
 
 /**
@@ -16,7 +16,7 @@ import io.github.yeyi.agent.toolset.toolsets
  * `toolsets()`,两者会撞同一组 toolset 框架的 discovery/delegation 工具,同一 Agent
  * 只能由一个 capability DSL 安装。若先调 `toolsets()` 再调本 DSL,内部抛出的
  * 安装冲突会被本 DSL 重新包装为带 `mcps` 关键字的
- * [CapabilityPlugin.InstallException] 提示;
+ * [AgentPlugin.InstallException] 提示;
  * 若先调本 DSL 再调 `toolsets()`,则由 `toolsets()` 直接抛出。
  *
  * 若需要混入普通 Toolset,在构造 [McpRegistry] 时通过第一个参数传入一个
@@ -41,8 +41,8 @@ import io.github.yeyi.agent.toolset.toolsets
 public fun AgentBuilder.mcps(registry: McpRegistry) {
     try {
         toolsets(registry.toolsetRegistry)
-    } catch (e: CapabilityPlugin.InstallException) {
-        throw CapabilityPlugin.InstallException(
+    } catch (e: AgentPlugin.InstallException) {
+        throw AgentPlugin.InstallException(
             "mcps() and toolsets() cannot both be used on the same Agent — " +
                     "the toolset framework can only be configured from one source. " +
                     "Register additional Toolsets via McpRegistry.toolsetRegistry instead.",

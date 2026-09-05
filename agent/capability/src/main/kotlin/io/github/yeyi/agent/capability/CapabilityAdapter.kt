@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.capability
 
-import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.tool.Tool
 
 internal abstract class CapabilityAdapter<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext>(
@@ -11,12 +10,12 @@ internal abstract class CapabilityAdapter<C : Capability<T, Ctx>, T : Any, Ctx :
     protected abstract fun adapt(): List<Tool>
 
     /**
-     * 将 adapter 产生的 Tool 注册到 [AgentBuilder]。
+     * 将 adapter 产生的 Tool 注册到 [io.github.yeyi.agent.AgentPluginContext]。
      *
-     * 内部调用 [adapt] 生成 Tool 列表，然后逐个通过 [AgentBuilder.tool] 注册。
+     * 内部调用 [adapt] 生成 Tool 列表，然后逐个通过 [registerTool] 注册。
      */
-    fun installOn(agentBuilder: AgentBuilder): Unit =
-        adapt().forEach { agentBuilder.tool(it) }
+    fun installOn(registerTool: (Tool) -> Unit): Unit =
+        adapt().forEach { registerTool(it) }
 
     companion object {
         /**

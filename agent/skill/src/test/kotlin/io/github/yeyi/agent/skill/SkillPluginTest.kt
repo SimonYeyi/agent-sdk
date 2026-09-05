@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.skill
 
 import io.github.yeyi.agent.AgentBuilder
+import io.github.yeyi.agent.AgentPluginContext
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
@@ -47,54 +48,63 @@ class SkillPluginTest {
             flowOf(ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop))
     }
 
+    private class FakePluginContext : AgentPluginContext {
+        private val _tools = mutableListOf<Tool>()
+        val tools: List<Tool> get() = _tools
+
+        override fun registerTool(tool: Tool) {
+            _tools.add(tool)
+        }
+
+        override fun appendPersona(label: String, content: String) {
+            // not used in tests
+        }
+    }
+
     private fun AgentBuilder.installedTools(): List<Tool> {
         val f = AgentBuilder::class.java.getDeclaredField("toolRegistry").apply { isAccessible = true }
         @Suppress("UNCHECKED_CAST")
         return (f.get(this) as ToolRegistry).all()
     }
 
-    private fun newBuilder(): AgentBuilder = AgentBuilder().apply { llmProvider(StubLlm) }
-
     @Test
-    fun `installer exposes the same registry passed in`() {
+    fun `installer exposes the same registry passed in constructor`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
         val installer = SkillPlugin(registry)
-        val m = io.github.yeyi.agent.capability.CapabilityPlugin::class.java.getDeclaredMethod("registry").apply { isAccessible = true }
-        @Suppress("UNCHECKED_CAST")
-        assertEquals(registry, m.invoke(installer))
+        assertEquals(registry, installer.config)
     }
 
     @Test
-    fun `installOn installs load_skill tool`() {
+    fun `install installs load_skill tool`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
         val installer = SkillPlugin(registry)
-        val builder = newBuilder()
-        installer.installOn(builder)
-        val toolNames = builder.installedTools().map { it.name }
+        val context = FakePluginContext()
+        installer.install(context)
+        val toolNames = context.tools.map { it.name }
         assertContains(toolNames, "load_skill")
     }
 
     @Test
-    fun `installOn does NOT install SkillToolLoader or SkillToolCaller when registry has no tools`() {
+    fun `install does NOT install SkillToolLoader or SkillToolCaller when registry has no tools`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
         val installer = SkillPlugin(registry)
-        val builder = newBuilder()
-        installer.installOn(builder)
-        val toolNames = builder.installedTools().map { it.name }
+        val context = FakePluginContext()
+        installer.install(context)
+        val toolNames = context.tools.map { it.name }
         assertFalse("skill_tool_loader" in toolNames)
         assertFalse("skill_tool_caller" in toolNames)
     }
 
     @Test
-    fun `installOn installs SkillToolLoader and SkillToolCaller when registry has tools`() {
+    fun `install installs SkillToolLoader and SkillToolCaller when registry has tools`() {
         val registry = SkillRegistry().apply {
             register(StubSkill("alpha"))
             registerTools(listOf(StubSkillTool("helper_a")))
         }
         val installer = SkillPlugin(registry)
-        val builder = newBuilder()
-        installer.installOn(builder)
-        val toolNames = builder.installedTools().map { it.name }
+        val context = FakePluginContext()
+        installer.install(context)
+        val toolNames = context.tools.map { it.name }
         assertContains(toolNames, "skill_tool_loader")
         assertContains(toolNames, "skill_tool_caller")
     }
