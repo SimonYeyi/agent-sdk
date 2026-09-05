@@ -111,4 +111,26 @@ class AgentBuilderTest {
 
         assertEquals("configured", configuredValue)
     }
+
+    @Test
+    fun `plugin with preconfigured plugin`() = runTest {
+        data class Config(var value: String = "")
+
+        val preconfiguredPlugin = object : AgentPlugin<Config> {
+            override val id = "test"
+            override val config = Config()
+            override fun install(context: AgentPluginContext) {
+                context.appendPersona("test-plugin", "value=${config.value}")
+            }
+        }
+
+        preconfiguredPlugin.config.value = "preconfigured"
+
+        agent {
+            llmProvider(fakeProvider())
+            plugin(preconfiguredPlugin)
+        }
+
+        assertEquals("preconfigured", preconfiguredPlugin.config.value)
+    }
 }
