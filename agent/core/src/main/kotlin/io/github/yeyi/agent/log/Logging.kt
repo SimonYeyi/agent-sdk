@@ -12,11 +12,11 @@ public interface LogDelegate {
 
 private class DefaultLogDelegate : LogDelegate {
     override fun debug(tag: String, msg: String) {
-        System.out.println("[DEBUG] $tag: $msg")
+        println("[DEBUG] $tag: $msg")
     }
 
     override fun info(tag: String, msg: String) {
-        System.out.println("[INFO] $tag: $msg")
+        println("[INFO] $tag: $msg")
     }
 
     override fun warn(tag: String, msg: String?, e: Throwable?) {
@@ -44,31 +44,26 @@ private class DefaultLogDelegate : LogDelegate {
  *
  */
 public object Logging {
+    private var logDelegate: LogDelegate = DefaultLogDelegate()
+
+    public fun setDelegate(delegate: LogDelegate) {
+        logDelegate = delegate
+    }
+
     internal fun debug(tag: String, msg: String) {
-        System.err.println("[DEBUG] $tag: $msg")
+        logDelegate.debug(tag, msg)
     }
 
     internal fun info(tag: String, msg: String) {
-        System.err.println("[INFO] $tag: $msg")
+        logDelegate.info(tag, msg)
     }
 
     internal fun warn(tag: String, msg: String? = null, e: Throwable? = null) {
-        System.err.println("[WARN] $tag: ${buildThrowableMessage(msg, e)}")
+        logDelegate.warn(tag, msg, e)
     }
 
     internal fun error(tag: String, msg: String? = null, e: Throwable? = null) {
-        System.err.println("[ERROR] $tag: ${buildThrowableMessage(msg, e)}")
-    }
-
-    private fun buildThrowableMessage(msg: String? = null, e: Throwable? = null): String {
-        return buildString {
-            if (msg != null) append(msg).append("\n")
-            e?.let { ex ->
-                val sw = StringWriter()
-                ex.printStackTrace(PrintWriter(sw))
-                append(sw.toString())
-            }
-        }.trimEnd()
+        logDelegate.error(tag, msg, e)
     }
 }
 

@@ -10,21 +10,28 @@ import kotlin.test.assertTrue
 
 class LoggingTest {
 
-    private val captured = ByteArrayOutputStream()
+    private val capturedOut = ByteArrayOutputStream()
+    private val capturedErr = ByteArrayOutputStream()
+    private val originalOut = System.out
     private val originalErr = System.err
 
     @BeforeTest
     fun setUp() {
-        System.setErr(PrintStream(captured))
+        System.setOut(PrintStream(capturedOut))
+        System.setErr(PrintStream(capturedErr))
     }
 
     @AfterTest
     fun tearDown() {
+        System.setOut(originalOut)
         System.setErr(originalErr)
-        captured.reset()
+        capturedOut.reset()
+        capturedErr.reset()
     }
 
-    private fun stderr(): String = captured.toString(Charsets.UTF_8)
+    private fun stdout(): String = capturedOut.toString(Charsets.UTF_8)
+    private fun stderr(): String = capturedErr.toString(Charsets.UTF_8)
+    private fun allOutput(): String = stdout() + stderr()
 
     // --- debug ---
 
@@ -32,7 +39,7 @@ class LoggingTest {
     fun `debug outputs with DEBUG prefix and tag`() {
         val log = LoggingTagged("agent")
         log.debug("test debug message")
-        val out = stderr()
+        val out = allOutput()
         assertTrue(out.contains("[DEBUG]"))
         assertTrue(out.contains("agent"))
         assertTrue(out.contains("test debug message"))
@@ -44,7 +51,7 @@ class LoggingTest {
     fun `info outputs with INFO prefix and tag`() {
         val log = LoggingTagged("agent")
         log.info("test info message")
-        val out = stderr()
+        val out = allOutput()
         assertTrue(out.contains("[INFO]"))
         assertTrue(out.contains("agent"))
         assertTrue(out.contains("test info message"))
@@ -83,7 +90,7 @@ class LoggingTest {
         log.info("info msg")
         log.warn("warn msg")
         log.error("error msg")
-        val out = stderr()
+        val out = allOutput()
         val lines = out.lines().filter { it.isNotEmpty() }
         assertEquals(4, lines.size)
         assertTrue(lines[0].contains("[DEBUG]"))
@@ -100,8 +107,82 @@ class LoggingTest {
         val hookLog = LoggingTagged("hook")
         agentLog.info("from agent")
         hookLog.info("from hook")
-        val out = stderr()
+        val out = allOutput()
         assertTrue(out.contains("agent"))
         assertTrue(out.contains("hook"))
+    }
+
+    // --- delegate injection ---
+
+    private fun createDefaultDelegate(): LogDelegate = object : LogDelegate {
+        override fun debug(tag: String, msg: String) {
+            System.out.println("[DEBUG] $tag: $msg")
+        }
+
+        override fun info(tag: String, msg: String) {
+            System.out.println("[INFO] $tag: $msg")
+        }
+
+        override fun warn(tag: String, msg: String?, e: Throwable?) {
+            System.err.println("[WARN] $tag: ${msg ?: ""}${if (e != null) "\n${e.stackTraceToString()}" else ""}")
+        }
+
+        override fun error(tag: String, msg: String?, e: Throwable?) {
+            System.err.println("[ERROR] $tag: ${msg ?: ""}${if (e != null) "\n${e.stackTraceToString()}" else ""}")
+        }
+    }
+
+    @Test
+    fun `delegate injection`() {
+        val fakeDelegate = FakeLogDelegate()
+        Logging.setDelegate(fakeDelegate)
+
+        val log = LoggingTagged("test")
+        log.info("test message")
+
+        assertEquals(1, fakeDelegate.entries.size)
+        assertEquals("test message", fakeDelegate.entries[0].msg)
+        assertEquals(FakeLogDelegate.Level.INFO, fakeDelegate.entries[0].level)
+        assertEquals("test", fakeDelegate.entries[0].tag)
+
+        Logging.setDelegate(createDefaultDelegate())
+    }
+
+    @Test
+    fun `delegate with throwable`() {
+        val fakeDelegate = FakeLogDelegate()
+        Logging.setDelegate(fakeDelegate)
+
+        val log = LoggingTagged("test")
+        val exception = RuntimeException("test exception")
+        log.warn("warning message", exception)
+
+        assertEquals(1, fakeDelegate.entries.size)
+        assertEquals("warning message", fakeDelegate.entries[0].msg)
+        assertEquals(exception, fakeDelegate.entries[0].throwable)
+        assertEquals(FakeLogDelegate.Level.WARN, fakeDelegate.entries[0].level)
+
+        Logging.setDelegate(createDefaultDelegate())
+    }
+
+    @Test
+    fun `multiple delegates`() {
+        val fakeDelegate1 = FakeLogDelegate()
+        val fakeDelegate2 = FakeLogDelegate()
+
+        Logging.setDelegate(fakeDelegate1)
+        val log1 = LoggingTagged("test1")
+        log1.info("message1")
+
+        Logging.setDelegate(fakeDelegate2)
+        val log2 = LoggingTagged("test2")
+        log2.info("message2")
+
+        assertEquals(1, fakeDelegate1.entries.size)
+        assertEquals(1, fakeDelegate2.entries.size)
+        assertEquals("message1", fakeDelegate1.entries[0].msg)
+        assertEquals("message2", fakeDelegate2.entries[0].msg)
+
+        Logging.setDelegate(createDefaultDelegate())
     }
 }
