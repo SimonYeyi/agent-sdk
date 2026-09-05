@@ -7,6 +7,7 @@ import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolRegistry
+import io.github.yeyi.agent.AgentPlugin
 
 /**
  * DSL builder for [Agent]. Obtain an instance via the top-level [agent] factory function.
@@ -90,6 +91,27 @@ public class AgentBuilder {
     /** 设置多模态适配器。用于自定义模型对于历史消息中 media 的可见性 */
     public fun modalityAdapter(adapter: ModalityAdapter) {
         this.modalityAdapter = adapter
+    }
+
+    /**
+     * 安装插件。
+     *
+     * 用法1 — 插件自带的 config + block 配置：
+     * ```kotlin
+     * install(MyPlugin()) {
+     *     configItem(...)
+     * }
+     * ```
+     *
+     * 用法2 — 外部已有 config：
+     * ```kotlin
+     * val config = MyConfig().apply { item(...) }
+     * install(MyPlugin(config))
+     * ```
+     */
+    public fun <C : Any, P : AgentPlugin<C>> install(plugin: P, configure: (C) -> Unit = {}) {
+        configure(plugin.config)
+        plugin.install(this)
     }
 
     /**
