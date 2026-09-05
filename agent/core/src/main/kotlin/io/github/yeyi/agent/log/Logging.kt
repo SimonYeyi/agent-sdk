@@ -3,6 +3,11 @@ package io.github.yeyi.agent.log
 import java.io.StringWriter
 import java.io.PrintWriter
 
+/**
+ * 日志委托接口。
+ *
+ * 实现此接口可自定义日志输出行为，如接入 SLF4J、Logback 等日志框架。
+ */
 public interface LogDelegate {
     public fun debug(tag: String, msg: String)
     public fun info(tag: String, msg: String)
@@ -10,6 +15,11 @@ public interface LogDelegate {
     public fun error(tag: String, msg: String? = null, e: Throwable? = null)
 }
 
+/**
+ * 默认日志委托实现。
+ *
+ * debug/info 输出到 System.out，warn/error 输出到 System.err。
+ */
 private class DefaultLogDelegate : LogDelegate {
     override fun debug(tag: String, msg: String) {
         println("[DEBUG] $tag: $msg")
@@ -40,12 +50,18 @@ private class DefaultLogDelegate : LogDelegate {
 }
 
 /**
- * 极简 logger,可在 v2.x 替换为 SLF4J/Logback。
+ * 日志门面对象。
  *
+ * 通过 [setDelegate] 可注入自定义 [LogDelegate] 实现。
  */
 public object Logging {
     private var logDelegate: LogDelegate = DefaultLogDelegate()
 
+    /**
+     * 设置日志委托。
+     *
+     * @param delegate 日志委托实现
+     */
     public fun setDelegate(delegate: LogDelegate) {
         logDelegate = delegate
     }
