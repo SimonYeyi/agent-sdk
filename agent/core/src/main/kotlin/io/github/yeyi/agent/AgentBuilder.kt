@@ -26,8 +26,7 @@ import io.github.yeyi.agent.tool.ToolRegistry
  * memory, hooks, and the LLM provider.
  */
 public class AgentBuilder {
-    public var persona: Persona? = null
-        private set
+    private var persona: Persona = Persona("You are a helpful assistant.")
     private var maxIterations: Int = 20
     private var llmProvider: LlmProvider? = null
     private var memory: Memory = InMemoryMemory()
@@ -118,7 +117,7 @@ public class AgentBuilder {
         }
     }
 
-    private fun installPlugins(persona: Persona) {
+    private fun installPlugins() {
         val pluginContext = object : AgentPluginContext {
             override fun registerTool(tool: Tool) {
                 toolRegistry.register(tool)
@@ -141,11 +140,10 @@ public class AgentBuilder {
      * @throws IllegalArgumentException if [llmProvider] has not been set.
      */
     public fun build(): Agent {
-        val persona = persona ?: Persona("You are a helpful assistant.")
         val provider = requireNotNull(llmProvider) { "llmProvider must be set" }
         val modalityAdapter = modalityAdapter ?: DefaultModalityAdapter(memory.mediaArchive)
 
-        installPlugins(persona)
+        installPlugins()
 
         return ReActAgent(
             persona = persona,
