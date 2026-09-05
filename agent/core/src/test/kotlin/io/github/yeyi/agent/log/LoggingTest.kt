@@ -115,20 +115,12 @@ class LoggingTest {
     // --- delegate injection ---
 
     private fun createDefaultDelegate(): LogDelegate = object : LogDelegate {
-        override fun debug(tag: String, msg: String) {
-            System.out.println("[DEBUG] $tag: $msg")
-        }
-
-        override fun info(tag: String, msg: String) {
-            System.out.println("[INFO] $tag: $msg")
-        }
-
-        override fun warn(tag: String, msg: String?, e: Throwable?) {
-            System.err.println("[WARN] $tag: ${msg ?: ""}${if (e != null) "\n${e.stackTraceToString()}" else ""}")
-        }
-
-        override fun error(tag: String, msg: String?, e: Throwable?) {
-            System.err.println("[ERROR] $tag: ${msg ?: ""}${if (e != null) "\n${e.stackTraceToString()}" else ""}")
+        override fun log(level: LogLevel, tag: String, msg: String) {
+            val prefix = "[${level.name}] $tag: "
+            when (level) {
+                LogLevel.DEBUG, LogLevel.INFO -> println(prefix + msg)
+                LogLevel.WARN, LogLevel.ERROR -> System.err.println(prefix + msg)
+            }
         }
     }
 
@@ -142,7 +134,7 @@ class LoggingTest {
 
         assertEquals(1, fakeDelegate.entries.size)
         assertEquals("test message", fakeDelegate.entries[0].msg)
-        assertEquals(FakeLogDelegate.Level.INFO, fakeDelegate.entries[0].level)
+        assertEquals(LogLevel.INFO, fakeDelegate.entries[0].level)
         assertEquals("test", fakeDelegate.entries[0].tag)
 
         Logging.setDelegate(createDefaultDelegate())
@@ -158,9 +150,9 @@ class LoggingTest {
         log.warn("warning message", exception)
 
         assertEquals(1, fakeDelegate.entries.size)
-        assertEquals("warning message", fakeDelegate.entries[0].msg)
-        assertEquals(exception, fakeDelegate.entries[0].throwable)
-        assertEquals(FakeLogDelegate.Level.WARN, fakeDelegate.entries[0].level)
+        assertTrue(fakeDelegate.entries[0].msg.contains("warning message"))
+        assertTrue(fakeDelegate.entries[0].msg.contains("test exception"))
+        assertEquals(LogLevel.WARN, fakeDelegate.entries[0].level)
 
         Logging.setDelegate(createDefaultDelegate())
     }
