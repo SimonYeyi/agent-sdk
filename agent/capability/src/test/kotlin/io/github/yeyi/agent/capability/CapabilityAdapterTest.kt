@@ -94,9 +94,7 @@ class CapabilityAdapterTest {
         }
 
     private fun CapabilityAdapter<*, *, *>.producedTools(): List<Tool> {
-        val m = CapabilityAdapter::class.java.getDeclaredMethod("adapt").apply { isAccessible = true }
-        @Suppress("UNCHECKED_CAST")
-        return m.invoke(this) as List<Tool>
+        return this.adapt()
     }
 
     // ---------- DefaultCapabilityRegistry ----------

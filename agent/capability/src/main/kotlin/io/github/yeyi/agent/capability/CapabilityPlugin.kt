@@ -51,7 +51,7 @@ public abstract class CapabilityPlugin<C : Capability<T, Ctx>, T : Any, Ctx : Ca
 
     final override fun install(context: AgentPluginContext) {
         CapabilityAdapter.of(registry, contextFactory(), arguments(), enableDelegateAdaptMode)
-            .installOn { context.registerTool(it) }
+            .adapt().forEach { context.registerTool(it) }
         auxiliaryTools().forEach { context.registerTool(it) }
     }
 }
