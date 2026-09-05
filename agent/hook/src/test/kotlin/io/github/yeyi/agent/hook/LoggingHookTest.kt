@@ -30,8 +30,10 @@ import kotlin.test.assertTrue
 
 class LoggingHookTest {
 
+    private lateinit var originalOut: PrintStream
     private lateinit var originalErr: PrintStream
-    private lateinit var captured: ByteArrayOutputStream
+    private lateinit var capturedOut: ByteArrayOutputStream
+    private lateinit var capturedErr: ByteArrayOutputStream
 
     private fun context(iter: Int = 1) = AgentContext(
         persona = Persona(role = ""),
@@ -46,18 +48,24 @@ class LoggingHookTest {
     private val request = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("")))))
 
     @BeforeTest
-    fun captureStderr() {
+    fun captureStreams() {
+        originalOut = System.out
         originalErr = System.err
-        captured = ByteArrayOutputStream()
-        System.setErr(PrintStream(captured, true, Charsets.UTF_8))
+        capturedOut = ByteArrayOutputStream()
+        capturedErr = ByteArrayOutputStream()
+        System.setOut(PrintStream(capturedOut, true, Charsets.UTF_8))
+        System.setErr(PrintStream(capturedErr, true, Charsets.UTF_8))
     }
 
     @AfterTest
-    fun restoreStderr() {
+    fun restoreStreams() {
+        System.setOut(originalOut)
         System.setErr(originalErr)
     }
 
-    private fun stderr(): String = captured.toString(Charsets.UTF_8)
+    private fun stdout(): String = capturedOut.toString(Charsets.UTF_8)
+    private fun stderr(): String = capturedErr.toString(Charsets.UTF_8)
+    private fun allOutput(): String = stdout() + stderr()
 
     private fun emptyResponse() = ChatResponse(
         message = ChatMessage.Assistant(content = ""),
@@ -74,7 +82,7 @@ class LoggingHookTest {
     fun `beforeLlmCall writes a debug line with iter`() = runTest {
         val pipeline = DefaultHookPipeline(listOf(LoggingHook()))
         pipeline.beforeLlmCall(context(3), request)
-        val out = stderr()
+        val out = allOutput()
         assertTrue(out.contains("hook"), "should tag with hook")
         assertTrue(out.contains("iter=3"))
     }
@@ -90,7 +98,7 @@ class LoggingHookTest {
             finishReason = FinishReason.ToolCalls
         )
         pipeline.afterLlmResponse(context(2), r)
-        val out = stderr()
+        val out = allOutput()
         assertTrue(out.contains("iter=2"))
     }
 
@@ -99,7 +107,7 @@ class LoggingHookTest {
         val pipeline = DefaultHookPipeline(listOf(LoggingHook()))
         val r = pipeline.beforeToolCall(context(), toolCall())
         assertNull(r, "LoggingHook must never short-circuit")
-        val out = stderr()
+        val out = allOutput()
         assertTrue(out.contains("id=c1"))
         assertTrue(out.contains("name=echo"))
     }
@@ -116,7 +124,7 @@ class LoggingHookTest {
     fun `onRunFailed writes a warn line`() = runTest {
         val pipeline = DefaultHookPipeline(listOf(LoggingHook()))
         pipeline.onRunFailed(context(), AgentException.LlmError(RuntimeException("boom")))
-        val out = stderr()
+        val out = allOutput()
         assertTrue(out.isNotEmpty(), "should log something")
     }
 
@@ -137,7 +145,7 @@ class LoggingHookTest {
             usage = null,
         )
         pipeline.onRunCompleted(context(iter = 5), r)
-        val out = stderr()
+        val out = allOutput()
         assertTrue(out.isNotEmpty(), "should log something")
     }
 
@@ -168,7 +176,7 @@ class LoggingHookTest {
             )
         )
         // 6 calls → at least 6 log lines (error with stack trace may produce multiple lines)
-        val lines = stderr().lines().filter { it.isNotEmpty() }
+        val lines = allOutput().lines().filter { it.isNotEmpty() }
         assertTrue(lines.size >= 6, "expected at least 6 log lines, got ${lines.size}")
     }
 }
