@@ -36,7 +36,7 @@ public class AgentBuilder {
 
     private var toolRegistry = ToolRegistry()
     private var hook: AgentHook = NoOpAgentHook
-    private val pluginInstallers = mutableListOf<(AgentBuilder) -> Unit>()
+    private val pendingInstalls = mutableListOf<(AgentPluginContext) -> Unit>()
 
     /** 设置最大迭代次数（LLM 调用次数），默认 20。 */
     public fun maxIterations(iterations: Int) {
@@ -108,12 +108,27 @@ public class AgentBuilder {
      * val config = MyConfig().apply { configItem(...) }
      * install(MyPlugin(config))
      * ```
+     *
+     * 所有插件在 [build] 时统一执行，确保 builder 配置完整。
      */
-    public fun <C : Any, P : AgentPlugin<C>> install(plugin: P, configure: (C) -> Unit = {}) {
-        pluginInstallers.add { builder ->
-            configure(plugin.config)
-            plugin.install(builder)
+    public fun <C : Any, P : AgentPlugin<C>> plugin(plugin: P, configure: C.() -> Unit = {}) {
+        pendingInstalls.add { context ->
+            plugin.config.configure()
+            plugin.install(context)
         }
+    }
+
+    private fun installPlugins(persona: Persona) {
+        val pluginContext = object : AgentPluginContext {
+            override fun registerTool(tool: Tool) {
+                toolRegistry.register(tool)
+            }
+
+            override fun appendPersona(label: String, content: String) {
+                persona.extra(content, label)
+            }
+        }
+        pendingInstalls.forEach { it(pluginContext) }
     }
 
     /**
@@ -130,7 +145,7 @@ public class AgentBuilder {
         val provider = requireNotNull(llmProvider) { "llmProvider must be set" }
         val modalityAdapter = modalityAdapter ?: DefaultModalityAdapter(memory.mediaArchive)
 
-        pluginInstallers.forEach { it.invoke(this) }
+        installPlugins(persona)
 
         return ReActAgent(
             persona = persona,
