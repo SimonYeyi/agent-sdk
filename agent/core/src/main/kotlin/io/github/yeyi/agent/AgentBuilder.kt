@@ -21,9 +21,8 @@ import io.github.yeyi.agent.tool.ToolRegistry
  *   the LLM).
  *   such an agent can only do pure chat and is usually a misconfiguration.
  *
- * Skills are NOT built in here: that concept is a higher-level composition (see the `skill`
- * module's `AgentBuilder.skill(s)` extension). The core builder only deals with raw tools,
- * memory, hooks, and the LLM provider.
+ * Plugins are NOT built in here: that concept is a higher-level composition (see
+ * [plugin] for the plugin extension point). The core builder only deals with persona, tools, memory, hook, and the LLM provider.
  */
 public class AgentBuilder {
     private var persona: Persona = Persona("You are a helpful assistant.")
