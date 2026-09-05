@@ -98,7 +98,7 @@ public class AgentBuilder {
      *
      * 用法1 — 插件自带的 config + block 配置：
      * ```kotlin
-     * install(MyPlugin()) {
+     * plugin(MyPlugin()) {
      *     configItem(...)
      * }
      * ```
@@ -106,7 +106,7 @@ public class AgentBuilder {
      * 用法2 — 外部已有 config：
      * ```kotlin
      * val config = MyConfig().apply { configItem(...) }
-     * install(MyPlugin(config))
+     * plugin(MyPlugin(config))
      * ```
      *
      * 所有插件在 [build] 时统一执行，确保 builder 配置完整。
