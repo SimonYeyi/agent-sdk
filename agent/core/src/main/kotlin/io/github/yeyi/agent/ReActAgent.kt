@@ -104,7 +104,7 @@ public class ReActAgent internal constructor(
         try {
             emit(AgentEvent.Initial(query))
 
-            memory.attachHook(ProxyHook(hook, emit), buildContext(0))
+            memory.attachHook(MemoryCompressProxyHook(hook, emit), buildContext(0))
             memory.add(modalityAdapter.archive(ChatMessage.User(query.parts)))
 
             while (iterations < maxIterations) {
@@ -227,7 +227,7 @@ public class ReActAgent internal constructor(
         maxRounds = maxRounds,
     )
 
-    private class ProxyHook(
+    private class MemoryCompressProxyHook(
         private val hook: AgentHook,
         private val emit: suspend (AgentEvent) -> Unit
     ) : AgentHook by hook {

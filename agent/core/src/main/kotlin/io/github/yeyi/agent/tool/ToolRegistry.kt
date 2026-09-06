@@ -42,18 +42,20 @@ public class ToolRegistry : ToolDispatcher {
     /** 返回所有已注册工具的快照列表，保持注册顺序。 */
     public fun all(): List<Tool> = byName.values.toList()
 
+    /** 根据名称获取工具，找不到则抛出 [AgentException.ToolNotFound]。 */
+    public fun get(name: String): Tool = byName[name]
+        ?: throw AgentException.ToolNotFound(name, byName.keys)
+
     override suspend fun dispatch(
         name: String,
         arguments: JsonElement,
         context: ToolContext
     ): ToolExecutionResult {
-        val tool = byName[name]
-            ?: return ToolExecutionResult.error(
-                AgentException.ToolNotFound(
-                    name,
-                    byName.keys
-                ).message
-            )
+        val tool = try {
+            get(name)
+        } catch (e: AgentException.ToolNotFound) {
+            return ToolExecutionResult.error(e.message)
+        }
         return try {
             tool.execute(arguments, context)
         } catch (t: CancellationException) {
