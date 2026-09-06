@@ -50,15 +50,6 @@ class ToolsetPluginTest {
     }
 
     @Test
-    fun `installer exposes the same registry passed in constructor`() {
-        val registry = ToolsetRegistry().apply {
-            register(Toolset("alpha", "alpha tools"))
-        }
-        val installer = ToolsetPlugin(registry)
-        assertEquals(registry, installer.config)
-    }
-
-    @Test
     fun `install installs load_toolset and member_tool_delegate tools`() {
         val registry = ToolsetRegistry().apply {
             register(Toolset("alpha", "alpha tools"))

@@ -9,17 +9,16 @@ import io.github.yeyi.agent.tool.Tool
  *
  * 使用方式：
  * ```kotlin
- * // 1. plugin(MyPlugin()) { config.xxx() }
+ * // 方式1：内部持有 config，通过 configure block 配置
  * agent {
  *     plugin(MyPlugin()) {
  *         addItem(...)
  *     }
  * }
  *
- * // 2. plugin(MyPlugin(config))
- * val config = MyConfig().apply { addItem(...) }
+ * // 方式2：外部已有 config，直接传入（configure block 可省略）
  * agent {
- *     plugin(MyPlugin(config))
+ *     plugin(MyPlugin(externalConfig))
  * }
  * ```
  *
@@ -30,7 +29,13 @@ import io.github.yeyi.agent.tool.Tool
  */
 public interface AgentPlugin<C : Any> {
     public val id: String
-    public val config: C
+
+    /**
+     * 配置插件。调用方通过 block 在插件内部 config 上执行配置操作。
+     *
+     * @param block 配置 block，receiver 为插件内部 config
+     */
+    public fun configure(block: C.() -> Unit)
 
     /**
      * 将插件安装到 [AgentPluginContext]。

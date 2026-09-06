@@ -34,9 +34,6 @@ public abstract class CapabilityPlugin<C : Capability<T, Ctx>, T : Any, Ctx : Ca
     private val enableDelegateAdaptMode: Boolean
 ) : AgentPlugin<CapabilityRegistry<C, T, Ctx>> {
 
-    /** 插件配置，即 capability registry。 */
-    final override val config: CapabilityRegistry<C, T, Ctx> get() = registry
-
     /** 插件 ID，等于 registry.capabilityType。 */
     final override val id: String get() = registry.capabilityType
 
@@ -48,6 +45,10 @@ public abstract class CapabilityPlugin<C : Capability<T, Ctx>, T : Any, Ctx : Ca
 
     /** 框架自带辅助 tool —— 默认空。Skill/Toolset 等需要补 Loader/Caller/Delegate 等辅助 tool 时覆写。 */
     protected open fun auxiliaryTools(): List<Tool> = emptyList()
+
+    final override fun configure(block: CapabilityRegistry<C, T, Ctx>.() -> Unit) {
+        registry.block()
+    }
 
     final override fun install(context: AgentPluginContext) {
         CapabilityAdapter.of(registry, contextFactory(), arguments(), enableDelegateAdaptMode)

@@ -45,7 +45,7 @@ class AgentBuilderTest {
     fun `plugin can register tools`() = runTest {
         val testPlugin = object : AgentPlugin<Unit> {
             override val id = "test"
-            override val config = Unit
+            override fun configure(block: Unit.() -> Unit) {}
             override fun install(context: AgentPluginContext) {
                 context.registerTool(object : Tool {
                     override val name: String = "echo"
@@ -72,7 +72,7 @@ class AgentBuilderTest {
     fun `plugin can append persona`() = runTest {
         val testPlugin = object : AgentPlugin<Unit> {
             override val id = "test"
-            override val config = Unit
+            override fun configure(block: Unit.() -> Unit) {}
             override fun install(context: AgentPluginContext) {
                 context.appendPersona("test-plugin", "you are a helpful assistant")
             }
@@ -94,11 +94,14 @@ class AgentBuilderTest {
         data class Config(var value: String = "")
 
         val testPlugin = object : AgentPlugin<Config> {
+            private var cfg = Config()
             override val id = "test"
-            override val config = Config()
+            override fun configure(block: Config.() -> Unit) {
+                cfg.block()
+            }
             override fun install(context: AgentPluginContext) {
-                configuredValue = config.value
-                context.appendPersona("test-plugin", "value=${config.value}")
+                configuredValue = cfg.value
+                context.appendPersona("test-plugin", "value=${cfg.value}")
             }
         }
 
@@ -113,24 +116,21 @@ class AgentBuilderTest {
     }
 
     @Test
-    fun `plugin with preconfigured plugin`() = runTest {
-        data class Config(var value: String = "")
-
-        val preconfiguredPlugin = object : AgentPlugin<Config> {
+    fun `plugin with no configure block`() = runTest {
+        val testPlugin = object : AgentPlugin<Unit> {
             override val id = "test"
-            override val config = Config()
+            override fun configure(block: Unit.() -> Unit) {}
             override fun install(context: AgentPluginContext) {
-                context.appendPersona("test-plugin", "value=${config.value}")
+                context.appendPersona("test-plugin", "no config needed")
             }
         }
 
-        preconfiguredPlugin.config.value = "preconfigured"
-
-        agent {
+        val a = agent {
             llmProvider(fakeProvider())
-            plugin(preconfiguredPlugin)
+            plugin(testPlugin)
         }
 
-        assertEquals("preconfigured", preconfiguredPlugin.config.value)
+        val r = a.run(AgentQuery.text("hi")).awaitResult()
+        assertEquals("ok", r.message.content)
     }
 }

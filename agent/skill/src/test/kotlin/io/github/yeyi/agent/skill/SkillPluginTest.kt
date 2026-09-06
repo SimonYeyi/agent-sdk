@@ -68,13 +68,6 @@ class SkillPluginTest {
     }
 
     @Test
-    fun `installer exposes the same registry passed in constructor`() {
-        val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
-        val installer = SkillPlugin(registry)
-        assertEquals(registry, installer.config)
-    }
-
-    @Test
     fun `install installs load_skill tool`() {
         val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
         val installer = SkillPlugin(registry)

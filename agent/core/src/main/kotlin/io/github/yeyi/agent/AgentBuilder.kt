@@ -119,7 +119,7 @@ public class AgentBuilder {
         }
         plugins[plugin.id] = { context ->
             try {
-                configure(plugin.config)
+                plugin.configure(configure)
                 plugin.install(context)
             } catch (e: Throwable) {
                 throw AgentPlugin.InstallException("Plugin '${plugin.id}' installation failed", e)

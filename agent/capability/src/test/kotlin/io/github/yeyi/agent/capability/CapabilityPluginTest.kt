@@ -63,13 +63,6 @@ class CapabilityPluginTest {
         }
 
     @Test
-    fun `installer exposes registry from config`() {
-        val registry = DefaultCapabilityRegistry<StubCapability, Unit, StubContext>("stub")
-        val installer = minimalInstaller(registry)
-        assertEquals(registry, installer.config)
-    }
-
-    @Test
     fun `install in delegate mode installs load_stub tool`() {
         val installer = minimalInstaller()
         val context = FakePluginContext()

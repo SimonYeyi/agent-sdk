@@ -34,13 +34,6 @@ class SubagentPluginTest {
     }
 
     @Test
-    fun `plugin exposes the same registry passed in constructor`() {
-        val registry = SubagentRegistry().apply { register(StubSubagent("alpha")) }
-        val plugin = SubagentPlugin(registry)
-        assertEquals(registry, plugin.config)
-    }
-
-    @Test
     fun `install in delegate mode installs load_subagent tool`() {
         val registry = SubagentRegistry().apply { register(StubSubagent("alpha")) }
         val plugin = SubagentPlugin(registry)
