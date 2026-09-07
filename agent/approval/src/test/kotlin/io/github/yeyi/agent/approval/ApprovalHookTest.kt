@@ -47,7 +47,7 @@ class ApprovalHookTest {
             ToolExecutionResult.success("done")
     }
 
-    private val approvalRequiredTool = object : Tool, ApprovalRequired {
+    private val approvalRequiredTool = object : Tool, Approvable {
         override val name: String = "dangerous_tool"
         override val description: String = "A dangerous tool"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
@@ -58,7 +58,7 @@ class ApprovalHookTest {
     @Test
     fun `should continue when tool does not require approval`() = runTest {
         val approver = object : Approver {
-            override suspend fun requireApproval(context: ApprovalContext): ApprovalDecision {
+            override suspend fun approval(context: ApprovalContext): ApprovalDecision {
                 throw RuntimeException("approver should not be called")
             }
         }
@@ -75,7 +75,7 @@ class ApprovalHookTest {
     fun `should call approver when tool requires approval`() = runTest {
         var called = false
         val approver = object : Approver {
-            override suspend fun requireApproval(context: ApprovalContext): ApprovalDecision {
+            override suspend fun approval(context: ApprovalContext): ApprovalDecision {
                 called = true
                 assertEquals("dangerous_tool", context.toolName)
                 return ApprovalDecision.Approved
@@ -93,7 +93,7 @@ class ApprovalHookTest {
     @Test
     fun `should return Continue when approver approves`() = runTest {
         val approver = object : Approver {
-            override suspend fun requireApproval(context: ApprovalContext): ApprovalDecision =
+            override suspend fun approval(context: ApprovalContext): ApprovalDecision =
                 ApprovalDecision.Approved
         }
         val hook = ApprovalHook(approver)
@@ -108,7 +108,7 @@ class ApprovalHookTest {
     @Test
     fun `should return Refuse when approver denies`() = runTest {
         val approver = object : Approver {
-            override suspend fun requireApproval(context: ApprovalContext): ApprovalDecision =
+            override suspend fun approval(context: ApprovalContext): ApprovalDecision =
                 ApprovalDecision.Denied("user rejected")
         }
         val hook = ApprovalHook(approver)
@@ -124,7 +124,7 @@ class ApprovalHookTest {
     @Test
     fun `should return Refuse with default message when approver denies without reason`() = runTest {
         val approver = object : Approver {
-            override suspend fun requireApproval(context: ApprovalContext): ApprovalDecision =
+            override suspend fun approval(context: ApprovalContext): ApprovalDecision =
                 ApprovalDecision.Denied(null)
         }
         val hook = ApprovalHook(approver)
@@ -139,10 +139,10 @@ class ApprovalHookTest {
 
     @Test
     fun `should use tool name from event not from context lookup`() = runTest {
-        // Tool name in event is "dangerous_tool", matching the ApprovalRequired tool
+        // Tool name in event is "dangerous_tool", matching the Approvable tool
         var capturedToolName: String? = null
         val approver = object : Approver {
-            override suspend fun requireApproval(context: ApprovalContext): ApprovalDecision {
+            override suspend fun approval(context: ApprovalContext): ApprovalDecision {
                 capturedToolName = context.toolName
                 return ApprovalDecision.Approved
             }
@@ -155,5 +155,71 @@ class ApprovalHookTest {
         hook.execute(event, context)
 
         assertEquals("dangerous_tool", capturedToolName)
+    }
+
+    @Test
+    fun `should skip approver when requiresApproval returns false based on arguments`() = runTest {
+        // 工具根据参数决定是否需要审批：cmd 以 "rm" 开头才需要
+        val conditionalTool = object : Tool, Approvable {
+            override val name: String = "bash"
+            override val description: String = "Run a shell command"
+            override val parametersSchema: ToolParameters = ToolParameters.Empty
+            override fun requiresApproval(arguments: JsonElement): Boolean {
+                val cmd = (arguments as? JsonObject)?.get("msg")?.let { (it as? JsonPrimitive)?.content }
+                return cmd?.startsWith("rm") == true
+            }
+            override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+                ToolExecutionResult.success("done")
+        }
+
+        val approver = object : Approver {
+            override suspend fun approval(context: ApprovalContext): ApprovalDecision {
+                throw RuntimeException("approver should not be called for safe arguments")
+            }
+        }
+        val hook = ApprovalHook(approver)
+        // arguments.msg = "hello"（test 工具调用 helper 固定值），requiresApproval 返回 false
+        val event = AgentHookEvent.BeforeToolCall(toolCall("bash"))
+        val context = HookContext(createContext(listOf(conditionalTool)))
+
+        val result = hook.execute(event, context)
+
+        assertSame(HookResult.Continue, result)
+    }
+
+    @Test
+    fun `should call approver when requiresApproval returns true based on arguments`() = runTest {
+        val conditionalTool = object : Tool, Approvable {
+            override val name: String = "bash"
+            override val description: String = "Run a shell command"
+            override val parametersSchema: ToolParameters = ToolParameters.Empty
+            override fun requiresApproval(arguments: JsonElement): Boolean {
+                val cmd = (arguments as? JsonObject)?.get("msg")?.let { (it as? JsonPrimitive)?.content }
+                return cmd?.startsWith("rm") == true
+            }
+            override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+                ToolExecutionResult.success("done")
+        }
+
+        var called = false
+        val approver = object : Approver {
+            override suspend fun approval(context: ApprovalContext): ApprovalDecision {
+                called = true
+                return ApprovalDecision.Approved
+            }
+        }
+        val hook = ApprovalHook(approver)
+        // arguments.msg = "hello" 不以 rm 开头；但此处手工构造一个以 rm 开头的
+        val rmCall = ToolCall(
+            id = "call-2",
+            name = "bash",
+            arguments = JsonObject(mapOf("msg" to JsonPrimitive("rm -rf /")))
+        )
+        val event = AgentHookEvent.BeforeToolCall(rmCall)
+        val context = HookContext(createContext(listOf(conditionalTool)))
+
+        hook.execute(event, context)
+
+        assertEquals(true, called)
     }
 }

@@ -15,7 +15,7 @@ import kotlin.reflect.KClass
  * val agent = agent {
  *     llmProvider(...)
  *     hook(HookPipeline(listOf(ApprovalHook(myApprover))))
- *     tool(DangerousTool()) // 实现 ApprovalRequired
+ *     tool(DangerousTool()) // 实现 Approvable
  * }
  * ```
  */
@@ -28,11 +28,11 @@ public class ApprovalHook(
         val toolCall = (event as AgentHookEvent.BeforeToolCall).toolCall
         val tool = context.agentContext?.tools?.find { it.name == toolCall.name }
 
-        if (tool !is ApprovalRequired) {
+        if (tool !is Approvable || !tool.requiresApproval(toolCall.arguments)) {
             return HookResult.Continue
         }
 
-        val decision = approver.requireApproval(ApprovalContext(toolCall.name, toolCall.arguments))
+        val decision = approver.approval(ApprovalContext(toolCall.name, toolCall.arguments))
         return when (decision) {
             is ApprovalDecision.Approved -> HookResult.Continue
             is ApprovalDecision.Denied -> HookResult.Refuse(decision.reason ?: "工具审批被拒绝")

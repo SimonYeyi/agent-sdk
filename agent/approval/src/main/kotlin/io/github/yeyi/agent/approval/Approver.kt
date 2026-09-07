@@ -13,5 +13,5 @@ public interface Approver {
      * @param context 审批上下文，包含工具名和调用参数
      * @return 用户的审批决策
      */
-    public suspend fun requireApproval(context: ApprovalContext): ApprovalDecision
+    public suspend fun approval(context: ApprovalContext): ApprovalDecision
 }
