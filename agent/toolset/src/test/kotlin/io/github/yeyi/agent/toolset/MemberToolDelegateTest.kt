@@ -1,10 +1,10 @@
 package io.github.yeyi.agent.toolset
 
 import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
-import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.text
@@ -102,36 +102,39 @@ class MemberToolDelegateTest {
     // ---------- Validation errors ----------
 
     @Test
-    fun `execute returns error when toolset_name is missing`() = runTest {
+    fun `execute throws when toolset_name is missing`() = runTest {
         val (r, _) = buildRegistry()
-        val out = MemberToolDelegate(r).execute(
-            buildJsonObject {
-                put("tool_name", "inner")
-            },
-            emptyContext(),
-        )
-        assertTrue(out.isError)
-        assertTrue("toolset_name" in out.parts.text, "expected error to mention 'toolset_name', got: ${out.parts.text}")
+        val e = assertFailsWith<IllegalArgumentException> {
+            MemberToolDelegate(r).execute(
+                buildJsonObject {
+                    put("tool_name", "inner")
+                },
+                emptyContext(),
+            )
+        }
+        assertTrue("toolset_name" in e.message!!, "expected error to mention 'toolset_name', got: ${e.message}")
     }
 
     @Test
-    fun `execute returns error when tool_name is missing`() = runTest {
+    fun `execute throws when tool_name is missing`() = runTest {
         val (r, _) = buildRegistry()
-        val out = MemberToolDelegate(r).execute(
-            buildJsonObject {
-                put("toolset_name", "weather")
-            },
-            emptyContext(),
-        )
-        assertTrue(out.isError)
-        assertTrue("tool_name" in out.parts.text, "expected error to mention 'tool_name', got: ${out.parts.text}")
+        val e = assertFailsWith<IllegalArgumentException> {
+            MemberToolDelegate(r).execute(
+                buildJsonObject {
+                    put("toolset_name", "weather")
+                },
+                emptyContext(),
+            )
+        }
+        assertTrue("tool_name" in e.message!!, "expected error to mention 'tool_name', got: ${e.message}")
     }
 
     @Test
-    fun `execute returns error when both required fields are missing`() = runTest {
+    fun `execute throws when both required fields are missing`() = runTest {
         val (r, _) = buildRegistry()
-        val out = MemberToolDelegate(r).execute(JsonObject(emptyMap()), emptyContext())
-        assertTrue(out.isError)
+        assertFailsWith<IllegalArgumentException> {
+            MemberToolDelegate(r).execute(JsonObject(emptyMap()), emptyContext())
+        }
     }
 
     // ---------- Routing ----------
@@ -212,20 +215,21 @@ class MemberToolDelegateTest {
     }
 
     @Test
-    fun `execute returns ToolNotFound error when tool is unknown within the toolset`() = runTest {
+    fun `execute throws ToolNotFound when tool is unknown within the toolset`() = runTest {
         val r = ToolsetRegistry().apply {
             register(Toolset("weather", "d").apply { add(CapturingTool("known")) })
         }
-        val out = MemberToolDelegate(r).execute(
-            buildJsonObject {
-                put("toolset_name", "weather")
-                put("tool_name", "ghost")
-            },
-            emptyContext(),
-        )
-        assertTrue(out.isError)
-        assertTrue("'ghost'" in out.parts.text, "expected missing-name in error, got: ${out.parts.text}")
-        assertTrue("known" in out.parts.text, "expected available list in error, got: ${out.parts.text}")
+        val e = assertFailsWith<AgentException.ToolNotFound> {
+            MemberToolDelegate(r).execute(
+                buildJsonObject {
+                    put("toolset_name", "weather")
+                    put("tool_name", "ghost")
+                },
+                emptyContext(),
+            )
+        }
+        assertTrue("'ghost'" in e.message, "expected missing-name in error, got: ${e.message}")
+        assertTrue("known" in e.message, "expected available list in error, got: ${e.message}")
     }
 
     @Test

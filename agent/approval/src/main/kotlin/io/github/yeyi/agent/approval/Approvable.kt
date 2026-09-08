@@ -18,8 +18,9 @@ import kotlinx.serialization.json.JsonElement
  * }
  * ```
  *
- * 委托工具（如单 tool name 路由到多个内部能力的场景）也可 override 此方法，
- * 在内部展开目标并基于目标策略返回决策，approval 模块本身无需感知委托概念。
+ * 委托工具（实现 [io.github.yeyi.agent.tool.DelegatingTool]）无需实现此接口 ——
+ * [io.github.yeyi.agent.approval.ApprovalHook] 会递归穿透委托链，基于底层目标
+ * Tool 的 [Approvable] 策略做审批决策，内部成员工具的审批需求自动生效。
  */
 public interface Approvable {
     /**

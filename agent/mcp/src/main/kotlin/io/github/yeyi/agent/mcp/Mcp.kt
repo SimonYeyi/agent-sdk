@@ -57,6 +57,9 @@ public abstract class Mcp : Toolset {
      */
     final override fun all(): List<Tool> = createToolset().also { delegate = it }.all()
 
+    override fun get(name: String): Tool = delegate?.get(name)
+        ?: error("Mcp '$name' not initialized: call all() first to fetch tool schemas")
+
     /**
      * 委托给 [delegate] 中的 [Tool] 执行。
      */

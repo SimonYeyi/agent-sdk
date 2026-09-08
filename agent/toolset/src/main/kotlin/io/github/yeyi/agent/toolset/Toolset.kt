@@ -30,6 +30,8 @@ public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
     /** 返回当前 Toolset 持有的所有成员 Tool 快照。 */
     public fun all(): List<Tool>
 
+    public fun get(name: String): Tool
+
     /**
      * 默认实现:把 [all] 渲染为简明文本返回给 LLM —— 不预设 wire 格式,
      * MCP / LLM provider 等消费者可按需覆写本方法(例如嵌 JSON schema)。
@@ -37,7 +39,8 @@ public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
     public override suspend fun activate(
         arguments: Unit?,
         context: ToolsetContext,
-    ): String = "Toolset '$name' 包含以下成员 Tool（通过 member_tool_delegate 调用）:\n${all().map { it.toDefinition() }}"
+    ): String =
+        "Toolset '$name' 包含以下成员 Tool（通过 member_tool_delegate 调用）:\n${all().map { it.toDefinition() }}"
 
     public companion object {
         /** 能力框架中的路由类别名，生成工具名 `load_toolset`、路由字段 `toolset_name`。 */
@@ -67,6 +70,8 @@ private class DefaultToolset(
 
     override fun all(): List<Tool> = memberTools.values.toList()
 
+    override fun get(name: String): Tool =
+        memberTools[name] ?: throw AgentException.ToolNotFound(name, memberTools.keys)
 
     override suspend fun dispatch(
         name: String,
