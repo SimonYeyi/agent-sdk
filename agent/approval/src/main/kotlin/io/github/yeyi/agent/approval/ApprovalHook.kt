@@ -18,7 +18,8 @@ import kotlin.reflect.KClass
  * 基于底层 Tool 的 [Approvable] 策略与参数做审批决策。这样委托工具自身无需
  * 实现 [Approvable]，内部成员工具的审批需求自动生效。
  *
- * 无法解析的委托（参数缺失、目标不存在）按放行处理，避免阻塞正常调用。
+ * [DelegatingTool.resolveTarget] 解析失败时抛出 [IllegalArgumentException]，
+ * 由 hook 流水线异常隔离捕获，调用按放行处理（等同于默认 HookResult.Continue 语义）。
  *
  * 用法：
  * ```kotlin
@@ -36,18 +37,17 @@ public class ApprovalHook(
 
     override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
         val toolCall = (event as AgentHookEvent.BeforeToolCall).toolCall
-        val tool = context.agentContext?.tools?.find { it.name == toolCall.name }!!
+        val tool = context.agentContext?.tools?.find { it.name == toolCall.name }
+            ?: return HookResult.Continue
 
         val target = resolveTarget(tool, toolCall.arguments)
         val targetTool = target.tool
 
-        // 非 Approvable 或 requiresApproval=false 也放行
         if (targetTool !is Approvable || !targetTool.requiresApproval(target.arguments)) {
             return HookResult.Continue
         }
 
-        return when (val decision =
-            approver.approval(ApprovalContext(targetTool.name, target.arguments))) {
+        return when (val decision = approver.approval(ApprovalContext(targetTool.name, target.arguments))) {
             is ApprovalDecision.Approved -> HookResult.Continue
             is ApprovalDecision.Denied -> HookResult.Refuse(decision.reason ?: "工具审批被拒绝")
         }
@@ -55,10 +55,10 @@ public class ApprovalHook(
 
     /**
      * 递归穿透 [DelegatingTool] 委托链，定位到底层目标 Tool 及其参数。
-     *
-     * 委托工具 [DelegatingTool.resolveTarget] 解析失败时会抛异常，由调用方 try-catch 兜底。
+     * 解析失败时 [DelegatingTool.resolveTarget] 会抛 [IllegalArgumentException]，
+     * 由 hook 流水线异常隔离统一兜底（按 Continue 放行，记 WARN 日志）。
      */
-    private fun resolveTarget(tool: Tool, arguments: JsonElement): DelegateTarget {
+    private tailrec fun resolveTarget(tool: Tool, arguments: JsonElement): DelegateTarget {
         if (tool !is DelegatingTool) return DelegateTarget(tool, arguments)
         val next = tool.resolveTarget(arguments)
         return resolveTarget(next.tool, next.arguments)

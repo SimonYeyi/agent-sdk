@@ -48,8 +48,7 @@ internal class SkillToolCaller(private val registry: SkillRegistry) :
             ?: throw IllegalArgumentException("Missing tool_name")
         val toolArgs = arguments.jsonObject["arguments"]
             ?: throw IllegalArgumentException("Missing arguments")
-        val target = registry.allTools().find { it.name == toolName }
-            ?: throw IllegalArgumentException("Tool '$toolName' not found in Skill registry")
+        val target = registry.getTool(toolName)
         return DelegateTarget(target, toolArgs)
     }
 
@@ -58,6 +57,6 @@ internal class SkillToolCaller(private val registry: SkillRegistry) :
         context: ToolContext
     ): ToolExecutionResult {
         val target = resolveTarget(arguments)
-        return registry.dispatch(target.tool.name, target.arguments, context)
+        return target.tool.execute(target.arguments, context)
     }
 }

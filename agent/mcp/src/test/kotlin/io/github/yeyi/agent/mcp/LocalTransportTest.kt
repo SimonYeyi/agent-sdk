@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.mcp
 
 import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
@@ -25,6 +26,7 @@ import kotlinx.serialization.json.put
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -148,8 +150,7 @@ class LocalTransportTest {
         // 模拟 LLM 流程：先访问 all() 触发 delegate 懒初始化
         mcp.all()
 
-        val out = mcp.dispatch(
-            "add",
+        val out = mcp.get("add").execute(
             buildJsonObject {
                 put("a", JsonPrimitive(3))
                 put("b", JsonPrimitive(7))
@@ -167,10 +168,10 @@ class LocalTransportTest {
         val (_, mcp, _) = createRegistry()
         mcp.all()
 
-        val out = mcp.dispatch("unknown_tool", buildJsonObject { }, stubToolContext())
-
-        assertTrue(out.isError)
-        assertTrue("unknown_tool" in out.parts.text)
+        val e = assertFailsWith<AgentException.ToolNotFound> {
+            mcp.get("unknown_tool")
+        }
+        assertTrue("unknown_tool" in (e.message ?: ""))
     }
 
     @Test

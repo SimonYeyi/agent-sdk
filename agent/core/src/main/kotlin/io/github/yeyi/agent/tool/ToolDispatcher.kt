@@ -8,7 +8,7 @@ import kotlinx.serialization.json.JsonElement
  * SDK 内部默认实现为 [ToolRegistry]；可通过此接口接入自定义工具管理逻辑
  * （如远程工具服务、本地插件机制等）。
  */
-public interface ToolDispatcher {
+internal interface ToolDispatcher {
 
     /**
      * 根据工具名称分发调用。
@@ -18,7 +18,7 @@ public interface ToolDispatcher {
      * @param context 执行时上下文
      * @return 工具执行结果；工具不存在时抛出 [io.github.yeyi.agent.AgentException.ToolNotFound]
      */
-    public suspend fun dispatch(
+    suspend fun dispatch(
         name: String,
         arguments: JsonElement,
         context: ToolContext

@@ -1,12 +1,9 @@
 package io.github.yeyi.agent.mcp
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
-import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.toolset.Toolset
 import kotlin.jvm.Volatile
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonElement
 
 /**
  * MCP 能力 — 一个 [Toolset] 形态的远端 MCP 服务。
@@ -16,7 +13,7 @@ import kotlinx.serialization.json.JsonElement
  * - [all] 每次调用都通过 [McpClient] 拉取远端工具列表，对每个 [ToolDef] 调用
  *   [adaptTool] 钩子包装为 [Tool],构建新的 [Toolset] 赋值给 [delegate]。
  *   保证工具定义反映远端 MCP 的最新状态。装饰行为由子类覆写 [adaptTool] 注入。
- * - [dispatch] 委托给 [delegate] 中的 [Tool] 执行。
+ * - [get] 通过 [delegate] 按名称查找成员 Tool。
  * 使用方式:
  * ```kotlin
  * class MyMcp(httpClient: HttpClient) : Mcp {
@@ -58,16 +55,6 @@ public abstract class Mcp : Toolset {
     final override fun all(): List<Tool> = createToolset().also { delegate = it }.all()
 
     override fun get(name: String): Tool = delegate?.get(name)
-        ?: error("Mcp '$name' not initialized: call all() first to fetch tool schemas")
-
-    /**
-     * 委托给 [delegate] 中的 [Tool] 执行。
-     */
-    final override suspend fun dispatch(
-        name: String,
-        arguments: JsonElement,
-        context: ToolContext,
-    ): ToolExecutionResult = delegate?.dispatch(name, arguments, context)
         ?: error("Mcp '$name' not initialized: call all() first to fetch tool schemas")
 
     /**

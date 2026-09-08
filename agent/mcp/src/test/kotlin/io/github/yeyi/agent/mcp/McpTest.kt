@@ -221,10 +221,10 @@ class McpTest {
         }
     }
 
-    // ---------- Mcp.dispatch ----------
+    // ---------- Mcp.get + execute ----------
 
     @Test
-    fun `dispatch wraps tool_name and tool_arguments into MCP tools-call envelope`() = runTest {
+    fun `execute wraps tool_name and tool_arguments into MCP tools-call envelope`() = runTest {
         val transport = CapturingTransport(
             listToolsResult = ListToolsResult(listOf(ToolDef("add", "add", buildJsonObject { put("type", JsonPrimitive("object")) }))),
             callToolResult = CallToolResult(content = JsonPrimitive("42")),
@@ -234,7 +234,7 @@ class McpTest {
         mcp.all()
         val args = buildJsonObject { put("a", JsonPrimitive(1)); put("b", JsonPrimitive(2)) }
 
-        val out = mcp.dispatch("add", args, stubToolContext())
+        val out = mcp.get("add").execute(args, stubToolContext())
 
         assertFalse(out.isError)
         // JsonPrimitive("42").toString() returns the JSON-encoded form "\"42\""
@@ -246,7 +246,7 @@ class McpTest {
     }
 
     @Test
-    fun `dispatch passes arguments through unchanged`() = runTest {
+    fun `execute passes arguments through unchanged`() = runTest {
         val transport = CapturingTransport(
             listToolsResult = ListToolsResult(listOf(ToolDef("ping", "ping", buildJsonObject { put("type", JsonPrimitive("object")) }))),
             callToolResult = CallToolResult(content = JsonPrimitive("ok")),
@@ -255,7 +255,7 @@ class McpTest {
         mcp.all()
         val args = buildJsonObject { put("any", JsonPrimitive("value")) }
 
-        mcp.dispatch("ping", args, stubToolContext())
+        mcp.get("ping").execute(args, stubToolContext())
 
         val params = transport.capturedParams.single()
         assertEquals("ping", params.name)
@@ -263,7 +263,7 @@ class McpTest {
     }
 
     @Test
-    fun `dispatch propagates McpException when client returns isError=true`() = runTest {
+    fun `execute propagates McpException when client returns isError=true`() = runTest {
         val transport = FakeServerTransport(
             listToolsResult = ListToolsResult(listOf(ToolDef("add", "add", buildJsonObject { put("type", JsonPrimitive("object")) }))),
             callToolResult = CallToolResult(content = JsonArray(listOf(JsonPrimitive("err msg"))), isError = true),
@@ -271,7 +271,7 @@ class McpTest {
         val mcp = fakeMcp(name = "calc", transport = transport)
         mcp.all()
         assertFailsWith<McpException> {
-            mcp.dispatch("add", buildJsonObject { put("a", JsonPrimitive(1)) }, stubToolContext())
+            mcp.get("add").execute(buildJsonObject { put("a", JsonPrimitive(1)) }, stubToolContext())
         }
     }
 

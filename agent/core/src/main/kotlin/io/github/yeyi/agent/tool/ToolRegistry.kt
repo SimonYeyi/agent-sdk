@@ -52,7 +52,7 @@ public class ToolRegistry : ToolDispatcher {
         context: ToolContext
     ): ToolExecutionResult {
         val tool = try {
-            get(name)
+            this.get(name)
         } catch (e: AgentException.ToolNotFound) {
             return ToolExecutionResult.error(e.message)
         }

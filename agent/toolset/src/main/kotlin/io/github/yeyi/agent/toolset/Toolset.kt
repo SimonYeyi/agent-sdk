@@ -3,24 +3,20 @@ package io.github.yeyi.agent.toolset
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.capability.Capability
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
-import io.github.yeyi.agent.tool.ToolDispatcher
-import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.toDefinition
-import kotlinx.serialization.json.JsonElement
 
 /**
- * 工具集 — 成员 Tool 的容器，自身同时是 [Capability] / [ToolDispatcher]：
+ * 工具集 — 成员 Tool 的容器，自身是一个 [Capability]：
  * - 作为 [Capability] 由能力框架自动适配为 `load_toolset`（委托模式）或 `toolset_<name>`（一一映射模式）
- * - 作为 [ToolDispatcher] 把 LLM 生成的成员 Tool 调用转发给对应成员 Tool
+ * - 调用成员 Tool 通过 [get] 拿到实例后直接 `execute`，或经 [MemberToolDelegate] 统一代理
  *
- * 成员 Tool **不**注册到 [io.github.yeyi.agent.tool.ToolRegistry]，只能通过 [dispatch] 调用。
+ * 成员 Tool **不**注册到 [io.github.yeyi.agent.tool.ToolRegistry]，只能通过 Toolset 自身访问。
  *
  * 多 Toolset 统一管理请用 [ToolsetRegistry] + [toolsets] DSL。
  *
  * @see io.github.yeyi.agent.toolset.toolsets 一次性注册多个 Toolset
  */
-public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
+public interface Toolset : Capability<Unit, ToolsetContext> {
     /** 添加单个成员 Tool。重复名抛 [IllegalArgumentException]。 */
     public fun add(tool: Tool)
 
@@ -30,6 +26,7 @@ public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
     /** 返回当前 Toolset 持有的所有成员 Tool 快照。 */
     public fun all(): List<Tool>
 
+    /** 按名称查找成员 Tool，找不到抛 [AgentException.ToolNotFound]。 */
     public fun get(name: String): Tool
 
     /**
@@ -49,7 +46,7 @@ public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
 }
 
 /**
- * 默认本地实现 — 持有 memberTools Map，提供 add / dispatch / activate 的完整实现。
+ * 默认本地实现 — 持有 memberTools Map，提供 add / get / activate 的完整实现。
  */
 private class DefaultToolset(
     override val name: String,
@@ -72,21 +69,6 @@ private class DefaultToolset(
 
     override fun get(name: String): Tool =
         memberTools[name] ?: throw AgentException.ToolNotFound(name, memberTools.keys)
-
-    override suspend fun dispatch(
-        name: String,
-        arguments: JsonElement,
-        context: ToolContext
-    ): ToolExecutionResult {
-        val tool = memberTools[name]
-            ?: return ToolExecutionResult.error(
-                AgentException.ToolNotFound(
-                    name,
-                    memberTools.keys
-                ).message
-            )
-        return tool.execute(arguments, context)
-    }
 }
 
 /**

@@ -45,8 +45,7 @@ internal class MemberToolDelegate(private val registry: ToolsetRegistry) : Tool,
         val toolName = argsObj["tool_name"]?.jsonPrimitive?.content
             ?: throw IllegalArgumentException("Missing 'tool_name'")
         val toolArgs = argsObj["tool_arguments"] ?: JsonNull
-        val toolset = registry.get(toolsetName)
-        val target = toolset.get(toolName)
+        val target = registry.get(toolsetName).get(toolName)
         return DelegateTarget(target, toolArgs)
     }
 
@@ -55,8 +54,6 @@ internal class MemberToolDelegate(private val registry: ToolsetRegistry) : Tool,
         context: ToolContext
     ): ToolExecutionResult {
         val target = resolveTarget(arguments)
-        // resolveTarget 已校验 toolset 存在，这里直接取同名 dispatch
-        val toolsetName = arguments.jsonObject["toolset_name"]!!.jsonPrimitive.content
-        return registry.get(toolsetName).dispatch(target.tool.name, target.arguments, context)
+        return target.tool.execute(target.arguments, context)
     }
 }

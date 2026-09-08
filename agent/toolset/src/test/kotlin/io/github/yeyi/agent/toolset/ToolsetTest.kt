@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.toolset
 
 import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
@@ -89,7 +90,7 @@ class ToolsetTest {
     fun `add stores a single sub tool`() = runTest {
         val ts = Toolset("weather", "d")
         ts.add(StubTool("get_weather"))
-        assertEquals("ok", ts.dispatch("get_weather", JsonNull, emptyContext()).parts.text)
+        assertEquals("ok", ts.get("get_weather").execute(JsonNull, emptyContext()).parts.text)
     }
 
     @Test
@@ -97,7 +98,7 @@ class ToolsetTest {
         val ts = Toolset("weather", "d")
         ts.add(listOf(StubTool("a"), StubTool("b"), StubTool("c")))
         assertEquals(3, ts.all().map { it.toDefinition() }.size)
-        assertEquals("ok", ts.dispatch("b", JsonNull, emptyContext()).parts.text)
+        assertEquals("ok", ts.get("b").execute(JsonNull, emptyContext()).parts.text)
     }
 
     @Test
@@ -125,15 +126,15 @@ class ToolsetTest {
             ts.add(listOf(StubTool("a"), StubTool("a")))
         }
         ts.add(StubTool("b"))
-        assertEquals("ok", ts.dispatch("b", JsonNull, emptyContext()).parts.text)
+        assertEquals("ok", ts.get("b").execute(JsonNull, emptyContext()).parts.text)
     }
 
     @Test
     fun `sub tools with the same name in DIFFERENT toolsets are independent`() = runTest {
         val ts1 = Toolset("a", "d1").apply { add(StubTool("x", result = ToolExecutionResult.success("from-a"))) }
         val ts2 = Toolset("b", "d2").apply { add(StubTool("x", result = ToolExecutionResult.success("from-b"))) }
-        assertEquals("from-a", ts1.dispatch("x", JsonNull, emptyContext()).parts.text)
-        assertEquals("from-b", ts2.dispatch("x", JsonNull, emptyContext()).parts.text)
+        assertEquals("from-a", ts1.get("x").execute(JsonNull, emptyContext()).parts.text)
+        assertEquals("from-b", ts2.get("x").execute(JsonNull, emptyContext()).parts.text)
     }
 
     // ---------- definitions + activate ----------
@@ -205,52 +206,51 @@ class ToolsetTest {
         )
     }
 
-    // ---------- dispatch (routing) ----------
+    // ---------- get + execute ----------
 
     @Test
-    fun `dispatch routes to the named sub tool and returns its result`() = runTest {
+    fun `get returns the named sub tool and execute returns its result`() = runTest {
         val sub = StubTool("get_weather", result = ToolExecutionResult.success("sunny"))
         val ts = Toolset("weather", "d").apply { add(sub) }
-        val out = ts.dispatch("get_weather", JsonNull, emptyContext())
+        val out = ts.get("get_weather").execute(JsonNull, emptyContext())
         assertFalse(out.isError)
         assertEquals("sunny", out.parts.text)
     }
 
     @Test
-    fun `dispatch forwards arguments to the sub tool`() = runTest {
+    fun `execute forwards arguments to the sub tool`() = runTest {
         val sub = StubTool("echo")
         val ts = Toolset("t", "d").apply { add(sub) }
         val args = buildJsonObject { put("city", JsonPrimitive("Beijing")) }
-        ts.dispatch("echo", args, emptyContext())
+        ts.get("echo").execute(args, emptyContext())
         assertEquals(1, sub.execCalls.size)
         assertEquals(args, sub.execCalls.single())
     }
 
     @Test
-    fun `dispatch returns ToolNotFound error for unknown sub tool name`() = runTest {
+    fun `get throws ToolNotFound for unknown sub tool name`() {
         val ts = Toolset("t", "d").apply { add(StubTool("known")) }
-        val out = ts.dispatch("unknown", JsonNull, emptyContext())
-        assertTrue(out.isError, "expected isError=true, got content=${out.parts.text}")
-        assertTrue("'unknown'" in out.parts.text, "error should mention the missing name, got: ${out.parts.text}")
-        assertTrue("known" in out.parts.text, "error should list available tools, got: ${out.parts.text}")
+        val e = assertFailsWith<AgentException.ToolNotFound> { ts.get("unknown") }
+        assertTrue("'unknown'" in e.message!!, "error should mention the missing name, got: ${e.message}")
+        assertTrue("known" in e.message!!, "error should list available tools, got: ${e.message}")
     }
 
     @Test
-    fun `dispatch returns the sub tool's error result unchanged`() = runTest {
+    fun `execute returns the sub tool's error result unchanged`() = runTest {
         val sub = StubTool("boom", result = ToolExecutionResult.error("kaboom"))
         val ts = Toolset("t", "d").apply { add(sub) }
-        val out = ts.dispatch("boom", JsonNull, emptyContext())
+        val out = ts.get("boom").execute(JsonNull, emptyContext())
         assertTrue(out.isError)
         assertEquals("kaboom", out.parts.text)
     }
 
     @Test
-    fun `dispatch parameter shadows the toolset name by design`() = runTest {
-        // The dispatch parameter is the SUB-tool name; lookup must use it, not the toolset name.
+    fun `get looks up the sub tool name not the toolset name`() = runTest {
+        // get(name) looks up the SUB-tool name, not the toolset name.
         val sub = StubTool("inner")
         val ts = Toolset("outer", "d").apply { add(sub) }
         // If `name` resolved to "outer", lookup would fail with ToolNotFound.
-        val out = ts.dispatch("inner", JsonNull, emptyContext())
+        val out = ts.get("inner").execute(JsonNull, emptyContext())
         assertFalse(out.isError)
     }
 

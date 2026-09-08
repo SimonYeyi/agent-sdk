@@ -96,8 +96,8 @@ class ToolsetRegistryTest {
         r.register(ts)
         val resolved = r.get("weather")
         assertSame(ts, resolved)
-        // Sanity: the resolved toolset is functional (dispatch works through the instance)
-        val out = resolved.dispatch("inner", JsonNull, emptyContext())
+        // Sanity: the resolved toolset is functional (get + execute works through the instance)
+        val out = resolved.get("inner").execute(JsonNull, emptyContext())
         assertEquals("ok", out.parts.text)
     }
 
