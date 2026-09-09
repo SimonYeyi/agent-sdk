@@ -129,6 +129,6 @@ internal class JsonlConversation(
     private fun readMessages(file: File): List<ChatMessage> {
         return file.readLines()
             .filter { it.isNotBlank() }
-            .map { json.decodeFromString<ChatMessage>(it) }
+            .mapNotNull { runCatching { json.decodeFromString<ChatMessage>(it) }.getOrNull() }
     }
 }

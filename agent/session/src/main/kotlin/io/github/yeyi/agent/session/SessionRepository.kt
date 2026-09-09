@@ -25,7 +25,7 @@ internal class SessionRepository(baseDir: File) {
     /**
      * 每个 session 一个独立目录,位于 `sessions/{accountId}/{sessionId}/` 下,
      * 内部三块同级:
-     * - `memory.jsonl` —— [JsonlBackedMemory] 持久化 (Memory 接口)
+     * - `memory.jsonl` —— [JsonlMemory] 持久化 (Memory 接口)
      * - `conversations/page*.jsonl` —— [JsonlConversation] 分页存储 (Conversation 接口)
      * - `media/{uuid}` —— [FilesystemMediaArchive] 字节存档
      *
@@ -82,7 +82,7 @@ internal class SessionRepository(baseDir: File) {
         val archive = FilesystemMediaArchive(
             getMediaDir(session.accountId, session.id),
         )
-        val rawMemory = JsonlBackedMemory(
+        val rawMemory = JsonlMemory(
             getMemoryFile(session.accountId, session.id),
             archive,  // 注入到最下层,所有上层通过 Memory by 自动转发
         )

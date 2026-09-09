@@ -14,11 +14,11 @@ import java.util.UUID
  * [io.github.yeyi.agent.modality.ModalityAdapter] 内部决定
  * (参见 `ARCHIVE_THRESHOLD` 与 `archiveIfLarge`)。
  *
- * 注入点:[SessionRepository.hydrateSession] 把 archive 实例传给 [JsonlBackedMemory],
+ * 注入点:[SessionRepository.hydrateSession] 把 archive 实例传给 [JsonlMemory],
  * 所有上层 Memory 通过 `Memory by` delegate 自动转发。
  *
  * caller app 如需自定义 archive (S3/DB/加密/TTL等), 直接实现 [MediaArchive] 接口
- * 并在 [JsonlBackedMemory] 构造时注入即可。
+ * 并在 [JsonlMemory] 构造时注入即可。
  *
  * **线程安全**:多个并发 add() 调用通过 [Mutex] 序列化,单 archive 实例可被多 coroutine 共享
  * (与 [io.github.yeyi.agent.memory.InMemoryMemory] 的 contract 一致)。

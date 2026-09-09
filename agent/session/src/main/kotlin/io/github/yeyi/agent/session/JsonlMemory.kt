@@ -11,7 +11,7 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
-internal class JsonlBackedMemory(
+internal class JsonlMemory(
     private val file: File,
     override val mediaArchive: MediaArchive,
 ) : Memory {
@@ -36,7 +36,7 @@ internal class JsonlBackedMemory(
         val messages = if (file.exists()) {
             file.readLines()
                 .filter { it.isNotBlank() }
-                .map { json.decodeFromString<ChatMessage>(it) }
+                .mapNotNull { runCatching { json.decodeFromString<ChatMessage>(it) }.getOrNull() }
                 .toMutableList()
         } else {
             mutableListOf()

@@ -12,12 +12,12 @@ import org.junit.Test
 import java.io.File
 import kotlin.test.assertSame
 
-class JsonlBackedMemoryTest {
+class JsonlMemoryTest {
 
     private lateinit var tempDir: File
     private lateinit var memoryFile: File
     private lateinit var archive: MediaArchive
-    private lateinit var memory: JsonlBackedMemory
+    private lateinit var memory: JsonlMemory
 
     @Before
     fun setup() {
@@ -29,7 +29,7 @@ class JsonlBackedMemoryTest {
             override suspend fun resolve(local: MediaSource.Local): MediaSource.Data =
                 throw UnsupportedOperationException("not used in memory tests")
         }
-        memory = JsonlBackedMemory(memoryFile, archive)
+        memory = JsonlMemory(memoryFile, archive)
     }
 
     @After
@@ -59,7 +59,7 @@ class JsonlBackedMemoryTest {
         memory.add(ChatMessage.User(listOf(ContentPart.Text("first"))))
         memory.add(ChatMessage.User(listOf(ContentPart.Text("second"))))
 
-        val reloaded = JsonlBackedMemory(memoryFile, archive)
+        val reloaded = JsonlMemory(memoryFile, archive)
         val history = reloaded.history()
         assertEquals(2, history.size)
         assertEquals("first", (history[0] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
@@ -99,7 +99,7 @@ class JsonlBackedMemoryTest {
 
         memory.rebuild(listOf(ChatMessage.User(listOf(ContentPart.Text("replaced")))))
 
-        val reloaded = JsonlBackedMemory(memoryFile, archive)
+        val reloaded = JsonlMemory(memoryFile, archive)
         val history = reloaded.history()
         assertEquals(1, history.size)
         assertEquals("replaced", (history[0] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
