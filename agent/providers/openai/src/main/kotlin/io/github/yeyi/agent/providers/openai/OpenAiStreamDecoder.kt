@@ -18,12 +18,12 @@ private val SseMapper: Json = Json { ignoreUnknownKeys = true }
  * 第一个见到 tool_call id 的 chunk 会先发 ToolCallStart,再发 ToolCallDelta,
  * 让消费方可以提前初始化 id/name/arguments 缓冲(spec §4.2 与 Anthropic decoder 对齐)。
  * `finishReason` 来自最后一个 chunk 的 `choices[*].finish_reason`,映射后挂到 Done 上。
- * Continuation ToolCallDelta events always carry the most-recently-seen tool call id (filled from `seenToolCallIds`).
+ * Continuation ToolCallDelta events resolve id via `tc.index` into `toolCallIdByIndex`.
  */
 internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<ChatResponseEvent> = flow {
     var lastUsage: Usage? = null
     var lastFinishReason: String? = null
-    val seenToolCallIds = mutableSetOf<String>()
+    val toolCallIdByIndex = mutableMapOf<Int, String>()
     var doneEmitted = false
     lines.collect { rawLine ->
         val line = rawLine.trim()
@@ -40,6 +40,7 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<ChatResponseEvent> 
             SseMapper.decodeFromString(OpenAiStreamChunk.serializer(), payload)
         } catch (t: Throwable) {
             emit(ChatResponseEvent.Error(t))
+            doneEmitted = true
             return@collect
         }
         chunk.usage?.let {
@@ -56,12 +57,16 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<ChatResponseEvent> 
             delta.toolCalls?.forEach { tc ->
                 val id = tc.id
                 val name = tc.function?.name
-                if (id != null && id !in seenToolCallIds) {
-                    seenToolCallIds += id
-                    emit(ChatResponseEvent.ToolCallStart(id = id, name = name!!))
+                val resolvedId = if (id != null) {
+                    if (toolCallIdByIndex.putIfAbsent(tc.index, id) == null) {
+                        emit(ChatResponseEvent.ToolCallStart(id = id, name = name ?: ""))
+                    }
+                    id
+                } else {
+                    toolCallIdByIndex[tc.index]
                 }
                 emit(ChatResponseEvent.ToolCallDelta(
-                    id = id ?: seenToolCallIds.lastOrNull(),
+                    id = resolvedId,
                     name = name,
                     argumentsDelta = tc.function?.arguments.orEmpty()
                 ))
