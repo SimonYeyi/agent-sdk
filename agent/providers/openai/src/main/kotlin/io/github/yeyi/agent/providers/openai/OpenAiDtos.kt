@@ -3,6 +3,7 @@ package io.github.yeyi.agent.providers.openai
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.descriptors.buildClassSerialDescriptor
 import kotlinx.serialization.encoding.Decoder
@@ -177,8 +178,8 @@ internal object OpenAiContentSerializer : KSerializer<OpenAiContent> {
 
     override fun serialize(encoder: Encoder, value: OpenAiContent) {
         val jsonEncoder = encoder as? kotlinx.serialization.json.JsonEncoder
-            ?: throw IllegalStateException(
-                "OpenAiContent can only be serialized using kotlinx.serialization.json.Json"
+            ?: throw SerializationException(
+                "OpenAiContent can only be serialized using kotlinx.serialization.json.JsonEncoder"
             )
         when (value) {
             is OpenAiContent.StringValue ->
@@ -194,14 +195,13 @@ internal object OpenAiContentSerializer : KSerializer<OpenAiContent> {
 
     override fun deserialize(decoder: Decoder): OpenAiContent {
         val jsonDecoder = decoder as? JsonDecoder
-            ?: throw IllegalStateException(
-                "OpenAiContent can only be deserialized using kotlinx.serialization.json.Json"
+            ?: throw SerializationException(
+                "OpenAiContent can only be deserialized using kotlinx.serialization.json.JsonDecoder"
             )
-        val element: JsonElement = jsonDecoder.decodeJsonElement()
-        return when (element) {
+        return when (val element: JsonElement = jsonDecoder.decodeJsonElement()) {
             is JsonPrimitive -> {
                 if (!element.isString) {
-                    throw kotlinx.serialization.SerializationException(
+                    throw SerializationException(
                         "OpenAiContent: expected JSON string or array, got primitive ${element.content}"
                     )
                 }
@@ -210,7 +210,7 @@ internal object OpenAiContentSerializer : KSerializer<OpenAiContent> {
             is JsonArray -> OpenAiContent.PartsValue(
                 element.map { jsonDecoder.json.decodeFromJsonElement(OpenAiContentPart.serializer(), it) }
             )
-            else -> throw kotlinx.serialization.SerializationException(
+            else -> throw SerializationException(
                 "OpenAiContent: expected JSON string or array, got ${element::class.simpleName}"
             )
         }

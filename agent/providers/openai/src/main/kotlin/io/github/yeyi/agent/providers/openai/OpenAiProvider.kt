@@ -92,6 +92,7 @@ public class OpenAiProvider(
         val parsed: OpenAiChatResponse = try {
             resp.body()
         } catch (t: Throwable) {
+            if (t is kotlinx.coroutines.CancellationException) throw t
             throw AgentException.InvalidResponse("OpenAI body parse: ${t.message}")
         }
         return mapFromOpenAi(parsed)
