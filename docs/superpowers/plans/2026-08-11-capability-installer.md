@@ -321,7 +321,7 @@ public abstract class CapabilityInstaller<
     /** 调用方 new 后传入;工厂持有并可继续 register。 */
     protected abstract fun registry(): CapabilityRegistry<C, T, Ctx>
 
-    /** 把 ToolContext 装成能力专属 context 的工厂。 */
+    /** 把 ToolExecutionContext 装成能力专属 context 的工厂。 */
     protected abstract fun contextFactory(): CapabilityContextFactory<Ctx>
 
     /** arguments schema + serializer;无 arguments 传 null。 */
@@ -676,7 +676,7 @@ package io.github.yeyi.agent.capability
 
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -693,7 +693,7 @@ class CapabilityInstallerTest {
     private class StubContext : CapabilityContext
 
     private class StubContextFactory : CapabilityContextFactory<StubContext> {
-        override fun create(context: ToolContext): StubContext = StubContext()
+        override fun create(context: ToolExecutionContext): StubContext = StubContext()
     }
 
     private class StubCapability(
@@ -708,7 +708,7 @@ class CapabilityInstallerTest {
         override val name: String get() = toolName
         override val description: String = "stub $toolName"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
-        override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
             ToolExecutionResult.success("")
     }
 
@@ -948,7 +948,7 @@ import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.StreamEvent
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -974,7 +974,7 @@ class SkillInstallerTest {
     private class StubSkillTool(override val name: String) : Tool {
         override val description: String = "stub tool"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
-        override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
             ToolExecutionResult.success("")
     }
 

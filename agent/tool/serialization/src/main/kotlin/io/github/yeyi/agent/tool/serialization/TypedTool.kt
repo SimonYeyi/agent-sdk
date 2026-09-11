@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.tool.serialization
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.Serializable
@@ -36,7 +36,7 @@ public abstract class TypedTool<P : @Serializable Any, R : @Serializable Any>(
      */
     final override suspend fun execute(
         arguments: JsonElement,
-        context: ToolContext
+        context: ToolExecutionContext
     ): ToolExecutionResult {
         val parameters = Json.decodeFromJsonElement(parameterType.serializer, arguments)
         val result = execute(parameters, context)
@@ -51,7 +51,7 @@ public abstract class TypedTool<P : @Serializable Any, R : @Serializable Any>(
      * @param context 执行上下文
      * @return typed 结果，会自动序列化为 JSON
      */
-    protected abstract suspend fun execute(parameters: P, context: ToolContext): R
+    protected abstract suspend fun execute(parameters: P, context: ToolExecutionContext): R
 }
 
 /**
@@ -68,12 +68,12 @@ public abstract class TypedTool<P : @Serializable Any, R : @Serializable Any>(
 public inline fun <reified P : @Serializable Any, reified R : @Serializable Any> tool(
     name: String,
     description: String,
-    noinline execute: suspend (P, ToolContext) -> R
+    noinline execute: suspend (P, ToolExecutionContext) -> R
 ): Tool {
     return object : TypedTool<P, R>(TypeToken(), TypeToken()) {
         override val name: String = name
         override val description: String = description
-        override suspend fun execute(parameters: P, context: ToolContext): R =
+        override suspend fun execute(parameters: P, context: ToolExecutionContext): R =
             execute(parameters, context)
     }
 }
@@ -85,7 +85,7 @@ public inline fun <reified P : @Serializable Any, reified R : @Serializable Any>
 public inline fun <reified P : @Serializable Any> tool(
     name: String,
     description: String,
-    noinline execute: suspend (P, ToolContext) -> String
+    noinline execute: suspend (P, ToolExecutionContext) -> String
 ): Tool = tool<P, String>(name, description, execute)
 
 /**
@@ -95,5 +95,5 @@ public inline fun <reified P : @Serializable Any> tool(
 public fun tool(
     name: String,
     description: String,
-    execute: suspend (Unit, ToolContext) -> String
+    execute: suspend (Unit, ToolExecutionContext) -> String
 ): Tool = tool<Unit>(name, description, execute)

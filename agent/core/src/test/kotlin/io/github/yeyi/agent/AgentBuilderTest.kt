@@ -5,7 +5,7 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
@@ -13,7 +13,6 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
-import kotlin.test.assertTrue
 
 class AgentBuilderTest {
 
@@ -53,7 +52,7 @@ class AgentBuilderTest {
                     override val parametersSchema: ToolParameters = ToolParameters.Empty
                     override suspend fun execute(
                         arguments: JsonElement,
-                        context: ToolContext
+                        context: ToolExecutionContext
                     ): ToolExecutionResult = ToolExecutionResult.success("ok")
                 })
             }

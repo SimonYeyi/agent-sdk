@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.fakes
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
@@ -16,7 +16,7 @@ class EchoTool(
     )
 ) : Tool {
     val invocations: MutableList<JsonElement> = mutableListOf()
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         invocations += arguments
         val text = (arguments as? JsonObject)?.get("text")
             ?.let { it as? JsonPrimitive }?.content ?: arguments.toString()

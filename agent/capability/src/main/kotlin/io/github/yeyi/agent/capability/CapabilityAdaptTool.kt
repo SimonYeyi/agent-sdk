@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.capability
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.Json
@@ -31,7 +31,7 @@ internal class CapabilityAdaptTool<Ctx : CapabilityContext, T : Any>(
 
     override suspend fun execute(
         arguments: JsonElement,
-        context: ToolContext
+        context: ToolExecutionContext
     ): ToolExecutionResult {
         val input = this.arguments?.let {
             Json.decodeFromJsonElement(it.serializer, arguments)

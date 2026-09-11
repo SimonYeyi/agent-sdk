@@ -5,7 +5,7 @@ import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.llm.text
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
 
 class AllToolsTest {
 
-    private fun stubContext(): ToolContext = ToolContext(
+    private fun stubContext(): ToolExecutionContext = ToolExecutionContext(
         toolCallId = "test-call-id",
         agentContext = AgentContext(
             persona = Persona(""),

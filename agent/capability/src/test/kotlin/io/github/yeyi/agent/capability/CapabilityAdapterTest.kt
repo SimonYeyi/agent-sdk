@@ -8,7 +8,7 @@ import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -39,7 +39,7 @@ class CapabilityAdapterTest {
         private val payload: EchoContext = EchoContext(),
     ) : CapabilityContextFactory<EchoContext> {
         var createCount: Int = 0
-        override fun create(context: ToolContext): EchoContext {
+        override fun create(context: ToolExecutionContext): EchoContext {
             createCount++
             return payload
         }
@@ -74,7 +74,7 @@ class CapabilityAdapterTest {
             flowOf(ChatResponseEvent.Error(IllegalStateException("LlmProvider.chatStream must not be called in capability tests")))
     }
 
-    private fun stubToolContext(): ToolContext = ToolContext(
+    private fun stubToolExecutionContext(): ToolExecutionContext = ToolExecutionContext(
         toolCallId = "tc-1",
         agentContext = AgentContext(
             persona = Persona("test"),
@@ -195,7 +195,7 @@ class CapabilityAdapterTest {
 
         val result = tool.execute(
             arguments = buildJsonObject { put("message", "hello") },
-            context = stubToolContext(),
+            context = stubToolExecutionContext(),
         )
 
         assertEquals("ok:alpha:hello", result.parts.text)
@@ -215,7 +215,7 @@ class CapabilityAdapterTest {
 
         val result = tool.execute(
             arguments = buildJsonObject { },
-            context = stubToolContext(),
+            context = stubToolExecutionContext(),
         )
 
         assertEquals("ok:alpha:<null>", result.parts.text)
@@ -297,7 +297,7 @@ class CapabilityAdapterTest {
                 put("name", "beta")
                 put("arguments", buildJsonObject { put("message", "hi") })
             },
-            context = stubToolContext(),
+            context = stubToolExecutionContext(),
         )
 
         assertEquals("ok:beta:hi", result.parts.text)
@@ -319,7 +319,7 @@ class CapabilityAdapterTest {
 
         val result = tool.execute(
             arguments = buildJsonObject { put("name", "alpha") },
-            context = stubToolContext(),
+            context = stubToolExecutionContext(),
         )
 
         assertEquals("ok:alpha:<null>", result.parts.text)
@@ -337,7 +337,7 @@ class CapabilityAdapterTest {
 
         val result = tool.execute(
             arguments = buildJsonObject { put("arguments", buildJsonObject { put("message", "x") }) },
-            context = stubToolContext(),
+            context = stubToolExecutionContext(),
         )
 
         assertEquals(true, result.isError)
@@ -357,7 +357,7 @@ class CapabilityAdapterTest {
                 put("name", "ghost")
                 put("arguments", buildJsonObject { put("message", "x") })
             },
-            context = stubToolContext(),
+            context = stubToolExecutionContext(),
         )
 
         assertEquals(true, result.isError)

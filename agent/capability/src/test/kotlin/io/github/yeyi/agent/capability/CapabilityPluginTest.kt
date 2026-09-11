@@ -1,12 +1,10 @@
 package io.github.yeyi.agent.capability
 
-import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.AgentPluginContext
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
-import io.github.yeyi.agent.tool.ToolRegistry
 import kotlinx.serialization.json.JsonElement
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -18,7 +16,7 @@ class CapabilityPluginTest {
     private class StubContext : CapabilityContext
 
     private class StubContextFactory : CapabilityContextFactory<StubContext> {
-        override fun create(context: ToolContext): StubContext = StubContext()
+        override fun create(context: ToolExecutionContext): StubContext = StubContext()
     }
 
     private class StubCapability(
@@ -33,7 +31,7 @@ class CapabilityPluginTest {
         override val name: String get() = toolName
         override val description: String = "stub $toolName"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
-        override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
             ToolExecutionResult.success("")
     }
 

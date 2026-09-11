@@ -1,6 +1,6 @@
 package io.github.yeyi.agent.tool.serialization
 
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.Persona
@@ -16,9 +16,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.JsonClassDiscriminator
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -147,7 +144,7 @@ class TypedToolTestImpl : TypedTool<EmailRequest, SendEmailResult>(
     override val name: String = "send_email"
     override val description: String = "发送邮件"
 
-    override suspend fun execute(parameters: EmailRequest, context: ToolContext): SendEmailResult {
+    override suspend fun execute(parameters: EmailRequest, context: ToolExecutionContext): SendEmailResult {
         assertEquals("x@x.com", parameters.to)
         assertEquals("hello", parameters.subject)
         assertEquals(null, parameters.body)
@@ -162,7 +159,7 @@ class AllTypesToolImpl : TypedTool<AllTypesRequest, Unit>(
     override val name: String = "all_types"
     override val description: String = "测试所有类型"
 
-    override suspend fun execute(parameters: AllTypesRequest, context: ToolContext): Unit {
+    override suspend fun execute(parameters: AllTypesRequest, context: ToolExecutionContext): Unit {
         assertEquals("test", parameters.str)
         assertEquals(42, parameters.num)
         assertEquals(true, parameters.bool)
@@ -178,14 +175,14 @@ class OptionalFieldsToolImpl : TypedTool<OptionalFieldsRequest, Unit>(
     override val name: String = "optional_fields"
     override val description: String = "测试可选字段"
 
-    override suspend fun execute(parameters: OptionalFieldsRequest, context: ToolContext): Unit {
+    override suspend fun execute(parameters: OptionalFieldsRequest, context: ToolExecutionContext): Unit {
         assertEquals("required_value", parameters.required)
     }
 }
 
 // ==================== 辅助函数 ====================
 
-private fun createToolContext(): ToolContext = ToolContext(
+private fun createToolExecutionContext(): ToolExecutionContext = ToolExecutionContext(
     toolCallId = "test-call",
     agentContext = AgentContext(
         persona = Persona(""),
@@ -212,7 +209,7 @@ class TypedToolTest {
         val tool = TypedToolTestImpl()
         val json = Json.parseToJsonElement("""{"to":"x@x.com","subject":"hello","body":null}""")
 
-        val result = tool.execute(json, createToolContext())
+        val result = tool.execute(json, createToolExecutionContext())
 
         assertEquals(false, result.isError)
         assertTrue(result.parts.text.contains("msg-123"))
@@ -223,7 +220,7 @@ class TypedToolTest {
         val tool = TypedToolTestImpl()
         val json = Json.parseToJsonElement("""{"to":"x@x.com","subject":"hello","body":null}""")
 
-        val result = tool.execute(json, createToolContext())
+        val result = tool.execute(json, createToolExecutionContext())
 
         // 验证返回的是 JSON 格式
         val parsed = Json.parseToJsonElement(result.parts.text)
@@ -288,7 +285,7 @@ class TypedToolTest {
         val tool = AllTypesToolImpl()
         val json = Json.parseToJsonElement("""{"str":"test","num":42,"bool":true,"status":"PENDING","tags":["a","b"]}""")
 
-        val result = tool.execute(json, createToolContext())
+        val result = tool.execute(json, createToolExecutionContext())
 
         assertEquals(false, result.isError)
     }
@@ -299,7 +296,7 @@ class TypedToolTest {
         // body 为 null（可选字段）
         val json = Json.parseToJsonElement("""{"to":"x@x.com","subject":"hello"}""")
 
-        val result = tool.execute(json, createToolContext())
+        val result = tool.execute(json, createToolExecutionContext())
 
         assertEquals(false, result.isError)
     }
@@ -316,7 +313,7 @@ class TypedToolTest {
         assertEquals("发送邮件", tool.description)
 
         val json = Json.parseToJsonElement("""{"to":"x@x.com","subject":"hello"}""")
-        val result = tool.execute(json, createToolContext())
+        val result = tool.execute(json, createToolExecutionContext())
 
         assertEquals(false, result.isError)
         assertTrue(result.parts.text.contains("msg-123"))

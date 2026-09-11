@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.demo.team.smartHome
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.toolset.Toolset
@@ -16,7 +16,7 @@ class LightTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"room":{"type":"string"},"action":{"type":"string","enum":["on","off","dim"]}},"required":["room","action"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(2000)
         return ToolExecutionResult.success("灯光控制成功")
     }
@@ -28,7 +28,7 @@ class AcTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"room":{"type":"string"},"temperature":{"type":"number"}},"required":["room","temperature"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(3000)
         return ToolExecutionResult.success("空调已设置")
     }
@@ -40,7 +40,7 @@ class CurtainTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"room":{"type":"string"},"action":{"type":"string","enum":["open","close"]}},"required":["room","action"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(2000)
         return ToolExecutionResult.success("窗帘控制成功")
     }
@@ -60,7 +60,7 @@ class WaterHeaterTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"room":{"type":"string"},"action":{"type":"string","enum":["on","off"]},"temperature":{"type":"number"}},"required":["room","action"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(2500)
         return ToolExecutionResult.success("热水器控制成功")
     }
@@ -72,7 +72,7 @@ class RobotCleanerTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"room":{"type":"string"},"action":{"type":"string","enum":["start","stop","return"]}},"required":["room","action"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(3000)
         return ToolExecutionResult.success("扫地机器人控制成功")
     }
@@ -91,7 +91,7 @@ class DoorLockTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"door":{"type":"string"},"action":{"type":"string","enum":["lock","unlock"]}},"required":["door","action"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(1500)
         return ToolExecutionResult.success("门锁控制成功")
     }
@@ -103,7 +103,7 @@ class CameraTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"camera":{"type":"string"},"action":{"type":"string","enum":["start","stop","snapshot"]}},"required":["camera","action"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(2000)
         return ToolExecutionResult.success("摄像头控制成功")
     }

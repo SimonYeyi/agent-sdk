@@ -12,7 +12,7 @@ import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.toolset.ToolsetContext
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 import io.github.yeyi.agent.toolset.toolsets
@@ -25,11 +25,8 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -55,7 +52,7 @@ class McpTest {
         }
     }
 
-    private fun stubToolContext(): ToolContext = ToolContext(
+    private fun stubToolExecutionContext(): ToolExecutionContext = ToolExecutionContext(
         toolCallId = "test",
         agentContext = AgentContext(
             persona = Persona(""),
@@ -205,7 +202,7 @@ class McpTest {
                 override val parametersSchema: io.github.yeyi.agent.tool.ToolParameters = io.github.yeyi.agent.tool.ToolParameters.Empty
                 override suspend fun execute(
                     arguments: JsonElement,
-                    context: io.github.yeyi.agent.tool.ToolContext,
+                    context: io.github.yeyi.agent.tool.ToolExecutionContext,
                 ): io.github.yeyi.agent.tool.ToolExecutionResult =
                     io.github.yeyi.agent.tool.ToolExecutionResult.success("ok")
             })
@@ -234,7 +231,7 @@ class McpTest {
         mcp.all()
         val args = buildJsonObject { put("a", JsonPrimitive(1)); put("b", JsonPrimitive(2)) }
 
-        val out = mcp.get("add").execute(args, stubToolContext())
+        val out = mcp.get("add").execute(args, stubToolExecutionContext())
 
         assertFalse(out.isError)
         // JsonPrimitive("42").toString() returns the JSON-encoded form "\"42\""
@@ -255,7 +252,7 @@ class McpTest {
         mcp.all()
         val args = buildJsonObject { put("any", JsonPrimitive("value")) }
 
-        mcp.get("ping").execute(args, stubToolContext())
+        mcp.get("ping").execute(args, stubToolExecutionContext())
 
         val params = transport.capturedParams.single()
         assertEquals("ping", params.name)
@@ -271,7 +268,7 @@ class McpTest {
         val mcp = fakeMcp(name = "calc", transport = transport)
         mcp.all()
         assertFailsWith<McpException> {
-            mcp.get("add").execute(buildJsonObject { put("a", JsonPrimitive(1)) }, stubToolContext())
+            mcp.get("add").execute(buildJsonObject { put("a", JsonPrimitive(1)) }, stubToolExecutionContext())
         }
     }
 

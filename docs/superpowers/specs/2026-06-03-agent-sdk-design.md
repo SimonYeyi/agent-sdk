@@ -109,7 +109,7 @@ agent-sdk/                                       ← 根项目
 io.github.yeyi.agent.core
 ├── agent/        # Agent 接口、ReActAgent、AgentBuilder
 ├── llm/          # LlmClient、ChatRequest/Response、StreamEvent
-├── tool/         # Tool、ToolParameters、ToolContext、ToolExecutionResult
+├── tool/         # Tool、ToolParameters、ToolExecutionContext、ToolExecutionResult
 ├── memory/       # Memory、InMemoryMemory
 ├── error/        # AgentException 体系
 ├── internal/     # 内部工具，禁止 SDK 用户引用
@@ -221,7 +221,7 @@ interface Tool {
     val name: String
     val description: String
     val parametersSchema: ToolParameters
-    suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult
+    suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult
 }
 
 sealed interface ToolParameters {
@@ -234,7 +234,7 @@ data class ToolExecutionResult(
     val isError: Boolean = false
 )
 
-data class ToolContext(
+data class ToolExecutionContext(
     val invocationId: String = UUID.randomUUID().toString(),
     val metadata: Map<String, String> = emptyMap()
 )

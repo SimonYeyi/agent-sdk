@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.demo.team.smartCockpit
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.toolset.Toolset
@@ -16,7 +16,7 @@ class AcTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"temperature":{"type":"number"},"fanSpeed":{"type":"number"}},"required":["temperature"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(3000)
         return ToolExecutionResult.success("空调已设置")
     }
@@ -28,7 +28,7 @@ class SeatTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"seat":{"type":"string"},"heating":{"type":"number"},"ventilation":{"type":"number"}},"required":["seat"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(2000)
         return ToolExecutionResult.success("座椅控制成功")
     }
@@ -47,7 +47,7 @@ class WindowTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"position":{"type":"string"},"action":{"type":"string","enum":["open","close"]}},"required":["position","action"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(2000)
         return ToolExecutionResult.success("车窗控制成功")
     }
@@ -59,7 +59,7 @@ class AmbientLightTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"mode":{"type":"string","enum":["normal","relax","party","sleep"]}},"required":["mode"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(1500)
         return ToolExecutionResult.success("氛围灯已设置")
     }
@@ -78,7 +78,7 @@ class NavigateTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"destination":{"type":"string"},"route":{"type":"string"}},"required":["destination"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(4000)
         return ToolExecutionResult.success("导航已启动")
     }
@@ -90,7 +90,7 @@ class DashCamTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"action":{"type":"string","enum":["start","stop","snapshot"]}},"required":["action"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(2000)
         return ToolExecutionResult.success("行车记录仪控制成功")
     }

@@ -33,5 +33,5 @@ public interface Tool {
      * @param context 执行时上下文，含 callId 和 agent 运行时信息
      * @return 执行结果；业务异常应返回 [ToolExecutionResult.isError]=true，而非抛出
      */
-    public suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult
+    public suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult
 }

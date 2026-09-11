@@ -3,7 +3,7 @@ package io.github.yeyi.agent.demo.team.smartHome
 import io.github.yeyi.agent.subagent.Subagent
 import io.github.yeyi.agent.subagent.subagent
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.delay
@@ -18,7 +18,7 @@ class SecurityMonitorTool : Tool {
     override val name = "security_monitor"
     override val description = "安防监控，检测异常"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(3000)
         return ToolExecutionResult.success("安防监控正常")
     }
@@ -30,7 +30,7 @@ class SecurityAlertTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"type":{"type":"string"},"message":{"type":"string"}},"required":["type"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(2000)
         return ToolExecutionResult.success("警报已发送")
     }

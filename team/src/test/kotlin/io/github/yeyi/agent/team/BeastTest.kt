@@ -8,22 +8,19 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
-import io.github.yeyi.agent.llm.ToolDefinition
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.subagent.SubagentRegistry
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.ToolRegistry
 import io.github.yeyi.agent.toolset.ToolsetRegistry
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import org.junit.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertIs
 import kotlin.test.assertTrue
 
 private val FINAL_RESPONSE: ChatResponse = ChatResponse(
@@ -36,7 +33,7 @@ private val EchoTool = object : Tool {
     override val name: String = "echo"
     override val description: String = "Echo back the argument."
     override val parametersSchema: ToolParameters = ToolParameters.Empty
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
         ToolExecutionResult.success("echoed: ${arguments}")
 }
 

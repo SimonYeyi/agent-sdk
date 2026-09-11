@@ -4,7 +4,7 @@ import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.async
@@ -69,7 +69,7 @@ internal class DynamicSubagentTool : Tool {
 
     override suspend fun execute(
         arguments: JsonElement,
-        context: ToolContext
+        context: ToolExecutionContext
     ): ToolExecutionResult {
         val subagentsJson = arguments.jsonObject["subagents"] as? JsonArray
             ?: return ToolExecutionResult.error("subagents must be an array")

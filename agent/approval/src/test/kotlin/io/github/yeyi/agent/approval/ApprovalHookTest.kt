@@ -11,7 +11,7 @@ import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.DelegateTarget
 import io.github.yeyi.agent.tool.DelegatingTool
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.test.runTest
@@ -46,7 +46,7 @@ class ApprovalHookTest {
         override val name: String = "normal_tool"
         override val description: String = "A normal tool"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
-        override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
             ToolExecutionResult.success("done")
     }
 
@@ -54,7 +54,7 @@ class ApprovalHookTest {
         override val name: String = "dangerous_tool"
         override val description: String = "A dangerous tool"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
-        override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
             ToolExecutionResult.success("done")
     }
 
@@ -171,7 +171,7 @@ class ApprovalHookTest {
                 val cmd = (arguments as? JsonObject)?.get("msg")?.let { (it as? JsonPrimitive)?.content }
                 return cmd?.startsWith("rm") == true
             }
-            override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+            override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
                 ToolExecutionResult.success("done")
         }
 
@@ -200,7 +200,7 @@ class ApprovalHookTest {
                 val cmd = (arguments as? JsonObject)?.get("msg")?.let { (it as? JsonPrimitive)?.content }
                 return cmd?.startsWith("rm") == true
             }
-            override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+            override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
                 ToolExecutionResult.success("done")
         }
 
@@ -247,7 +247,7 @@ class ApprovalHookTest {
             return DelegateTarget(target, innerArgs)
         }
 
-        override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
             val resolved = resolveTarget(arguments)
             return resolved.tool.execute(resolved.arguments, context)
         }
@@ -257,7 +257,7 @@ class ApprovalHookTest {
         override val name: String = "dangerous_inner"
         override val description: String = "inner dangerous tool"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
-        override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
             ToolExecutionResult.success("ok")
     }
 
@@ -265,7 +265,7 @@ class ApprovalHookTest {
         override val name: String = "safe_inner"
         override val description: String = "inner safe tool"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
-        override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
             ToolExecutionResult.success("ok")
     }
 

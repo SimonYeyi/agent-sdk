@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.demo.agent.demo.tools
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import io.ktor.client.*
@@ -41,7 +41,7 @@ class WebSearchTool : Tool {
 
     private val httpClient = HttpClient(CIO)
 
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         val query = (arguments as JsonObject)["query"]?.jsonPrimitive?.content
             ?: return ToolExecutionResult.error("ERROR: missing 'query' field")
 

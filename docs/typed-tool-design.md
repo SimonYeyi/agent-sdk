@@ -45,7 +45,7 @@ public abstract class TypedTool<P : @Serializable Any, R : @Serializable Any>(
 
     final override suspend fun execute(
         arguments: JsonElement,
-        context: ToolContext
+        context: ToolExecutionContext
     ): ToolExecutionResult {
         val parameters = Json.decodeFromJsonElement(parameterType.serializer, arguments)
         val result = execute(parameters, context)
@@ -53,7 +53,7 @@ public abstract class TypedTool<P : @Serializable Any, R : @Serializable Any>(
         return ToolExecutionResult.success(Json.encodeToString(resultType.serializer, result))
     }
 
-    protected abstract suspend fun execute(parameters: P, context: ToolContext): R
+    protected abstract suspend fun execute(parameters: P, context: ToolExecutionContext): R
 }
 ```
 
@@ -96,21 +96,21 @@ ToolExecutionResult
 public inline fun <reified P : @Serializable Any, reified R : @Serializable Any> tool(
     name: String,
     description: String,
-    noinline execute: suspend (P, ToolContext) -> R
+    noinline execute: suspend (P, ToolExecutionContext) -> R
 ): Tool
 
 // 便捷重载：结果类型为 String
 public inline fun <reified P : @Serializable Any> tool(
     name: String,
     description: String,
-    noinline execute: suspend (P, ToolContext) -> String
+    noinline execute: suspend (P, ToolExecutionContext) -> String
 ): Tool
 
 // 便捷重载：无参数
 public fun tool(
     name: String,
     description: String,
-    execute: suspend (Unit, ToolContext) -> String
+    execute: suspend (Unit, ToolExecutionContext) -> String
 ): Tool
 ```
 
@@ -145,7 +145,7 @@ class SendEmailTool : TypedTool<EmailRequest, SendEmailResult>(
     override val name = "send_email"
     override val description = "发送邮件"
 
-    override suspend fun execute(params: EmailRequest, context: ToolContext): SendEmailResult {
+    override suspend fun execute(params: EmailRequest, context: ToolExecutionContext): SendEmailResult {
         // 纯 typed 业务逻辑
         return SendEmailResult(messageId = "123", sentAt = "2024-01-01")
     }

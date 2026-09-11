@@ -5,7 +5,7 @@ import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.skill.Skill
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -31,7 +31,7 @@ private val EchoTool = object : Tool {
     override val name: String = "echo"
     override val description: String = "Echo back the argument."
     override val parametersSchema: ToolParameters = ToolParameters.Empty
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
         ToolExecutionResult.success("echoed")
 }
 
@@ -39,7 +39,7 @@ private val ToolSetTool = object : Tool {
     override val name: String = "toolset_tool"
     override val description: String = "From a toolset."
     override val parametersSchema: ToolParameters = ToolParameters.Empty
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
         ToolExecutionResult.success("ts")
 }
 

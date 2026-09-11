@@ -9,7 +9,7 @@ import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -18,7 +18,6 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.serialization.json.JsonElement
 import kotlin.test.Test
 import kotlin.test.assertContains
-import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 
 class SkillPluginTest {
@@ -33,7 +32,7 @@ class SkillPluginTest {
     private class StubSkillTool(override val name: String) : Tool {
         override val description: String = "stub tool"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
-        override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
             ToolExecutionResult.success("")
     }
 

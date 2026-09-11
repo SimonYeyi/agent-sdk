@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.demo.team.smartCockpit
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.delay
@@ -13,7 +13,7 @@ class GetTimeTool : Tool {
     override val description = "获取当前时间"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(200)
         return ToolExecutionResult.success("当前时间: ${java.time.LocalDateTime.now()}")
     }
@@ -25,7 +25,7 @@ class GetDateTool : Tool {
     override val description = "获取当前日期"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(100)
         return ToolExecutionResult.success("当前日期: ${java.time.LocalDate.now()}")
     }
@@ -37,7 +37,7 @@ class GetCarStatusTool : Tool {
     override val description = "获取车辆状态"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(2500)
         return ToolExecutionResult.success("车辆状态: 正常, 电量 85%")
     }
@@ -49,7 +49,7 @@ class GetEnergyTool : Tool {
     override val description = "获取能耗信息"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(2000)
         return ToolExecutionResult.success("能耗: 电耗 18.5kWh/100km")
     }

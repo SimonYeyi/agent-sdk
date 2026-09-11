@@ -3,7 +3,7 @@ package io.github.yeyi.agent.demo.team.smartCockpit
 import io.github.yeyi.agent.subagent.Subagent
 import io.github.yeyi.agent.subagent.subagent
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.delay
@@ -20,7 +20,7 @@ class MediaControlTool : Tool {
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"action":{"type":"string"},"song":{"type":"string"}},"required":["action"]}"""
     )
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(2500)
         return ToolExecutionResult.success("媒体控制成功")
     }

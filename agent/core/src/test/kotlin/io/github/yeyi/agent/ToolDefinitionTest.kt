@@ -1,7 +1,7 @@
 package io.github.yeyi.agent
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonObject
@@ -19,7 +19,7 @@ class ToolDefinitionTest {
     ) : Tool {
         override suspend fun execute(
             arguments: kotlinx.serialization.json.JsonElement,
-            context: ToolContext,
+            context: ToolExecutionContext,
         ): ToolExecutionResult = ToolExecutionResult.success("stub")
     }
 

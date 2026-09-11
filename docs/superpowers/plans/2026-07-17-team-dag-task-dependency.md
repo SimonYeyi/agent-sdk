@@ -21,7 +21,7 @@
 
 1. **类型分层 = 类型名表达语义** —— `PublishEvent` 是 LLM 端发布(用户/Boss LLM 视角),`ProgressEvent` 是 Pasture 端进度(系统视角)。**命名错了类型就不清晰,语义就被误解**。BulletinBoard 内部 `publishEvents: SharedFlow<PublishEvent>` + `progressEvents: SharedFlow<ProgressEvent>` 两个独立流,类型参数直接表达语义
 2. **roundId = 用户的一轮对话** —— `run()` 时生成 `currentRoundId`,后续 `publish_task` 调用关联到当前 round(可在同 round 内多次 publish_task 形成多批 task)。跨 round 累积:round 2 的 task 引用 round 1 的 task_id → `PublishTaskTool.knownTaskIds` 已包含,校验通过 → Pasture 调度时 round 1 task 已 DONE → round 2 task 立即 dispatch(无需 round 概念,纯 DAG 调度)
-3. **roundId 由 BossAgent 内部管理,事件不带 roundId** —— `PublishTaskTool` 不接收 `roundIdProvider` lambda,roundId 完全在 BossAgent 内部。`Agent.run(input)` 接口不变,`ToolContext` 不扩展,事件总线也不引入新字段。**关键洞察:roundId 是『BossAgent 视角的元数据』,不属于事件本身的业务载荷** —— 把 roundId 放进事件会让事件总线承载过多 BossAgent 视角信息,污染事件语义
+3. **roundId 由 BossAgent 内部管理,事件不带 roundId** —— `PublishTaskTool` 不接收 `roundIdProvider` lambda,roundId 完全在 BossAgent 内部。`Agent.run(input)` 接口不变,`ToolExecutionContext` 不扩展,事件总线也不引入新字段。**关键洞察:roundId 是『BossAgent 视角的元数据』,不属于事件本身的业务载荷** —— 把 roundId 放进事件会让事件总线承载过多 BossAgent 视角信息,污染事件语义
 3a. **task_id 由程序生成,LLM 只提供 ref** —— LLM 在每次 publish_task 内提供 `ref`(本批唯一的人话短字符串,比如 "lookup"/"summary"),程序生成 UUID 作为 `task_id`。**关键洞察:让 LLM 生成 + 校验全局唯一 id 是不必要的负担** —— (1) 消耗 token;(2) LLM 必须自己维护名字拼写一致性(同批 + 跨次);(3) 校验失败需要重试。**`ref` 是 LLM 端的临时概念**,程序在 `execute()` 内把 `depends_on` 中的 ref 解析成 task_id,LLM 跨次引用时用 task_id(从之前 roundSummary 拿)。下游(Pasture / BossAgent)只看到 `task_id`,完全不知道 ref 的存在。
 4. **knownTaskIds 由 PublishTaskTool 内部维护,BulletinBoard 不掺和业务关注** —— `PublishTaskTool` 类内 `private val knownTaskIds: MutableSet<String>` + `Mutex`,publish 成功后登记新 task_id。**BulletinBoard 不维护任何已知 task_id** —— Board 是事件总线基础设施,不该知道 `TaskAssignments.tasks[*].taskId` 的字段语义。让 Board 维护业务 set 等于让公交车帮别人记快递,会污染事件总线的纯粹性,也会让未来新增事件类型时面临『要不要也维护自己的业务 set』的困扰。**权威源在业务侧而非基础设施侧**。
 5. **Pasture 完全不感知 roundId** —— `TaskUpdate(taskId, event)` 不带 roundId,Pasture 只管 DAG 调度。`roundId` 字段由 BossAgent 内部维护,存于 `TaskState` 中,从 `attach` handler 里用 `currentRoundId` 关联
@@ -169,7 +169,7 @@
   ```
 - [ ] `PublishTaskTool.kt:49-91` `execute` 重写为「**三 pass 手动解析**」结构 —— 沿用现有 `JsonObject` 字段提取风格,只新增 `ref` / `depends_on` 字段处理 + ref → UUID 解析 + 环检测。**不引入 `@Serializable` DTO、不引入 `Json {}` 配置、不修改 `parametersSchema` 的现有 `$$"$ENUM"` 占位模式,也不引入中间类型**(`TaskAssignment` 自己当占位容器):
   ```kotlin
-  override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+  override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
       val tasksArray = arguments.jsonObject["tasks"] as? JsonArray
           ?: return ToolExecutionResult.error("Missing 'tasks' array")
       if (tasksArray.isEmpty()) return ToolExecutionResult.error("'tasks' must not be empty")

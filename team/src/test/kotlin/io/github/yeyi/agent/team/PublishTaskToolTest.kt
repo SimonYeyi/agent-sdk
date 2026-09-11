@@ -7,7 +7,7 @@ import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.llm.text
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
@@ -23,8 +23,8 @@ class PublishTaskToolTest {
 
     private val emptyCaps: Map<String, List<NamedCapability>> = emptyMap()
 
-    // 构造一个最小可用的 ToolContext（execute 不消费 agentContext，但 ToolContext.agentContext 非空）
-    private fun ctx(callId: String = "call1"): ToolContext = ToolContext(
+    // 构造一个最小可用的 ToolExecutionContext（execute 不消费 agentContext，但 ToolExecutionContext.agentContext 非空）
+    private fun ctx(callId: String = "call1"): ToolExecutionContext = ToolExecutionContext(
         toolCallId = callId,
         agentContext = AgentContext(
             persona = Persona(""),

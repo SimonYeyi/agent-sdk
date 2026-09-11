@@ -2,7 +2,7 @@ package io.github.yeyi.agent.toolset
 
 import io.github.yeyi.agent.capability.CapabilityContext
 import io.github.yeyi.agent.capability.CapabilityContextFactory
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 
 /**
  * [Toolset] 能力的 [CapabilityContext]。
@@ -15,5 +15,5 @@ public class ToolsetContext : CapabilityContext
  * [ToolsetContext] 的工厂实现，供 [io.github.yeyi.agent.capability.CapabilityAdapter] 使用。
  */
 internal class ToolsetContextFactory : CapabilityContextFactory<ToolsetContext> {
-    override fun create(context: ToolContext): ToolsetContext = ToolsetContext()
+    override fun create(context: ToolExecutionContext): ToolsetContext = ToolsetContext()
 }

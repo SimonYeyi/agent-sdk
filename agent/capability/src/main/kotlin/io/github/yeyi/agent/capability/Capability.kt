@@ -1,6 +1,6 @@
 package io.github.yeyi.agent.capability
 
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import kotlinx.serialization.KSerializer
 
 /**
@@ -10,12 +10,12 @@ import kotlinx.serialization.KSerializer
  * `SkillCapabilityContext`) live in their respective modules —
  * `agent` only knows about the marker. The factory pattern in
  * [CapabilityContextFactory] is the only bridge between agent-internal
- * `ToolContext` and capability-side contexts.
+ * `ToolExecutionContext` and capability-side contexts.
  */
 public interface CapabilityContext
 
 /**
- * Factory that bridges agent-side [ToolContext] to capability-specific [Ctx].
+ * Factory that bridges agent-side [ToolExecutionContext] to capability-specific [Ctx].
  *
  * @param Ctx the capability-specific context type
  */
@@ -25,7 +25,7 @@ public interface CapabilityContextFactory<Ctx : CapabilityContext> {
      *
      * @param context the agent's runtime tool context
      */
-    public fun create(context: ToolContext): Ctx
+    public fun create(context: ToolExecutionContext): Ctx
 }
 
 /**
@@ -46,7 +46,7 @@ public interface CapabilityContextFactory<Ctx : CapabilityContext> {
  * The type parameter [Ctx] lets each capability family bring its own
  * context shape: a Subagent needs `LlmProvider`, a Skill may need only raw
  * arguments, etc. The factory pattern in [CapabilityContextFactory] is
- * what wires [Ctx] from a runtime `ToolContext`.
+ * what wires [Ctx] from a runtime `ToolExecutionContext`.
  *
  * @param Ctx the capability-specific context shape
  */

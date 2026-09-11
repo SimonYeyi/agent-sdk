@@ -37,7 +37,7 @@ public abstract class CapabilityPlugin<C : Capability<T, Ctx>, T : Any, Ctx : Ca
     /** 插件 ID，等于 registry.capabilityType。 */
     final override val id: String get() = registry.capabilityType
 
-    /** 把 ToolContext 装成能力专属 context 的工厂。 */
+    /** 把 ToolExecutionContext 装成能力专属 context 的工厂。 */
     protected abstract fun contextFactory(): CapabilityContextFactory<Ctx>
 
     /** arguments schema + serializer;无 arguments 传 null。 */

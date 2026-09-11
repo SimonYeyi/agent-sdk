@@ -2,7 +2,7 @@ package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -17,7 +17,7 @@ private fun tool(name: String): Tool = object : Tool {
     override val name: String = name
     override val description: String = "fake $name"
     override val parametersSchema = ToolParameters.Empty
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
         ToolExecutionResult.success("ok")
 }
 

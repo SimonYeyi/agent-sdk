@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.mcp
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
@@ -30,7 +30,7 @@ internal class McpTool(
 
     override suspend fun execute(
         arguments: JsonElement,
-        context: ToolContext
+        context: ToolExecutionContext
     ): ToolExecutionResult {
         val params = CallToolParams(name = toolDef.name, arguments = arguments as? JsonObject)
         return ToolExecutionResult.success(client.callTool(params).toString())

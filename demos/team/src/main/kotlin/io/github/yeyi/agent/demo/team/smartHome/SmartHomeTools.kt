@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.demo.team.smartHome
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.delay
@@ -13,7 +13,7 @@ class GetTimeTool : Tool {
     override val description = "获取当前时间"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(200)
         return ToolExecutionResult.success("当前时间: ${java.time.LocalDateTime.now()}")
     }
@@ -25,7 +25,7 @@ class GetDateTool : Tool {
     override val description = "获取当前日期"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(100)
         return ToolExecutionResult.success("当前日期: ${java.time.LocalDate.now()}")
     }
@@ -39,7 +39,7 @@ class GetWeatherTool : Tool {
         """{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}"""
     )
 
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(3000)
         return ToolExecutionResult.success("天气: 晴, 26°C")
     }
@@ -51,7 +51,7 @@ class GetIndoorTempTool : Tool {
     override val description = "获取室内温度"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         delay(500)
         return ToolExecutionResult.success("室内温度: 24°C")
     }

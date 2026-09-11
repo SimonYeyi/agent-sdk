@@ -9,7 +9,7 @@ import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -110,7 +110,7 @@ class LocalTransportTest {
             flowOf(ChatResponseEvent.Error(IllegalStateException("unused")))
     }
 
-    private fun stubToolContext(): ToolContext = ToolContext(
+    private fun stubToolExecutionContext(): ToolExecutionContext = ToolExecutionContext(
         toolCallId = "test",
         agentContext = AgentContext(
             persona = Persona(""),
@@ -155,7 +155,7 @@ class LocalTransportTest {
                 put("a", JsonPrimitive(3))
                 put("b", JsonPrimitive(7))
             },
-            stubToolContext(),
+            stubToolExecutionContext(),
         )
 
         val text = kotlinx.serialization.json.Json.parseToJsonElement(out.parts.text)

@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.tool.compression
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
@@ -33,7 +33,7 @@ public class CompressTool(private val delegate: Tool) : Tool {
 
     override suspend fun execute(
         arguments: JsonElement,
-        context: ToolContext
+        context: ToolExecutionContext
     ): ToolExecutionResult {
         val originalArgs = compressionResult?.let {
             val execution = arguments.jsonObject["execution"]

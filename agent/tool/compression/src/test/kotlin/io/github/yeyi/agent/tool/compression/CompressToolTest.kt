@@ -9,7 +9,7 @@ import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.flow.Flow
@@ -18,10 +18,8 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -112,7 +110,7 @@ private fun createTool(name: String, schema: String): Tool = object : Tool {
     override val name: String = name
     override val description: String = "test"
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(schema)
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         return ToolExecutionResult.success(arguments.toString())
     }
 }
@@ -121,12 +119,12 @@ private fun createEmptyTool(name: String): Tool = object : Tool {
     override val name: String = name
     override val description: String = "test"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         return ToolExecutionResult.success(arguments.toString())
     }
 }
 
-private fun createToolContext(): ToolContext = ToolContext(
+private fun createToolExecutionContext(): ToolExecutionContext = ToolExecutionContext(
     toolCallId = "test-call",
     agentContext = AgentContext(
         persona = Persona(""),
@@ -174,7 +172,7 @@ class CompressToolTest {
 
         val result = compressed.execute(
             Json.parseToJsonElement("""{"execution":"send_email(to='x@x.com', subject='hello')"}"""),
-            createToolContext()
+            createToolExecutionContext()
         )
 
         assertEquals(false, result.isError)
@@ -190,7 +188,7 @@ class CompressToolTest {
 
         val result = compressed.execute(
             Json.parseToJsonElement("""{"foo":"bar"}"""),
-            createToolContext()
+            createToolExecutionContext()
         )
 
         assertEquals(false, result.isError)
@@ -238,7 +236,7 @@ class CompressToolTest {
         // 透传模式:arguments 直接是 {numbers: [1,2,3]},不应包 execution
         val result = compressed.execute(
             Json.parseToJsonElement("""{"numbers":[1,2,3]}"""),
-            createToolContext()
+            createToolExecutionContext()
         )
 
         assertFalse(result.isError, "execute failed: ${result.parts.text}")
@@ -256,7 +254,7 @@ class CompressToolTest {
         val execution = """send(channel={type=email, to='user@example.com'})"""
         val result = compressed.execute(
             JsonObject(mapOf("execution" to JsonPrimitive(execution))),
-            createToolContext()
+            createToolExecutionContext()
         )
 
         assertFalse(result.isError, "execute failed: ${result.parts.text}")
@@ -277,7 +275,7 @@ class CompressToolTest {
         val execution = """log(events=[{type=click, x=10, y=20}, {type=view, page='/home'}])"""
         val result = compressed.execute(
             JsonObject(mapOf("execution" to JsonPrimitive(execution))),
-            createToolContext()
+            createToolExecutionContext()
         )
 
         assertFalse(result.isError, "execute failed: ${result.parts.text}")
@@ -444,7 +442,7 @@ class CompressToolTest {
 
         val result = compressed.execute(
             JsonObject(mapOf("execution" to JsonPrimitive(execution.replace("\n", "").replace(Regex("\\s+"), " ").trim()))),
-            createToolContext()
+            createToolExecutionContext()
         )
 
         // 断言:解析结果里所有字段类型正确
@@ -513,7 +511,7 @@ class CompressToolTest {
         val execution = """send(channel={type=email, to='a@b.com'})"""
         val result = compressed.execute(
             JsonObject(mapOf("execution" to JsonPrimitive(execution))),
-            createToolContext()
+            createToolExecutionContext()
         )
 
     }
@@ -530,7 +528,7 @@ class CompressToolTest {
         val execution = """log(events=[{type=click, x=10, y=20}, {type=view, page='/home'}])"""
         val result = compressed.execute(
             JsonObject(mapOf("execution" to JsonPrimitive(execution))),
-            createToolContext()
+            createToolExecutionContext()
         )
 
     }

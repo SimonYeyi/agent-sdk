@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.sync.Mutex
@@ -66,7 +66,7 @@ internal class PublishTaskTool(
 
     override suspend fun execute(
         arguments: JsonElement,
-        context: ToolContext,
+        context: ToolExecutionContext,
     ): ToolExecutionResult {
         val tasksArray = arguments.jsonObject["tasks"] as? JsonArray
             ?: return ToolExecutionResult.error("Missing 'tasks' array")

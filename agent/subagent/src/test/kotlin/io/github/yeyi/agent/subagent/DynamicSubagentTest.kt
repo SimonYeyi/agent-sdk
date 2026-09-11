@@ -15,7 +15,7 @@ import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -85,12 +85,12 @@ class DynamicSubagentTest {
         override val name: String get() = toolName
         override val description: String = "stub $toolName"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
-        override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
             ToolExecutionResult.success("")
     }
 
-    private fun toolCtx(ac: AgentContext): ToolContext =
-        ToolContext(toolCallId = "tc-1", agentContext = ac)
+    private fun toolCtx(ac: AgentContext): ToolExecutionContext =
+        ToolExecutionContext(toolCallId = "tc-1", agentContext = ac)
 
     private fun agentJson(role: String, context: String? = null, task: String): JsonElement =
         buildJsonObject {

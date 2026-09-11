@@ -353,7 +353,7 @@ import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.ReadOnlyMemory
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolRegistry
 import kotlinx.coroutines.flow.Flow
@@ -489,7 +489,7 @@ class ReActAgent internal constructor(
                     } else {
                         emit(AgentEvent.ToolCallStart(call.id, call.name))
                         val startMs = System.currentTimeMillis()
-                        val raw = toolRegistry.execute(call, ToolContext(toolCallId = call.id))
+                        val raw = toolRegistry.execute(call, ToolExecutionContext(toolCallId = call.id))
                         val durMs = System.currentTimeMillis() - startMs
                         val final =
                             hook.safeInvoke { afterToolCall(context, call, raw, durMs) } ?: raw

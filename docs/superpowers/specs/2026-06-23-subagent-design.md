@@ -12,7 +12,7 @@
 |---|---|
 | 提案代号 | subagent |
 | 关联模块 | 新增 `subagent` 模块 |
-| 关联前置 | `Capability` 抽象 + `AgentContext` / `ToolContext.agentContext` 扩展 |
+| 关联前置 | `Capability` 抽象 + `AgentContext` / `ToolExecutionContext.agentContext` 扩展 |
 | 破坏性变更 | 否（新增模块） |
 
 ---
@@ -193,14 +193,14 @@ public class SubagentRegistry :
 
 ```kotlin
 internal class SubagentContextFactory : CapabilityContextFactory<SubagentContext> {
-    override fun create(context: ToolContext): SubagentContext =
+    override fun create(context: ToolExecutionContext): SubagentContext =
         SubagentContext(agentContext = context.agentContext)
 }
 ```
 
 要点：
 - `internal`：仅供 Adapter 通过工厂调用。
-- 无构造参数，纯粹透传 `ToolContext.agentContext`；迭代预算由 Subagent 实现自身拥有（`Subagent.maxIterations`），不经过 Context 传递。
+- 无构造参数，纯粹透传 `ToolExecutionContext.agentContext`；迭代预算由 Subagent 实现自身拥有（`Subagent.maxIterations`），不经过 Context 传递。
 
 ---
 
@@ -393,7 +393,7 @@ agentBuilder.subagents(registry, enableDelegateAdaptMode = true)
 
 - 全新增模块 + 全新增 API，无破坏性变更。
 - `Skill` / `McpServer` / `Hook` 不变。
-- `agent` 模块公开 API 因 Capability 抽象已扩展（`AgentContext` / `ToolContext.agentContext`），见 `capability` 模块源码。
+- `agent` 模块公开 API 因 Capability 抽象已扩展（`AgentContext` / `ToolExecutionContext.agentContext`），见 `capability` 模块源码。
 
 ---
 

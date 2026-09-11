@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.capability
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.Json
@@ -59,7 +59,7 @@ internal class CapabilityLoadTool<C : Capability<T, Ctx>, T : Any, Ctx : Capabil
 
     override suspend fun execute(
         arguments: JsonElement,
-        context: ToolContext
+        context: ToolExecutionContext
     ): ToolExecutionResult {
         val capabilityName = arguments.jsonObject["name"]
             ?.let { (it as? JsonPrimitive)?.content }

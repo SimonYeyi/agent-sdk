@@ -15,7 +15,7 @@ import io.github.yeyi.agent.memory.RoundsBoundedMemory
 import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolRegistry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -160,7 +160,7 @@ public class ReActAgent internal constructor(
             val raw = synthetic?.copy(isError = true) ?: toolRegistry.dispatch(
                 call.name,
                 call.arguments,
-                ToolContext(call.id, context)
+                ToolExecutionContext(call.id, context)
             )
             val durMs = System.currentTimeMillis() - startMs
             val final = hook.safeInvoke {

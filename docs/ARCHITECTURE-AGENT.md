@@ -84,7 +84,7 @@ public interface Tool {
     val name: String
     val description: String
     val parametersSchema: ToolParameters
-    suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult
+    suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult
 }
 ```
 
@@ -375,7 +375,7 @@ public interface Toolset : Capability<Unit, ToolsetContext>, ToolDispatcher {
     fun add(tool: Tool)
     fun all(): List<Tool>
     suspend fun activate(arguments: Unit?, context: ToolsetContext): String
-    suspend fun dispatch(name: String, arguments: JsonElement, context: ToolContext): ToolExecutionResult
+    suspend fun dispatch(name: String, arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult
 }
 ```
 

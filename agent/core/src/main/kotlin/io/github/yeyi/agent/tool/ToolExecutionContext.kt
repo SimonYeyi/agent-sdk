@@ -8,7 +8,7 @@ import io.github.yeyi.agent.AgentContext
  * @param toolCallId LLM 给本次调用的唯一 id，用于回写 tool result message
  * @param agentContext 当前 agent 上下文（非空），tool 可访问 llmProvider/hook/memory 等
  */
-public data class ToolContext(
+public data class ToolExecutionContext(
     public val toolCallId: String,
     public val agentContext: AgentContext,
 )

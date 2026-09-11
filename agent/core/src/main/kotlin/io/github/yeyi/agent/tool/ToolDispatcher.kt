@@ -21,6 +21,6 @@ internal interface ToolDispatcher {
     suspend fun dispatch(
         name: String,
         arguments: JsonElement,
-        context: ToolContext
+        context: ToolExecutionContext
     ): ToolExecutionResult
 }

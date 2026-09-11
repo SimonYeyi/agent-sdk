@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.demo.agent.demo.tools
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
@@ -31,7 +31,7 @@ class CalculatorTool : Tool {
         """.trimIndent()
     )
 
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         val expr = (arguments as JsonObject)["expression"]?.jsonPrimitive?.content
             ?: return ToolExecutionResult.error("ERROR: missing 'expression' field")
         return try {

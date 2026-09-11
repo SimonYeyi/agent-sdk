@@ -31,8 +31,8 @@ class ToolParametersTest {
     }
 
     @Test
-    fun `ToolContext exposes toolCallId and AgentContext metadata defaults to empty`() {
-        val context = ToolContext(
+    fun `ToolExecutionContext exposes toolCallId and AgentContext metadata defaults to empty`() {
+        val context = ToolExecutionContext(
             toolCallId = "call-123",
             agentContext = AgentContext(
                 persona = Persona(""),

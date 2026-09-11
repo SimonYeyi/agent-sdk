@@ -20,7 +20,7 @@
 | 多 server 支持 | `McpServerRegistry` |
 
 **与其他模块的关系**:
-- 仅依赖 `agent` 核心模块的 `Tool` / `ToolContext` / `ToolExecutionResult` / `ToolParameters` 接口
+- 仅依赖 `agent` 核心模块的 `Tool` / `ToolExecutionContext` / `ToolExecutionResult` / `ToolParameters` 接口
 - 不依赖 `skill` / `session` / `providers` / `app`
 - 设计原则:把 MCP 协议细节封装在模块内,对上层只暴露「load / call」两个 Tool
 

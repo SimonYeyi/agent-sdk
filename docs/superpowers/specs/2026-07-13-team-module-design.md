@@ -753,7 +753,7 @@ BossAgent 是核心调度者 — 包装一个内部 `Agent` 作为 innerAgent, �
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonArray
@@ -810,7 +810,7 @@ internal class PublishTaskTool(
 
     override suspend fun execute(
         arguments: JsonElement,
-        context: ToolContext,
+        context: ToolExecutionContext,
     ): ToolExecutionResult {
         val tasksArray = arguments.jsonObject["tasks"] as? JsonArray
             ?: return ToolExecutionResult.error("Missing 'tasks' array")
@@ -929,7 +929,7 @@ internal class CancelTaskTool(
 
     override suspend fun execute(
         arguments: JsonElement,
-        context: ToolContext,
+        context: ToolExecutionContext,
     ): ToolExecutionResult {
         val taskId = arguments.jsonObject["task_id"]?.jsonPrimitive?.content
             ?: return ToolExecutionResult.error("Missing 'task_id'")

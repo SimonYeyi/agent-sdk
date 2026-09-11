@@ -12,7 +12,7 @@ import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.flow.Flow
@@ -73,7 +73,7 @@ class SubagentTest {
         override val description: String = "stub tool",
         override val parametersSchema: ToolParameters = ToolParameters.Empty,
     ) : Tool {
-        override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
             ToolExecutionResult.success("ok")
     }
 
@@ -159,10 +159,10 @@ class SubagentTest {
     // ---------- SubagentContextFactory ----------
 
     @Test
-    fun `context factory wraps the agentContext of the supplied ToolContext`() {
+    fun `context factory wraps the agentContext of the supplied ToolExecutionContext`() {
         val factory = SubagentContextFactory()
         val ac = stubAgentContext(StubLlmProvider())
-        val toolCtx = ToolContext(toolCallId = "tc-1", agentContext = ac)
+        val toolCtx = ToolExecutionContext(toolCallId = "tc-1", agentContext = ac)
         val sc = factory.create(toolCtx)
         assertSame(ac, sc.agentContext)
     }

@@ -15,7 +15,7 @@ import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.flow.toList
@@ -158,7 +158,7 @@ class ReActAgentTest {
             override val name = "boom"
             override val description = "always fails"
             override val parametersSchema = ToolParameters.Empty
-            override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+            override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
                 throw RuntimeException("kaboom")
             }
         }
@@ -222,7 +222,7 @@ class ReActAgentTest {
             override val name = "wait"
             override val description = ""
             override val parametersSchema = ToolParameters.Empty
-            override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+            override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
                 throw kotlinx.coroutines.CancellationException("cancelled inside tool")
             }
         }
@@ -379,7 +379,7 @@ class ReActAgentTest {
             override val name = "image_tool"
             override val description = "returns text + image"
             override val parametersSchema = ToolParameters.Empty
-            override suspend fun execute(arguments: JsonElement, context: ToolContext) =
+            override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext) =
                 ToolExecutionResult.success(
                     content = "result text",
                     parts = listOf(ContentPart.Image(MediaSource.Http("https://example.com/cat.jpg")))

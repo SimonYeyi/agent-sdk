@@ -3,7 +3,7 @@ package io.github.yeyi.agent.subagent
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.capability.CapabilityContext
 import io.github.yeyi.agent.capability.CapabilityContextFactory
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 
 
 /**
@@ -17,7 +17,7 @@ public class SubagentContext(public val agentContext: AgentContext) : Capability
  * [SubagentContext] 的工厂实现，供 Adapter 使用。
  */
 internal class SubagentContextFactory : CapabilityContextFactory<SubagentContext> {
-    override fun create(context: ToolContext): SubagentContext {
+    override fun create(context: ToolExecutionContext): SubagentContext {
         return SubagentContext(context.agentContext)
     }
 }

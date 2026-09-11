@@ -55,7 +55,7 @@
 | **§3 模块结构** (1+1+n) | Implemented | `agent` / `providers/openai` / `providers/anthropic` / `app` 四个 module；`agent` 不依赖 provider、HTTP client、Android SDK |
 | **§4.1 ChatMessage** (4 variants) | Implemented | `agent/.../llm/ChatMessage.kt` — `System` / `User` / `Assistant` / `ToolResult` 四个 data class；`Role` enum 4 值；`ToolCall(id, name, arguments: JsonElement)` |
 | **§4.2 LlmProvider + ChatRequest/Response/StreamEvent/Usage/FinishReason** | Implemented (with additive extension) | `LlmProvider.kt` — `name` + `chat()` + `chatStream()`；`ChatRequest` / `ChatResponse` / `Usage` / `FinishReason` (4 values) 全部对位。**注:** `StreamEvent` 多了 `ToolCallStart(id, name)` 子类型，详见"已知偏差"节 |
-| **§4.3 Tool + ToolParameters + ToolContext + ToolExecutionResult** | Implemented | `Tool` interface 4 成员；`ToolParameters` sealed (`Empty` / `JsonSchema`)；`ToolExecutionResult(content, isError=false)`；`ToolContext(toolCallId, metadata)` |
+| **§4.3 Tool + ToolParameters + ToolExecutionContext + ToolExecutionResult** | Implemented | `Tool` interface 4 成员；`ToolParameters` sealed (`Empty` / `JsonSchema`)；`ToolExecutionResult(content, isError=false)`；`ToolExecutionContext(toolCallId, metadata)` |
 | **§4.4 Memory + InMemoryMemory** | Implemented | `Memory` interface 3 方法；`InMemoryMemory` 用 `Mutex.withLock` 保护，线程安全 |
 | **§4.5 Agent + AgentConfig + AgentResult + ToolCallRecord + AgentEvent + AgentHook + NoOpAgentHook** | Implemented (v1.1 additive) | `Agent` 两方法全部返回 `Flow<AgentEvent>` (`run` / `runStream`,无 per-call memory 参数,v1.1 删除 `run(input, memory)` / `runStream(input, memory)` 重载);`AgentConfig` 6 字段(`memory: Memory` 单实例,替换原 `memoryFactory: () -> Memory` 工厂);`AgentResult` 3 字段(`message` / `iterations` / `toolCalls`,无 `memory`,caller 通过 `AgentConfig` 共享引用);`AgentResult.ToolCallRecord` 5 字段(SDK 内部审计类型,作为 `AgentResult` 嵌套类,完整 record 仅出现在 `AgentResult.toolCalls`);`AgentEvent` **5 变体** (v1.1 收敛为 `Final(val result: AgentResult)` 直接包装,数据单一来源,`Final` 旧字段与 `ToolCallRecorded` 事件均删除);`AgentHook` **6 回调** (beforeLlmCall / afterLlmResponse / beforeToolCall / afterToolCall / onRunFailed / onRunCompleted);`NoOpAgentHook` object;扩展 `Flow<AgentEvent>.awaitResult()` |
 | **§4.6 AgentBuilder DSL** | Implemented | `agent { }` 顶层函数 + `AgentBuilder` class；包含 `systemPrompt` / `llmProvider` / `maxIterations` / `tool()` / `tools()` / `skill()` / `skills()` / `memory(Memory)` / `hook()`；Skill 展开为 systemPrompt + tools；重复 tool name 检测 |
@@ -242,14 +242,14 @@ v1.1 实际原子 commit 列表(详见 §v1.1 Release Notes):
 
 | 维度 | 改动 |
 |------|------|
-| ToolContext | `invocationId` → `toolCallId`（与 callId 命名风格统一）；移除 UUID 默认值，改为必传参数；ReActAgent 正确传入 `call.id` |
+| ToolExecutionContext | `invocationId` → `toolCallId`（与 callId 命名风格统一）；移除 UUID 默认值，改为必传参数；ReActAgent 正确传入 `call.id` |
 | AgentContext | **新增**：持有 `systemPrompt` / `maxIterations` / `currentIteration` / `memory` / `metadata`；所有 AgentHook 回调通过此上下文获取运行时信息 |
 | ReadOnlyMemory | **新增**：Memory 只读包装器，`add`/`clear` 抛 `UnsupportedOperationException`，防止 hooks 修改 memory |
 | AgentHook 回调签名 | 所有回调方法新增 `AgentContext` 参数；`beforeLlmCall` 移除 `messages` 参数（可通过 `context.memory.history()` 获取） |
 | metadata 共享 | `AgentContext.metadata` 为 `MutableMap`，hooks 间可自由写入供后续 hooks 使用 |
 
 **原子 commit 列表**:
-- `a75eff0` refactor(agent): ToolContext.toolCallId 必传并正确赋值
+- `a75eff0` refactor(agent): ToolExecutionContext.toolCallId 必传并正确赋值
 - `7d370c9` feat(agent): 新增 AgentContext 传入 hooks，支持 metadata 扩展
 - `ee3302a` test(agent): 新增 metadata 共享测试和 ReadOnlyMemory 测试
 
@@ -266,7 +266,7 @@ v1.1 实际原子 commit 列表(详见 §v1.1 Release Notes):
 
 | 任务 | 状态 | 证据 |
 |---|---|---|
-| ToolContext.toolCallId 必传 | **DONE** | `ToolContext.kt` 移除默认值；所有测试同步更新 |
+| ToolExecutionContext.toolCallId 必传 | **DONE** | `ToolExecutionContext.kt` 移除默认值；所有测试同步更新 |
 | AgentContext 新增 | **DONE** | `AgentContext.kt` 持有 systemPrompt/maxIterations/currentIteration/memory/metadata |
 | ReadOnlyMemory 新增 | **DONE** | `ReadOnlyMemory.kt` add/clear 抛异常；`ReadOnlyMemoryTest` 验证 |
 | AgentHook 上下文传入 | **DONE** | `AgentHook` 所有方法新增 `AgentContext` 参数；ReActAgent 每次迭代创建并传入 |

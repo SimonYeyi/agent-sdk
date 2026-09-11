@@ -3,7 +3,7 @@ package io.github.yeyi.agent.skill
 import io.github.yeyi.agent.tool.DelegateTarget
 import io.github.yeyi.agent.tool.DelegatingTool
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
@@ -54,7 +54,7 @@ internal class SkillToolCaller(private val registry: SkillRegistry) :
 
     override suspend fun execute(
         arguments: JsonElement,
-        context: ToolContext
+        context: ToolExecutionContext
     ): ToolExecutionResult {
         val target = resolveTarget(arguments)
         return target.tool.execute(target.arguments, context)

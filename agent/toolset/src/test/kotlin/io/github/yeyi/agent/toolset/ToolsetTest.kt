@@ -3,17 +3,15 @@ package io.github.yeyi.agent.toolset
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.Persona
-import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
-import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.toDefinition
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.flow.Flow
@@ -43,7 +41,7 @@ class ToolsetTest {
         private val result: ToolExecutionResult = ToolExecutionResult.success("ok"),
     ) : Tool {
         val execCalls: MutableList<JsonElement> = mutableListOf()
-        override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult {
+        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
             execCalls += arguments
             return result
         }
@@ -57,7 +55,7 @@ class ToolsetTest {
             flowOf(ChatResponseEvent.Error(IllegalStateException("unused")))
     }
 
-    private fun emptyContext(): ToolContext = ToolContext(
+    private fun emptyContext(): ToolExecutionContext = ToolExecutionContext(
         toolCallId = "test",
         agentContext = AgentContext(
             persona = Persona(""),

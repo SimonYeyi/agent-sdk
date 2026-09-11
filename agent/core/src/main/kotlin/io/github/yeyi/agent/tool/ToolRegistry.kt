@@ -3,9 +3,7 @@ package io.github.yeyi.agent.tool
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.log.log
 import kotlinx.coroutines.CancellationException
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.jsonObject
 
 /**
  * Centralized store for the tools an [io.github.yeyi.agent.Agent] can invoke.
@@ -49,7 +47,7 @@ public class ToolRegistry : ToolDispatcher {
     override suspend fun dispatch(
         name: String,
         arguments: JsonElement,
-        context: ToolContext
+        context: ToolExecutionContext
     ): ToolExecutionResult {
         val tool = try {
             this.get(name)

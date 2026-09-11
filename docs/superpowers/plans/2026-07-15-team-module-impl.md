@@ -751,7 +751,7 @@ import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.ToolDefinition
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.CancellationException
@@ -772,7 +772,7 @@ private val EchoTool = object : Tool {
     override val name: String = "echo"
     override val description: String = "Echo back the argument."
     override val parametersSchema: ToolParameters = ToolParameters.Empty
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
         ToolExecutionResult("echoed: ${arguments}")
 }
 
@@ -1187,7 +1187,7 @@ git commit -m "feat(team): Pasture 任务路由 + 调度实现"
 ```kotlin
 package io.github.yeyi.agent.team
 
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.test.runTest
@@ -1223,7 +1223,7 @@ class PublishTaskToolTest {
             }
         }
 
-        val result = tool.execute(args, ToolContext("call1", null))
+        val result = tool.execute(args, ToolExecutionContext("call1", null))
         assertTrue(result.content.contains("Assigned 1 task(s)"))
         assertTrue(result.content.contains("tool(echo)"))
     }
@@ -1234,7 +1234,7 @@ class PublishTaskToolTest {
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject { }
 
-        val result = tool.execute(args, ToolContext("call1", null))
+        val result = tool.execute(args, ToolExecutionContext("call1", null))
         assertTrue(result.isError)
         assertEquals("Missing 'tasks' array", result.content)
     }
@@ -1256,7 +1256,7 @@ class PublishTaskToolTest {
             }
         }
 
-        val result = tool.execute(args, ToolContext("call1", null))
+        val result = tool.execute(args, ToolExecutionContext("call1", null))
         assertTrue(result.isError)
         assertTrue(result.content.contains("Missing 'task'"))
     }
@@ -1279,7 +1279,7 @@ class PublishTaskToolTest {
             }
         }
 
-        val result = tool.execute(args, ToolContext("call1", null))
+        val result = tool.execute(args, ToolExecutionContext("call1", null))
         assertTrue(result.isError)
         assertTrue(result.content.contains("Unknown selection type"))
     }
@@ -1311,7 +1311,7 @@ class PublishTaskToolTest {
             }
         }
 
-        val result = tool.execute(args, ToolContext("call1", null))
+        val result = tool.execute(args, ToolExecutionContext("call1", null))
         assertTrue(result.content.contains("Assigned 2 task(s)"))
     }
 
@@ -1336,7 +1336,7 @@ class PublishTaskToolTest {
         val collected = mutableListOf<BulletinEvent>()
         val job = kotlinx.coroutines.launch { bb.events.collect { collected.add(it) } }
 
-        tool.execute(args, ToolContext("call1", null))
+        tool.execute(args, ToolExecutionContext("call1", null))
         kotlinx.coroutines.delay(50)
         job.cancel()
 
@@ -1357,7 +1357,7 @@ Expected: Compilation error
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonArray
@@ -1404,7 +1404,7 @@ internal class PublishTaskTool(
 
     override suspend fun execute(
         arguments: JsonElement,
-        context: ToolContext,
+        context: ToolExecutionContext,
     ): ToolExecutionResult {
         val tasksArray = arguments.jsonObject["tasks"] as? JsonArray
             ?: return ToolExecutionResult.error("Missing 'tasks' array")
@@ -1502,7 +1502,7 @@ internal class PublishTaskTool(
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.jsonObject
@@ -1525,7 +1525,7 @@ internal class CancelTaskTool(
 
     override suspend fun execute(
         arguments: JsonElement,
-        context: ToolContext,
+        context: ToolExecutionContext,
     ): ToolExecutionResult {
         val taskId = arguments.jsonObject["task_id"]?.jsonPrimitive?.content
             ?: return ToolExecutionResult.error("Missing 'task_id'")
@@ -1540,7 +1540,7 @@ internal class CancelTaskTool(
 ```kotlin
 package io.github.yeyi.agent.team
 
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
@@ -1561,7 +1561,7 @@ class CancelTaskToolTest {
 
         val collected = mutableListOf<PublishEvent>()
         val job = launch { bb.publishEvents.collect { collected.add(it) } }
-        val result = tool.execute(args, ToolContext("call1", null))
+        val result = tool.execute(args, ToolExecutionContext("call1", null))
         kotlinx.coroutines.delay(50)
         job.cancel()
 
@@ -1577,7 +1577,7 @@ class CancelTaskToolTest {
         val tool = CancelTaskTool(bb)
         val args = buildJsonObject { /* 空 */ }
 
-        val result = tool.execute(args, ToolContext("call1", null))
+        val result = tool.execute(args, ToolExecutionContext("call1", null))
 
         assertTrue(result.isError)
         assertTrue(result.content.contains("Missing 'task_id'"))
@@ -1591,7 +1591,7 @@ class CancelTaskToolTest {
 
         // 同一 taskId 多次取消 — 每次都发 Cancellation 事件, 幂等由下游 Pasture 静默处理.
         repeat(3) {
-            val r = tool.execute(args, ToolContext("call$it", null))
+            val r = tool.execute(args, ToolExecutionContext("call$it", null))
             assertTrue(r.content.contains("task-xyz"))
         }
 
@@ -1742,7 +1742,7 @@ import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.*
@@ -2502,7 +2502,7 @@ import io.github.yeyi.agent.skill.Skill
 import io.github.yeyi.agent.skill.SkillContext
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -2528,7 +2528,7 @@ private val EchoTool = object : Tool {
     override val name: String = "echo"
     override val description: String = "Echo back the argument."
     override val parametersSchema: ToolParameters = ToolParameters.Empty
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
         ToolExecutionResult("echoed")
 }
 
@@ -2536,7 +2536,7 @@ private val ToolSetTool = object : Tool {
     override val name: String = "toolset_tool"
     override val description: String = "From a toolset."
     override val parametersSchema: ToolParameters = ToolParameters.Empty
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
         ToolExecutionResult("ts")
 }
 
@@ -2544,7 +2544,7 @@ private val BoundTool = object : Tool {
     override val name: String = "bound_tool"
     override val description: String = "Auto-bound from skill text."
     override val parametersSchema: ToolParameters = ToolParameters.Empty
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
         ToolExecutionResult("bound")
 }
 
@@ -2750,7 +2750,7 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolContext
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -2768,7 +2768,7 @@ private val EchoTool = object : Tool {
     override val name = "echo"
     override val description = "Echo."
     override val parametersSchema = ToolParameters.Empty
-    override suspend fun execute(arguments: JsonElement, context: ToolContext): ToolExecutionResult =
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
         ToolExecutionResult("echoed")
 }
 
