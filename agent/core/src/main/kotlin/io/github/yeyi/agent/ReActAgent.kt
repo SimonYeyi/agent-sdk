@@ -10,9 +10,14 @@ import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.log.log
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.memory.RepairReason
 import io.github.yeyi.agent.memory.ReadOnlyMemory
+import io.github.yeyi.agent.memory.RepairedMemory
 import io.github.yeyi.agent.memory.RoundsBoundedMemory
 import io.github.yeyi.agent.memory.Summary
+import io.github.yeyi.agent.memory.repairOrphans
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
@@ -32,7 +37,7 @@ public class ReActAgent internal constructor(
     private val maxIterations: Int,
     private val hook: AgentHook = NoOpAgentHook,
 ) : Agent {
-    private val memory = RoundsBoundedMemory(memory, maxRounds, llmProvider)
+    private val memory = RoundsBoundedMemory(RepairedMemory(memory), maxRounds, llmProvider)
 
     override fun run(query: AgentQuery): Flow<AgentEvent> = flow {
         loop(query, { req -> llmProvider.chat(req) }, { emit(it) })
@@ -112,11 +117,14 @@ public class ReActAgent internal constructor(
             }
 
             throw AgentException.MaxIterations(maxIterations)
-        } catch (t: Throwable) {
-            if (t is kotlinx.coroutines.CancellationException) throw t
+        } catch (cause: Throwable) {
+            if (cause is kotlinx.coroutines.CancellationException) {
+                withContext(NonCancellable) { memory.repairOrphans(RepairReason.CANCELLED) }
+                throw cause
+            }
             // 失败路径携带原始 Throwable,不再包成 AgentException —— 让上层自由判型。
-            hook.safeInvoke { onRunFailed(buildContext(iterations), t) }
-            emit(AgentEvent.Failed(t))
+            hook.safeInvoke { onRunFailed(buildContext(iterations), cause) }
+            emit(AgentEvent.Failed(cause))
         }
     }
 

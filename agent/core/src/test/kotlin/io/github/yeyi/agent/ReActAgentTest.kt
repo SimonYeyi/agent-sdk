@@ -217,7 +217,7 @@ class ReActAgentTest {
     }
 
     @Test
-    fun `cancellation inside tool propagates`() = runTest {
+    fun `cancellation inside tool closes open toolCalls with cancelled marker`() = runTest {
         val cancellingTool = object : Tool {
             override val name = "wait"
             override val description = ""
@@ -234,10 +234,131 @@ class ReActAgentTest {
                 )
             )
         )
-        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(cancellingTool), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(InMemoryMemory().mediaArchive), maxRounds = 20, maxIterations = 5)
+        val mem = InMemoryMemory()
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(cancellingTool), memory = mem, modalityAdapter = DefaultModalityAdapter(mem.mediaArchive), maxRounds = 20, maxIterations = 5)
         assertFailsWith<kotlinx.coroutines.CancellationException> {
             agent.run(AgentQuery.text("hi")).toList()
         }
+        // catch 块通过 NonCancellable 写入的闭合 ToolResult 应该存在,且文本为 cancelled 标记。
+        val results = mem.history().filterIsInstance<ChatMessage.ToolResult>()
+        assertEquals(1, results.size, "one orphan toolCall must be closed on cancellation")
+        val tr = results.single()
+        assertEquals("c1", tr.toolCallId)
+        assertEquals(true, tr.isError)
+        val text = tr.parts.filterIsInstance<ContentPart.Text>().single().text
+        assertEquals(io.github.yeyi.agent.memory.RepairReason.CANCELLED, text)
+    }
+
+    @Test
+    fun `cancellation mid-batch closes only the orphans, keeps completed results`() = runTest {
+        // 模拟:Assistant 吐出 A、B 两个 toolCall,A 执行完,B 执行中取消
+        // 用一个挂起工具让 A 返回后,B 在执行时取消
+        val completedTool = object : Tool {
+            override val name = "ok"
+            override val description = ""
+            override val parametersSchema = ToolParameters.Empty
+            override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext) =
+                ToolExecutionResult.success("done")
+        }
+        val blockingTool = object : Tool {
+            override val name = "block"
+            override val description = ""
+            override val parametersSchema = ToolParameters.Empty
+            override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
+                throw kotlinx.coroutines.CancellationException("cancelled in block")
+            }
+        }
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    ChatMessage.Assistant(toolCalls = listOf(
+                        ToolCall("c1", "ok", JsonNull),
+                        ToolCall("c2", "block", JsonNull),
+                    )),
+                    finishReason = FinishReason.ToolCalls
+                )
+            )
+        )
+        val mem = InMemoryMemory()
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(completedTool, blockingTool), memory = mem, modalityAdapter = DefaultModalityAdapter(mem.mediaArchive), maxRounds = 20, maxIterations = 5)
+        assertFailsWith<kotlinx.coroutines.CancellationException> {
+            agent.run(AgentQuery.text("hi")).toList()
+        }
+        val results = mem.history().filterIsInstance<ChatMessage.ToolResult>()
+        assertEquals(2, results.size)
+        val c1 = results.single { it.toolCallId == "c1" }
+        assertEquals(false, c1.isError, "c1 completed normally before cancellation")
+        val c2 = results.single { it.toolCallId == "c2" }
+        assertEquals(true, c2.isError)
+        assertEquals(
+            io.github.yeyi.agent.memory.RepairReason.CANCELLED,
+            c2.parts.filterIsInstance<ContentPart.Text>().single().text
+        )
+    }
+
+    @Test
+    fun `next run repairs crashed history with unknown-reason marker before adding new User`() = runTest {
+        // 模拟:上次 run 留下尾部孤儿(类似进程崩溃的残留历史),
+        // 新 run 启动时应在 add(User) 之前自动闭合孤儿,使新 run 能正常拼 request。
+        val mem = InMemoryMemory()
+        mem.add(ChatMessage.User(listOf(ContentPart.Text("q1"))))
+        mem.add(ChatMessage.Assistant(toolCalls = listOf(ToolCall("c1", "search", JsonNull))))
+        // 注意:不写 c1 的 ToolResult,模拟崩溃
+
+        val echo = EchoTool()
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                // 新 run 第一次 LLM 调用应该看到闭合后的合法历史并给出最终回答
+                ChatResponse(ChatMessage.Assistant(content = "fixed"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = mem, modalityAdapter = DefaultModalityAdapter(mem.mediaArchive), maxRounds = 20, maxIterations = 5)
+        agent.run(AgentQuery.text("q2")).awaitResult()
+
+        val h = mem.history()
+        // 结构应为: User(q1), Assistant(c1), ToolResult(c1, [crashed: ...]), User(q2), Assistant("fixed")
+        val crashMarker = h.filterIsInstance<ChatMessage.ToolResult>().single { it.toolCallId == "c1" }
+        assertEquals(true, crashMarker.isError)
+        assertEquals(
+            io.github.yeyi.agent.memory.RepairReason.CRASHED,
+            crashMarker.parts.filterIsInstance<ContentPart.Text>().single().text
+        )
+        // crash marker 必须在 User(q2) 之前
+        val markerIdx = h.indexOf(crashMarker)
+        val userQ2Idx = h.indexOfFirst { it is ChatMessage.User && it.parts.any { p -> p is ContentPart.Text && p.text == "q2" } }
+        assertTrue(markerIdx < userQ2Idx, "crash repair must happen before new User is added")
+
+        // 传给 LLM 的请求里历史应该是合法的(c1 已闭合),否则 provider 会因非法 tool_call 拒绝 ——
+        // 这里只要 run 成功完成就说明修复生效了。
+    }
+
+    @Test
+    fun `clean run does not insert repair markers into history`() = runTest {
+        val mem = InMemoryMemory()
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "hi"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = mem, modalityAdapter = DefaultModalityAdapter(mem.mediaArchive), maxRounds = 20, maxIterations = 5)
+        agent.run(AgentQuery.text("q1")).awaitResult()
+
+        val allText = mem.history().flatMap { msg ->
+            when (msg) {
+                is ChatMessage.User -> msg.parts.filterIsInstance<ContentPart.Text>().map { it.text }
+                is ChatMessage.Assistant -> listOfNotNull(msg.content)
+                is ChatMessage.ToolResult -> msg.parts.filterIsInstance<ContentPart.Text>().map { it.text }
+                is ChatMessage.System -> listOf(msg.content)
+            }
+        }
+        val markers = setOf(
+            io.github.yeyi.agent.memory.RepairReason.CRASHED,
+            io.github.yeyi.agent.memory.RepairReason.CANCELLED,
+        )
+        assertTrue(
+            allText.none { it in markers },
+            "clean run must not produce repair markers, got: $allText"
+        )
     }
 
     @Test
