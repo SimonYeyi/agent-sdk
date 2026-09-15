@@ -17,15 +17,18 @@ import io.github.yeyi.agent.memory.RoundsBoundedMemory
 import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.memory.repairOrphans
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
 import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolRegistry
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
+import java.util.concurrent.atomic.AtomicReference
 
 public class ReActAgent internal constructor(
     private val persona: Persona,
@@ -36,11 +39,19 @@ public class ReActAgent internal constructor(
     private val maxRounds: Int,
     private val maxIterations: Int,
     private val hook: AgentHook = NoOpAgentHook,
-) : Agent {
+) : Agent, Steerable {
     private val memory = RoundsBoundedMemory(RepairedMemory(memory), maxRounds, llmProvider)
+
+    /** 当前活跃 run 的 steer 信箱。CAS null→channel 守卫并发 run，null 表示无活跃 run。 */
+    private val steerInboxRef = AtomicReference<Channel<AgentQuery>?>(null)
 
     override fun run(query: AgentQuery): Flow<AgentEvent> = flow {
         loop(query, { req -> llmProvider.chat(req) }, { emit(it) })
+    }
+
+    override fun steer(query: AgentQuery): Boolean {
+        val inbox = steerInboxRef.get() ?: return false
+        return inbox.trySend(query).isSuccess
     }
 
     override fun runStream(query: AgentQuery): Flow<AgentEvent> = flow {
@@ -101,8 +112,13 @@ public class ReActAgent internal constructor(
     private suspend fun loop(
         query: AgentQuery,
         llmCall: suspend (ChatRequest) -> ChatResponse,
-        emit: suspend (AgentEvent) -> Unit
+        emit: suspend (AgentEvent) -> Unit,
     ) {
+        val steerInbox = Channel<AgentQuery>(Channel.UNLIMITED)
+        if (!steerInboxRef.compareAndSet(null, steerInbox)) {
+            error("Concurrent run not supported: another run is active")
+        }
+
         val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
         var iterations = 0
 
@@ -113,7 +129,7 @@ public class ReActAgent internal constructor(
             memory.add(modalityAdapter.archive(ChatMessage.User(query.parts)))
 
             while (iterations < maxIterations) {
-                loopOnce(++iterations, toolCalls, llmCall, emit)?.let { return }
+                loopOnce(++iterations, toolCalls, llmCall, emit, steerInbox)?.let { return }
             }
 
             throw AgentException.MaxIterations(maxIterations)
@@ -125,6 +141,9 @@ public class ReActAgent internal constructor(
             // 失败路径携带原始 Throwable,不再包成 AgentException —— 让上层自由判型。
             hook.safeInvoke { onRunFailed(buildContext(iterations), cause) }
             emit(AgentEvent.Failed(cause))
+        } finally {
+            steerInboxRef.compareAndSet(steerInbox, null)
+            steerInbox.close()
         }
     }
 
@@ -132,8 +151,12 @@ public class ReActAgent internal constructor(
         iterations: Int,
         toolCalls: MutableList<AgentResult.ToolCallRecord>,
         llmCall: suspend (ChatRequest) -> ChatResponse,
-        emit: suspend (AgentEvent) -> Unit
+        emit: suspend (AgentEvent) -> Unit,
+        steerInbox: Channel<AgentQuery>,
     ): AgentResult? {
+        // 检查点①：迭代头注入。Instruct 在此进入 memory，本轮 buildRequest 即生效
+        consumeSteering(steerInbox)
+
         val context = buildContext(iterations)
         val request = buildRequest()
 
@@ -144,6 +167,11 @@ public class ReActAgent internal constructor(
         memory.add(response.message)
 
         if (response.message.toolCalls.isEmpty()) {
+            // 检查点②：Final 抢占。用户此刻的纠正不应被一个没看到纠正的回答吞掉
+            if (consumeSteering(steerInbox)) {
+                // 指令已注入 memory，抢占 Final，强制再跑一轮让 LLM 带着新指令重新作答
+                return null
+            }
             val result = AgentResult(
                 message = response.message,
                 iterations = iterations,
@@ -197,6 +225,22 @@ public class ReActAgent internal constructor(
             emit(AgentEvent.ToolCallEnd(call.id, final))
         }
         return null
+    }
+
+    /**
+     * 消费 steerInbox 中的在途指令，注入为 User 消息。
+     * 注入点在迭代头——批次完整点，保证 tool_call/tool_result 配对不被插入消息破坏。
+     * @return 是否注入了至少一条指令
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    private suspend fun consumeSteering(steerInbox: Channel<AgentQuery>): Boolean {
+        if (steerInbox.isEmpty) return false
+        var consumed = false
+        while (true) {
+            val query = steerInbox.tryReceive().getOrNull() ?: return consumed
+            memory.add(modalityAdapter.archive(ChatMessage.User(query.parts)))
+            consumed = true
+        }
     }
 
     private suspend fun llmCallWithContextOverflowHandle(

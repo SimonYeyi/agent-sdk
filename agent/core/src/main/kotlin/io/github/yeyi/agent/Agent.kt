@@ -34,3 +34,32 @@ public interface Agent {
      */
     public fun runStream(query: AgentQuery): Flow<AgentEvent>
 }
+
+/**
+ * 在途指令注入能力。
+ *
+ * 当 Agent 正在执行 [Agent.run] 时，[steer] 将指令注入当前运行的轮次，
+ * 在下一个检查点（迭代头 / Final 前）生效。调用方无需判断 Agent 是否活跃——
+ * [steer] 返回值即为送达确认：
+ * - `true`：指令已注入，将在当前 run 的后续轮次中生效
+ * - `false`：无活跃 run，指令未送达；调用方应改为调用 [Agent.run] 启动新 run
+ *
+ * 典型用法：
+ * ```
+ * if (!agent.steer(query)) {
+ *     agent.run(query).collect { event -> ... }
+ * }
+ * ```
+ *
+ * 注入不携带观察义务——steer 不返回 Flow，调用方若需观察当前 run 的事件，
+ * 应在启动 run 时 collect 返回的 Flow。
+ */
+public interface Steerable {
+    /**
+     * 向正在执行的 run 注入在途指令。
+     *
+     * @param query 用户在途指令，支持文本 + 多模态
+     * @return `true` 表示已注入当前活跃 run；`false` 表示无活跃 run，未送达
+     */
+    public fun steer(query: AgentQuery): Boolean
+}
