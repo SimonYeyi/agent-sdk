@@ -174,8 +174,6 @@ public class BossAgent internal constructor(
         return flow { for (e in round.channel) emit(e) }
     }
 
-    override fun runStream(query: AgentQuery): Flow<AgentEvent> = run(query)
-
     /**
      * 获取当前所有任务（结束的任务已被移除）.
      */

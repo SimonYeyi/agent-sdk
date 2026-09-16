@@ -62,8 +62,9 @@ val agent: Agent = agent {
     hook(HookPipeline(logging = true))
 }
 
-// 流式运行
-agent.runStream(userInput).collect { event ->
+// 流式运行（Streamable 是可选能力接口，Agent 未实现时降级为批式 run）
+val flow = (agent as? Streamable)?.runStream(userInput) ?: agent.run(userInput)
+flow.collect { event ->
     when (event) {
         is AgentEvent.TextDelta   -> ui.appendText(event.text)
         is AgentEvent.Final       -> ui.appendText(event.result.message.content ?: "")

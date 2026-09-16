@@ -3,13 +3,16 @@ package io.github.yeyi.agent
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Agent 执行接口，提供两种调用路径。
+ * Agent 执行接口——本质契约。
  *
- * [run] 与 [runStream] 均通过 [AgentEvent] Flow 向调用方推送中间状态，
- * 最终以 [AgentEvent.Final] 或 [AgentEvent.Failed] 终止。
+ * [run] 通过 [AgentEvent] Flow 向调用方推送中间状态，最终以
+ * [AgentEvent.Final] 或 [AgentEvent.Failed] 终止。
  *
  * 调用方可通过 [kotlinx.coroutines.flow.first] 或 [kotlinx.coroutines.flow.last] 获取最终结果，
  * 也可全程订阅事件流实现实时 UI 反馈。
+ *
+ * 流式（[Streamable.runStream]）与在途指令注入（[Steerable.steer]）均为可选能力，分别由 [Streamable]
+ * 与 [Steerable] 独立暴露——不实现该能力的 Agent 不承担对应契约。
  */
 public interface Agent {
     /**
@@ -22,16 +25,21 @@ public interface Agent {
      * 适用场景：响应速度优先、无需流式输出。
      */
     public fun run(query: AgentQuery): Flow<AgentEvent>
+}
 
-    /**
-     * 流式执行路径。
-     *
-     * 内部使用 [io.github.yeyi.agent.memory.Memory] 维护对话历史，
-     * 调用 [io.github.yeyi.agent.llm.LlmProvider.chatStream] 推送 [AgentEvent.TextDelta] 增量文本。
-     * 入参 [AgentQuery] 承载文本 + 多模态块。
-     *
-     * 适用场景：需要实时展示 LLM 输出文字、工具调用进度等。
-     */
+/**
+ * 流式执行能力。
+ *
+ * 仅实现本接口的 Agent 才具备流式路径——调用方应通过 `agent is Streamable`
+ * 探测能力，而非无条件调用 [runStream]。
+ *
+ * 内部使用 [io.github.yeyi.agent.memory.Memory] 维护对话历史，
+ * 调用 [io.github.yeyi.agent.llm.LlmProvider.chatStream] 推送 [AgentEvent.TextDelta] 增量文本。
+ * 入参 [AgentQuery] 承载文本 + 多模态块。
+ *
+ * 适用场景：需要实时展示 LLM 输出文字、工具调用进度等。
+ */
+public interface Streamable {
     public fun runStream(query: AgentQuery): Flow<AgentEvent>
 }
 

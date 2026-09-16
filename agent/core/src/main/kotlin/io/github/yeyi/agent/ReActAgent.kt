@@ -41,7 +41,7 @@ public class ReActAgent internal constructor(
     private val maxRounds: Int,
     private val maxIterations: Int,
     private val hook: AgentHook = NoOpAgentHook,
-) : Agent, Steerable {
+) : Agent, Streamable, Steerable {
     private val memory = RoundsBoundedMemory(RepairedMemory(memory), maxRounds, llmProvider)
 
     /** 当前活跃 run 的 steer 信箱。CAS null→channel 守卫并发 run，null 表示无活跃 run。 */

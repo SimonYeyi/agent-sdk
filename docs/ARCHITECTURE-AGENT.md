@@ -21,13 +21,23 @@ agent:providers    ← LLM Provider：OpenAiProvider、AnthropicProvider
 ## 3. Agent 接口与实现
 
 ```kotlin
+// 本质契约：任何 Agent 都能批式运行
 public interface Agent {
-    public fun run(input: String): Flow<AgentEvent>
-    public fun runStream(input: String): Flow<AgentEvent>
+    public fun run(query: AgentQuery): Flow<AgentEvent>
+}
+
+// 可选能力接口：流式执行
+public interface Streamable {
+    public fun runStream(query: AgentQuery): Flow<AgentEvent>
+}
+
+// 可选能力接口：在途指令注入
+public interface Steerable {
+    public fun steer(query: AgentQuery): Boolean
 }
 ```
 
-**ReActAgent** 是唯一实现，通过 `loop()` 方法执行 ReAct 循环：
+**ReActAgent** 是唯一实现（同时实现 `Streamable` 与 `Steerable`），通过 `loop()` 方法执行 ReAct 循环：
 
 ```
 用户输入 → Memory.add(User) → 循环直到完成(maxIterations)

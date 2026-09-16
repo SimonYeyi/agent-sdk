@@ -24,8 +24,8 @@ import kotlin.test.assertTrue
 /**
  * Integration test for [ChatViewModel] using [FakeLlmProvider] (via the public `agent { }` DSL).
  *
- * ChatViewModel uses [Agent.runStream], so the fake must be scripted via
- * [FakeLlmProvider.streamScripts] (ChatResponseEvent list), not nonStreamResponses.
+ * ChatViewModel 在 STREAM 模式调用 Streamable.runStream,所以 fake 必须通过
+ * [FakeLlmProvider.streamScripts] (ChatResponseEvent list) 编排,而非 nonStreamResponses.
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class ChatViewModelTest {

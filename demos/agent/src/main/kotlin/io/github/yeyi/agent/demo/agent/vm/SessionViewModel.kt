@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
+import io.github.yeyi.agent.Streamable
 import io.github.yeyi.agent.demo.agent.demo.DemoAgentFactory
 import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.ChatMessage
@@ -153,7 +154,10 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             try {
                 val agent = DemoAgentFactory.create(session.memory, hookPipeline)
-                agent.runStream(AgentQuery.text(inputText)).collect { event ->
+                // 会话 UI 依赖流式增量；Agent 未实现 Streamable 时降级为批式路径。
+                val eventFlow = (agent as? Streamable)?.runStream(AgentQuery.text(inputText))
+                    ?: agent.run(AgentQuery.text(inputText))
+                eventFlow.collect { event ->
                     when (event) {
                         is io.github.yeyi.agent.AgentEvent.Initial -> {
                             _uiState.value = _uiState.value.copy(

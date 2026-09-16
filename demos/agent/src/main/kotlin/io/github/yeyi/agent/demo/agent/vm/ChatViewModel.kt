@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
+import io.github.yeyi.agent.Streamable
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.text
@@ -98,8 +99,10 @@ class ChatViewModel(
 
         viewModelScope.launch {
             try {
+                // 流式是可选能力：Agent 未实现 Streamable 时降级为批式路径。
                 val flow = when (_mode.value) {
-                    RunMode.STREAM -> agent.runStream(AgentQuery.text(text))
+                    RunMode.STREAM -> (agent as? Streamable)?.runStream(AgentQuery.text(text))
+                        ?: agent.run(AgentQuery.text(text))
                     RunMode.BATCH -> agent.run(AgentQuery.text(text))
                 }
                 flow.collect { handleEvent(it) }
