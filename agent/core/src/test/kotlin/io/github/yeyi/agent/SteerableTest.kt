@@ -302,4 +302,141 @@ class SteerableTest {
         assertTrue(steerTexts[0].contains("first steer"), "FIFO: first steer should come before second")
         assertTrue(steerTexts[1].contains("second steer"), "FIFO: second steer should come after first")
     }
+
+    /**
+     * 契约2：steer 返回 false 时，调用 run() 不会触发非法状态异常。
+     *
+     * 惯用法 if (!steer()) { run.collect {} } —— 空闲时 steer 必 false，
+     * run() 的 CAS(null→new) 必成功，事件流完整 Initial → Final。
+     */
+    @Test
+    fun `contract2 fallback run when idle executes full stream without IllegalStateException`() = runTest {
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "hello"), finishReason = FinishReason.Stop)
+            )
+        )
+        val mem = InMemoryMemory()
+        val agent = ReActAgent(
+            persona = Persona(""),
+            llmProvider = provider,
+            toolRegistry = registryOf(),
+            memory = mem,
+            modalityAdapter = DefaultModalityAdapter(mem.mediaArchive),
+            maxRounds = 20,
+            maxIterations = 5
+        )
+
+        val events = mutableListOf<AgentEvent>()
+        if (!agent.steer(AgentQuery.text("steer while idle"))) {
+            agent.run(AgentQuery.text("hi")).collect { events += it }
+        }
+
+        assertTrue(events.first() is AgentEvent.Initial, "run must start with Initial")
+        assertTrue(events.last() is AgentEvent.Final, "run must end with Final")
+        assertTrue(events.none { it is AgentEvent.Failed }, "no Failed on clean run")
+        assertEquals(1, provider.recordedRequests.size)
+    }
+
+    /**
+     * 契约1：steer 返回 true 时指令必被消费，不静默丢弃。
+     *
+     * run 活跃时 steer 返回 true；指令在检查点被注入 memory，
+     * 最终以 User 消息出现在 history 中，而不是困死在 buffer 里作废。
+     */
+    @Test
+    fun `contract1 steer true during run is consumed into memory not dropped`() = runTest(UnconfinedTestDispatcher()) {
+        val provider = ControllableLlmProvider(
+            listOf(
+                ChatResponse(ChatMessage.Assistant(content = "first answer"), finishReason = FinishReason.Stop),
+                ChatResponse(ChatMessage.Assistant(content = "final"), finishReason = FinishReason.Stop)
+            )
+        )
+        val mem = InMemoryMemory()
+        val agent = ReActAgent(
+            persona = Persona(""),
+            llmProvider = provider,
+            toolRegistry = registryOf(),
+            memory = mem,
+            modalityAdapter = DefaultModalityAdapter(mem.mediaArchive),
+            maxRounds = 20,
+            maxIterations = 5
+        )
+
+        backgroundScope.launch {
+            agent.run(AgentQuery.text("hi")).collect { }
+        }
+        advanceUntilIdle()
+
+        // 活跃 run 中注入，必须返回 true
+        assertTrue(agent.steer(AgentQuery.text("must be consumed")))
+
+        // iter1 返回纯文本 → 检查点②发现 steer 抢占 Final → iter2 再作答
+        provider.completeNext()
+        advanceUntilIdle()
+        provider.completeNext()
+        advanceUntilIdle()
+
+        // 指令已注入 memory，未静默丢弃
+        val userTexts = mem.history()
+            .filterIsInstance<ChatMessage.User>()
+            .flatMap { it.parts }
+            .filterIsInstance<ContentPart.Text>()
+            .map { it.text }
+        assertTrue(
+            userTexts.any { it.contains("must be consumed") },
+            "steer instruction must be consumed into memory, not dropped"
+        )
+    }
+
+    /**
+     * 契约3：两次 run.collect 的事件流不交错。
+     *
+     * 旧 run 终态(Final)发完 → steer 才返回 false → 新 run 启动。
+     * 验证：run1 完整 Initial→Final，run2 以自身 Initial 开头，各自独立不混流。
+     */
+    @Test
+    fun `contract3 sequential fallback runs keep non-interleaved event streams`() = runTest {
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "first"), finishReason = FinishReason.Stop),
+                ChatResponse(ChatMessage.Assistant(content = "second"), finishReason = FinishReason.Stop)
+            )
+        )
+        val mem = InMemoryMemory()
+        val agent = ReActAgent(
+            persona = Persona(""),
+            llmProvider = provider,
+            toolRegistry = registryOf(),
+            memory = mem,
+            modalityAdapter = DefaultModalityAdapter(mem.mediaArchive),
+            maxRounds = 20,
+            maxIterations = 5
+        )
+
+        // run1
+        val run1 = mutableListOf<AgentEvent>()
+        if (!agent.steer(AgentQuery.text("s1"))) {
+            agent.run(AgentQuery.text("one")).collect { run1 += it }
+        }
+
+        // run1 已终态，steer 必返回 false
+        assertFalse(agent.steer(AgentQuery.text("s2")))
+
+        // run2
+        val run2 = mutableListOf<AgentEvent>()
+        if (!agent.steer(AgentQuery.text("s3"))) {
+            agent.run(AgentQuery.text("two")).collect { run2 += it }
+        }
+
+        // 各自完整且独立：run1 以 Final 结束，run2 以自身 Initial 开始
+        assertTrue(run1.first() is AgentEvent.Initial, "run1 must start with Initial")
+        assertTrue(run1.last() is AgentEvent.Final, "run1 must end with Final")
+        assertTrue(run2.first() is AgentEvent.Initial, "run2 must start with its own Initial")
+        assertTrue(run2.last() is AgentEvent.Final, "run2 must end with Final")
+        assertEquals("one", (run1.first() as AgentEvent.Initial).query.parts.first().let { (it as ContentPart.Text).text })
+        assertEquals("first", (run1.last() as AgentEvent.Final).result.message.content)
+        assertEquals("two", (run2.first() as AgentEvent.Initial).query.parts.first().let { (it as ContentPart.Text).text })
+        assertEquals("second", (run2.last() as AgentEvent.Final).result.message.content)
+    }
 }
