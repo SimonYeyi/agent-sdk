@@ -273,11 +273,21 @@ if (node.status == Status.DONE || node.status == Status.FAILED || node.status ==
 
 ### 6.1 Beast 接口
 
+Worker（Beast）的本质契约与 [Agent](ARCHITECTURE-AGENT.md) 相同——`run(query): Flow<AgentEvent>`，因此直接以 `Agent` 子类型建模，实现上透传内部 ReActAgent 的事件流：
+
 ```kotlin
-internal interface Beast {
-    suspend fun run(task: String, onEvent: suspend (AgentEvent) -> Unit)
+// 专精 Worker Agent：Boss 负责编排，Beast 负责执行单个任务
+internal interface Beast : Agent
+
+internal class Ox internal constructor(...) : Beast {
+    override fun run(query: AgentQuery): Flow<AgentEvent> {
+        val inner = agent { ... }
+        return inner.run(query)
+    }
 }
 ```
+
+调用方（Pasture）通过 `beast.run(query).collect { event -> ... }` 消费事件流；`collect` 内同步回调，`run` 返回即终态，语义与原 `run(task, onEvent)` 回调形式完全一致。
 
 ### 6.2 两种实现
 

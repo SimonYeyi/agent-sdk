@@ -51,7 +51,7 @@ class BeastTest {
         )
 
         val events = mutableListOf<AgentEvent>()
-        ox.run(AgentQuery.text("do it")) { events.add(it) }
+        ox.run(AgentQuery.text("do it")).collect { events.add(it) }
 
         assertTrue(events.any { it is AgentEvent.Final }, "expected Final, got: $events")
     }
@@ -71,7 +71,7 @@ class BeastTest {
             maxRounds = 5,
         )
 
-        repeat(2) { ox.run(AgentQuery.text("do it")) { } }
+        repeat(2) { ox.run(AgentQuery.text("do it")).collect { } }
 
         assertEquals(listOf("echo"), toolRegistry.all().map { it.name })
     }
@@ -87,7 +87,7 @@ class BeastTest {
         )
 
         val events = mutableListOf<AgentEvent>()
-        horse.run(AgentQuery.text("task")) { events.add(it) }
+        horse.run(AgentQuery.text("task")).collect { events.add(it) }
 
         assertTrue(events.any { it is AgentEvent.Final })
     }
@@ -114,7 +114,7 @@ class BeastTest {
         )
 
         val events = mutableListOf<AgentEvent>()
-        horse.run(AgentQuery.text("task")) { events.add(it) }
+        horse.run(AgentQuery.text("task")).collect { events.add(it) }
 
         assertTrue(events.any { it is AgentEvent.ToolCallStart && it.toolName == "echo" })
         assertTrue(events.any { it is AgentEvent.Final })
@@ -132,7 +132,7 @@ class BeastTest {
         )
 
         val events = mutableListOf<AgentEvent>()
-        ox.run(AgentQuery.text("noop")) { events.add(it) }
+        ox.run(AgentQuery.text("noop")).collect { events.add(it) }
 
         assertTrue(events.any { it is AgentEvent.Final })
     }
@@ -156,7 +156,7 @@ class BeastTest {
         )
 
         val events = mutableListOf<AgentEvent>()
-        ox.run(AgentQuery.text("task")) { events.add(it) }
+        ox.run(AgentQuery.text("task")).collect { events.add(it) }
 
         // Ox 内部 catch 失败并 emit Failed(throwable)
         val failed = events.filterIsInstance<AgentEvent.Failed>()
@@ -176,7 +176,7 @@ class BeastTest {
 
         // runTest 的 cancellation 会在 collect 完成后注入, 这里只验证不抛非预期异常.
         val events = mutableListOf<AgentEvent>()
-        ox.run(AgentQuery.text("task")) { events.add(it) }
+        ox.run(AgentQuery.text("task")).collect { events.add(it) }
 
         assertTrue(events.isNotEmpty())
     }

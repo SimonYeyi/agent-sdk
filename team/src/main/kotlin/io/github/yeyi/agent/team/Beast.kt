@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.team
 
+import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.Persona
@@ -14,10 +15,16 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolRegistry
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 import io.github.yeyi.agent.toolset.toolsets
+import kotlinx.coroutines.flow.Flow
 
-internal interface Beast {
-    suspend fun run(query: AgentQuery, onEvent: suspend (AgentEvent) -> Unit)
-}
+/**
+ * 专精 Worker Agent（内部抽象）。
+ *
+ * 与 [BossAgent] 正交：Boss 负责编排，Beast 负责执行单个任务。本质契约与
+ * [Agent] 相同（run → Flow[AgentEvent]），实现上按 selection 组装独立的
+ * 内部 ReActAgent 后透传其事件流。
+ */
+internal interface Beast : Agent
 
 internal class Ox internal constructor(
     private val llmProvider: LlmProvider,
@@ -29,7 +36,7 @@ internal class Ox internal constructor(
     private val maxIterations: Int,
     private val maxRounds: Int,
 ) : Beast {
-    override suspend fun run(query: AgentQuery, onEvent: suspend (AgentEvent) -> Unit) {
+    override fun run(query: AgentQuery): Flow<AgentEvent> {
         val inner = agent {
             persona(this@Ox.persona)
             llmProvider(llmProvider)
@@ -40,7 +47,7 @@ internal class Ox internal constructor(
             subagentRegistry?.let { subagents(it) }
             maxIterations(maxIterations)
         }
-        inner.run(query).collect { onEvent(it) }
+        return inner.run(query)
     }
 }
 
@@ -51,7 +58,7 @@ internal class Horse internal constructor(
     private val maxIterations: Int,
     private val maxRounds: Int,
 ) : Beast {
-    override suspend fun run(query: AgentQuery, onEvent: suspend (AgentEvent) -> Unit) {
+    override fun run(query: AgentQuery): Flow<AgentEvent> {
         val inner = agent {
             persona(this@Horse.persona)
             llmProvider(llmProvider)
@@ -59,6 +66,6 @@ internal class Horse internal constructor(
             tools(tools)
             maxIterations(maxIterations)
         }
-        inner.run(query).collect { onEvent(it) }
+        return inner.run(query)
     }
 }

@@ -163,7 +163,7 @@ internal class Pasture(
         val job = scope.launch {
             try {
                 var failed: AgentEvent.Failed? = null
-                beast.run(AgentQuery.text(userInput)) { event ->
+                beast.run(AgentQuery.text(userInput)).collect { event ->
                     when (event) {
                         is AgentEvent.Final -> dagLock.withLock { dag[taskId]?.result = event }
                         is AgentEvent.Failed -> failed = event
