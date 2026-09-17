@@ -254,7 +254,7 @@ class ReActAgentTest {
         assertEquals("c1", tr.toolCallId)
         assertEquals(true, tr.isError)
         val text = tr.parts.filterIsInstance<ContentPart.Text>().single().text
-        assertEquals(io.github.yeyi.agent.memory.RepairReason.CANCELLED, text)
+        assertEquals(io.github.yeyi.agent.memory.RepairedMemory.CANCELLED, text)
     }
 
     @Test
@@ -299,7 +299,7 @@ class ReActAgentTest {
         val c2 = results.single { it.toolCallId == "c2" }
         assertEquals(true, c2.isError)
         assertEquals(
-            io.github.yeyi.agent.memory.RepairReason.CANCELLED,
+            io.github.yeyi.agent.memory.RepairedMemory.CANCELLED,
             c2.parts.filterIsInstance<ContentPart.Text>().single().text
         )
     }
@@ -328,7 +328,7 @@ class ReActAgentTest {
         val crashMarker = h.filterIsInstance<ChatMessage.ToolResult>().single { it.toolCallId == "c1" }
         assertEquals(true, crashMarker.isError)
         assertEquals(
-            io.github.yeyi.agent.memory.RepairReason.CRASHED,
+            io.github.yeyi.agent.memory.RepairedMemory.CRASHED,
             crashMarker.parts.filterIsInstance<ContentPart.Text>().single().text
         )
         // crash marker 必须在 User(q2) 之前
@@ -360,8 +360,8 @@ class ReActAgentTest {
             }
         }
         val markers = setOf(
-            io.github.yeyi.agent.memory.RepairReason.CRASHED,
-            io.github.yeyi.agent.memory.RepairReason.CANCELLED,
+            io.github.yeyi.agent.memory.RepairedMemory.CRASHED,
+            io.github.yeyi.agent.memory.RepairedMemory.CANCELLED,
         )
         assertTrue(
             allText.none { it in markers },

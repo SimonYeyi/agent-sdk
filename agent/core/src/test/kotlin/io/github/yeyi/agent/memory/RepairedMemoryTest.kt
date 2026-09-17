@@ -32,7 +32,7 @@ class RepairedMemoryTest {
         mem.add(MemoryEntry(userMsg("u1")))
 
         val sizeBefore = mem.history().size
-        mem.repairOrphans(RepairReason.CRASHED)
+        RepairedMemory.repairOrphans(mem, RepairedMemory.CRASHED)
 
         assertEquals(sizeBefore, mem.history().size)
     }
@@ -44,7 +44,7 @@ class RepairedMemoryTest {
         mem.add(MemoryEntry(ChatMessage.Assistant(content = "plain")))
 
         val sizeBefore = mem.history().size
-        mem.repairOrphans(RepairReason.CRASHED)
+        RepairedMemory.repairOrphans(mem, RepairedMemory.CRASHED)
 
         assertEquals(sizeBefore, mem.history().size)
     }
@@ -58,7 +58,7 @@ class RepairedMemoryTest {
         mem.add(MemoryEntry(toolResult("c2")))
 
         val sizeBefore = mem.history().size
-        mem.repairOrphans(RepairReason.CRASHED)
+        RepairedMemory.repairOrphans(mem, RepairedMemory.CRASHED)
 
         assertEquals(sizeBefore, mem.history().size)
     }
@@ -69,7 +69,7 @@ class RepairedMemoryTest {
         mem.add(MemoryEntry(userMsg("u1")))
         mem.add(MemoryEntry(assistantMsg(toolCall("c1", "search"))))
 
-        mem.repairOrphans(RepairReason.CRASHED)
+        RepairedMemory.repairOrphans(mem, RepairedMemory.CRASHED)
 
         val h = mem.history()
         assertEquals(3, h.size)
@@ -78,7 +78,7 @@ class RepairedMemoryTest {
         assertEquals("search", tr.toolName)
         assertEquals(true, tr.isError)
         assertEquals(
-            RepairReason.CRASHED,
+            RepairedMemory.CRASHED,
             tr.parts.filterIsInstance<ContentPart.Text>().single().text
         )
     }
@@ -89,10 +89,10 @@ class RepairedMemoryTest {
         mem.add(MemoryEntry(userMsg("u1")))
         mem.add(MemoryEntry(assistantMsg(toolCall("c1"))))
 
-        mem.repairOrphans(RepairReason.CANCELLED)
+        RepairedMemory.repairOrphans(mem, RepairedMemory.CANCELLED)
 
         val tr = mem.history().single { it.message is ChatMessage.ToolResult }.message as ChatMessage.ToolResult
-        assertEquals(RepairReason.CANCELLED, tr.parts.filterIsInstance<ContentPart.Text>().single().text)
+        assertEquals(RepairedMemory.CANCELLED, tr.parts.filterIsInstance<ContentPart.Text>().single().text)
         assertTrue(tr.isError)
     }
 
@@ -103,7 +103,7 @@ class RepairedMemoryTest {
         mem.add(MemoryEntry(assistantMsg(toolCall("c1"), toolCall("c2"), toolCall("c3"))))
         mem.add(MemoryEntry(toolResult("c2")))
 
-        mem.repairOrphans(RepairReason.CRASHED)
+        RepairedMemory.repairOrphans(mem, RepairedMemory.CRASHED)
 
         val results = mem.history().map { it.message }.filterIsInstance<ChatMessage.ToolResult>()
         assertEquals(3, results.size)
@@ -119,10 +119,10 @@ class RepairedMemoryTest {
         mem.add(MemoryEntry(userMsg("u1")))
         mem.add(MemoryEntry(assistantMsg(toolCall("c1"))))
 
-        mem.repairOrphans(RepairReason.CRASHED)
+        RepairedMemory.repairOrphans(mem, RepairedMemory.CRASHED)
         val afterFirst = mem.history().size
 
-        mem.repairOrphans(RepairReason.CRASHED)
+        RepairedMemory.repairOrphans(mem, RepairedMemory.CRASHED)
         assertEquals(afterFirst, mem.history().size)
     }
 
@@ -137,7 +137,7 @@ class RepairedMemoryTest {
         mem.add(MemoryEntry(ChatMessage.Assistant(content = "done")))
 
         val sizeBefore = mem.history().size
-        mem.repairOrphans(RepairReason.CRASHED)
+        RepairedMemory.repairOrphans(mem, RepairedMemory.CRASHED)
 
         // 末条 Assistant 无 toolCalls,不应插入任何东西;c1 的孤儿保持原样
         assertEquals(sizeBefore, mem.history().size)
@@ -152,7 +152,7 @@ class RepairedMemoryTest {
         mem.add(MemoryEntry(assistantMsg(toolCall("c1"))))
         mem.add(MemoryEntry(ChatMessage.System("some system note")))
 
-        mem.repairOrphans(RepairReason.CRASHED)
+        RepairedMemory.repairOrphans(mem, RepairedMemory.CRASHED)
 
         val h = mem.history()
         assertEquals(4, h.size) // User + Assistant + System + ToolResult (append 到尾部)
@@ -177,7 +177,7 @@ class RepairedMemoryTest {
         val results = raw.history().map { it.message }.filterIsInstance<ChatMessage.ToolResult>()
         assertEquals(1, results.size)
         assertEquals("c1", results[0].toolCallId)
-        assertEquals(RepairReason.CRASHED, results[0].parts.filterIsInstance<ContentPart.Text>().single().text)
+        assertEquals(RepairedMemory.CRASHED, results[0].parts.filterIsInstance<ContentPart.Text>().single().text)
 
         // 顺序: u1, assistant(c1), ToolResult(c1, crashed), u2
         val h = raw.history()
@@ -199,7 +199,7 @@ class RepairedMemoryTest {
         assertEquals(3, h.size)
         val tr = h[2].message as ChatMessage.ToolResult
         assertEquals("c1", tr.toolCallId)
-        assertEquals(RepairReason.CRASHED, tr.parts.filterIsInstance<ContentPart.Text>().single().text)
+        assertEquals(RepairedMemory.CRASHED, tr.parts.filterIsInstance<ContentPart.Text>().single().text)
     }
 
     @Test
@@ -218,7 +218,7 @@ class RepairedMemoryTest {
 
         val crashMarkers = raw.history().map { it.message }
             .filterIsInstance<ChatMessage.ToolResult>()
-            .count { it.parts.any { p -> p is ContentPart.Text && p.text == RepairReason.CRASHED } }
+            .count { it.parts.any { p -> p is ContentPart.Text && p.text == RepairedMemory.CRASHED } }
         assertEquals(1, crashMarkers, "repair should run exactly once")
     }
 

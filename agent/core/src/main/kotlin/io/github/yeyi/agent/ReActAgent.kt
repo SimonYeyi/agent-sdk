@@ -11,12 +11,10 @@ import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.log.log
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
-import io.github.yeyi.agent.memory.RepairReason
 import io.github.yeyi.agent.memory.ReadOnlyMemory
 import io.github.yeyi.agent.memory.RepairedMemory
 import io.github.yeyi.agent.memory.RoundsBoundedMemory
 import io.github.yeyi.agent.memory.Summary
-import io.github.yeyi.agent.memory.repairOrphans
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
@@ -152,7 +150,9 @@ public class ReActAgent internal constructor(
             throw AgentException.MaxIterations(maxIterations)
         } catch (cause: Throwable) {
             if (cause is kotlinx.coroutines.CancellationException) {
-                withContext(NonCancellable) { memory.repairOrphans(RepairReason.CANCELLED) }
+                withContext(NonCancellable) {
+                    RepairedMemory.repairOrphans(memory, RepairedMemory.CANCELLED)
+                }
                 throw cause
             }
             // 失败路径携带原始 Throwable,不再包成 AgentException —— 让上层自由判型。
