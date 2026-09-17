@@ -56,16 +56,12 @@ internal class RepairedMemory(private val underlying: Memory) : Memory by underl
             if (orphans.isEmpty()) return
 
             orphans.forEach { call ->
-                memory.add(
-                    MemoryEntry(
-                        ChatMessage.ToolResult(
-                            toolCallId = call.id,
-                            toolName = call.name,
-                            parts = listOf(ContentPart.Text(reason)),
-                            isError = true,
-                        )
-                    )
-                )
+                ChatMessage.ToolResult(
+                    toolCallId = call.id,
+                    toolName = call.name,
+                    parts = listOf(ContentPart.Text(reason)),
+                    isError = true,
+                ).addToMemory(memory)
             }
         }
 

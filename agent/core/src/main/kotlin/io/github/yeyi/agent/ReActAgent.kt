@@ -10,11 +10,11 @@ import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.log.log
 import io.github.yeyi.agent.memory.Memory
-import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.memory.ReadOnlyMemory
 import io.github.yeyi.agent.memory.RepairedMemory
 import io.github.yeyi.agent.memory.RoundsBoundedMemory
 import io.github.yeyi.agent.memory.Summary
+import io.github.yeyi.agent.memory.addToMemory
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
@@ -141,7 +141,7 @@ public class ReActAgent internal constructor(
             emit(AgentEvent.Initial(query))
 
             memory.attachHook(MemoryCompressProxyHook(hook, emit), buildContext(0))
-            memory.add(MemoryEntry(modalityAdapter.archive(ChatMessage.User(query.parts))))
+            modalityAdapter.archive(ChatMessage.User(query.parts)).addToMemory(memory)
 
             while (iterations < maxIterations) {
                 loopOnce(++iterations, toolCalls, llmCall, emit, steerInbox)?.let { return }
@@ -182,7 +182,7 @@ public class ReActAgent internal constructor(
         val response = llmCallWithContextOverflowHandle(finalRequest, llmCall)
         hook.safeInvoke { afterLlmResponse(context, response) }
 
-        memory.add(MemoryEntry(response.message))
+        response.message.addToMemory(memory)
 
         if (response.message.toolCalls.isEmpty()) {
             // 检查点②：Final 抢占 + 终局。与 steer() 锁下互斥。
@@ -244,18 +244,14 @@ public class ReActAgent internal constructor(
                 timestamp = java.time.Instant.now(),
             )
 
-            memory.add(
-                MemoryEntry(
-                    modalityAdapter.archive(
-                        ChatMessage.ToolResult(
-                            toolCallId = call.id,
-                            toolName = call.name,
-                            parts = final.parts,
-                            isError = final.isError,
-                        )
-                    )
+            modalityAdapter.archive(
+                ChatMessage.ToolResult(
+                    toolCallId = call.id,
+                    toolName = call.name,
+                    parts = final.parts,
+                    isError = final.isError,
                 )
-            )
+            ).addToMemory(memory)
 
             emit(AgentEvent.ToolCallEnd(call.id, final))
         }
@@ -265,17 +261,13 @@ public class ReActAgent internal constructor(
     /**
      * 消费 steerInbox 中的在途指令，注入为 User 消息。
      * 注入点在批次完整点，保证 tool_call/tool_result 配对不被插入消息破坏。
-     * 必须在锁外调用：memory.add 可能触发压缩 LLM 调用（秒级），不能挡 steer。
+     * 必须在锁外调用：[ChatMessage.addToMemory] 可能触发压缩 LLM 调用（秒级），不能挡 steer。
      */
     private suspend fun consumeSteering(steerInbox: Channel<AgentQuery>) {
         while (true) {
             val query = steerInbox.tryReceive().getOrNull() ?: return
-            memory.add(
-                MemoryEntry(
-                    message = modalityAdapter.archive(ChatMessage.User(query.parts)),
-                    tags = setOf("steering")
-                )
-            )
+            modalityAdapter.archive(ChatMessage.User(query.parts))
+                .addToMemory(memory, tags = setOf("steering"))
         }
     }
 

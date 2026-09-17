@@ -32,6 +32,18 @@ public data class MemoryEntry(
 )
 
 /**
+ * 便捷扩展：把消息加入记忆。
+ *
+ * 等价于 `memory.add(MemoryEntry(message, tags))`，用于避免各处手写 [MemoryEntry] 构造。
+ *
+ * @param memory 目标记忆
+ * @param tags 随条目携带的辅助 tag（如 `"steering"`），见 [MemoryEntry.tags]
+ */
+internal suspend fun ChatMessage.addToMemory(memory: Memory, tags: Set<String> = emptySet()) {
+    memory.add(MemoryEntry(this, tags = tags))
+}
+
+/**
  * [java.time.Instant] 的 epoch 毫秒序列化器。
  *
  * 设计为字段级 `@Serializable(with = ...)` 使用，避免为 java.time 引入额外依赖；
