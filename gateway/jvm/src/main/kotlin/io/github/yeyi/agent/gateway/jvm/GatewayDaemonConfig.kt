@@ -42,15 +42,25 @@ public data class GatewayDaemonConfig(
         private fun loadProperties(): Properties {
             val props = Properties()
             val explicitPath = System.getenv(GATEWAY_CONFIG_ENV)
-            val path = explicitPath ?: "application.properties"
-            val file = File(path)
+            // Without GATEWAY_CONFIG, probe candidate locations so the config
+            // is found regardless of the process working directory (IDEA run
+            // configs default to the repo root, gradlew run to the module dir).
+            val candidates = if (explicitPath != null) {
+                listOf(File(explicitPath))
+            } else {
+                listOf(
+                    File("application.properties"),
+                    File("gateway/jvm/application.properties"),
+                )
+            }
+            val file = candidates.firstOrNull { it.isFile }
             when {
-                explicitPath != null && !file.exists() -> {
+                explicitPath != null && file == null -> {
                     throw IllegalStateException(
                         "GATEWAY_CONFIG=$explicitPath does not exist; refusing to fall back to defaults",
                     )
                 }
-                file.exists() -> file.inputStream().use { props.load(it) }
+                file != null -> file.inputStream().use { props.load(it) }
             }
             return props
         }
