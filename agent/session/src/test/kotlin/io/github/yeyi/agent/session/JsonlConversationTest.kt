@@ -4,6 +4,8 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.memory.MemoryEntry
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
@@ -16,6 +18,11 @@ private fun ChatMessage.firstTextOrEmpty(): String = when (this) {
     is ChatMessage.Assistant -> content ?: ""
     is ChatMessage.ToolResult -> parts.text
     is ChatMessage.System -> content
+}
+
+/** 测试辅助：老风格 add(ChatMessage) 自动包装为 [MemoryEntry]。 */
+private suspend fun Memory.add(message: ChatMessage) {
+    add(MemoryEntry(message))
 }
 
 class JsonlConversationTest {

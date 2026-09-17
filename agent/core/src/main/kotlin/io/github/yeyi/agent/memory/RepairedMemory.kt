@@ -6,12 +6,12 @@ import io.github.yeyi.agent.llm.ContentPart
 internal class RepairedMemory(private val underlying: Memory) : Memory by underlying {
     private var repaired = false
 
-    override suspend fun add(message: ChatMessage) {
+    override suspend fun add(entry: MemoryEntry) {
         repairIfNot()
-        underlying.add(message)
+        underlying.add(entry)
     }
 
-    override suspend fun history(): List<ChatMessage> {
+    override suspend fun history(): List<MemoryEntry> {
         repairIfNot()
         return underlying.history()
     }
@@ -42,12 +42,13 @@ internal class RepairedMemory(private val underlying: Memory) : Memory by underl
  */
 internal suspend fun Memory.repairOrphans(reason: String) {
     val history = history()
-    val lastAssistant = history.indexOfLast { it is ChatMessage.Assistant }
+    val lastAssistant = history.indexOfLast { it.message is ChatMessage.Assistant }
         .takeIf { it >= 0 } ?: return
-    val assistant = history[lastAssistant] as ChatMessage.Assistant
+    val assistant = history[lastAssistant].message as ChatMessage.Assistant
     if (assistant.toolCalls.isEmpty()) return
 
     val answered = history.drop(lastAssistant + 1)
+        .map { it.message }
         .filterIsInstance<ChatMessage.ToolResult>()
         .mapTo(mutableSetOf()) { it.toolCallId }
 
@@ -56,11 +57,13 @@ internal suspend fun Memory.repairOrphans(reason: String) {
 
     orphans.forEach { call ->
         add(
-            ChatMessage.ToolResult(
-                toolCallId = call.id,
-                toolName = call.name,
-                parts = listOf(ContentPart.Text(reason)),
-                isError = true,
+            MemoryEntry(
+                ChatMessage.ToolResult(
+                    toolCallId = call.id,
+                    toolName = call.name,
+                    parts = listOf(ContentPart.Text(reason)),
+                    isError = true,
+                )
             )
         )
     }

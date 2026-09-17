@@ -50,6 +50,7 @@ class ChatViewModel(
     private suspend fun reloadMessages() {
         val history = memory.history()
         _messages.value = history
+            .map { it.message }
             .filter { msg ->
                 msg is ChatMessage.User ||
                 (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank()) ||

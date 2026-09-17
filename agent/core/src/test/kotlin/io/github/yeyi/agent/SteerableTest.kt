@@ -211,7 +211,7 @@ class SteerableTest {
             .any { it.text.contains("change direction") }
         assertTrue(steerInRequest, "steer instruction should appear in the second LLM request")
 
-        val finalMsg = mem.history().filterIsInstance<ChatMessage.Assistant>().last()
+        val finalMsg = mem.history().map { it.message }.filterIsInstance<ChatMessage.Assistant>().last()
         assertEquals("steered answer", finalMsg.content)
     }
 
@@ -379,6 +379,7 @@ class SteerableTest {
 
         // 指令已注入 memory，未静默丢弃
         val userTexts = mem.history()
+            .map { it.message }
             .filterIsInstance<ChatMessage.User>()
             .flatMap { it.parts }
             .filterIsInstance<ContentPart.Text>()

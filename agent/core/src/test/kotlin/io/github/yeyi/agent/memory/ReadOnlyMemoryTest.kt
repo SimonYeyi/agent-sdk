@@ -20,29 +20,29 @@ class ReadOnlyMemoryTest {
     @Test
     fun `history returns delegate messages`() = runTest {
         val delegate = InMemoryMemory()
-        delegate.add(ChatMessage.User(listOf(ContentPart.Text("hello"))))
+        delegate.add(MemoryEntry(ChatMessage.User(listOf(ContentPart.Text("hello")))))
         val readOnly = ReadOnlyMemory(delegate)
         assertEquals(1, readOnly.history().size)
-        assertEquals("hello", (readOnly.history()[0] as ChatMessage.User).firstTextOrEmpty())
+        assertEquals("hello", (readOnly.history()[0].message as ChatMessage.User).firstTextOrEmpty())
     }
 
     @Test
     fun `add throws UnsupportedOperationException`() = runTest {
         val delegate = InMemoryMemory()
-        delegate.add(ChatMessage.User(listOf(ContentPart.Text("original"))))
+        delegate.add(MemoryEntry(ChatMessage.User(listOf(ContentPart.Text("original")))))
         val readOnly = ReadOnlyMemory(delegate)
         assertFailsWith<UnsupportedOperationException> {
-            readOnly.add(ChatMessage.User(listOf(ContentPart.Text("new"))))
+            readOnly.add(MemoryEntry(ChatMessage.User(listOf(ContentPart.Text("new")))))
         }
     }
 
     @Test
     fun `add does not affect delegate`() = runTest {
         val delegate = InMemoryMemory()
-        delegate.add(ChatMessage.User(listOf(ContentPart.Text("original"))))
+        delegate.add(MemoryEntry(ChatMessage.User(listOf(ContentPart.Text("original")))))
         val readOnly = ReadOnlyMemory(delegate)
         try {
-            readOnly.add(ChatMessage.User(listOf(ContentPart.Text("new"))))
+            readOnly.add(MemoryEntry(ChatMessage.User(listOf(ContentPart.Text("new")))))
         } catch (_: UnsupportedOperationException) {
             // expected
         }

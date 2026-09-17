@@ -4,6 +4,8 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.memory.MediaArchive
+import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.memory.MemoryEntry
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Before
@@ -13,6 +15,11 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
+
+/** 测试辅助：老风格 add(ChatMessage) 自动包装为 [MemoryEntry]。 */
+private suspend fun Memory.add(message: ChatMessage) {
+    add(MemoryEntry(message))
+}
 
 class SessionRepositoryTest {
 
@@ -92,7 +99,7 @@ class SessionRepositoryTest {
         session.memory.add(ChatMessage.User(listOf(ContentPart.Image(local))))
 
         val history = session.memory.history()
-        val stored = history[0] as ChatMessage.User
+        val stored = history[0].message as ChatMessage.User
         val src = (stored.parts[0] as ContentPart.Image).source
 
         assertTrue(src is MediaSource.Local,

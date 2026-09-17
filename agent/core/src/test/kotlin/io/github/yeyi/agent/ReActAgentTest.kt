@@ -13,6 +13,8 @@ import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
@@ -31,6 +33,12 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class ReActAgentTest {
+
+    /** 测试辅助：老风格 add(ChatMessage) 自动包装为 [MemoryEntry]。 */
+    private suspend fun Memory.add(message: ChatMessage) {
+        add(MemoryEntry(message))
+    }
+
     @Test
     fun `single turn without tool call returns assistant message`() = runTest {
         val provider = FakeLlmProvider(
@@ -46,7 +54,7 @@ class ReActAgentTest {
         assertEquals("hello", result.message.content)
         assertEquals(1, result.iterations)
         assertEquals(0, result.toolCalls.size)
-        val h = memory.history()
+        val h = memory.history().map { it.message }
         assertEquals(2, h.size)
         assertEquals(Role.User, h[0].role)
         assertEquals(Role.Assistant, h[1].role)
@@ -90,7 +98,7 @@ class ReActAgentTest {
         assertEquals(1, result.toolCalls.size)
         assertEquals("echo", result.toolCalls[0].toolName)
         assertEquals(1, echo.invocations.size)
-        val h = mem.history()
+        val h = mem.history().map { it.message }
         assertEquals(4, h.size)
         assertEquals(Role.Tool, h[2].role)
         assertEquals("hello", ((h[2] as ChatMessage.ToolResult).parts.single() as ContentPart.Text).text)
@@ -175,7 +183,7 @@ class ReActAgentTest {
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(failingTool), memory = mem, modalityAdapter = DefaultModalityAdapter(mem.mediaArchive), maxRounds = 20, maxIterations = 5)
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("recovered", result.message.content)
-        val toolResult = mem.history().filterIsInstance<ChatMessage.ToolResult>().single()
+        val toolResult = mem.history().map { it.message }.filterIsInstance<ChatMessage.ToolResult>().single()
         assertTrue(toolResult.isError)
         assertTrue(toolResult.parts.any { it is ContentPart.Text && it.text.contains("kaboom") })
     }
@@ -194,7 +202,7 @@ class ReActAgentTest {
         val mem = InMemoryMemory()
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = mem, modalityAdapter = DefaultModalityAdapter(mem.mediaArchive), maxRounds = 20, maxIterations = 5)
         agent.run(AgentQuery.text("hi")).awaitResult()
-        val toolResult = mem.history().filterIsInstance<ChatMessage.ToolResult>().single()
+        val toolResult = mem.history().map { it.message }.filterIsInstance<ChatMessage.ToolResult>().single()
         assertTrue(toolResult.isError)
         assertTrue(toolResult.parts.any { it is ContentPart.Text && it.text.contains("missing") })
         assertTrue(toolResult.parts.any { it is ContentPart.Text && it.text.contains("echo") })
@@ -240,7 +248,7 @@ class ReActAgentTest {
             agent.run(AgentQuery.text("hi")).toList()
         }
         // catch 块通过 NonCancellable 写入的闭合 ToolResult 应该存在,且文本为 cancelled 标记。
-        val results = mem.history().filterIsInstance<ChatMessage.ToolResult>()
+        val results = mem.history().map { it.message }.filterIsInstance<ChatMessage.ToolResult>()
         assertEquals(1, results.size, "one orphan toolCall must be closed on cancellation")
         val tr = results.single()
         assertEquals("c1", tr.toolCallId)
@@ -284,7 +292,7 @@ class ReActAgentTest {
         assertFailsWith<kotlinx.coroutines.CancellationException> {
             agent.run(AgentQuery.text("hi")).toList()
         }
-        val results = mem.history().filterIsInstance<ChatMessage.ToolResult>()
+        val results = mem.history().map { it.message }.filterIsInstance<ChatMessage.ToolResult>()
         assertEquals(2, results.size)
         val c1 = results.single { it.toolCallId == "c1" }
         assertEquals(false, c1.isError, "c1 completed normally before cancellation")
@@ -315,7 +323,7 @@ class ReActAgentTest {
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = mem, modalityAdapter = DefaultModalityAdapter(mem.mediaArchive), maxRounds = 20, maxIterations = 5)
         agent.run(AgentQuery.text("q2")).awaitResult()
 
-        val h = mem.history()
+        val h = mem.history().map { it.message }
         // 结构应为: User(q1), Assistant(c1), ToolResult(c1, [crashed: ...]), User(q2), Assistant("fixed")
         val crashMarker = h.filterIsInstance<ChatMessage.ToolResult>().single { it.toolCallId == "c1" }
         assertEquals(true, crashMarker.isError)
@@ -343,7 +351,7 @@ class ReActAgentTest {
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = mem, modalityAdapter = DefaultModalityAdapter(mem.mediaArchive), maxRounds = 20, maxIterations = 5)
         agent.run(AgentQuery.text("q1")).awaitResult()
 
-        val allText = mem.history().flatMap { msg ->
+        val allText = mem.history().map { it.message }.flatMap { msg ->
             when (msg) {
                 is ChatMessage.User -> msg.parts.filterIsInstance<ContentPart.Text>().map { it.text }
                 is ChatMessage.Assistant -> listOfNotNull(msg.content)

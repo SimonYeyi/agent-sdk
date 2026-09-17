@@ -285,7 +285,7 @@ class SubagentTest {
         // The shared memory instance must end up holding the sub-agent's user message
         // (i.e., it's wired through, not replaced with a fresh InMemoryMemory).
         // runTest collects messages synchronously by the time the agent returns.
-        val messages = sharedMemory.history()
+        val messages = sharedMemory.history().map { it.message }
         assertTrue(
             messages.any { it is ChatMessage.User && (it.parts.firstOrNull() as? ContentPart.Text)?.text == "x" },
             "sub-agent must use the supplied memory (got ${messages.size} messages, contents=${messages.map { it::class.simpleName }})"

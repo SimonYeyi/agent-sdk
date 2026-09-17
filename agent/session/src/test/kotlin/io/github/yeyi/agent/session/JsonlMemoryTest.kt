@@ -4,13 +4,21 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.memory.MediaArchive
+import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.memory.MemoryEntry
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.time.Instant
 import kotlin.test.assertSame
+
+/** 测试辅助：老风格 add(ChatMessage) 自动包装为 [MemoryEntry]。 */
+private suspend fun Memory.add(message: ChatMessage) {
+    add(MemoryEntry(message))
+}
 
 class JsonlMemoryTest {
 
@@ -44,8 +52,8 @@ class JsonlMemoryTest {
 
         val history = memory.history()
         assertEquals(2, history.size)
-        assertEquals("hello", (history[0] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
-        assertEquals("hi", (history[1] as ChatMessage.Assistant).content)
+        assertEquals("hello", (history[0].message as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
+        assertEquals("hi", (history[1].message as ChatMessage.Assistant).content)
     }
 
     @Test
@@ -62,8 +70,8 @@ class JsonlMemoryTest {
         val reloaded = JsonlMemory(memoryFile, archive)
         val history = reloaded.history()
         assertEquals(2, history.size)
-        assertEquals("first", (history[0] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
-        assertEquals("second", (history[1] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
+        assertEquals("first", (history[0].message as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
+        assertEquals("second", (history[1].message as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
     }
 
     @Test
@@ -75,12 +83,12 @@ class JsonlMemoryTest {
             ChatMessage.User(listOf(ContentPart.Text("new1"))),
             ChatMessage.Assistant(content = "new2")
         )
-        memory.rebuild(newMessages)
+        memory.rebuild(newMessages.map { MemoryEntry(it) })
 
         val history = memory.history()
         assertEquals(2, history.size)
-        assertEquals("new1", (history[0] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
-        assertEquals("new2", (history[1] as ChatMessage.Assistant).content)
+        assertEquals("new1", (history[0].message as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
+        assertEquals("new2", (history[1].message as ChatMessage.Assistant).content)
     }
 
     @Test
@@ -97,12 +105,12 @@ class JsonlMemoryTest {
     fun `rebuild writes to file correctly`() = runTest {
         memory.add(ChatMessage.User(listOf(ContentPart.Text("original"))))
 
-        memory.rebuild(listOf(ChatMessage.User(listOf(ContentPart.Text("replaced")))))
+        memory.rebuild(listOf(MemoryEntry(ChatMessage.User(listOf(ContentPart.Text("replaced"))))))
 
         val reloaded = JsonlMemory(memoryFile, archive)
         val history = reloaded.history()
         assertEquals(1, history.size)
-        assertEquals("replaced", (history[0] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
+        assertEquals("replaced", (history[0].message as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
     }
 
     @Test
@@ -114,14 +122,14 @@ class JsonlMemoryTest {
             ChatMessage.ToolResult(toolCallId = "tc1", toolName = "echo", parts = listOf(ContentPart.Text("result"))),
         )
 
-        memory.rebuild(messages)
+        memory.rebuild(messages.map { MemoryEntry(it) })
 
         val history = memory.history()
         assertEquals(4, history.size)
-        assertTrue(history[0] is ChatMessage.System)
-        assertTrue(history[1] is ChatMessage.User)
-        assertTrue(history[2] is ChatMessage.Assistant)
-        assertTrue(history[3] is ChatMessage.ToolResult)
+        assertTrue(history[0].message is ChatMessage.System)
+        assertTrue(history[1].message is ChatMessage.User)
+        assertTrue(history[2].message is ChatMessage.Assistant)
+        assertTrue(history[3].message is ChatMessage.ToolResult)
     }
 
     @Test
@@ -137,17 +145,37 @@ class JsonlMemoryTest {
 
     @Test
     fun `add after rebuild works correctly`() = runTest {
-        memory.rebuild(listOf(ChatMessage.User(listOf(ContentPart.Text("first")))))
+        memory.rebuild(listOf(MemoryEntry(ChatMessage.User(listOf(ContentPart.Text("first"))))))
         memory.add(ChatMessage.User(listOf(ContentPart.Text("second"))))
 
         val history = memory.history()
         assertEquals(2, history.size)
-        assertEquals("first", (history[0] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
-        assertEquals("second", (history[1] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
+        assertEquals("first", (history[0].message as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
+        assertEquals("second", (history[1].message as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
     }
 
     @Test
     fun `mediaArchive field returns injected archive instance`() = runTest {
         assertSame(archive, memory.mediaArchive)
+    }
+
+    @Test
+    fun `metadata tags and createAt survive serialization round trip`() = runTest {
+        val created = Instant.parse("2026-09-17T10:00:00Z")
+        memory.add(
+            MemoryEntry(
+                message = ChatMessage.User(listOf(ContentPart.Text("hello"))),
+                createAt = created,
+                tags = setOf("steering"),
+            )
+        )
+
+        val reloaded = JsonlMemory(memoryFile, archive)
+        val history = reloaded.history()
+
+        assertEquals(1, history.size)
+        assertEquals(created, history[0].createAt)
+        assertEquals(setOf("steering"), history[0].tags)
+        assertEquals("hello", (history[0].message as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
     }
 }

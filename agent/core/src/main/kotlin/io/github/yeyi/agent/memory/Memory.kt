@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.memory
 
-import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.MediaSource
 
 /**
@@ -9,6 +8,10 @@ import io.github.yeyi.agent.llm.MediaSource
  * 实现者需保证线程安全：ReActAgent 可能并发调用多个 suspend 方法。
  *
  * SDK 内部使用 [RoundsBoundedMemory] 装饰此接口，实现历史轮次上限和摘要压缩。
+ *
+ * 记忆层统一操作 [MemoryEntry]（消息 + 元数据），与 LLM 线格式 [io.github.yeyi.agent.llm.ChatMessage]
+ * 保持领域边界：调用方在构造 [io.github.yeyi.agent.llm.ChatRequest] 前自行
+ * `map { it.message }` 剥离元数据。
  */
 public interface Memory {
     /**
@@ -21,25 +24,28 @@ public interface Memory {
     public val mediaArchive: MediaArchive
 
     /**
-     * 添加一条消息到历史。
+     * 添加一条记忆条目到历史。
      *
-     * @param message 支持 [ChatMessage.User]、[ChatMessage.Assistant]、[ChatMessage.ToolResult] 等
+     * @param entry 承载 [io.github.yeyi.agent.llm.ChatMessage.User]、
+     *   [io.github.yeyi.agent.llm.ChatMessage.Assistant]、
+     *   [io.github.yeyi.agent.llm.ChatMessage.ToolResult] 等的记忆单元
      */
-    public suspend fun add(message: ChatMessage)
+    public suspend fun add(entry: MemoryEntry)
 
     /**
      * 返回完整对话历史，按时间顺序排列。
      *
-     * 返回的消息列表会被拼入 [io.github.yeyi.agent.llm.ChatRequest.messages] 传给 LLM。
+     * 返回的记忆条目需在拼入 [io.github.yeyi.agent.llm.ChatRequest.messages] 前
+     * 剥离元数据（`map { it.message }`）。
      */
-    public suspend fun history(): List<ChatMessage>
+    public suspend fun history(): List<MemoryEntry>
 
     /**
-     * 用给定消息列表整体替换当前历史。
+     * 用给定记忆条目列表整体替换当前历史。
      *
      * 用于 Memory 实现内部的压缩/摘要重建场景；调用方不应随意调用。
      */
-    public suspend fun rebuild(messages: List<ChatMessage>)
+    public suspend fun rebuild(entries: List<MemoryEntry>)
 }
 
 /**

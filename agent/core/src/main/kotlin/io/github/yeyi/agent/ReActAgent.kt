@@ -10,6 +10,7 @@ import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.log.log
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.memory.RepairReason
 import io.github.yeyi.agent.memory.ReadOnlyMemory
 import io.github.yeyi.agent.memory.RepairedMemory
@@ -142,7 +143,7 @@ public class ReActAgent internal constructor(
             emit(AgentEvent.Initial(query))
 
             memory.attachHook(MemoryCompressProxyHook(hook, emit), buildContext(0))
-            memory.add(modalityAdapter.archive(ChatMessage.User(query.parts)))
+            memory.add(MemoryEntry(modalityAdapter.archive(ChatMessage.User(query.parts))))
 
             while (iterations < maxIterations) {
                 loopOnce(++iterations, toolCalls, llmCall, emit, steerInbox)?.let { return }
@@ -181,7 +182,7 @@ public class ReActAgent internal constructor(
         val response = llmCallWithContextOverflowHandle(finalRequest, llmCall)
         hook.safeInvoke { afterLlmResponse(context, response) }
 
-        memory.add(response.message)
+        memory.add(MemoryEntry(response.message))
 
         if (response.message.toolCalls.isEmpty()) {
             // 检查点②：Final 抢占 + 终局。与 steer() 锁下互斥。
@@ -244,12 +245,14 @@ public class ReActAgent internal constructor(
             )
 
             memory.add(
-                modalityAdapter.archive(
-                    ChatMessage.ToolResult(
-                        toolCallId = call.id,
-                        toolName = call.name,
-                        parts = final.parts,
-                        isError = final.isError,
+                MemoryEntry(
+                    modalityAdapter.archive(
+                        ChatMessage.ToolResult(
+                            toolCallId = call.id,
+                            toolName = call.name,
+                            parts = final.parts,
+                            isError = final.isError,
+                        )
                     )
                 )
             )
@@ -267,7 +270,12 @@ public class ReActAgent internal constructor(
     private suspend fun consumeSteering(steerInbox: Channel<AgentQuery>) {
         while (true) {
             val query = steerInbox.tryReceive().getOrNull() ?: return
-            memory.add(modalityAdapter.archive(ChatMessage.User(query.parts)))
+            memory.add(
+                MemoryEntry(
+                    message = modalityAdapter.archive(ChatMessage.User(query.parts)),
+                    tags = setOf("steering")
+                )
+            )
         }
     }
 
@@ -296,7 +304,7 @@ public class ReActAgent internal constructor(
     }
 
     private suspend fun buildRequest(): ChatRequest {
-        val messages = modalityAdapter.resolve(memory.history())
+        val messages = modalityAdapter.resolve(memory.history().map { it.message })
         return ChatRequest(
             messages = buildList {
                 add(ChatMessage.System(persona.toString()))

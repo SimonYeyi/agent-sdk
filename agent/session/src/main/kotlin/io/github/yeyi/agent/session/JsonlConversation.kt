@@ -2,6 +2,7 @@ package io.github.yeyi.agent.session
 
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.memory.MemoryEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
@@ -53,7 +54,7 @@ internal class JsonlConversation(
         return File(conversationDir, "page$maxPage.jsonl")
     }
 
-    override suspend fun add(message: ChatMessage) {
+    override suspend fun add(entry: MemoryEntry) {
         ensureInitialized()
 
         withContext(Dispatchers.IO) {
@@ -63,10 +64,10 @@ internal class JsonlConversation(
                 val newFile = File(conversationDir, "page$maxPage.jsonl")
                 newFile.createNewFile()
             }
-            File(conversationDir, "page$maxPage.jsonl").appendText(json.encodeToString(message) + "\n")
+            File(conversationDir, "page$maxPage.jsonl").appendText(json.encodeToString(entry) + "\n")
         }
 
-        rawMemory.add(message)
+        rawMemory.add(entry)
     }
 
     /**
@@ -129,6 +130,7 @@ internal class JsonlConversation(
     private fun readMessages(file: File): List<ChatMessage> {
         return file.readLines()
             .filter { it.isNotBlank() }
-            .mapNotNull { runCatching { json.decodeFromString<ChatMessage>(it) }.getOrNull() }
+            .mapNotNull { runCatching { json.decodeFromString<MemoryEntry>(it) }.getOrNull() }
+            .map { it.message }
     }
 }

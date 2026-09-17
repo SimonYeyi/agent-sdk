@@ -3,6 +3,7 @@ package io.github.yeyi.agent.session
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.memory.MediaArchive
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.memory.MemoryEntry
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.modules.SerializersModule
 import kotlinx.serialization.modules.polymorphic
@@ -29,45 +30,45 @@ internal class JsonlMemory(
     }
 
     @Volatile
-    private var cachedMessages: MutableList<ChatMessage>? = null
+    private var cachedEntries: MutableList<MemoryEntry>? = null
 
-    private fun loadToCache(): MutableList<ChatMessage> {
-        if (cachedMessages != null) return cachedMessages!!
-        val messages = if (file.exists()) {
+    private fun loadToCache(): MutableList<MemoryEntry> {
+        if (cachedEntries != null) return cachedEntries!!
+        val entries = if (file.exists()) {
             file.readLines()
                 .filter { it.isNotBlank() }
-                .mapNotNull { runCatching { json.decodeFromString<ChatMessage>(it) }.getOrNull() }
+                .mapNotNull { runCatching { json.decodeFromString<MemoryEntry>(it) }.getOrNull() }
                 .toMutableList()
         } else {
             mutableListOf()
         }
-        cachedMessages = messages
-        return messages
+        cachedEntries = entries
+        return entries
     }
 
-    override suspend fun add(message: ChatMessage) {
-        val messages = loadToCache()
+    override suspend fun add(entry: MemoryEntry) {
+        val entries = loadToCache()
         synchronized(this) {
-            file.appendText(json.encodeToString(message) + "\n")
-            messages.add(message)
+            file.appendText(json.encodeToString(entry) + "\n")
+            entries.add(entry)
         }
     }
 
-    override suspend fun history(): List<ChatMessage> {
+    override suspend fun history(): List<MemoryEntry> {
         return loadToCache().toList()
     }
 
-    override suspend fun rebuild(messages: List<ChatMessage>) {
+    override suspend fun rebuild(entries: List<MemoryEntry>) {
         synchronized(this) {
             val tmpFile = File(file.parentFile, file.name + ".tmp")
             try {
                 tmpFile.writeText("")
-                messages.forEach { message ->
-                    tmpFile.appendText(json.encodeToString(message) + "\n")
+                entries.forEach { entry ->
+                    tmpFile.appendText(json.encodeToString(entry) + "\n")
                 }
                 Files.move(tmpFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
-                cachedMessages?.clear()
-                cachedMessages = messages.toMutableList()
+                cachedEntries?.clear()
+                cachedEntries = entries.toMutableList()
             } catch (e: Exception) {
                 tmpFile.delete()
                 throw e

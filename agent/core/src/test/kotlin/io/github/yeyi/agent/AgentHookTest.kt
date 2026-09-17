@@ -13,6 +13,8 @@ import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.flow.Flow
@@ -27,6 +29,11 @@ import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
 class AgentHookTest {
+
+    /** 测试辅助：老风格 add(ChatMessage) 自动包装为 [MemoryEntry]。 */
+    private suspend fun Memory.add(message: ChatMessage) {
+        add(MemoryEntry(message))
+    }
 
     private class RecordingHook : EmptyAgentHook() {
         val events: MutableList<String> = mutableListOf()

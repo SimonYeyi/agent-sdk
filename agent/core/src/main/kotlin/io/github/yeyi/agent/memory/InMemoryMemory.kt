@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.memory
 
-import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.MediaSource
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -9,20 +8,20 @@ import java.util.UUID
 public class InMemoryMemory : Memory {
     override val mediaArchive: MediaArchive = InMemoryMediaArchive()
 
-    private val messages: MutableList<ChatMessage> = mutableListOf()
+    private val entries: MutableList<MemoryEntry> = mutableListOf()
     private val mutex: Mutex = Mutex()
 
-    override suspend fun add(message: ChatMessage): Unit = mutex.withLock {
-        messages += message
+    override suspend fun add(entry: MemoryEntry): Unit = mutex.withLock {
+        entries += entry
     }
 
-    override suspend fun history(): List<ChatMessage> = mutex.withLock {
-        messages.toList()
+    override suspend fun history(): List<MemoryEntry> = mutex.withLock {
+        entries.toList()
     }
 
-    override suspend fun rebuild(messages: List<ChatMessage>): Unit = mutex.withLock {
-        this.messages.clear()
-        this.messages.addAll(messages)
+    override suspend fun rebuild(entries: List<MemoryEntry>): Unit = mutex.withLock {
+        this.entries.clear()
+        this.entries.addAll(entries)
     }
 
     /**

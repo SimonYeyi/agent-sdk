@@ -13,6 +13,7 @@ import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.Tool
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonNull
+import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -25,26 +26,31 @@ private fun ChatMessage.contentOrFirstText(): String = when (this) {
     is ChatMessage.System -> content
 }
 
+/** 测试辅助：老风格 add(ChatMessage) 自动包装为 [MemoryEntry]。 */
+private suspend fun Memory.add(message: ChatMessage) {
+    add(MemoryEntry(message))
+}
+
 private class FailingMemory(private val failOnRebuild: Boolean = true) : Memory {
     override val mediaArchive: MediaArchive = InMemoryMemory().mediaArchive
 
-    private val messages = mutableListOf<ChatMessage>()
+    private val entries = mutableListOf<MemoryEntry>()
     var rebuildFailureCount = 0
         private set
 
-    override suspend fun add(message: ChatMessage) {
-        messages.add(message)
+    override suspend fun add(entry: MemoryEntry) {
+        entries.add(entry)
     }
 
-    override suspend fun history(): List<ChatMessage> = messages.toList()
+    override suspend fun history(): List<MemoryEntry> = entries.toList()
 
-    override suspend fun rebuild(messages: List<ChatMessage>) {
+    override suspend fun rebuild(entries: List<MemoryEntry>) {
         rebuildFailureCount++
         if (failOnRebuild && rebuildFailureCount == 1) {
             throw IllegalStateException("rebuild failed")
         }
-        this@FailingMemory.messages.clear()
-        this@FailingMemory.messages.addAll(messages)
+        this@FailingMemory.entries.clear()
+        this@FailingMemory.entries.addAll(entries)
     }
 }
 
@@ -63,8 +69,8 @@ class RoundsBoundedMemoryTest {
             memory.add(ChatMessage.Assistant(content = "a$i"))
         }
         assertEquals(10, memory.history().size)
-        assertEquals("u1", (memory.history()[0] as ChatMessage.User).contentOrFirstText())
-        assertEquals("a5", (memory.history()[9] as ChatMessage.Assistant).content)
+        assertEquals("u1", (memory.history()[0].message as ChatMessage.User).contentOrFirstText())
+        assertEquals("a5", (memory.history()[9].message as ChatMessage.Assistant).content)
     }
 
     @Test
@@ -89,7 +95,7 @@ class RoundsBoundedMemoryTest {
         val history = memory.history()
         assertTrue(history.size < 6)
         // 摘要以 System 消息注入,内容是 SummaryContainer JSON,不再有 [SUMMARY]/[/SUMMARY] marker
-        val first = history.first() as ChatMessage.System
+        val first = history.first().message as ChatMessage.System
         assertTrue(first.content.contains("\"summaries\""))
     }
 
@@ -136,8 +142,8 @@ class RoundsBoundedMemoryTest {
         )
 
         assertEquals(3, memory.history().size)
-        assertTrue(memory.history()[0] is ChatMessage.System)
-        assertTrue((memory.history()[0] as ChatMessage.System).content.contains("previous"))
+        assertTrue(memory.history()[0].message is ChatMessage.System)
+        assertTrue((memory.history()[0].message as ChatMessage.System).content.contains("previous"))
     }
 
     @Test
@@ -148,9 +154,9 @@ class RoundsBoundedMemoryTest {
             llmProvider = FakeLlmProvider(),
             maxRounds = 10,
         )
-        memory.rebuild(listOf(ChatMessage.User(listOf(ContentPart.Text("a")))))
+        memory.rebuild(listOf(MemoryEntry(ChatMessage.User(listOf(ContentPart.Text("a"))))))
         assertEquals(1, underlying.history().size)
-        assertEquals("a", (underlying.history()[0] as ChatMessage.User).contentOrFirstText())
+        assertEquals("a", (underlying.history()[0].message as ChatMessage.User).contentOrFirstText())
     }
 
     @Test
@@ -175,7 +181,7 @@ class RoundsBoundedMemoryTest {
 
         val history = memory.history()
         // 多次压缩后,所有 summary 都应累积进同一个 System 消息(列表形式)
-        val summaryMsg = history.first() as ChatMessage.System
+        val summaryMsg = history.first().message as ChatMessage.System
         val json = summaryMsg.content
         assertTrue(json.contains("\"summaries\""))
         assertTrue(json.contains("s1"))
@@ -203,15 +209,58 @@ class RoundsBoundedMemoryTest {
         }
         val history = memory.history()
         // 摘要现在是首位 System 消息,不再有 [SUMMARY] 前缀
-        val summaryMsg = history.first() as ChatMessage.System
+        val summaryMsg = history.first().message as ChatMessage.System
         assertTrue(summaryMsg.content.contains("\"summaries\""))
 
         // retainWindow = 10 * 0.3 = 3, should retain last 3 rounds (6 messages)
         val retained = history.drop(1)
         assertTrue(retained.size >= 6)
         // Last retained messages should be u12 and a12
-        assertEquals("u12", (retained[retained.size - 2] as ChatMessage.User).contentOrFirstText())
-        assertEquals("a12", (retained[retained.size - 1] as ChatMessage.Assistant).content)
+        assertEquals("u12", (retained[retained.size - 2].message as ChatMessage.User).contentOrFirstText())
+        assertEquals("a12", (retained[retained.size - 1].message as ChatMessage.Assistant).content)
+    }
+
+    @Test
+    fun `rebuild preserves metadata of retained entries`() = runTest {
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    ChatMessage.Assistant(content = "summary1"),
+                    finishReason = FinishReason.Stop
+                ),
+            )
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 2,
+        )
+        val base = Instant.parse("2026-09-17T10:00:00Z")
+
+        // maxRounds=2 → retainWindow=0,实际仅保留最后一轮(u3)
+        (1..3).forEach { i ->
+            memory.add(
+                MemoryEntry(
+                    message = ChatMessage.User(listOf(ContentPart.Text("u$i"))),
+                    createAt = base.plusSeconds(i.toLong()),
+                    tags = setOf("steering"),
+                )
+            )
+            memory.add(MemoryEntry(ChatMessage.Assistant(content = "a$i")))
+        }
+
+        val history = memory.history()
+
+        // 摘要条目带 summary tag
+        val summary = history.first()
+        assertTrue("summary" in summary.tags, "summary entry should carry 'summary' tag")
+
+        // 保留窗口内的 User 条目元数据跨 rebuild 存活
+        val retained = history.drop(1)
+        val retainedUser = retained.first { it.message is ChatMessage.User }
+        assertEquals("u3", (retainedUser.message as ChatMessage.User).contentOrFirstText())
+        assertEquals(setOf("steering"), retainedUser.tags)
+        assertEquals(base.plusSeconds(3), retainedUser.createAt)
     }
 
     @Test
@@ -243,8 +292,8 @@ class RoundsBoundedMemoryTest {
         assertEquals(1, llmProvider.recordedRequests.size)
         val history = memory.history()
         // Trailing users should be preserved in the effective retain window
-        assertEquals("u4", (history[history.size - 2] as ChatMessage.User).contentOrFirstText())
-        assertEquals("u5", (history[history.size - 1] as ChatMessage.User).contentOrFirstText())
+        assertEquals("u4", (history[history.size - 2].message as ChatMessage.User).contentOrFirstText())
+        assertEquals("u5", (history[history.size - 1].message as ChatMessage.User).contentOrFirstText())
     }
 
     @Test
@@ -275,7 +324,7 @@ class RoundsBoundedMemoryTest {
 
         val history = memory.history()
         // Should have summary + trailing users + recent rounds
-        val summaryMsg = history.first() as ChatMessage.System
+        val summaryMsg = history.first().message as ChatMessage.System
         assertTrue(summaryMsg.content.contains("\"summaries\""))
     }
 
@@ -357,7 +406,7 @@ class RoundsBoundedMemoryTest {
         // Verify: if summary1 is present, it means summaries WAS updated on first failure (BUG)
         // Correct behavior: only summary2 or summary3 should be present
         val history = memory.history()
-        val summaryMsg = history.first() as ChatMessage.System
+        val summaryMsg = history.first().message as ChatMessage.System
         assertTrue(
             summaryMsg.content.contains("summary2") || summaryMsg.content.contains("summary3"),
             "summary2 or summary3 should be present"
@@ -392,7 +441,7 @@ class RoundsBoundedMemoryTest {
 
         // Verify summaries are updated
         val history = memory.history()
-        val summaryMsg = history.first() as ChatMessage.System
+        val summaryMsg = history.first().message as ChatMessage.System
         assertTrue(summaryMsg.content.contains("summary1"))
     }
 
@@ -604,15 +653,15 @@ class RoundsBoundedMemoryTest {
         assertTrue(history.size <= 5, "History should be smaller after compression")
 
         // The retained last round should contain the most recent user message
-        val lastUser = history.filterIsInstance<ChatMessage.User>().lastOrNull()
+        val lastUser = history.map { it.message }.filterIsInstance<ChatMessage.User>().lastOrNull()
         assertEquals("u6", lastUser?.contentOrFirstText())
 
         // The last assistant should have toolCalls (from u6 round)
-        val lastAssistant = history.filterIsInstance<ChatMessage.Assistant>().lastOrNull()
+        val lastAssistant = history.map { it.message }.filterIsInstance<ChatMessage.Assistant>().lastOrNull()
         assertTrue(lastAssistant?.toolCalls?.isNotEmpty() == true, "Last round's assistant should retain toolCalls")
 
         // Should have exactly one summary
-        val summaryMessages = history.filterIsInstance<ChatMessage.System>()
+        val summaryMessages = history.map { it.message }.filterIsInstance<ChatMessage.System>()
         assertEquals(1, summaryMessages.size, "Should have exactly one summary message")
         assertTrue(summaryMessages[0].content.contains("summary1"), "Summary should contain the generated summary")
     }
@@ -646,8 +695,8 @@ class RoundsBoundedMemoryTest {
         val history = memory.history()
         // No tool messages at all
         val hasToolMessages = history.any {
-            it is ChatMessage.Assistant && it.toolCalls.isNotEmpty()
-        } || history.any { it is ChatMessage.ToolResult }
+            it.message is ChatMessage.Assistant && it.message.toolCalls.isNotEmpty()
+        } || history.any { it.message is ChatMessage.ToolResult }
 
         assertFalse(hasToolMessages, "setup: should not have tool messages")
     }
@@ -685,14 +734,14 @@ class RoundsBoundedMemoryTest {
         }
 
         val historyBefore = memory.history()
-        val roundsBefore = historyBefore.count { it is ChatMessage.User }
+        val roundsBefore = historyBefore.count { it.message is ChatMessage.User }
         assertEquals(10, roundsBefore)
 
         // Add one more to trigger another compression
         memory.add(ChatMessage.User(listOf(ContentPart.Text("u11"))))
 
         val historyAfter = memory.history()
-        val roundsAfter = historyAfter.count { it is ChatMessage.User }
+        val roundsAfter = historyAfter.count { it.message is ChatMessage.User }
 
         // Should retain approximately 70% (7 rounds from 10)
         assertTrue(roundsAfter < roundsBefore, "should have fewer rounds after truncation")
@@ -733,7 +782,7 @@ class RoundsBoundedMemoryTest {
         memory.add(ChatMessage.User(listOf(ContentPart.Text("u3"))))
 
         val history = memory.history()
-        val hasSystemOrUsers = history.any { it is ChatMessage.System || it is ChatMessage.User }
+        val hasSystemOrUsers = history.any { it.message is ChatMessage.System || it.message is ChatMessage.User }
         assertTrue(hasSystemOrUsers, "should preserve system and user messages")
     }
 
@@ -833,8 +882,8 @@ class RoundsBoundedMemoryTest {
 
         val history = memory.history()
         // Most recent rounds should be preserved
-        val lastUserIndex = history.indexOfLast { it is ChatMessage.User }
-        assertEquals("u15", (history[lastUserIndex] as ChatMessage.User).contentOrFirstText())
+        val lastUserIndex = history.map { it.message }.indexOfLast { it is ChatMessage.User }
+        assertEquals("u15", (history[lastUserIndex].message as ChatMessage.User).contentOrFirstText())
     }
 
     @Test
@@ -885,7 +934,7 @@ class RoundsBoundedMemoryTest {
         assertTrue(history.size < 18, "History should be smaller after compression: ${history.size}")
 
         // Summary message should exist
-        assertTrue(history.first() is ChatMessage.System)
+        assertTrue(history.first().message is ChatMessage.System)
     }
 
     @Test
@@ -930,8 +979,8 @@ class RoundsBoundedMemoryTest {
         }
 
         val beforeHistory = memory.history()
-        val beforeToolResults = beforeHistory.filterIsInstance<ChatMessage.ToolResult>()
-        val beforeToolCalls = beforeHistory.filterIsInstance<ChatMessage.Assistant>()
+        val beforeToolResults = beforeHistory.map { it.message }.filterIsInstance<ChatMessage.ToolResult>()
+        val beforeToolCalls = beforeHistory.map { it.message }.filterIsInstance<ChatMessage.Assistant>()
             .filter { it.toolCalls.isNotEmpty() }
         assertTrue(beforeToolResults.size > 0, "setup: should have tool results")
 
@@ -939,8 +988,8 @@ class RoundsBoundedMemoryTest {
         memory.handleContextOverflow()
 
         val afterHistory = memory.history()
-        val afterToolResults = afterHistory.filterIsInstance<ChatMessage.ToolResult>()
-        val afterToolCalls = afterHistory.filterIsInstance<ChatMessage.Assistant>()
+        val afterToolResults = afterHistory.map { it.message }.filterIsInstance<ChatMessage.ToolResult>()
+        val afterToolCalls = afterHistory.map { it.message }.filterIsInstance<ChatMessage.Assistant>()
             .filter { it.toolCalls.isNotEmpty() }
 
         // First layer should have removed tool messages from compress window
@@ -987,14 +1036,14 @@ class RoundsBoundedMemoryTest {
         }
 
         val beforeHistory = memory.history()
-        val beforeUserCount = beforeHistory.count { it is ChatMessage.User }
+        val beforeUserCount = beforeHistory.count { it.message is ChatMessage.User }
         assertTrue(beforeUserCount > 1, "setup: should have more than 1 user before truncation")
 
         // Directly call handleContextOverflow
         memory.handleContextOverflow()
 
         val afterHistory = memory.history()
-        val afterUserCount = afterHistory.count { it is ChatMessage.User }
+        val afterUserCount = afterHistory.count { it.message is ChatMessage.User }
 
         // truncateByCoefficient should have reduced the user count
         assertTrue(
@@ -1037,7 +1086,7 @@ class RoundsBoundedMemoryTest {
 
         val history = memory.history()
         // Should have at least System and User
-        assertTrue(history.any { it is ChatMessage.System || it is ChatMessage.User })
+        assertTrue(history.any { it.message is ChatMessage.System || it.message is ChatMessage.User })
     }
 
     @Test
@@ -1075,7 +1124,7 @@ class RoundsBoundedMemoryTest {
         }
 
         val history = memory.history()
-        val retainedUserRounds = history.filterIsInstance<ChatMessage.User>()
+        val retainedUserRounds = history.map { it.message }.filterIsInstance<ChatMessage.User>()
         // Should retain approximately 3 rounds (plus trailing users)
         assertTrue(
             retainedUserRounds.size in 3..5,
@@ -1120,14 +1169,14 @@ class RoundsBoundedMemoryTest {
         val history = memory.history()
 
         // The most recent user should be u8
-        val lastUser = history.filterIsInstance<ChatMessage.User>().lastOrNull()
+        val lastUser = history.map { it.message }.filterIsInstance<ChatMessage.User>().lastOrNull()
         assertEquals("u8", lastUser?.contentOrFirstText())
 
         // History should be smaller than original 16 messages after compression
         assertTrue(history.size < 16, "History should be smaller after compression")
 
         // Summary message should exist
-        assertTrue(history.first() is ChatMessage.System)
+        assertTrue(history.first().message is ChatMessage.System)
     }
 
     @Test
@@ -1165,8 +1214,8 @@ class RoundsBoundedMemoryTest {
 
         val history = memory.history()
         // After multiple compressions, there should still be a summary at the start
-        assertTrue(history.first() is ChatMessage.System)
-        val summaryContent = (history.first() as ChatMessage.System).content
+        assertTrue(history.first().message is ChatMessage.System)
+        val summaryContent = (history.first().message as ChatMessage.System).content
         assertTrue(summaryContent.contains("summaries"))
     }
 
@@ -1206,7 +1255,7 @@ class RoundsBoundedMemoryTest {
 
         val history = memory.history()
         // After truncation, we should have fewer user messages
-        val userCount = history.count { it is ChatMessage.User }
+        val userCount = history.count { it.message is ChatMessage.User }
         assertTrue(userCount < 5, "Truncation should have reduced user message count from 5")
     }
 
@@ -1244,7 +1293,7 @@ class RoundsBoundedMemoryTest {
         }
 
         val history = memory.history()
-        val summarySystem = history.filterIsInstance<ChatMessage.System>().firstOrNull()
+        val summarySystem = history.map { it.message }.filterIsInstance<ChatMessage.System>().firstOrNull()
         assertTrue(summarySystem != null, "Should have summary message")
 
         // After merging, we should have fewer than 10 summaries
@@ -1290,8 +1339,8 @@ class RoundsBoundedMemoryTest {
 
         val history = memory.history()
         // The history should still have at least the summary and one user
-        assertTrue(history.any { it is ChatMessage.System }, "Should have system/summary message")
-        assertTrue(history.any { it is ChatMessage.User }, "Should have at least one user message")
+        assertTrue(history.any { it.message is ChatMessage.System }, "Should have system/summary message")
+        assertTrue(history.any { it.message is ChatMessage.User }, "Should have at least one user message")
     }
 
     @Test
@@ -1329,7 +1378,7 @@ class RoundsBoundedMemoryTest {
         }
 
         val history = memory.history()
-        val userCount = history.count { it is ChatMessage.User }
+        val userCount = history.count { it.message is ChatMessage.User }
 
         // After enough rounds, the truncation should have reduced the count significantly
         // But we should never get to 0 users (minimum is 1)

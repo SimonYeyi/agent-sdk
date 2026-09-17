@@ -28,12 +28,12 @@ internal class RoundsBoundedMemory(
         this.agentContext = agentContext
     }
 
-    override suspend fun add(message: ChatMessage) {
-        underlying.add(message)
+    override suspend fun add(entry: MemoryEntry) {
+        underlying.add(entry)
         ensureInitialized()
 
-        if (message is ChatMessage.User) {
-            val currentRounds = underlying.history().count { it is ChatMessage.User }
+        if (entry.message is ChatMessage.User) {
+            val currentRounds = underlying.history().count { it.message is ChatMessage.User }
             val retainWindow = (maxRounds * retainRatio).toInt()
             if (currentRounds > maxRounds) {
                 compressRounds(retainWindow)
@@ -41,13 +41,13 @@ internal class RoundsBoundedMemory(
         }
     }
 
-    override suspend fun history(): List<ChatMessage> {
+    override suspend fun history(): List<MemoryEntry> {
         ensureInitialized()
         return underlying.history()
     }
 
-    override suspend fun rebuild(messages: List<ChatMessage>) {
-        underlying.rebuild(messages)
+    override suspend fun rebuild(entries: List<MemoryEntry>) {
+        underlying.rebuild(entries)
     }
 
     private suspend fun ensureInitialized() {
@@ -55,16 +55,21 @@ internal class RoundsBoundedMemory(
         summaries = getSummaries(underlying.history()).toMutableList()
     }
 
-    private fun createSummaryMessage(summaries: List<Summary>): ChatMessage {
+    private fun createSummaryEntry(summaries: List<Summary>): MemoryEntry {
         val container = SummaryContainer(summaries)
-        return ChatMessage.System(Json.encodeToString(container))
+        return MemoryEntry(
+            message = ChatMessage.System(Json.encodeToString(container)),
+            tags = setOf(SUMMARY_TAG),
+        )
     }
 
-    private fun getSummaries(history: List<ChatMessage>): List<Summary> {
-        return history.firstOrNull()
-            ?.let { it as? ChatMessage.System }
-            ?.let { Json.decodeFromString<SummaryContainer>(it.content).summaries }
-            ?: emptyList()
+    private fun getSummaries(history: List<MemoryEntry>): List<Summary> {
+        return history
+            .filter { SUMMARY_TAG in it.tags }
+            .firstNotNullOfOrNull { entry ->
+                (entry.message as ChatMessage.System)
+                    .let { Json.decodeFromString<SummaryContainer>(it.content).summaries }
+            } ?: emptyList()
     }
 
     private suspend fun compressRounds(retainWindow: Int) {
@@ -83,7 +88,7 @@ internal class RoundsBoundedMemory(
 
         // 3. 提取压缩窗口内容并生成摘要
         val compressedMessages = history.filterIndexed { index, _ -> index in compressedIndices }
-        val summary = generateSummary(compressedMessages)
+        val summary = generateSummary(compressedMessages.map { it.message })
 
         summaries.add(summary)
 
@@ -91,7 +96,7 @@ internal class RoundsBoundedMemory(
             compressSummaries(summaries)
         }
 
-        // 4. 重建 underlying
+        // 4. 重建 underlying —— 基于 MemoryEntry 操作，保留窗口消息的元数据跨重建存活
         rebuildUnderlying(history, retainedIndices, summaries)
 
         this.summaries = summaries
@@ -132,26 +137,26 @@ internal class RoundsBoundedMemory(
     }
 
     private suspend fun rebuildUnderlying(
-        history: List<ChatMessage>,
+        history: List<MemoryEntry>,
         retainedIndices: List<Int>,
         summaries: List<Summary>
     ) {
-        val roundsMessages = history.filterIndexed { index, _ -> index in retainedIndices }
+        val roundsEntries = history.filterIndexed { index, _ -> index in retainedIndices }
 
-        val summaryMessage = summaries.let {
-            if (it.isNotEmpty()) createSummaryMessage(it) else null
+        val summaryEntry = summaries.let {
+            if (it.isNotEmpty()) createSummaryEntry(it) else null
         }
 
         val toRebuild = buildList {
-            summaryMessage?.let { add(it) }
-            addAll(roundsMessages)
+            summaryEntry?.let { add(it) }
+            addAll(roundsEntries)
         }
 
         rebuild(toRebuild)
     }
 
     private fun extractRetainedIndices(
-        history: List<ChatMessage>,
+        history: List<MemoryEntry>,
         retainWindow: Int
     ): List<Int> {
         val result = mutableListOf<Int>()
@@ -159,7 +164,7 @@ internal class RoundsBoundedMemory(
         var skippingTrailingUsers = true
 
         for (index in history.indices.reversed()) {
-            val msg = history[index]
+            val msg = history[index].message
             result.add(index)
             if (msg is ChatMessage.User) {
                 if (skippingTrailingUsers && retainWindow > 1) continue
@@ -176,14 +181,12 @@ internal class RoundsBoundedMemory(
      * 获取压缩窗口的索引（排除保留窗口的部分）。
      */
     private fun getCompressWindowIndices(
-        history: List<ChatMessage>,
+        history: List<MemoryEntry>,
         retainedIndices: List<Int>
     ): Set<Int> {
         return history.indices.toMutableSet().also {
             it.removeAll(retainedIndices.toSet())
-            if (summaries?.isNotEmpty() == true && it.isNotEmpty()) {
-                it.remove(history.indices.first())
-            }
+            it.removeAll { index -> SUMMARY_TAG in history[index].tags }
         }
     }
 
@@ -208,13 +211,13 @@ internal class RoundsBoundedMemory(
 
         if (compressIndices.isEmpty()) return false
 
-        val filtered = history.filterIndexed { index, msg ->
+        val filtered = history.filterIndexed { index, entry ->
             if (index !in compressIndices) return@filterIndexed true
             // 保留：User、Assistant（无toolCalls）、System
             // 移除：Assistant（有toolCalls）、ToolResult
-            when (msg) {
+            when (entry.message) {
                 is ChatMessage.User -> true
-                is ChatMessage.Assistant -> msg.toolCalls.isEmpty()
+                is ChatMessage.Assistant -> entry.message.toolCalls.isEmpty()
                 is ChatMessage.ToolResult -> false
                 is ChatMessage.System -> true
             }
@@ -232,17 +235,17 @@ internal class RoundsBoundedMemory(
      */
     private suspend fun truncateByCoefficient() {
         val history = underlying.history()
-        if (history.count { it !is ChatMessage.System } <= 1) {
+        if (history.count { it.message !is ChatMessage.System } <= 1) {
             throw IllegalStateException("Cannot truncate by coefficient: only one user message.")
         }
-        val currentRounds = history.count { it is ChatMessage.User }
+        val currentRounds = history.count { it.message is ChatMessage.User }
         val toRemove = (currentRounds * 0.3).toInt().coerceAtLeast(1)
         val toRetain = currentRounds - toRemove
 
         // 只剩一轮对话的情况
         if (toRetain < 1) {
             history
-                .filter { it is ChatMessage.System || it is ChatMessage.User }
+                .filter { it.message is ChatMessage.System || it.message is ChatMessage.User }
                 .let { rebuild(it) }
             return
         }
@@ -252,6 +255,9 @@ internal class RoundsBoundedMemory(
         rebuildUnderlying(history, retainedIndices, summaries!!)
     }
 }
+
+/** 摘要条目统一打上的 tag，便于记忆层/UI 识别摘要来源。 */
+private const val SUMMARY_TAG: String = "summary"
 
 @Serializable
 public data class Summary(val content: String)

@@ -14,6 +14,11 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
+/** 测试辅助：老风格 add(ChatMessage) 自动包装为 [MemoryEntry]。 */
+private suspend fun Memory.add(message: ChatMessage) {
+    add(MemoryEntry(message))
+}
+
 class RoundsBoundedMemorySummaryTest {
     @Test
     fun `text-only User summarises to its text`() = runTest {
@@ -22,7 +27,7 @@ class RoundsBoundedMemorySummaryTest {
         mem.add(ChatMessage.User(listOf(ContentPart.Text("hello world"))))
         mem.add(ChatMessage.Assistant("reply"))
         mem.add(ChatMessage.User(listOf(ContentPart.Text("second turn"))))
-        val summary = mem.history().firstOrNull { it is ChatMessage.System } as? ChatMessage.System
+        val summary = mem.history().map { it.message }.firstOrNull { it is ChatMessage.System } as? ChatMessage.System
         assertTrue(summary != null, "summary should exist")
         assertTrue("hello world" in summary.content)
     }
@@ -37,7 +42,7 @@ class RoundsBoundedMemorySummaryTest {
         )))
         mem.add(ChatMessage.Assistant("ok"))
         mem.add(ChatMessage.User(listOf(ContentPart.Text("next"))))
-        val summary = mem.history().firstOrNull { it is ChatMessage.System } as? ChatMessage.System
+        val summary = mem.history().map { it.message }.firstOrNull { it is ChatMessage.System } as? ChatMessage.System
         assertTrue(summary != null)
         assertTrue("see this:" in summary.content)
         assertTrue("[image]" in summary.content)

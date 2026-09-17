@@ -2,6 +2,8 @@ package io.github.yeyi.agent.session
 
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
+import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.hook.Hook
 import io.github.yeyi.agent.hook.HookEvent
 import io.github.yeyi.agent.hook.HookPipeline
@@ -13,6 +15,11 @@ import org.junit.Before
 import org.junit.Test
 import java.io.File
 import kotlin.test.assertFailsWith
+
+/** 测试辅助：老风格 add(ChatMessage) 自动包装为 [MemoryEntry]。 */
+private suspend fun Memory.add(message: ChatMessage) {
+    add(MemoryEntry(message))
+}
 
 class SessionManagerTest {
 
@@ -122,7 +129,7 @@ class SessionManagerTest {
 
         val history = memory.history()
         assertEquals(2, history.size)
-        assertEquals("Hello", (history[0] as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
+        assertEquals("Hello", (history[0].message as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
     }
 
     // --- Session events via HookPipeline ---
