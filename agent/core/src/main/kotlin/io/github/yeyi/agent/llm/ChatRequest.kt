@@ -30,6 +30,7 @@ public sealed interface ChatMessage {
 
     /** 系统消息，通常放入 [io.github.yeyi.agent.Persona] 渲染后的角色文本。 */
     @Serializable
+    @SerialName("system")
     public data class System(public val content: String) : ChatMessage {
         override val role: Role = Role.System
     }
@@ -39,6 +40,7 @@ public sealed interface ChatMessage {
      * 空 parts 等价于无消息,构造时拒。
      */
     @Serializable
+    @SerialName("user")
     public data class User(public val parts: List<ContentPart>) : ChatMessage {
         init {
             require(parts.isNotEmpty()) { "ChatMessage.User.parts must not be empty" }
@@ -54,6 +56,7 @@ public sealed interface ChatMessage {
      * @param toolCalls LLM 决定调用的工具列表（可能为空）
      */
     @Serializable
+    @SerialName("assistant")
     public data class Assistant(
         public val content: String? = null,
         public val toolCalls: List<ToolCall> = emptyList()
@@ -70,6 +73,7 @@ public sealed interface ChatMessage {
      * @param isError 是否为错误结果
      */
     @Serializable
+    @SerialName("tool_result")
     public data class ToolResult(
         public val toolCallId: String,
         public val toolName: String,
@@ -161,7 +165,7 @@ public sealed interface MediaSource {
     }
 
     @Serializable
-    @SerialName("fileId")
+    @SerialName("file_id")
     public data class FileId(public val id: String) : MediaSource
 
     @Serializable
