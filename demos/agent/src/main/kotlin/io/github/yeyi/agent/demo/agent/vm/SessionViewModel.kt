@@ -85,11 +85,12 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
             try {
                 val session = sessionManager.get(accountId, sessionId)
                 val chatMessages = session.conversation.messages(1)
-                    .filter { msg ->
+                    .filter { entry ->
+                        val msg = entry.message
                         msg is ChatMessage.User ||
                         (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank())
                     }
-                    .map { it.toUiMessage() }
+                    .map { it.message.toUiMessage() }
                 _uiState.value = _uiState.value.copy(
                     currentSession = session,
                     messages = chatMessages,
@@ -254,11 +255,12 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
             try {
                 val nextPage = _uiState.value.currentPage + 1
                 val olderMessages = session.conversation.messages(nextPage)
-                    .filter { msg ->
+                    .filter { entry ->
+                        val msg = entry.message
                         msg is ChatMessage.User ||
                         (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank())
                     }
-                    .map { it.toUiMessage() }
+                    .map { it.message.toUiMessage() }
 
                 if (olderMessages.isEmpty()) {
                     _uiState.value = _uiState.value.copy(

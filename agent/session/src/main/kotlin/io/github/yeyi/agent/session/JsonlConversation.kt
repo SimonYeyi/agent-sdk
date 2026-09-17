@@ -98,7 +98,7 @@ internal class JsonlConversation(
      * val older = messages(2)      // 锚点未建立
      * ```
      */
-    override suspend fun messages(page: Int?): List<ChatMessage> {
+    override suspend fun messages(page: Int?): List<MemoryEntry> {
         return withContext(Dispatchers.IO) {
             if (page == null) {
                 return@withContext conversationDir.listFiles()
@@ -127,10 +127,9 @@ internal class JsonlConversation(
         }
     }
 
-    private fun readMessages(file: File): List<ChatMessage> {
+    private fun readMessages(file: File): List<MemoryEntry> {
         return file.readLines()
             .filter { it.isNotBlank() }
             .mapNotNull { runCatching { json.decodeFromString<MemoryEntry>(it) }.getOrNull() }
-            .map { it.message }
     }
 }
