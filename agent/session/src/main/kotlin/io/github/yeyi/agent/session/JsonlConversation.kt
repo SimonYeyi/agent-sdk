@@ -1,14 +1,10 @@
 package io.github.yeyi.agent.session
 
-import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.modules.SerializersModule
-import kotlinx.serialization.modules.polymorphic
-import kotlinx.serialization.modules.subclass
 import java.io.File
 
 internal class JsonlConversation(
@@ -17,17 +13,7 @@ internal class JsonlConversation(
     private val pageSizeThreshold: Long = 20 * 1024  // 20KB
 ) : Conversation, Memory by rawMemory {
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        serializersModule = SerializersModule {
-            polymorphic(ChatMessage::class) {
-                subclass(ChatMessage.System::class)
-                subclass(ChatMessage.User::class)
-                subclass(ChatMessage.Assistant::class)
-                subclass(ChatMessage.ToolResult::class)
-            }
-        }
-    }
+    private val json = Json { ignoreUnknownKeys = true }
 
     private var maxPage: Int = 0
     private var startPage: Int = 0
@@ -64,7 +50,8 @@ internal class JsonlConversation(
                 val newFile = File(conversationDir, "page$maxPage.jsonl")
                 newFile.createNewFile()
             }
-            File(conversationDir, "page$maxPage.jsonl").appendText(json.encodeToString(entry) + "\n")
+            File(conversationDir, "page$maxPage.jsonl")
+                .appendText(json.encodeToString(entry) + "\n")
         }
 
         rawMemory.add(entry)

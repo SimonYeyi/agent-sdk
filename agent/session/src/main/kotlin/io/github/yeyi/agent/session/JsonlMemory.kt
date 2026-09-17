@@ -1,13 +1,9 @@
 package io.github.yeyi.agent.session
 
-import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.memory.MediaArchive
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.modules.SerializersModule
-import kotlinx.serialization.modules.polymorphic
-import kotlinx.serialization.modules.subclass
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -17,17 +13,7 @@ internal class JsonlMemory(
     override val mediaArchive: MediaArchive,
 ) : Memory {
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        serializersModule = SerializersModule {
-            polymorphic(ChatMessage::class) {
-                subclass(ChatMessage.System::class)
-                subclass(ChatMessage.User::class)
-                subclass(ChatMessage.Assistant::class)
-                subclass(ChatMessage.ToolResult::class)
-            }
-        }
-    }
+    private val json = Json { ignoreUnknownKeys = true }
 
     @Volatile
     private var cachedEntries: MutableList<MemoryEntry>? = null
