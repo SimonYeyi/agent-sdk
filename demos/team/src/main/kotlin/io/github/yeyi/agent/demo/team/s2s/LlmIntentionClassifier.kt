@@ -10,6 +10,7 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.realtime.Intention
 import io.github.yeyi.agent.realtime.IntentionClassifier
 import kotlinx.serialization.json.Json
@@ -62,7 +63,7 @@ internal class LlmIntentionClassifier(
     }
 
     private suspend fun buildMemory(asr: String): Memory =
-        InMemoryMemory().apply { add(ChatMessage.User(listOf(ContentPart.Text(asr)))) }
+        InMemoryMemory().apply { add(MemoryEntry(ChatMessage.User(listOf(ContentPart.Text(asr))))) }
 
     override val timeout: Long = 3000
 
