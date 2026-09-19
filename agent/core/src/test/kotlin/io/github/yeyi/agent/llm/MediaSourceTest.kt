@@ -26,7 +26,7 @@ class MediaSourceTest {
     @Test
     fun `serializes FileId variant with id`() {
         val src: MediaSource = MediaSource.FileId("file-abc")
-        assertEquals("""{"type":"fileId","id":"file-abc"}""", json.encodeToString(src))
+        assertEquals("""{"type":"file_id","id":"file-abc"}""", json.encodeToString(src))
     }
 
     @Test
