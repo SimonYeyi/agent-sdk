@@ -42,11 +42,19 @@ public class ReActAgent internal constructor(
     private val hook: AgentHook = NoOpAgentHook,
 ) : Agent, Streamable, Steerable {
     private val memory = RoundsBoundedMemory(RepairedMemory(memory), maxRounds, llmProvider)
-
     private val steerInbox = SteerInbox()
 
     override fun run(query: AgentQuery): Flow<AgentEvent> = flow {
         loop(query, { req -> llmProvider.chat(req) }, { emit(it) })
+    }
+
+    override fun runStream(query: AgentQuery): Flow<AgentEvent> = flow {
+        val runner = StreamingRunner(llmProvider)
+        loop(
+            query = query,
+            llmCall = { req -> runner.run(req) { emit(AgentEvent.TextDelta(it)) } },
+            emit = { emit(it) }
+        )
     }
 
     /**
@@ -62,61 +70,6 @@ public class ReActAgent internal constructor(
      * 死锁硬约束：collector / AgentHook 回调内严禁同步调用 steer()。
      */
     override fun steer(query: AgentQuery): Boolean = steerInbox.deliver(query)
-
-    override fun runStream(query: AgentQuery): Flow<AgentEvent> = flow {
-        val llmCall: suspend (ChatRequest) -> ChatResponse = { req ->
-            val accumulatedText = StringBuilder()
-            val callOrder: LinkedHashSet<String> = linkedSetOf()
-            val callNames: MutableMap<String, String> = mutableMapOf()
-            val argumentsBuffers: MutableMap<String, StringBuilder> = mutableMapOf()
-            var finishReason: FinishReason? = null
-            var usage: Usage? = null
-
-            llmProvider.chatStream(req).collect { event ->
-                when (event) {
-                    is ChatResponseEvent.ContentDelta -> {
-                        accumulatedText.append(event.text)
-                        emit(AgentEvent.TextDelta(event.text))
-                    }
-
-                    is ChatResponseEvent.ToolCallStart -> {
-                        callOrder.add(event.id) // LinkedHashSet: idempotent + preserves first-seen order
-                        callNames[event.id] = event.name
-                        argumentsBuffers.getOrPut(event.id) { StringBuilder() }
-                    }
-
-                    is ChatResponseEvent.ToolCallDelta -> {
-                        // LlmProvider 契约:Delta.id 必非空(continuation chunk 由 provider 填充)。
-                        // 若违反,静默丢弃会导致 arguments JSON 损坏,fail-fast 更安全。
-                        argumentsBuffers[event.id!!]?.append(event.argumentsDelta)
-                    }
-
-                    is ChatResponseEvent.Done -> {
-                        finishReason = event.finishReason
-                        usage = event.usage
-                    }
-
-                    is ChatResponseEvent.Error -> throw event.cause
-                }
-            }
-
-            val toolCalls: List<ToolCall> = callOrder.map { id ->
-                val arguments = argumentsBuffers[id]?.toString()
-                    ?.let { Json.parseToJsonElement(it) }
-                    ?: JsonNull
-                ToolCall(id = id, name = callNames[id]!!, arguments = arguments)
-            }
-            ChatResponse(
-                message = ChatMessage.Assistant(
-                    content = accumulatedText.toString(),
-                    toolCalls = toolCalls,
-                ),
-                usage = usage,
-                finishReason = finishReason!!
-            )
-        }
-        loop(query = query, llmCall = llmCall, emit = { emit(it) })
-    }
 
     private suspend fun loop(
         query: AgentQuery,
@@ -303,6 +256,58 @@ public class ReActAgent internal constructor(
         override suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>) {
             hook.safeInvoke { afterMemoryCompress(context, summaries) }
             emit(AgentEvent.MemoryCompressed(summaries))
+        }
+    }
+
+    private class StreamingRunner(private val llmProvider: LlmProvider) {
+        suspend fun run(request: ChatRequest, onDelta: suspend (String) -> Unit): ChatResponse {
+            val accumulatedText = StringBuilder()
+            val callOrder: LinkedHashSet<String> = linkedSetOf()
+            val callNames: MutableMap<String, String> = mutableMapOf()
+            val argumentsBuffers: MutableMap<String, StringBuilder> = mutableMapOf()
+            var finishReason: FinishReason? = null
+            var usage: Usage? = null
+
+            llmProvider.chatStream(request).collect { event ->
+                when (event) {
+                    is ChatResponseEvent.ContentDelta -> {
+                        accumulatedText.append(event.text)
+                        onDelta(event.text)
+                    }
+
+                    is ChatResponseEvent.ToolCallStart -> {
+                        callOrder.add(event.id)
+                        callNames[event.id] = event.name
+                        argumentsBuffers.getOrPut(event.id) { StringBuilder() }
+                    }
+
+                    is ChatResponseEvent.ToolCallDelta -> {
+                        argumentsBuffers[event.id!!]?.append(event.argumentsDelta)
+                    }
+
+                    is ChatResponseEvent.Done -> {
+                        finishReason = event.finishReason
+                        usage = event.usage
+                    }
+
+                    is ChatResponseEvent.Error -> throw event.cause
+                }
+            }
+
+            val toolCalls: List<ToolCall> = callOrder.map { id ->
+                val arguments = argumentsBuffers[id]?.toString()
+                    ?.let { Json.parseToJsonElement(it) }
+                    ?: JsonNull
+                ToolCall(id = id, name = callNames[id]!!, arguments = arguments)
+            }
+            return ChatResponse(
+                message = ChatMessage.Assistant(
+                    content = accumulatedText.toString(),
+                    toolCalls = toolCalls,
+                ),
+                usage = usage,
+                finishReason = finishReason!!,
+            )
         }
     }
 
