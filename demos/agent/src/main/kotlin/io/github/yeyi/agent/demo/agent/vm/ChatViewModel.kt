@@ -141,16 +141,16 @@ class ChatViewModel(
                 }
             }
             is AgentEvent.ToolCallStart -> {
-                val msg = UiMessage.ToolInProgress(event.callId, event.toolName)
-                inProgressByCallId[event.callId] = msg
+                val msg = UiMessage.ToolInProgress(event.toolCall.id, event.toolCall.name)
+                inProgressByCallId[event.toolCall.id] = msg
                 _messages.update { it + msg }
             }
             is AgentEvent.ToolCallEnd -> {
-                val started = inProgressByCallId.remove(event.callId)
+                val started = inProgressByCallId.remove(event.toolCall.id)
                 _messages.update {
                     it + UiMessage.ToolExecution(
-                        callId = event.callId,
-                        toolName = started?.toolName ?: event.callId,
+                        callId = event.toolCall.id,
+                        toolName = started?.toolName ?: event.toolCall.id,
                         result = event.result,
                     )
                 }

@@ -408,7 +408,7 @@ class ReActAgentTest {
         )
         val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(echo), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(InMemoryMemory().mediaArchive), maxRounds = 20, maxIterations = 5)
         val events = agent.runStream(AgentQuery.text("hi")).toList()
-        assertTrue(events.any { it is AgentEvent.ToolCallStart && it.toolName == "echo" })
+        assertTrue(events.any { it is AgentEvent.ToolCallStart && it.toolCall.name == "echo" })
         assertTrue(events.any { it is AgentEvent.ToolCallEnd })
         assertTrue(events.any { it is AgentEvent.Final })
         assertEquals(1, echo.invocations.size)

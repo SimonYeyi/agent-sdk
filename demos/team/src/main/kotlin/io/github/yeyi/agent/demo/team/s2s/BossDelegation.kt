@@ -40,7 +40,7 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
         var delegated = false
         boss.run(AgentQuery.text(task)).collect { event ->
             when (event) {
-                is AgentEvent.ToolCallExplanation if (event.toolNames.contains("publish_task")) ->
+                is AgentEvent.ToolCallExplanation if (event.toolCalls.any { it.name == "publish_task" }) ->
                     delegated = true
 
                 is AgentEvent.Final if (delegated.not()) ->

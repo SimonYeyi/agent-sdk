@@ -68,11 +68,11 @@ class DemoViewModel(
             bossAgent?.report?.collect { event ->
                 when (event) {
                     is AgentEvent.ToolCallStart -> {
-                        toolCallNames[event.callId] = event.toolName
-                        appendMessage("tool", "调用工具: ${event.toolName}", toolName = event.toolName)
+                        toolCallNames[event.toolCall.id] = event.toolCall.name
+                        appendMessage("tool", "调用工具: ${event.toolCall.name}", toolName = event.toolCall.name)
                     }
                     is AgentEvent.ToolCallEnd -> {
-                        val toolName = toolCallNames.remove(event.callId) ?: "unknown"
+                        val toolName = toolCallNames.remove(event.toolCall.id) ?: "unknown"
                         val content = event.result.parts.text.takeIf { it.isNotEmpty() } ?: "完成"
                         appendMessage("tool", "[$toolName] $content", toolName = toolName)
                     }
@@ -122,11 +122,11 @@ class DemoViewModel(
             bossAgent?.run(AgentQuery.text(text))?.collect { event ->
                 when (event) {
                     is AgentEvent.ToolCallStart -> {
-                        toolCallNames[event.callId] = event.toolName
-                        appendMessage("tool", "调用工具: ${event.toolName}", toolName = event.toolName)
+                        toolCallNames[event.toolCall.id] = event.toolCall.name
+                        appendMessage("tool", "调用工具: ${event.toolCall.name}", toolName = event.toolCall.name)
                     }
                     is AgentEvent.ToolCallEnd -> {
-                        val toolName = toolCallNames.remove(event.callId) ?: "unknown"
+                        val toolName = toolCallNames.remove(event.toolCall.id) ?: "unknown"
                         val content = event.result.parts.text.takeIf { it.isNotEmpty() } ?: "完成"
                         appendMessage("tool", "[$toolName] $content", toolName = toolName)
                     }

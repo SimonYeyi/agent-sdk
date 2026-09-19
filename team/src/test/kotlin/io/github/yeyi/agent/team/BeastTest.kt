@@ -116,7 +116,7 @@ class BeastTest {
         val events = mutableListOf<AgentEvent>()
         horse.run(AgentQuery.text("task")).collect { events.add(it) }
 
-        assertTrue(events.any { it is AgentEvent.ToolCallStart && it.toolName == "echo" })
+        assertTrue(events.any { it is AgentEvent.ToolCallStart && it.toolCall.name == "echo" })
         assertTrue(events.any { it is AgentEvent.Final })
     }
 

@@ -25,14 +25,14 @@ import io.github.yeyi.agent.tool.ToolRegistry
  * [plugin] for the plugin extension point). The core builder only deals with persona, tools, memory, hook, and the LLM provider.
  */
 public class AgentBuilder {
-    private var persona: Persona = Persona("You are a helpful assistant.")
     private var maxIterations: Int = 20
+    private var persona: Persona = Persona("You are a helpful assistant.")
     private var llmProvider: LlmProvider? = null
     private var memory: Memory = InMemoryMemory()
-    private var modalityAdapter: ModalityAdapter? = null
     private var maxRounds: Int = 20
-
+    private var modalityAdapter: ModalityAdapter? = null
     private var toolRegistry = ToolRegistry()
+
     private var hook: AgentHook = NoOpAgentHook
     private val plugins = mutableMapOf<String, (AgentPluginContext) -> Unit>()
 
@@ -79,16 +79,16 @@ public class AgentBuilder {
         toolRegistry = registry
     }
 
+    /** 设置多模态适配器。用于自定义模型对于历史消息中 media 的可见性 */
+    public fun modalityAdapter(adapter: ModalityAdapter) {
+        this.modalityAdapter = adapter
+    }
+
     /**
      * @param hook 挂单个 hook，或挂一个已组合好的 hook 树。
      */
     public fun hook(hook: AgentHook) {
         this.hook = hook
-    }
-
-    /** 设置多模态适配器。用于自定义模型对于历史消息中 media 的可见性 */
-    public fun modalityAdapter(adapter: ModalityAdapter) {
-        this.modalityAdapter = adapter
     }
 
     /**

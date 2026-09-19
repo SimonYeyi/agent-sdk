@@ -30,7 +30,7 @@ fun TaskEventItem(
     val maxLines = if (singleLine) 1 else Int.MAX_VALUE
     val overflow = if (singleLine) TextOverflow.Ellipsis else TextOverflow.Clip
     val (icon, color, text) = when (event) {
-        is AgentEvent.ToolCallStart -> Triple("⏳", MaterialTheme.colorScheme.primary, "开始: ${event.toolName}")
+        is AgentEvent.ToolCallStart -> Triple("⏳", MaterialTheme.colorScheme.primary, "开始: ${event.toolCall.name}")
         is AgentEvent.ToolCallEnd -> {
             val result = event.result.parts.text.takeIf { it.isNotEmpty() } ?: "完成"
             Triple("✓", MaterialTheme.colorScheme.tertiary, "完成: $result")

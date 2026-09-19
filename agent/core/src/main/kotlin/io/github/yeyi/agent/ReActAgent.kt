@@ -161,11 +161,11 @@ public class ReActAgent internal constructor(
         emit(
             AgentEvent.ToolCallExplanation(
                 response.message.content?.takeIf { it != "" },
-                response.message.toolCalls.map { it.name })
+                response.message.toolCalls)
         )
 
         for (call in response.message.toolCalls) {
-            emit(AgentEvent.ToolCallStart(call.id, call.name))
+            emit(AgentEvent.ToolCallStart(call))
             val synthetic = hook.safeInvoke { beforeToolCall(context, call) }
             val startMs = System.currentTimeMillis()
             val raw = synthetic?.copy(isError = true) ?: toolRegistry.dispatch(
@@ -195,7 +195,7 @@ public class ReActAgent internal constructor(
                 )
             ).addToMemory(memory)
 
-            emit(AgentEvent.ToolCallEnd(call.id, final))
+            emit(AgentEvent.ToolCallEnd(call, final))
         }
         return null
     }
