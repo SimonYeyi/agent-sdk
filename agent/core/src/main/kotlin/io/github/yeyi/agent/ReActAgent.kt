@@ -58,7 +58,7 @@ public class ReActAgent internal constructor(
     }
 
     /**
-     * [SteerInbox.lock] 序列化 [SteerInbox.deliver] 与终局 isEmpty 裁决+终态发射+关门，堵死
+     * [SteerInbox.lock] 序列化 [SteerInbox.add] 与终局 isEmpty 裁决+终态发射+关门，堵死
      * "deliver 返回 true 但消息困死 buffer 无人消费"的窗口。
      *
      * 完结束契约：返回 false ⟺ 无活跃 run ⟺ 终态事件(Final)已发射完毕。
@@ -66,10 +66,10 @@ public class ReActAgent internal constructor(
      * （消息无人消费）也不能 false（Final 未发完，此时开新 run 会与旧 run 的事件混流）。
      *
      * 纪律：锁内允许且仅允许 onRunCompleted 与 emit(Final) 两个已知挂起点，
-     * 严禁其他 suspend——持锁挂起会阻塞其他线程的 deliver，编译器不拦，只能靠约定。
+     * 严禁其他 suspend——持锁挂起会阻塞其他线程的 add，编译器不拦，只能靠约定。
      * 死锁硬约束：collector / AgentHook 回调内严禁同步调用 steer()。
      */
-    override fun steer(query: AgentQuery): Boolean = steerInbox.deliver(query)
+    override fun steer(query: AgentQuery): Boolean = steerInbox.add(query)
 
     private suspend fun loop(
         query: AgentQuery,
@@ -321,7 +321,7 @@ public class ReActAgent internal constructor(
 
         fun destroy() = channelRef.getAndSet(null)?.close()
 
-        fun deliver(query: AgentQuery): Boolean = lock.withLock {
+        fun add(query: AgentQuery): Boolean = lock.withLock {
             channelRef.get()?.trySend(query)?.isSuccess ?: false
         }
 
