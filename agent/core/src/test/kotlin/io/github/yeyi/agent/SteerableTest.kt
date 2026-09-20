@@ -246,7 +246,7 @@ class SteerableTest {
         val ex = assertFailsWith<IllegalStateException> {
             agent.run(AgentQuery.text("second")).toList()
         }
-        assertTrue(ex.message!!.contains("Steer inbox already created"))
+        assertTrue(ex.message!!.contains("Concurrent run not supported: another run is active"))
 
         // 清理：释放第一个 run
         provider.completeNext()

@@ -76,7 +76,7 @@ public class ReActAgent internal constructor(
         llmCall: suspend (ChatRequest) -> ChatResponse,
         emit: suspend (AgentEvent) -> Unit,
     ) {
-        steerInbox.create()
+        if (steerInbox.create().not()) error("Concurrent run not supported: another run is active")
 
         val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
         var iterations = 0
@@ -161,7 +161,8 @@ public class ReActAgent internal constructor(
         emit(
             AgentEvent.ToolCallExplanation(
                 response.message.content?.takeIf { it != "" },
-                response.message.toolCalls)
+                response.message.toolCalls
+            )
         )
 
         for (call in response.message.toolCalls) {
@@ -316,11 +317,7 @@ public class ReActAgent internal constructor(
 
         val lock = ReentrantLock()
 
-        fun create() {
-            if (!channelRef.compareAndSet(null, Channel(Channel.UNLIMITED))) {
-                error("Steer inbox already created")
-            }
-        }
+        fun create(): Boolean = channelRef.compareAndSet(null, Channel(Channel.UNLIMITED))
 
         fun destroy() = channelRef.getAndSet(null)?.close()
 
