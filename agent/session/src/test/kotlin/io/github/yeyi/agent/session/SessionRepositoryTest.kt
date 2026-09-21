@@ -66,7 +66,7 @@ class SessionRepositoryTest {
         val local = (session.memory as MediaArchivable).mediaArchive.store(data)
         session.memory.add(ChatMessage.User(listOf(ContentPart.Image(local))))
 
-        // memory.jsonl 由 JsonlBackedMemory.add 写入
+        // memory.jsonl 由 JsonlMemory.add 写入
         assertTrue(File(sessionDir, "memory.jsonl").exists(),
             "memory.jsonl should exist after add")
         // conversations/page1.jsonl 由 JsonlConversation.ensureInitialized 创建
@@ -80,13 +80,18 @@ class SessionRepositoryTest {
     }
 
     @Test
-    fun `hydrateSession builds JsonlConversation as the top-level memory`() {
+    fun `hydrateSession builds JsonlMemory as the memory and JsonlConversation as paged view`() {
         val session = repo.createSession("alice", "chat1", null)
 
-        // session.memory 真实类型应该是 JsonlConversation (归档由 caller 的
-        // ModalityAdapter 在 memory.add() 前完成, 不再走外层 ArchivingMemory 装饰器)
-        assertTrue(session.memory is JsonlConversation,
-            "expected JsonlConversation, got ${session.memory::class.simpleName}")
+        // session.memory 是 JsonlMemory —— 直接暴露 MediaArchivable 供 AgentBuilder
+        // 能力检测;session.conversation 是 JsonlConversation 分页只读视图,
+        // add() 时由 JsonlMemory 同步追加,两视图一致
+        assertTrue(session.memory is JsonlMemory,
+            "expected JsonlMemory, got ${session.memory::class.simpleName}")
+        assertTrue(session.conversation is JsonlConversation,
+            "expected JsonlConversation, got ${session.conversation::class.simpleName}")
+        assertTrue(session.memory is MediaArchivable,
+            "JsonlMemory should expose MediaArchivable for AgentBuilder capability detection")
     }
 
     @Test

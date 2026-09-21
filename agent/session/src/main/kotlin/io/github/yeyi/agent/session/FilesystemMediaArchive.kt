@@ -15,7 +15,7 @@ import java.util.UUID
  * (参见 `ARCHIVE_THRESHOLD` 与 `archiveIfLarge`)。
  *
  * 注入点:[SessionRepository.hydrateSession] 把 archive 实例传给 [JsonlMemory],
- * 所有上层 Memory 通过 `Memory by` delegate 自动转发。
+ * 由它作为 session.memory 直接暴露 [io.github.yeyi.agent.memory.MediaArchivable] 能力。
  *
  * caller app 如需自定义 archive (S3/DB/加密/TTL等), 直接实现 [MediaArchive] 接口
  * 并在 [JsonlMemory] 构造时注入即可。

@@ -76,22 +76,24 @@ internal class SessionRepository(baseDir: File) {
     }
 
     /**
-     * 构造链:FilesystemMediaArchive → JsonlBackedMemory → JsonlConversation。
+     * 构造:JsonlConversation 提供分页读视图([Session.conversation]);
+     * JsonlMemory 作为 agent 侧完整 Memory 实现并直接暴露 MediaArchivable,
+     * add() 时把同一 entry 追加到 Conversation 分页文件。
      */
     private fun hydrateSession(session: Session): Session {
         val archive = FilesystemMediaArchive(
             getMediaDir(session.accountId, session.id),
         )
-        val rawMemory = JsonlMemory(
-            getMemoryFile(session.accountId, session.id),
-            archive,  // 注入到最下层,上层 JsonlConversation 转发 Memory 并暴露 MediaArchivable 能力
-        )
         val conversation = JsonlConversation(
             getConversationDir(session.accountId, session.id),
-            rawMemory,
+        )
+        val memory = JsonlMemory(
+            getMemoryFile(session.accountId, session.id),
+            archive,
+            conversation,
         )
         return session.copy(
-            _memory = conversation,
+            _memory = memory,
             _conversation = conversation,
         )
     }

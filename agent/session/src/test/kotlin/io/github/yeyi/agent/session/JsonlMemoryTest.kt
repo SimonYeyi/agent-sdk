@@ -155,8 +155,22 @@ class JsonlMemoryTest {
     }
 
     @Test
-    fun `mediaArchive field returns injected archive instance`() = runTest {
-        assertSame(archive, memory.mediaArchive)
+    fun `add with conversation should sync to paged view`() = runTest {
+        val conversationDir = File(tempDir, "conversations")
+        val conversation = JsonlConversation(conversationDir)
+        memory = JsonlMemory(memoryFile, archive, conversation)
+
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("hello"))))
+        memory.add(ChatMessage.Assistant(content = "hi"))
+
+        val memoryHistory = memory.history()
+        val conversationAll = conversation.history(Conversation.PAGE_ALL)
+        assertEquals(2, memoryHistory.size)
+        assertEquals(2, conversationAll.size)
+        assertEquals(
+            (memoryHistory[1].message as ChatMessage.Assistant).content,
+            (conversationAll[1].message as ChatMessage.Assistant).content,
+        )
     }
 
     @Test

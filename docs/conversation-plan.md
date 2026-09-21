@@ -94,46 +94,25 @@ private var startPage: Int = 0        // 用户首次加载时的锚定页号
 - 扫描目录找出当前最大 page 号
 - 如果目录为空，创建 page1.jsonl
 
-### add(message) 逻辑
-1. 检查 maxPage 对应文件是否达到大小阈值
-2. 未达阈值 → 追加到 page{maxPage}.jsonl
-3. 已达阈值 → maxPage++，创建新 page{maxPage}.jsonl，追加到新文件
-4. 调用 innerMemory.add(message)
+### JsonlMemory.add(entry) 逻辑
+1. 落盘追加到 memory.jsonl（Memory 契约持久化）
+2. 同步调用 conversation.append(entry) 作为分页副作用
+3. append 检查 maxPage 对应文件是否达到大小阈值
+4. 未达阈值 → 追加到 page{maxPage}.jsonl
+5. 已达阈值 → maxPage++，创建新 page{maxPage}.jsonl，追加到新文件
 
-### messages(page) 逻辑
+### history(page) 逻辑
 ```kotlin
-override fun messages(page: Int? = null): List<ChatMessage> {
-    if (page == null) {
-        // 返回所有：按文件名排序遍历
-        return conversationDir.listFiles()
-            ?.filter { it.name.startsWith("page") && it.name.endsWith(".jsonl") }
-            ?.sortedBy { it.name }
-            ?.flatMap { readMessages(it) }
-            ?: emptyList()
-    }
-
-    if (page <= 0) return emptyList()
-
-    // 用户回到最新，重置锚点
-    if (page == 1) {
-        startPage = maxPage
-    }
-
-    val filePage = startPage - (page - 1)
-    if (filePage <= 0) return emptyList()
-
-    val file = File(conversationDir, "page$filePage.jsonl")
-    if (!file.exists()) return emptyList()
-
-    return readMessages(file)
-}
-
-private fun readMessages(file: File): List<ChatMessage> {
-    return file.readLines()
-        .filter { it.isNotBlank() }
-        .map { json.decodeFromString<ChatMessage>(it) }
+override suspend fun history(page: Int): List<MemoryEntry> {
+    // PAGE_ALL = 0:按页码数字排序遍历,返回全部
+    // page <= 0:返回空
+    // page == 1:重置锚点 startPage = maxPage
+    // 实际页 = startPage - (page - 1),<= 0 返回空
 }
 ```
+
+> 注意:PAGE_ALL 全量读取按**页码数字**排序(`pageNumberOf(it) ?: 0`),
+> 而非文件名字典序——否则 page10.jsonl 会排在 page2.jsonl 前面。
 
 ## Session 修改
 
@@ -179,23 +158,23 @@ private fun getConversationDir(accountId: String, sessionId: String): File {
 
 ### createSession
 ```kotlin
-val rawMemory = JsonlBackedMemory(getMemoryFile(accountId, id))
-val conversationDir = getConversationDir(accountId, id)
-val conversation = JsonlConversation(conversationDir, rawMemory)
+val archive = FilesystemMediaArchive(getMediaDir(accountId, id))
+val conversation = JsonlConversation(getConversationDir(accountId, id))
+val memory = JsonlMemory(getMemoryFile(accountId, id), archive, conversation)
 Session(
     ...
-    _memory = conversation,
+    _memory = memory,
     _conversation = conversation
 )
 ```
 
 ### findSessions
 ```kotlin
-val rawMemory = JsonlBackedMemory(getMemoryFile(accountId, session.id))
-val conversationDir = getConversationDir(accountId, session.id)
-val conversation = JsonlConversation(conversationDir, rawMemory)
+val archive = FilesystemMediaArchive(getMediaDir(accountId, session.id))
+val conversation = JsonlConversation(getConversationDir(accountId, session.id))
+val memory = JsonlMemory(getMemoryFile(accountId, session.id), archive, conversation)
 session.copy(
-    _memory = conversation,
+    _memory = memory,
     _conversation = conversation
 )
 ```
@@ -207,16 +186,20 @@ session.copy(
 ## 数据流
 
 ```
-Agent.add(message)
+Agent 写入 → memory.add(entry)
     ↓
-JsonlConversation.add(message)
+JsonlMemory.add(entry)
     ↓
-1. 追加到当前 page 文件（超阈值创建新 page）
-2. innerMemory.add(message)  # 被压缩记忆处理
+1. 落盘 memory.jsonl（Memory 契约持久化）
+2. conversation.append(entry)   # 分页副作用
     ↓
-UI.history(PAGE_ALL) → 所有历史
-UI.history(1) → 最新一页
-UI.history(2) → 更旧一页
+JsonlConversation.append(entry)
+    ↓
+3. 追加到当前 page 文件（超阈值创建新 page）
+    ↓
+UI.conversation.history(PAGE_ALL) → 所有历史（按页码数字排序）
+UI.conversation.history(1) → 最新一页
+UI.conversation.history(2) → 更旧一页
 ```
 
 ## 变更文件

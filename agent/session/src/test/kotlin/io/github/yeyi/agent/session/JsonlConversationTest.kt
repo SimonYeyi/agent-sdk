@@ -3,8 +3,6 @@ package io.github.yeyi.agent.session
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.text
-import io.github.yeyi.agent.memory.InMemoryMemory
-import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -20,22 +18,20 @@ private fun ChatMessage.firstTextOrEmpty(): String = when (this) {
     is ChatMessage.System -> content
 }
 
-/** 测试辅助：老风格 add(ChatMessage) 自动包装为 [MemoryEntry]。 */
-private suspend fun Memory.add(message: ChatMessage) {
-    add(MemoryEntry(message))
+/** 测试辅助：老风格 append(ChatMessage) 自动包装为 [MemoryEntry]。 */
+private suspend fun JsonlConversation.append(message: ChatMessage) {
+    append(MemoryEntry(message))
 }
 
 class JsonlConversationTest {
 
     private lateinit var tempDir: File
-    private lateinit var innerMemory: InMemoryMemory
     private lateinit var conversation: JsonlConversation
 
     @Before
     fun setup() {
         tempDir = createTempDir()
-        innerMemory = InMemoryMemory()
-        conversation = JsonlConversation(tempDir, innerMemory, pageSizeThreshold = 10 * 1024)
+        conversation = JsonlConversation(tempDir)
     }
 
     @After
@@ -44,24 +40,31 @@ class JsonlConversationTest {
     }
 
     @Test
-    fun `add should write to file and innerMemory`() = runTest {
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("Hello"))))
-        conversation.add(ChatMessage.Assistant(content = "Hi"))
+    fun `append should write entry to page file`() = runTest {
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("Hello"))))
+        conversation.append(ChatMessage.Assistant(content = "Hi"))
 
         val messages = conversation.history(Conversation.PAGE_ALL)
         assertEquals(2, messages.size)
         assertEquals("Hello", (messages[0].message as ChatMessage.User).firstTextOrEmpty())
         assertEquals("Hi", (messages[1].message as ChatMessage.Assistant).content)
+    }
 
-        val innerHistory = innerMemory.history()
-        assertEquals(2, innerHistory.size)
+    @Test
+    fun `reload from existing page files on next instance`() = runTest {
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("msg1"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("msg2"))))
+
+        val reloaded = JsonlConversation(tempDir)
+        val all = reloaded.history(Conversation.PAGE_ALL)
+        assertEquals(2, all.size)
     }
 
     @Test
     fun `history PAGE_ALL should return all messages`() = runTest {
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg1"))))
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg2"))))
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg3"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("msg1"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("msg2"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("msg3"))))
 
         val all = conversation.history(Conversation.PAGE_ALL)
         assertEquals(3, all.size)
@@ -69,9 +72,9 @@ class JsonlConversationTest {
 
     @Test
     fun `history page 1 should return latest page`() = runTest {
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg1"))))
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg2"))))
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg3"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("msg1"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("msg2"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("msg3"))))
 
         val page1 = conversation.history(1)
         assertEquals(3, page1.size)
@@ -81,12 +84,12 @@ class JsonlConversationTest {
     @Test
     fun `paging should create new page when threshold exceeded`() = runTest {
         // Create conversation with very small threshold (30 bytes)
-        val pagedConv = JsonlConversation(tempDir, innerMemory, pageSizeThreshold = 30)
+        val pagedConv = JsonlConversation(tempDir, pageSizeThreshold = 30)
 
         // Each message with JSON wrapper is roughly 25+ bytes
         // So 2 messages should trigger new page (25+25 > 30)
-        pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("a"))))
-        pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("b"))))
+        pagedConv.append(ChatMessage.User(listOf(ContentPart.Text("a"))))
+        pagedConv.append(ChatMessage.User(listOf(ContentPart.Text("b"))))
 
         // Should have page1 and page2
         val page1 = pagedConv.history(1)
@@ -99,11 +102,11 @@ class JsonlConversationTest {
     @Test
     fun `startPage anchor should prevent drift when new page created`() = runTest {
         // Create conversation with very small threshold
-        val pagedConv = JsonlConversation(tempDir, innerMemory, pageSizeThreshold = 30)
+        val pagedConv = JsonlConversation(tempDir, pageSizeThreshold = 30)
 
         // First page fills up
-        pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg1")))) // -> page1
-        pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg2")))) // -> page2 (new)
+        pagedConv.append(ChatMessage.User(listOf(ContentPart.Text("msg1")))) // -> page1
+        pagedConv.append(ChatMessage.User(listOf(ContentPart.Text("msg2")))) // -> page2 (new)
 
         // User starts viewing from page 1 (latest = page2)
         val page1First = pagedConv.history(1)
@@ -114,8 +117,8 @@ class JsonlConversationTest {
         assertEquals("msg1", (page2First[0].message as ChatMessage.User).firstTextOrEmpty())
 
         // New messages come and create page3
-        pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg3"))))
-        pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg4"))))
+        pagedConv.append(ChatMessage.User(listOf(ContentPart.Text("msg3"))))
+        pagedConv.append(ChatMessage.User(listOf(ContentPart.Text("msg4"))))
 
         // User scrolls back to page 2 - should still get page1 content
         // because anchor was set to page2 when user first viewed page 1
@@ -126,18 +129,18 @@ class JsonlConversationTest {
     @Test
     fun `returning to page 1 should reset anchor`() = runTest {
         // Create conversation with very small threshold
-        val pagedConv = JsonlConversation(tempDir, innerMemory, pageSizeThreshold = 30)
+        val pagedConv = JsonlConversation(tempDir, pageSizeThreshold = 30)
 
-        pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg1")))) // -> page1
-        pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg2")))) // -> page2
+        pagedConv.append(ChatMessage.User(listOf(ContentPart.Text("msg1")))) // -> page1
+        pagedConv.append(ChatMessage.User(listOf(ContentPart.Text("msg2")))) // -> page2
 
         // User views page 1 (sets anchor to page2)
         val page1First = pagedConv.history(1)
         assertEquals("msg2", (page1First[0].message as ChatMessage.User).firstTextOrEmpty())
 
         // New messages come and create page3
-        pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg3"))))
-        pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg4"))))
+        pagedConv.append(ChatMessage.User(listOf(ContentPart.Text("msg3"))))
+        pagedConv.append(ChatMessage.User(listOf(ContentPart.Text("msg4"))))
 
         // User returns to page 1 - should reset anchor to page3
         val page1Again = pagedConv.history(1)
@@ -150,7 +153,7 @@ class JsonlConversationTest {
 
     @Test
     fun `history with invalid page should return empty`() = runTest {
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg1"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("msg1"))))
 
         assertTrue(conversation.history(-2).isEmpty())
         assertTrue(conversation.history(-1).isEmpty())
@@ -159,11 +162,11 @@ class JsonlConversationTest {
 
     @Test
     fun `conversation files should be named correctly`() = runTest {
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg1"))))
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg2"))))
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg3"))))
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg4"))))
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg5"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("msg1"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("msg2"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("msg3"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("msg4"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("msg5"))))
 
         val files = tempDir.listFiles()
             ?.filter { it.name.startsWith("page") && it.name.endsWith(".jsonl") }
@@ -176,9 +179,9 @@ class JsonlConversationTest {
 
     @Test
     fun `history PAGE_ALL should return messages in chronological order`() = runTest {
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("first"))))
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("second"))))
-        conversation.add(ChatMessage.User(listOf(ContentPart.Text("third"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("first"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("second"))))
+        conversation.append(ChatMessage.User(listOf(ContentPart.Text("third"))))
 
         val all = conversation.history(Conversation.PAGE_ALL)
 
@@ -191,9 +194,9 @@ class JsonlConversationTest {
     @Test
     fun `history PAGE_ALL should keep chronological order across 10+ pages`() = runTest {
         // 每页只装 1 条消息，制造 11 个页面，覆盖"page10.jsonl < page2.jsonl"的字典序陷阱
-        val pagedConv = JsonlConversation(tempDir, innerMemory, pageSizeThreshold = 30)
+        val pagedConv = JsonlConversation(tempDir, pageSizeThreshold = 30)
         val messages = (1..11).map { "msg$it" }
-        messages.forEach { pagedConv.add(ChatMessage.User(listOf(ContentPart.Text(it)))) }
+        messages.forEach { pagedConv.append(ChatMessage.User(listOf(ContentPart.Text(it)))) }
 
         val all = pagedConv.history(Conversation.PAGE_ALL)
 
@@ -206,12 +209,12 @@ class JsonlConversationTest {
     @Test
     fun `messages page should return messages in chronological order`() = runTest {
         // Create with small threshold to trigger paging
-        val pagedConv = JsonlConversation(tempDir, innerMemory, pageSizeThreshold = 30)
+        val pagedConv = JsonlConversation(tempDir, pageSizeThreshold = 30)
 
-        pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg1"))))
-        pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg2"))))
-        pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg3"))))
-        pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg4"))))
+        pagedConv.append(ChatMessage.User(listOf(ContentPart.Text("msg1"))))
+        pagedConv.append(ChatMessage.User(listOf(ContentPart.Text("msg2"))))
+        pagedConv.append(ChatMessage.User(listOf(ContentPart.Text("msg3"))))
+        pagedConv.append(ChatMessage.User(listOf(ContentPart.Text("msg4"))))
 
         // Page 1 should return newer messages first (within the page)
         val page1 = pagedConv.history(1)

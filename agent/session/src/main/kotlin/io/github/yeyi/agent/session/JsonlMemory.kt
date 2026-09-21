@@ -9,9 +9,18 @@ import java.io.File
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
+/**
+ * JSONL 持久化 Memory —— session 场景 agent 侧的完整实现。
+ *
+ * 直接实现 [MediaArchivable] 声明持有归档,供 [io.github.yeyi.agent.AgentBuilder]
+ * 能力检测;可选注入 [JsonlConversation] 作为分页副作用:add() 在落盘
+ * memory.jsonl 的同时把同一 entry 追加到分页文件,保证
+ * [Session.memory] 与 [Session.conversation] 两视图一致。
+ */
 internal class JsonlMemory(
     private val file: File,
     override val mediaArchive: MediaArchive,
+    private val conversation: JsonlConversation? = null,
 ) : Memory, MediaArchivable {
 
     private val json = Json { ignoreUnknownKeys = true }
@@ -39,6 +48,7 @@ internal class JsonlMemory(
             file.appendText(json.encodeToString(entry) + "\n")
             entries.add(entry)
         }
+        conversation?.append(entry)
     }
 
     override suspend fun history(): List<MemoryEntry> {

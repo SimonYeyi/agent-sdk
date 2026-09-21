@@ -55,30 +55,6 @@ class InMemoryMemoryTest {
     }
 
     @Test
-    fun `mediaArchive field returns working archive instance`() = runTest {
-        val memory = InMemoryMemory()
-        // 内部 InMemoryMediaArchive 实例 — 用行为测试验证可工作:
-        // store 一个 Data 后 resolve 拿回原 base64
-        val original = MediaSource.Data("image/jpeg", "BASE64DATA")
-        val local = memory.mediaArchive.store(original)
-        assertEquals("image/jpeg", local.mimeType)
-        // local.fileId 是 UUID,仅断言非空且能 resolve
-        val resolved = memory.mediaArchive.resolve(local)
-        assertEquals(original.base64, resolved.base64)
-        assertEquals(original.mimeType, resolved.mimeType)
-    }
-
-    @Test
-    fun `resolve missing fileId throws IllegalStateException`() = runTest {
-        val memory = InMemoryMemory()
-        val ghost = MediaSource.Local("ghost-id", "image/jpeg")
-        val ex = assertFailsWith<IllegalStateException> {
-            memory.mediaArchive.resolve(ghost)
-        }
-        assertTrue(ex.message!!.contains("ghost-id"))
-    }
-
-    @Test
     fun `add does not auto-rewrite Data to Local — caller decides`() = runTest {
         // InMemoryMemory 是裸存储层,不做归档决策 — caller 自己 store
         val memory = InMemoryMemory()

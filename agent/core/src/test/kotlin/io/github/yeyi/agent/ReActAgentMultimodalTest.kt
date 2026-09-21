@@ -21,7 +21,7 @@ class ReActAgentMultimodalTest {
             llmProvider = provider,
             toolRegistry = ToolRegistry(),
             memory = memory,
-            modalityAdapter = DefaultModalityAdapter(memory.mediaArchive),
+            modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
             maxIterations = 5
         )

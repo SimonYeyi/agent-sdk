@@ -81,7 +81,7 @@ class SteerableTest {
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,
-            modalityAdapter = DefaultModalityAdapter(mem.mediaArchive),
+            modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
             maxIterations = 5
         )
@@ -101,7 +101,7 @@ class SteerableTest {
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,
-            modalityAdapter = DefaultModalityAdapter(mem.mediaArchive),
+            modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
             maxIterations = 5
         )
@@ -133,7 +133,7 @@ class SteerableTest {
             llmProvider = provider,
             toolRegistry = registryOf(echo),
             memory = mem,
-            modalityAdapter = DefaultModalityAdapter(mem.mediaArchive),
+            modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
             maxIterations = 5
         )
@@ -182,7 +182,7 @@ class SteerableTest {
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,
-            modalityAdapter = DefaultModalityAdapter(mem.mediaArchive),
+            modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
             maxIterations = 5
         )
@@ -231,7 +231,7 @@ class SteerableTest {
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,
-            modalityAdapter = DefaultModalityAdapter(mem.mediaArchive),
+            modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
             maxIterations = 5
         )
@@ -274,7 +274,7 @@ class SteerableTest {
             llmProvider = provider,
             toolRegistry = registryOf(echo),
             memory = mem,
-            modalityAdapter = DefaultModalityAdapter(mem.mediaArchive),
+            modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
             maxIterations = 5
         )
@@ -325,7 +325,7 @@ class SteerableTest {
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,
-            modalityAdapter = DefaultModalityAdapter(mem.mediaArchive),
+            modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
             maxIterations = 5
         )
@@ -361,7 +361,7 @@ class SteerableTest {
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,
-            modalityAdapter = DefaultModalityAdapter(mem.mediaArchive),
+            modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
             maxIterations = 5
         )
@@ -413,7 +413,7 @@ class SteerableTest {
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,
-            modalityAdapter = DefaultModalityAdapter(mem.mediaArchive),
+            modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
             maxIterations = 5
         )

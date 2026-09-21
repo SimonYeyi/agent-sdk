@@ -1,22 +1,22 @@
 package io.github.yeyi.agent.session
 
-import io.github.yeyi.agent.memory.MediaArchive
-import io.github.yeyi.agent.memory.MediaArchivable
-import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.File
 
+/**
+ * 分页会话记录 —— **只读视图 + 追加副作用**。
+ *
+ * 由 [JsonlMemory] 作为 session.memory 的补充:JsonlMemory.add() 负责
+ * memory.jsonl 持久化,并把同一 entry 通过 [append] 追加到分页文件,
+ * 供 [Conversation.history] 分页读取。Conversation 本身不承载写契约。
+ */
 internal class JsonlConversation(
     private val conversationDir: File,
-    private val rawMemory: Memory,
     private val pageSizeThreshold: Long = 20 * 1024  // 20KB
-) : Conversation, Memory by rawMemory, MediaArchivable {
-    override val mediaArchive: MediaArchive
-        get() = (rawMemory as? MediaArchivable)?.mediaArchive
-            ?: error("JsonlConversation requires a MediaArchivable rawMemory")
+) : Conversation {
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -47,7 +47,11 @@ internal class JsonlConversation(
     private fun pageNumberOf(file: File): Int? =
         Regex("page(\\d+)\\.jsonl").find(file.name)?.groupValues?.get(1)?.toIntOrNull()
 
-    override suspend fun add(entry: MemoryEntry) {
+    /**
+     * 追加一条记忆到分页文件(超过阈值自动开新页)。
+     * 由 [JsonlMemory.add] 作为副作用调用,不直接对外暴露。
+     */
+    internal suspend fun append(entry: MemoryEntry) {
         ensureInitialized()
 
         withContext(Dispatchers.IO) {
@@ -60,8 +64,6 @@ internal class JsonlConversation(
             File(conversationDir, "page$maxPage.jsonl")
                 .appendText(json.encodeToString(entry) + "\n")
         }
-
-        rawMemory.add(entry)
     }
 
     /**
