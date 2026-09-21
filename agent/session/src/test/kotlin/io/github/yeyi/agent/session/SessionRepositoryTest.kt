@@ -85,7 +85,7 @@ class SessionRepositoryTest {
 
         // session.memory 是 JsonlMemory —— 直接暴露 MediaArchivable 供 AgentBuilder
         // 能力检测;session.conversation 是 JsonlConversation 分页只读视图,
-        // add() 时由 JsonlMemory 同步追加,两视图一致
+        // add() 时由 JsonlMemory 同步追加,两视图增量一致(压缩不回写 conversation)
         assertTrue(session.memory is JsonlMemory,
             "expected JsonlMemory, got ${session.memory::class.simpleName}")
         assertTrue(session.conversation is JsonlConversation,

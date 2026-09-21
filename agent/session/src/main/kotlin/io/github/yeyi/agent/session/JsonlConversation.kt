@@ -12,6 +12,10 @@ import java.io.File
  * 由 [JsonlMemory] 作为 session.memory 的补充:JsonlMemory.add() 负责
  * memory.jsonl 持久化,并把同一 entry 通过 [append] 追加到分页文件,
  * 供 [Conversation.history] 分页读取。Conversation 本身不承载写契约。
+ *
+ * 语义:conversation 是**追加型全量会话记录** —— [JsonlMemory.rebuild]
+ * (压缩/摘要)不回写本视图,因此它可能包含 memory 中已被压缩掉的旧消息,
+ * 即 conversation 始终是 memory 的超集。
  */
 internal class JsonlConversation(
     private val conversationDir: File,

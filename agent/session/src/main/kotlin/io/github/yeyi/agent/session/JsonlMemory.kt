@@ -14,8 +14,13 @@ import java.nio.file.StandardCopyOption
  *
  * 直接实现 [MediaArchivable] 声明持有归档,供 [io.github.yeyi.agent.AgentBuilder]
  * 能力检测;可选注入 [JsonlConversation] 作为分页副作用:add() 在落盘
- * memory.jsonl 的同时把同一 entry 追加到分页文件,保证
- * [Session.memory] 与 [Session.conversation] 两视图一致。
+ * memory.jsonl 的同时把同一 entry 追加到分页文件,保证 [Session.memory]
+ * 与 [Session.conversation] **增量一致**。
+ *
+ * 注意:两视图只在追加路径同步。压缩/摘要(见
+ * [io.github.yeyi.agent.memory.RoundsBoundedMemory])通过 [rebuild] 只重写
+ * memory.jsonl,不回写 conversation —— conversation 保持全量追加记录,
+ * 始终是 memory 的超集(用户可见完整会话,memory 是 agent 的工作记忆)。
  */
 internal class JsonlMemory(
     private val file: File,
@@ -64,7 +69,6 @@ internal class JsonlMemory(
                     tmpFile.appendText(json.encodeToString(entry) + "\n")
                 }
                 Files.move(tmpFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
-                cachedEntries?.clear()
                 cachedEntries = entries.toMutableList()
             } catch (e: Exception) {
                 tmpFile.delete()
