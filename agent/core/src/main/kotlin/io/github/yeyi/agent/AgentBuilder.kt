@@ -2,6 +2,7 @@ package io.github.yeyi.agent
 
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.memory.MediaArchivable
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import io.github.yeyi.agent.modality.ModalityAdapter
@@ -129,10 +130,7 @@ public class AgentBuilder {
 
     private fun installPlugins() {
         val pluginContext = object : AgentPluginContext {
-            override fun registerTool(tool: Tool) {
-                toolRegistry.register(tool)
-            }
-
+            override fun registerTool(tool: Tool) = toolRegistry.register(tool)
             override fun appendPersona(label: String, content: String) {
                 persona.extra(content, label)
             }
@@ -151,7 +149,8 @@ public class AgentBuilder {
      */
     public fun build(): Agent {
         val provider = requireNotNull(llmProvider) { "llmProvider must be set" }
-        val modalityAdapter = modalityAdapter ?: DefaultModalityAdapter(memory.mediaArchive)
+        val modalityAdapter = modalityAdapter
+            ?: DefaultModalityAdapter((memory as? MediaArchivable)?.mediaArchive)
 
         installPlugins()
 

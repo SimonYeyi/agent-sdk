@@ -32,8 +32,6 @@ private suspend fun Memory.add(message: ChatMessage) {
 }
 
 private class FailingMemory(private val failOnRebuild: Boolean = true) : Memory {
-    override val mediaArchive: MediaArchive = InMemoryMemory().mediaArchive
-
     private val entries = mutableListOf<MemoryEntry>()
     var rebuildFailureCount = 0
         private set

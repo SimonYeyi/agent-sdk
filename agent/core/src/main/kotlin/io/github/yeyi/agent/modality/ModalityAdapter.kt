@@ -6,7 +6,7 @@ import io.github.yeyi.agent.llm.toTextMessage
 import io.github.yeyi.agent.memory.MediaArchive
 
 /**
- * 多模态适配器 — 在 LLM 请求边界做 Local ↔ Data 转换。
+ * 多模态适配器 — 在 LLM 请求边界做媒体可见性策略与 ToolResult 拆分。
  *
  * ## 抽象契约(本类只定方向,不定策略)
  *
@@ -17,26 +17,27 @@ import io.github.yeyi.agent.memory.MediaArchive
  * 本抽象层**不做限制**。caller 注入自定义 adapter 时可以自由实现
  * (例如还原所有 User、按其他规则挑消息、用不同的占位格式)。
  *
+ * ## 归档是可选的
+ *
+ * 构造参数 [mediaArchive] 可空:传 `null` 表示**无归档能力** —— [archive] 原样返回
+ * (Data 以原始形态进 memory),[resolve] 不做 Local→Data 解码(无归档就不会产生 Local),
+ * 仅保留不依赖归档的 ToolResult 拆分。需要归档时传 [MediaArchive] 实例即可。
+ *
  * ## 与 ToolResult 的关系
  *
  * 调用顺序: [resolve] 先执行（把 ToolResult 中的 Local 转 Data），再由
  * [ToolResultAdapter.adapt] 在请求边界把 ToolResult 拆成
  * "text-only ToolResult + 合成 User"。
  *
- * ## archive / resolve 共用 MediaArchive
- *
- * 两者共用构造器注入的同一个 [MediaArchive](典型配置 write/read 对称同一实例),
- * 也可由 caller 决定是否换不同实现。
- *
  * ## 为什么是 abstract class 而非 interface
  *
  * [archive] 是通用逻辑(Data→Local 阈值规则共享),放基类避免每个实现重写;
  * [resolve] 因策略差异大,留给子类。
  */
-public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive) {
+public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive?) {
     private val freshDataState = FreshDataState()
-    private val archiveAdapter = ArchiveAdapter(mediaArchive)
-    private val resolveAdapter = ResolveAdapter(mediaArchive)
+    private val archiveAdapter = mediaArchive?.let { ArchiveAdapter(it) }
+    private val resolveAdapter = mediaArchive?.let { ResolveAdapter(it) }
     private val toolResultAdapter = ToolResultAdapter()
 
     /**
@@ -44,12 +45,14 @@ public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive) 
      * 只处理 [ChatMessage.User] 和 [ChatMessage.ToolResult]
      * 后者由 [ToolResultAdapter] 在请求边界进一步拆出 media;此处只保证落盘形态。
      *
+     * 无归档能力([mediaArchive] 为 null)时原样返回。
+     *
      * 在 [io.github.yeyi.agent.ReActAgent] 的 `memory.add(...)` 前调用,让 memory 始终持有 Local 引用,
      *
      * @return 原 message(若不含大 Data)或替换过大 Data 为 Local 的 message
      */
     internal suspend fun archive(message: ChatMessage): ChatMessage =
-        archiveAdapter.archive(message, freshDataState)
+        archiveAdapter?.archive(message, freshDataState) ?: message
 
     /**
      * Read 边:把 messages 渲染成"可直接喂 LLM"的形态。
@@ -59,13 +62,16 @@ public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive) 
      * 最后由 [ToolResultAdapter] 把含 media 的 [ChatMessage.ToolResult] 拆成
      * text-only ToolResult + 合成的 [ChatMessage.User]。
      *
+     * 无归档能力([mediaArchive] 为 null)时 resolver 不做解码,消息原样透传,
+     * ToolResult 拆分仍执行。
+     *
      * @param messages memory 中的消息(按时间顺序)
      * @return 处理后的消息列表
      */
     internal suspend fun resolve(messages: List<ChatMessage>): List<ChatMessage> {
         val snapshot = freshDataState.consume()
         return resolve(messages) { message, visible ->
-            if (visible) resolveAdapter.resolve(message, snapshot) else message.toTextMessage()
+            if (visible) resolveAdapter?.resolve(message, snapshot) ?: message else message.toTextMessage()
         }.run {
             toolResultAdapter.adapt(this)
         }
@@ -108,9 +114,10 @@ public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive) 
  * - 当前 round 内 iter #2+ 都共享同一份末条 User（图/音/视频都保留）
  * - 跨 round 的历史消息全部转占位文本，不再每轮 base64 重传，避免 token 膨胀
  *
- * @param mediaArchive 由父类 [ModalityAdapter] 持有（本类不再加 `val` 重复声明）
+ * @param mediaArchive 由父类 [ModalityAdapter] 持有（本类不再加 `val` 重复声明）。
+ *   传 `null` 表示无归档能力：不落盘、不解码，仅保留 ToolResult 拆分。
  */
-internal class DefaultModalityAdapter(mediaArchive: MediaArchive) : ModalityAdapter(mediaArchive) {
+internal class DefaultModalityAdapter(mediaArchive: MediaArchive?) : ModalityAdapter(mediaArchive) {
 
     /**
      * 渲染 messages: 保留最后一轮消息（图/音/视频），其余转文本占位。

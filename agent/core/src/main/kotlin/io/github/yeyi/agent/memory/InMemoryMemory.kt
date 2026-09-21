@@ -5,7 +5,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
-public class InMemoryMemory : Memory {
+public class InMemoryMemory : Memory, MediaArchivable {
     override val mediaArchive: MediaArchive = InMemoryMediaArchive()
 
     private val entries: MutableList<MemoryEntry> = mutableListOf()

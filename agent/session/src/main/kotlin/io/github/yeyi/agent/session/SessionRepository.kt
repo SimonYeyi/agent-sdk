@@ -84,7 +84,7 @@ internal class SessionRepository(baseDir: File) {
         )
         val rawMemory = JsonlMemory(
             getMemoryFile(session.accountId, session.id),
-            archive,  // 注入到最下层,所有上层通过 Memory by 自动转发
+            archive,  // 注入到最下层,上层 JsonlConversation 转发 Memory 并暴露 MediaArchivable 能力
         )
         val conversation = JsonlConversation(
             getConversationDir(session.accountId, session.id),

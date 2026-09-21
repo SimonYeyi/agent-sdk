@@ -59,7 +59,7 @@ public class ReActAgent internal constructor(
 
     /**
      * [SteerInbox.lock] 序列化 [SteerInbox.add] 与终局 isEmpty 裁决+终态发射+关门，堵死
-     * "deliver 返回 true 但消息困死 buffer 无人消费"的窗口。
+     * "add 返回 true 但消息困死 buffer 无人消费"的窗口。
      *
      * 完结束契约：返回 false ⟺ 无活跃 run ⟺ 终态事件(Final)已发射完毕。
      * 终局持锁期间阻塞等待，正是语义正确的"等待裁决"——既不能 true

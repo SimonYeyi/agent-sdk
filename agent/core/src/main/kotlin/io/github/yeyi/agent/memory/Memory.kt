@@ -15,15 +15,6 @@ import io.github.yeyi.agent.llm.MediaSource
  */
 public interface Memory {
     /**
-     * 本实例持有的 [MediaArchive],用于在请求边界把 [io.github.yeyi.agent.llm.MediaSource.Local]
-     * 解析为 [io.github.yeyi.agent.llm.MediaSource.Data]。
-     *
-     * 必须由实现类持有实例(而非给默认值):装饰链需要逐层透传到最下层那一档,
-     * 默认值会被重复注入。
-     */
-    public val mediaArchive: MediaArchive
-
-    /**
      * 添加一条记忆条目到历史。
      *
      * @param entry 承载 [io.github.yeyi.agent.llm.ChatMessage.User]、
@@ -46,6 +37,19 @@ public interface Memory {
      * 用于 Memory 实现内部的压缩/摘要重建场景；调用方不应随意调用。
      */
     public suspend fun rebuild(entries: List<MemoryEntry>)
+}
+
+/**
+ * 媒体归档能力接口 — **可选能力**,与核心 [Memory] 契约正交。
+ *
+ * 实现本接口的 [Memory] 子类声明自己持有 [MediaArchive],供
+ * [io.github.yeyi.agent.AgentBuilder] 在构造多模态适配器时做能力检测
+ * (`memory as? MediaArchivable`)。
+ *
+ * 不需要归档的 Memory 子类**不实现**本接口,避免被核心契约强制提供虚假的归档实例。
+ */
+public interface MediaArchivable {
+    public val mediaArchive: MediaArchive
 }
 
 /**

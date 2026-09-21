@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.session
 
 import io.github.yeyi.agent.memory.MediaArchive
+import io.github.yeyi.agent.memory.MediaArchivable
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import kotlinx.serialization.json.Json
@@ -11,7 +12,7 @@ import java.nio.file.StandardCopyOption
 internal class JsonlMemory(
     private val file: File,
     override val mediaArchive: MediaArchive,
-) : Memory {
+) : Memory, MediaArchivable {
 
     private val json = Json { ignoreUnknownKeys = true }
 

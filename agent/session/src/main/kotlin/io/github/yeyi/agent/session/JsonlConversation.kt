@@ -1,5 +1,7 @@
 package io.github.yeyi.agent.session
 
+import io.github.yeyi.agent.memory.MediaArchive
+import io.github.yeyi.agent.memory.MediaArchivable
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import kotlinx.coroutines.Dispatchers
@@ -11,7 +13,10 @@ internal class JsonlConversation(
     private val conversationDir: File,
     private val rawMemory: Memory,
     private val pageSizeThreshold: Long = 20 * 1024  // 20KB
-) : Conversation, Memory by rawMemory {
+) : Conversation, Memory by rawMemory, MediaArchivable {
+    override val mediaArchive: MediaArchive
+        get() = (rawMemory as? MediaArchivable)?.mediaArchive
+            ?: error("JsonlConversation requires a MediaArchivable rawMemory")
 
     private val json = Json { ignoreUnknownKeys = true }
 
@@ -24,9 +29,7 @@ internal class JsonlConversation(
         conversationDir.mkdirs()
         val files = conversationDir.listFiles()
             ?.filter { it.name.startsWith("page") && it.name.endsWith(".jsonl") }
-            ?.mapNotNull {
-                Regex("page(\\d+)\\.jsonl").find(it.name)?.groupValues?.get(1)?.toIntOrNull()
-            }
+            ?.mapNotNull { pageNumberOf(it) }
             ?: emptyList()
         maxPage = files.maxOrNull() ?: 0
         if (maxPage == 0) {
@@ -39,6 +42,10 @@ internal class JsonlConversation(
     private fun currentFile(): File {
         return File(conversationDir, "page$maxPage.jsonl")
     }
+
+    /** 从 `pageN.jsonl` 文件名解析页码；名字不符合规则时返回 null。 */
+    private fun pageNumberOf(file: File): Int? =
+        Regex("page(\\d+)\\.jsonl").find(file.name)?.groupValues?.get(1)?.toIntOrNull()
 
     override suspend fun add(entry: MemoryEntry) {
         ensureInitialized()
@@ -72,7 +79,8 @@ internal class JsonlConversation(
      * - 此后 [history](N) 基于锚点计算：`实际页 = 锚点 - (N - 1)`
      * - 再次调用 [history](1) 重置锚点到最新页
      *
-     * **首次调用必须传入 1**，否则返回空列表。
+     * 传 [Conversation.PAGE_ALL] 则跳过锚点直接返回全部消息；
+     * 否则**首次调用必须传入 1**，否则返回空列表。
      *
      * ## 示例
      *
@@ -90,7 +98,7 @@ internal class JsonlConversation(
             if (page == Conversation.PAGE_ALL) {
                 return@withContext conversationDir.listFiles()
                     ?.filter { it.name.startsWith("page") && it.name.endsWith(".jsonl") }
-                    ?.sortedBy { it.name }
+                    ?.sortedBy { pageNumberOf(it) ?: 0 }
                     ?.flatMap { readMessages(it) }
                     ?: emptyList()
             }

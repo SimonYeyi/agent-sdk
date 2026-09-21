@@ -3,7 +3,7 @@ package io.github.yeyi.agent.session
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.MediaSource
-import io.github.yeyi.agent.memory.MediaArchive
+import io.github.yeyi.agent.memory.MediaArchivable
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import kotlinx.coroutines.test.runTest
@@ -63,7 +63,7 @@ class SessionRepositoryTest {
         // 模拟 caller: 先 archive 大 Data 落盘, 再把 Local 加进 memory
         // (旧 ArchivingMemory 装饰器已删, 归档现在由 caller 的 ModalityAdapter 完成)
         val data = MediaSource.Data("image/jpeg", "x".repeat(2048))
-        val local = session.memory.mediaArchive.store(data)
+        val local = (session.memory as MediaArchivable).mediaArchive.store(data)
         session.memory.add(ChatMessage.User(listOf(ContentPart.Image(local))))
 
         // memory.jsonl 由 JsonlBackedMemory.add 写入
@@ -95,7 +95,7 @@ class SessionRepositoryTest {
         val data = MediaSource.Data("image/jpeg", "x".repeat(2048))
 
         // 模拟 caller: 先 archive, 再 memory.add(Local)
-        val local = session.memory.mediaArchive.store(data)
+        val local = (session.memory as MediaArchivable).mediaArchive.store(data)
         session.memory.add(ChatMessage.User(listOf(ContentPart.Image(local))))
 
         val history = session.memory.history()
@@ -106,7 +106,7 @@ class SessionRepositoryTest {
             "stored source should be Local, got ${src::class.simpleName}")
 
         // 验证 mediaArchive 能 resolve 落盘字节
-        val resolved = session.memory.mediaArchive.resolve(src)
+        val resolved = (session.memory as MediaArchivable).mediaArchive.resolve(src)
         assertEquals("x".repeat(2048), resolved.base64)
     }
 
@@ -116,7 +116,7 @@ class SessionRepositoryTest {
         val sessionDir = File(File(tempDir, "agent/sessions/alice"), session.id)
 
         // 触发 archive 创建 media/
-        val local = session.memory.mediaArchive.store(
+        val local = (session.memory as MediaArchivable).mediaArchive.store(
             MediaSource.Data("image/jpeg", "x".repeat(2048))
         )
         session.memory.add(ChatMessage.User(listOf(ContentPart.Image(local))))

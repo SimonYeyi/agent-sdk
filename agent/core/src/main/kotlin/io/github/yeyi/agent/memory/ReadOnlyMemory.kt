@@ -5,7 +5,6 @@ package io.github.yeyi.agent.memory
  * Hooks 通过此包装器只能读取 history，调用 add 会抛异常。
  */
 internal class ReadOnlyMemory(private val delegate: Memory) : Memory {
-    override val mediaArchive: MediaArchive get() = delegate.mediaArchive
 
     override suspend fun add(entry: MemoryEntry): Unit =
         throw UnsupportedOperationException("Can not modify memory")

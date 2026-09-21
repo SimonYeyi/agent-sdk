@@ -189,6 +189,21 @@ class JsonlConversationTest {
     }
 
     @Test
+    fun `history PAGE_ALL should keep chronological order across 10+ pages`() = runTest {
+        // 每页只装 1 条消息，制造 11 个页面，覆盖"page10.jsonl < page2.jsonl"的字典序陷阱
+        val pagedConv = JsonlConversation(tempDir, innerMemory, pageSizeThreshold = 30)
+        val messages = (1..11).map { "msg$it" }
+        messages.forEach { pagedConv.add(ChatMessage.User(listOf(ContentPart.Text(it)))) }
+
+        val all = pagedConv.history(Conversation.PAGE_ALL)
+
+        assertEquals(messages.size, all.size)
+        messages.forEachIndexed { i, expected ->
+            assertEquals(expected, (all[i].message as ChatMessage.User).firstTextOrEmpty())
+        }
+    }
+
+    @Test
     fun `messages page should return messages in chronological order`() = runTest {
         // Create with small threshold to trigger paging
         val pagedConv = JsonlConversation(tempDir, innerMemory, pageSizeThreshold = 30)
