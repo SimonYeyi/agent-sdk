@@ -22,8 +22,8 @@ public interface HookPipeline : AgentHook {
     /** 按类型批量注销所有该类型的 hook */
     public fun unregister(hookClass: KClass<out Hook>)
 
-    /** 执行流水线 */
-    public suspend fun run(event: HookEvent, context: HookContext): HookResult
+    /** 执行流水线。context 缺省时使用默认空上下文。 */
+    public suspend fun run(event: HookEvent, context: HookContext = HookContext()): HookResult
 
     /** 获取所有已注册的 hooks */
     public fun getHooks(): List<Hook>

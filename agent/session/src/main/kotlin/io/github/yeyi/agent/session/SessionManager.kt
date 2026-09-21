@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.session
 
-import io.github.yeyi.agent.hook.HookContext
 import io.github.yeyi.agent.hook.HookPipeline
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -25,7 +24,7 @@ public class SessionManager(
         return mutex.withLock {
             repository.createSession(accountId, sessionName, sessionId)
         }.also {
-            hookPipeline?.run(SessionHookEvent.Created(session = it), HookContext())
+            hookPipeline?.run(SessionHookEvent.Created(session = it))
             start(it)
         }
     }
@@ -59,7 +58,7 @@ public class SessionManager(
             activeSessions.put(session.id, session) == null
         }
         if (!newlyActive) return
-        hookPipeline?.run(SessionHookEvent.Start(session), HookContext())
+        hookPipeline?.run(SessionHookEvent.Start(session))
     }
 
     /** 将 session 标记为非活跃（发送 [SessionHookEvent.Stop]）。已非活跃则忽略。 */
@@ -68,7 +67,7 @@ public class SessionManager(
             activeSessions.remove(session.id) != null
         }
         if (!wasActive) return
-        hookPipeline?.run(SessionHookEvent.Stop(session), HookContext())
+        hookPipeline?.run(SessionHookEvent.Stop(session))
     }
 
     /** 切换到目标 session：先停其他活跃 session，再启动目标 session。 */
@@ -99,8 +98,7 @@ public class SessionManager(
                     accountId = session.accountId,
                     sessionId = session.id,
                     sessionName = session.name,
-                ),
-                HookContext()
+                )
             )
         }
     }
