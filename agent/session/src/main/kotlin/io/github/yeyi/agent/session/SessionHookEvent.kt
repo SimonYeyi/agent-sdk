@@ -15,6 +15,10 @@ public sealed interface SessionHookEvent : HookEvent {
     /** Session 被标记为非活跃时触发。 */
     public data class Stop(val session: Session) : SessionHookEvent
 
-    /** Session 被删除时触发。 */
-    public data class Deleted(val session: Session) : SessionHookEvent
+    /** Session 被删除时触发。只携带身份信息,不暴露 memory/conversation(已删除)。 */
+    public data class Deleted(
+        val accountId: String,
+        val sessionId: String,
+        val sessionName: String,
+    ) : SessionHookEvent
 }

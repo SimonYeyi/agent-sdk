@@ -90,10 +90,18 @@ public class SessionManager(
     /** 删除指定 session。发送 [SessionHookEvent.Deleted]。 */
     public suspend fun delete(session: Session) {
         stop(session)
-        mutex.withLock {
+        val deleted = mutex.withLock {
             repository.deleteSession(session.accountId, session.id)
-        }?.let {
-            hookPipeline?.run(SessionHookEvent.Deleted(session), HookContext())
+        }
+        if (deleted) {
+            hookPipeline?.run(
+                SessionHookEvent.Deleted(
+                    accountId = session.accountId,
+                    sessionId = session.id,
+                    sessionName = session.name,
+                ),
+                HookContext()
+            )
         }
     }
 

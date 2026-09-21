@@ -125,11 +125,11 @@ internal class SessionRepository(baseDir: File) {
      * 索引条目同步从 `sessions.jsonl` 移除。整 session 目录在 [getSessionDir]
      * 下,一行 deleteRecursively 覆盖三块。
      *
-     * @return 被删除的 session(删除前状态),找不到返回 null
+     * @return 是否删除成功;session 不存在返回 false
      */
-    fun deleteSession(accountId: String, sessionId: String): Session? {
+    fun deleteSession(accountId: String, sessionId: String): Boolean {
         val sessions = readSessionsFromFile(accountId)
-        val toDelete = sessions.firstOrNull { it.id == sessionId } ?: return null
+        sessions.firstOrNull { it.id == sessionId } ?: return false
         val remaining = sessions.filterNot { it.id == sessionId }
 
         val sessionsFile = getSessionsFile(accountId)
@@ -140,8 +140,6 @@ internal class SessionRepository(baseDir: File) {
             sessionDir.deleteRecursively()
         }
 
-        // 返回删除前的快照(transient memory/conversation 仍为 null —— session 已删,
-        // 不重新 hydrate 避免 mkdirs() 复活 session 目录)
-        return toDelete
+        return true
     }
 }
