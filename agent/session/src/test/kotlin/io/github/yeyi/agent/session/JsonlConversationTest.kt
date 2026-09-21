@@ -48,7 +48,7 @@ class JsonlConversationTest {
         conversation.add(ChatMessage.User(listOf(ContentPart.Text("Hello"))))
         conversation.add(ChatMessage.Assistant(content = "Hi"))
 
-        val messages = conversation.messages()
+        val messages = conversation.history(Conversation.PAGE_ALL)
         assertEquals(2, messages.size)
         assertEquals("Hello", (messages[0].message as ChatMessage.User).firstTextOrEmpty())
         assertEquals("Hi", (messages[1].message as ChatMessage.Assistant).content)
@@ -58,22 +58,22 @@ class JsonlConversationTest {
     }
 
     @Test
-    fun `messages null should return all messages`() = runTest {
+    fun `history PAGE_ALL should return all messages`() = runTest {
         conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg1"))))
         conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg2"))))
         conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg3"))))
 
-        val all = conversation.messages(null)
+        val all = conversation.history(Conversation.PAGE_ALL)
         assertEquals(3, all.size)
     }
 
     @Test
-    fun `messages page 1 should return latest page`() = runTest {
+    fun `history page 1 should return latest page`() = runTest {
         conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg1"))))
         conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg2"))))
         conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg3"))))
 
-        val page1 = conversation.messages(1)
+        val page1 = conversation.history(1)
         assertEquals(3, page1.size)
         assertEquals("msg1", (page1[0].message as ChatMessage.User).firstTextOrEmpty())
     }
@@ -89,8 +89,8 @@ class JsonlConversationTest {
         pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("b"))))
 
         // Should have page1 and page2
-        val page1 = pagedConv.messages(1)
-        val page2 = pagedConv.messages(2)
+        val page1 = pagedConv.history(1)
+        val page2 = pagedConv.history(2)
 
         assertTrue(page1.isNotEmpty())
         assertTrue(page2.isNotEmpty())
@@ -106,11 +106,11 @@ class JsonlConversationTest {
         pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg2")))) // -> page2 (new)
 
         // User starts viewing from page 1 (latest = page2)
-        val page1First = pagedConv.messages(1)
+        val page1First = pagedConv.history(1)
         assertEquals("msg2", (page1First[0].message as ChatMessage.User).firstTextOrEmpty())
 
         // User scrolls to page 2 (older = page1)
-        val page2First = pagedConv.messages(2)
+        val page2First = pagedConv.history(2)
         assertEquals("msg1", (page2First[0].message as ChatMessage.User).firstTextOrEmpty())
 
         // New messages come and create page3
@@ -119,7 +119,7 @@ class JsonlConversationTest {
 
         // User scrolls back to page 2 - should still get page1 content
         // because anchor was set to page2 when user first viewed page 1
-        val page2Again = pagedConv.messages(2)
+        val page2Again = pagedConv.history(2)
         assertEquals("msg1", (page2Again[0].message as ChatMessage.User).firstTextOrEmpty())
     }
 
@@ -132,7 +132,7 @@ class JsonlConversationTest {
         pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg2")))) // -> page2
 
         // User views page 1 (sets anchor to page2)
-        val page1First = pagedConv.messages(1)
+        val page1First = pagedConv.history(1)
         assertEquals("msg2", (page1First[0].message as ChatMessage.User).firstTextOrEmpty())
 
         // New messages come and create page3
@@ -140,21 +140,21 @@ class JsonlConversationTest {
         pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg4"))))
 
         // User returns to page 1 - should reset anchor to page3
-        val page1Again = pagedConv.messages(1)
+        val page1Again = pagedConv.history(1)
         assertEquals("msg4", (page1Again[0].message as ChatMessage.User).firstTextOrEmpty())
 
         // Page 2 should now be page2 content
-        val page2 = pagedConv.messages(2)
+        val page2 = pagedConv.history(2)
         assertEquals("msg3", (page2[0].message as ChatMessage.User).firstTextOrEmpty())
     }
 
     @Test
-    fun `messages with invalid page should return empty`() = runTest {
+    fun `history with invalid page should return empty`() = runTest {
         conversation.add(ChatMessage.User(listOf(ContentPart.Text("msg1"))))
 
-        assertTrue(conversation.messages(0).isEmpty())
-        assertTrue(conversation.messages(-1).isEmpty())
-        assertTrue(conversation.messages(100).isEmpty())
+        assertTrue(conversation.history(-2).isEmpty())
+        assertTrue(conversation.history(-1).isEmpty())
+        assertTrue(conversation.history(100).isEmpty())
     }
 
     @Test
@@ -175,12 +175,12 @@ class JsonlConversationTest {
     }
 
     @Test
-    fun `messages null should return messages in chronological order`() = runTest {
+    fun `history PAGE_ALL should return messages in chronological order`() = runTest {
         conversation.add(ChatMessage.User(listOf(ContentPart.Text("first"))))
         conversation.add(ChatMessage.User(listOf(ContentPart.Text("second"))))
         conversation.add(ChatMessage.User(listOf(ContentPart.Text("third"))))
 
-        val all = conversation.messages(null)
+        val all = conversation.history(Conversation.PAGE_ALL)
 
         assertEquals(3, all.size)
         assertEquals("first", (all[0].message as ChatMessage.User).firstTextOrEmpty())
@@ -199,7 +199,7 @@ class JsonlConversationTest {
         pagedConv.add(ChatMessage.User(listOf(ContentPart.Text("msg4"))))
 
         // Page 1 should return newer messages first (within the page)
-        val page1 = pagedConv.messages(1)
+        val page1 = pagedConv.history(1)
         // page1 is the latest page, should have msg4 or msg3+msg4
         assertTrue(page1.isNotEmpty())
     }

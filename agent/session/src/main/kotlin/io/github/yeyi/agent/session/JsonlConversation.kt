@@ -58,7 +58,7 @@ internal class JsonlConversation(
     }
 
     /**
-     * 获取对话消息
+     * 获取对话历史
      *
      * ## 分页存储
      *
@@ -68,9 +68,9 @@ internal class JsonlConversation(
      * ## 翻页锚点机制
      *
      * 为解决翻页过程中新增消息导致页码错位问题，采用锚点算法：
-     * - 调用 [messages](1) 时记录当前最大页码为锚点（[startPage]）
-     * - 此后 [messages](N) 基于锚点计算：`实际页 = 锚点 - (N - 1)`
-     * - 再次调用 [messages](1) 重置锚点到最新页
+     * - 调用 [history](1) 时记录当前最大页码为锚点（[startPage]）
+     * - 此后 [history](N) 基于锚点计算：`实际页 = 锚点 - (N - 1)`
+     * - 再次调用 [history](1) 重置锚点到最新页
      *
      * **首次调用必须传入 1**，否则返回空列表。
      *
@@ -78,16 +78,16 @@ internal class JsonlConversation(
      *
      * ```
      * // 正确用法
-     * val latest = messages(1)      // 建立锚点，获取最新页
-     * val older = messages(2)       // 基于锚点翻页
+     * val latest = history(1)      // 建立锚点，获取最新页
+     * val older = history(2)       // 基于锚点翻页
      *
      * // 错误用法（返回空列表）
-     * val older = messages(2)      // 锚点未建立
+     * val older = history(2)      // 锚点未建立
      * ```
      */
-    override suspend fun messages(page: Int?): List<MemoryEntry> {
+    override suspend fun history(page: Int): List<MemoryEntry> {
         return withContext(Dispatchers.IO) {
-            if (page == null) {
+            if (page == Conversation.PAGE_ALL) {
                 return@withContext conversationDir.listFiles()
                     ?.filter { it.name.startsWith("page") && it.name.endsWith(".jsonl") }
                     ?.sortedBy { it.name }

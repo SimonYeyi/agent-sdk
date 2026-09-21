@@ -84,7 +84,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             try {
                 val session = sessionManager.get(accountId, sessionId)
-                val chatMessages = session.conversation.messages(1)
+                val chatMessages = session.conversation.history(1)
                     .filter { entry ->
                         val msg = entry.message
                         msg is ChatMessage.User ||
@@ -254,7 +254,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
             _uiState.value = _uiState.value.copy(isLoadingMore = true)
             try {
                 val nextPage = _uiState.value.currentPage + 1
-                val olderMessages = session.conversation.messages(nextPage)
+                val olderMessages = session.conversation.history(nextPage)
                     .filter { entry ->
                         val msg = entry.message
                         msg is ChatMessage.User ||

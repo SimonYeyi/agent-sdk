@@ -24,8 +24,8 @@ conversations/
 
 ```kotlin
 public interface Conversation {
-    fun messages(page: Int? = null): List<ChatMessage>
-    // page = null：返回所有消息
+    fun history(page: Int): List<MemoryEntry>
+    // page = PAGE_ALL(0)：返回所有消息
     // page = 1：最新一页，page = 2：更旧一页...
 }
 ```
@@ -214,14 +214,14 @@ JsonlConversation.add(message)
 1. 追加到当前 page 文件（超阈值创建新 page）
 2. innerMemory.add(message)  # 被压缩记忆处理
     ↓
-UI.messages(null) → 所有历史
-UI.messages(1) → 最新一页
-UI.messages(2) → 更旧一页
+UI.history(PAGE_ALL) → 所有历史
+UI.history(1) → 最新一页
+UI.history(2) → 更旧一页
 ```
 
 ## 变更文件
 
-- `session/src/main/kotlin/io/github/yeyi/agent/session/Conversation.kt` - 接口改为 `messages(page: Int? = null)`
+- `session/src/main/kotlin/io/github/yeyi/agent/session/Conversation.kt` - 接口为 `history(page: Int)`，常量 `PAGE_ALL = 0`
 - `session/src/main/kotlin/io/github/yeyi/agent/session/JsonlConversation.kt` - 支持分页存储
 - `session/src/main/kotlin/io/github/yeyi/agent/session/Session.kt` - 已有
 - `session/src/main/kotlin/io/github/yeyi/agent/session/SessionRepository.kt` - 适配目录结构
