@@ -125,11 +125,13 @@ internal class SessionRepository(baseDir: File) {
      * 索引条目同步从 `sessions.jsonl` 移除。整 session 目录在 [getSessionDir]
      * 下,一行 deleteRecursively 覆盖三块。
      *
-     * @return 是否删除成功;session 不存在返回 false
+     * @return 被删除的 session(删除前状态),找不到返回 null。
+     * 快照未 hydrate,访问其 [Session.memory]/[Session.conversation] 会抛
+     * `IllegalStateException` —— 目录已删,这是预期行为而非缺陷
      */
-    fun deleteSession(accountId: String, sessionId: String): Boolean {
+    fun deleteSession(accountId: String, sessionId: String): Session? {
         val sessions = readSessionsFromFile(accountId)
-        sessions.firstOrNull { it.id == sessionId } ?: return false
+        val toDelete = sessions.firstOrNull { it.id == sessionId } ?: return null
         val remaining = sessions.filterNot { it.id == sessionId }
 
         val sessionsFile = getSessionsFile(accountId)
@@ -140,6 +142,8 @@ internal class SessionRepository(baseDir: File) {
             sessionDir.deleteRecursively()
         }
 
-        return true
+        // 返回删除前的快照(transient memory/conversation 仍为 null —— session 已删,
+        // 不重新 hydrate 避免 mkdirs() 复活 session 目录)
+        return toDelete
     }
 }

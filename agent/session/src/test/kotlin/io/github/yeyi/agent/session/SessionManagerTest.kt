@@ -152,13 +152,13 @@ class SessionManagerTest {
         val events = mutableListOf<String>()
         val pipeline = recordingPipeline { event ->
             if (event is SessionHookEvent.Deleted) {
-                events.add("onSessionDeleted(${event.accountId},${event.sessionId},${event.sessionName})")
+                events.add("onSessionDeleted(${event.session.accountId},${event.session.id})")
             }
         }
         val manager = SessionManager(tempDir, pipeline)
         val session = manager.create("user1", "my session")
         manager.delete(session)
-        assertEquals(listOf("onSessionDeleted(user1,${session.id},my session)"), events)
+        assertEquals(listOf("onSessionDeleted(user1,${session.id})"), events)
     }
 
     @Test

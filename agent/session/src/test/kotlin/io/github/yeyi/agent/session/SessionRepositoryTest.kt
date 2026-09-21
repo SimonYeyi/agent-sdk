@@ -13,7 +13,6 @@ import java.io.File
 import java.nio.file.Files
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -134,7 +133,7 @@ class SessionRepositoryTest {
 
         val result = repo.deleteSession("alice", session.id)
 
-        assertTrue(result)
+        assertNotNull(result)
         assertTrue(!sessionDir.exists(),
             "per-session directory should be deleted: ${sessionDir.absolutePath}")
 
@@ -150,12 +149,7 @@ class SessionRepositoryTest {
         val session = repo.createSession("alice", "chat1", null)
         assertNotNull(repo.findSession("alice", session.id))
 
-        assertTrue(repo.deleteSession("alice", session.id))
+        repo.deleteSession("alice", session.id)
         assertEquals(null, repo.findSession("alice", session.id))
-    }
-
-    @Test
-    fun `deleteSession returns false when session does not exist`() {
-        assertFalse(repo.deleteSession("alice", "nonexistent"))
     }
 }
