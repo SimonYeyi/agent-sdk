@@ -208,4 +208,45 @@ class AnthropicMappingTest {
         }
         assertTrue(ex.message!!.contains("Local"))
     }
+
+    @Test
+    fun `thinking false maps to disabled thinking object`() {
+        val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
+        val mapped = mapToAnthropic("claude-sonnet-4-6", req, thinking = false)
+        assertEquals(AnthropicThinking(type = "disabled"), mapped.thinking)
+    }
+
+    @Test
+    fun `thinking true maps to enabled thinking object with default budget`() {
+        val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
+        val mapped = mapToAnthropic("claude-sonnet-4-6", req, thinking = true)
+        assertEquals(AnthropicThinking(type = "enabled", budgetTokens = 4096), mapped.thinking)
+    }
+
+    @Test
+    fun `thinking true raises default maxTokens above budget`() {
+        // Anthropic 要求 thinking enabled 时 max_tokens 必须大于 budget_tokens，否则 400；
+        // 未显式传 maxTokens 时兜底为 budget + 输出余量。
+        val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
+        val mapped = mapToAnthropic("claude-sonnet-4-6", req, thinking = true)
+        assertEquals(4096 + 1024, mapped.maxTokens)
+        assertTrue(mapped.maxTokens > (mapped.thinking as AnthropicThinking).budgetTokens!!)
+    }
+
+    @Test
+    fun `thinking true keeps larger explicit maxTokens`() {
+        val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))), maxTokens = 16000)
+        val mapped = mapToAnthropic("claude-sonnet-4-6", req, thinking = true)
+        assertEquals(16000, mapped.maxTokens)
+    }
+
+    @Test
+    fun `thinking false serializes to thinking disabled wire format`() {
+        val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
+        val mapped = mapToAnthropic("claude-sonnet-4-6", req, thinking = false)
+        // explicitNulls=false 与生产 HttpClient 的 Json 配置保持一致
+        val json = Json { explicitNulls = false }.encodeToString(AnthropicChatRequest.serializer(), mapped)
+        // Sonnet 5 等新模型默认开思考, 必须显式发 {"type":"disabled"} 才能关闭
+        assertTrue(json.contains(""""thinking":{"type":"disabled"}"""), "actual: $json")
+    }
 }

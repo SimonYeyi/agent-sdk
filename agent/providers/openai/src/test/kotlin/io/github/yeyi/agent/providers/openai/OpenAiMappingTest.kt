@@ -204,4 +204,47 @@ class OpenAiMappingTest {
         }
         assertTrue(ex.message!!.contains("Local"))
     }
+
+    @Test
+    fun `thinking false fills all dialect fields with disabled configs`() {
+        val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
+        val out = mapToOpenAi("gpt-4o-mini", req, stream = false, thinking = false)
+        // 三种方言一起写: thinking 对象 + enable_thinking + reasoning_effort
+        assertEquals(OpenAiThinkingConfig("disabled"), out.thinking)
+        assertEquals(false, out.enableThinking)
+        assertEquals("minimal", out.reasoningEffort)
+    }
+
+    @Test
+    fun `thinking true fills all dialect fields with enabled configs`() {
+        val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
+        val out = mapToOpenAi("gpt-4o-mini", req, stream = false, thinking = true)
+        assertEquals(OpenAiThinkingConfig("enabled"), out.thinking)
+        assertEquals(true, out.enableThinking)
+        assertEquals("high", out.reasoningEffort)
+    }
+
+    @Test
+    fun `thinking false serializes all dialect wire formats`() {
+        val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
+        val out = mapToOpenAi("gpt-4o-mini", req, stream = false, thinking = false)
+        // explicitNulls=false 与生产 HttpClient 的 Json 配置保持一致
+        val json = Json { explicitNulls = false }.encodeToString(OpenAiChatRequest.serializer(), out)
+        // Kimi K2 / GLM / DeepSeek / 豆包 / MiniMax 认 thinking 对象
+        assertTrue(json.contains(""""thinking":{"type":"disabled"}"""), "actual: $json")
+        // 通义千问 / DashScope 部署的 DeepSeek 认 enable_thinking
+        assertTrue(json.contains(""""enable_thinking":false"""), "actual: $json")
+        // OpenAI 官方 o 系 / GPT-5 认 reasoning_effort
+        assertTrue(json.contains(""""reasoning_effort":"minimal""""), "actual: $json")
+    }
+
+    @Test
+    fun `thinking true serializes all dialect wire formats`() {
+        val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
+        val out = mapToOpenAi("gpt-4o-mini", req, stream = false, thinking = true)
+        val json = Json { explicitNulls = false }.encodeToString(OpenAiChatRequest.serializer(), out)
+        assertTrue(json.contains(""""thinking":{"type":"enabled"}"""), "actual: $json")
+        assertTrue(json.contains(""""enable_thinking":true"""), "actual: $json")
+        assertTrue(json.contains(""""reasoning_effort":"high""""), "actual: $json")
+    }
 }

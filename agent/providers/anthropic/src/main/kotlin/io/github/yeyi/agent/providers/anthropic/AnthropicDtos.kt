@@ -14,6 +14,14 @@ internal data class AnthropicChatRequest(
     @SerialName("max_tokens") val maxTokens: Int,
     val temperature: Double? = null,
     @SerialName("stop_sequences") val stopSequences: List<String>? = null,
+    // 思考模式：{"type":"disabled"} 关闭 / {"type":"enabled","budget_tokens":N} 开启。
+    val thinking: AnthropicThinking? = null,
+)
+
+@Serializable
+internal data class AnthropicThinking(
+    val type: String,
+    @SerialName("budget_tokens") val budgetTokens: Int? = null,
 )
 
 @Serializable

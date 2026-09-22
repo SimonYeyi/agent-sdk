@@ -22,8 +22,15 @@ internal data class OpenAiChatRequest(
     @SerialName("max_tokens") val maxTokens: Int? = null,
     val stop: List<String>? = null,
     val stream: Boolean? = null,
-    @SerialName("stream_options") val streamOptions: OpenAiStreamOptions? = null
+    @SerialName("stream_options") val streamOptions: OpenAiStreamOptions? = null,
+    // 思考模式：三种方言同时填写，开启/关闭状态统一填对应值，厂商识别哪个就用哪个。
+    val thinking: OpenAiThinkingConfig? = null,                    // 方言 THINKING_OBJECT（Kimi K2 / GLM / DeepSeek / 豆包 / MiniMax 等）
+    @SerialName("enable_thinking") val enableThinking: Boolean? = null, // 方言 ENABLE_THINKING（通义千问 DashScope 兼容模式等）
+    @SerialName("reasoning_effort") val reasoningEffort: String? = null // 方言 REASONING_EFFORT（OpenAI 官方 o 系 / GPT-5）
 )
+
+@Serializable
+internal data class OpenAiThinkingConfig(val type: String)
 
 @Serializable
 internal data class OpenAiStreamOptions(

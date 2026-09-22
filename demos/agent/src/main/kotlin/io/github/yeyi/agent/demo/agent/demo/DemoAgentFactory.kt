@@ -17,7 +17,6 @@ import io.github.yeyi.agent.demo.agent.demo.tools.getWeatherTool
 import io.github.yeyi.agent.demo.agent.log.HttpLogger
 import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.log.LogDelegate
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.mcp.ClientInfo
 import io.github.yeyi.agent.mcp.McpRegistry
@@ -97,9 +96,9 @@ object DemoAgentFactory {
         val httpClient = httpClient()
 
         val llmProvider: LlmProvider = if (provider == PROVIDER_ANTHROPIC) {
-            AnthropicProvider(apiKey = apiKey, model = model, baseUrl = baseUrl, httpClient)
+            AnthropicProvider(apiKey = apiKey, model = model, baseUrl = baseUrl, httpClient = httpClient)
         } else {
-            OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl, httpClient)
+            OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl, httpClient = httpClient)
         }
 
         val mcpRegistry =

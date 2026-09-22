@@ -10,8 +10,13 @@ import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.llm.text
+import kotlin.math.max
 
-internal fun mapToAnthropic(model: String, request: ChatRequest): AnthropicChatRequest {
+internal fun mapToAnthropic(
+    model: String,
+    request: ChatRequest,
+    thinking: Boolean = false,
+): AnthropicChatRequest {
     // Anthropic 协议把 system 提升为顶层字段, 且 messages 数组只接受 user/assistant 角色。
     // 所有 ChatMessage.System 在此拼接为单一 system 字符串, 用空行分隔;原列表中的 System
     // 不再进入 messages 数组(否则 API 可能会返回 400)。
@@ -57,17 +62,41 @@ internal fun mapToAnthropic(model: String, request: ChatRequest): AnthropicChatR
             inputSchema = tool.parametersSchema,
         )
     }
+    // Anthropic 要求 thinking enabled 时 max_tokens 必须大于 budget_tokens，否则 API 返回 400。
+    // 未显式传 maxTokens 时兜底为 budget + 输出余量，保证开启即合法。
+    val maxTokens: Int = if (thinking) {
+        val floor = DEFAULT_THINKING_BUDGET + DEFAULT_OUTPUT_TOKEN_MARGIN
+        max(request.maxTokens ?: floor, floor)
+    } else {
+        request.maxTokens ?: 1024
+    }
     return AnthropicChatRequest(
         model = model,
         system = systemPrompt,
         messages = messages,
         tools = tools,
         stream = false,
-        maxTokens = request.maxTokens ?: 1024,
+        maxTokens = maxTokens,
         temperature = request.temperature,
         stopSequences = request.stopSequences.takeIf { it.isNotEmpty() },
+        thinking = thinking(thinking),
     )
 }
+
+/**
+ * 把思考开关翻译为 Anthropic `thinking` 对象。
+ * 默认 false 显式发 `{"type":"disabled"}`：Sonnet 5 等新模型默认开启自适应思考，
+ * 必须显式关闭才能避免简单任务消耗思考 token；true 时发 `{"type":"enabled",...}`。
+ */
+private fun thinking(enabled: Boolean): AnthropicThinking =
+    if (enabled) AnthropicThinking(type = "enabled", budgetTokens = DEFAULT_THINKING_BUDGET)
+    else AnthropicThinking(type = "disabled")
+
+/** 开启思考模式时默认的 token 预算。 */
+private const val DEFAULT_THINKING_BUDGET: Int = 4096
+
+/** thinking 开启时输出余量：max_tokens 必须大于 budget_tokens，默认兜底为 budget + 该余量。 */
+private const val DEFAULT_OUTPUT_TOKEN_MARGIN: Int = 1024
 
 internal fun mapAnthropicToCore(response: AnthropicChatResponse): ChatResponse {
     val text = response.content.filterIsInstance<AnthropicContentBlock.Text>()
@@ -98,30 +127,35 @@ internal fun mapAnthropicToCore(response: AnthropicChatResponse): ChatResponse {
     )
 }
 
-private fun mapImageToAnthropic(source: MediaSource): AnthropicContentBlock.Image.Source = when (source) {
-    is MediaSource.Http -> AnthropicContentBlock.Image.UrlSource(source.url)
-    is MediaSource.Data -> AnthropicContentBlock.Image.Base64Source(
-        mediaType = source.mimeType,
-        data = source.base64
-    )
-    is MediaSource.FileId -> AnthropicContentBlock.Image.FileSource(source.id)
-    is MediaSource.Local -> throw AgentException.UnsupportedContent(
-        "Anthropic does not accept Local media; resolve to Data via ModalityAdapter first"
-    )
-}
+private fun mapImageToAnthropic(source: MediaSource): AnthropicContentBlock.Image.Source =
+    when (source) {
+        is MediaSource.Http -> AnthropicContentBlock.Image.UrlSource(source.url)
+        is MediaSource.Data -> AnthropicContentBlock.Image.Base64Source(
+            mediaType = source.mimeType,
+            data = source.base64
+        )
 
-private fun mapAudioToAnthropic(source: MediaSource): AnthropicContentBlock.Image.Source = mapImageToAnthropic(source)
+        is MediaSource.FileId -> AnthropicContentBlock.Image.FileSource(source.id)
+        is MediaSource.Local -> throw AgentException.UnsupportedContent(
+            "Anthropic does not accept Local media; resolve to Data via ModalityAdapter first"
+        )
+    }
 
-private fun mapVideoToAnthropic(source: MediaSource): AnthropicContentBlock.Image.Source = when (source) {
-    is MediaSource.Http -> AnthropicContentBlock.Image.UrlSource(source.url)
-    is MediaSource.FileId -> AnthropicContentBlock.Image.FileSource(source.id)
-    is MediaSource.Data -> throw AgentException.UnsupportedContent(
-        "Anthropic does not support video base64 inline; use Http or FileId"
-    )
-    is MediaSource.Local -> throw AgentException.UnsupportedContent(
-        "Anthropic does not accept Local media; resolve to Data via ModalityAdapter first"
-    )
-}
+private fun mapAudioToAnthropic(source: MediaSource): AnthropicContentBlock.Image.Source =
+    mapImageToAnthropic(source)
+
+private fun mapVideoToAnthropic(source: MediaSource): AnthropicContentBlock.Image.Source =
+    when (source) {
+        is MediaSource.Http -> AnthropicContentBlock.Image.UrlSource(source.url)
+        is MediaSource.FileId -> AnthropicContentBlock.Image.FileSource(source.id)
+        is MediaSource.Data -> throw AgentException.UnsupportedContent(
+            "Anthropic does not support video base64 inline; use Http or FileId"
+        )
+
+        is MediaSource.Local -> throw AgentException.UnsupportedContent(
+            "Anthropic does not accept Local media; resolve to Data via ModalityAdapter first"
+        )
+    }
 
 private fun mapContentPart(part: ContentPart): AnthropicContentBlock = when (part) {
     is ContentPart.Text -> AnthropicContentBlock.Text(part.text)

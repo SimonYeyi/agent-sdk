@@ -65,4 +65,49 @@ class OpenAiProviderChatTest {
             assertTrue(e.message!!.contains("LLM call failed"))
         }
     }
+
+    @Test
+    fun `chat sends disabled configs for all dialects when thinking false`() = runTest {
+        var capturedBody: String? = null
+        val provider = OpenAiProvider(
+            apiKey = "test",
+            model = "deepseek-chat",
+            baseUrl = OpenAiProvider.DEFAULT_BASE_URL,
+            thinking = false,
+            httpClient = mockOpenAiHttpClient { request ->
+                capturedBody = requestBodyText(request.body)
+                respond(
+                    content = """{"id":"c1","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}""",
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        )
+        provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
+        // 关闭时统一带上各方言关配置: DeepSeek / Kimi / GLM 认 thinking 对象, 通义千问认 enable_thinking
+        assertTrue(capturedBody!!.contains(""""thinking":{"type":"disabled"}"""), "actual: $capturedBody")
+        assertTrue(capturedBody!!.contains(""""enable_thinking":false"""), "actual: $capturedBody")
+    }
+
+    @Test
+    fun `chat sends enabled configs for all dialects when thinking true`() = runTest {
+        var capturedBody: String? = null
+        val provider = OpenAiProvider(
+            apiKey = "test",
+            model = "qwen-plus",
+            baseUrl = OpenAiProvider.DEFAULT_BASE_URL,
+            thinking = true,
+            httpClient = mockOpenAiHttpClient { request ->
+                capturedBody = requestBodyText(request.body)
+                respond(
+                    content = """{"id":"c1","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}""",
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        )
+        provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
+        assertTrue(capturedBody!!.contains(""""thinking":{"type":"enabled"}"""), "actual: $capturedBody")
+        assertTrue(capturedBody!!.contains(""""enable_thinking":true"""), "actual: $capturedBody")
+    }
 }

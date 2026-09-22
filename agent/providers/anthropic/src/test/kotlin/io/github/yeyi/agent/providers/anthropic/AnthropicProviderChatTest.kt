@@ -109,4 +109,52 @@ class AnthropicProviderChatTest {
             )
         }
     }
+
+    @Test
+    fun `chat sends thinking disabled by default`() = runTest {
+        var capturedBody: String? = null
+        val http = mockAnthropicHttpClient { request ->
+            capturedBody = requestBodyText(request.body)
+            respond(
+                content = ByteReadChannel(
+                    """{"id":"m1","model":"claude-sonnet-4-6","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":2}}"""
+                ),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        // 默认 DISABLED: Sonnet 5 等新模型默认开自适应思考, 需显式关闭
+        val provider = AnthropicProvider(
+            apiKey = "k",
+            model = "claude-sonnet-4-6",
+            baseUrl = AnthropicProvider.DEFAULT_BASE_URL,
+            httpClient = http,
+        )
+        provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
+        assertTrue(capturedBody!!.contains(""""thinking":{"type":"disabled"}"""), "actual: $capturedBody")
+    }
+
+    @Test
+    fun `chat sends thinking enabled when thinking true`() = runTest {
+        var capturedBody: String? = null
+        val http = mockAnthropicHttpClient { request ->
+            capturedBody = requestBodyText(request.body)
+            respond(
+                content = ByteReadChannel(
+                    """{"id":"m1","model":"claude-sonnet-4-6","content":[{"type":"text","text":"ok"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":2}}"""
+                ),
+                status = HttpStatusCode.OK,
+                headers = headersOf(HttpHeaders.ContentType, "application/json"),
+            )
+        }
+        val provider = AnthropicProvider(
+            apiKey = "k",
+            model = "claude-sonnet-4-6",
+            baseUrl = AnthropicProvider.DEFAULT_BASE_URL,
+            thinking = true,
+            httpClient = http,
+        )
+        provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
+        assertTrue(capturedBody!!.contains(""""thinking":{"type":"enabled","budget_tokens":4096}"""), "actual: $capturedBody")
+    }
 }

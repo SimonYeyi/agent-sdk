@@ -27,6 +27,11 @@ import kotlinx.serialization.json.Json
  * - [apiKey] OpenAI API Key（必填）
  * - [model] 模型名称，默认 [DEFAULT_MODEL]
  * - [baseUrl] API 地址，默认 [DEFAULT_BASE_URL]
+ * - [thinking] 是否开启思考模式，默认 false。国内兼容厂商对"思考"的 wire 字段
+ *   各不相同（`thinking` 对象 / `enable_thinking` / `reasoning_effort`），本 Provider
+ *   在开启/关闭时统一带上各主流方言的对应配置，厂商识别哪个就用哪个。
+ *   默认 false 显式关闭，可避免 DeepSeek R1、Kimi K2、通义千问 QwQ 等默认开思考的
+ *   模型白白消耗 token、拉低响应速度。
  * - [httpClient] 可自定义 Ktor HTTP Client，不传则使用 [defaultHttpClient]
  *
  * 快捷构造：[official] 使用官方 endpoint 和默认 HTTP Client。
@@ -34,12 +39,20 @@ import kotlinx.serialization.json.Json
  * 示例：
  * ```
  * val provider = OpenAiProvider.official(apiKey = "sk-...")
+ * // 关闭国内兼容厂商默认开启的思考模式
+ * val provider2 = OpenAiProvider(
+ *     apiKey = "sk-...",
+ *     model = "deepseek-chat",
+ *     baseUrl = "https://api.deepseek.com/v1",
+ *     thinking = false,
+ * )
  * ```
  */
 public class OpenAiProvider(
     private val apiKey: String,
     private val model: String,
     private val baseUrl: String,
+    public val thinking: Boolean = false,
     private val httpClient: HttpClient = defaultHttpClient()
 ) : LlmProvider {
     override val name: String = "openai"
@@ -74,7 +87,7 @@ public class OpenAiProvider(
     }
 
     override suspend fun chat(request: ChatRequest): ChatResponse {
-        val openAiReq = mapToOpenAi(model, request, stream = false)
+        val openAiReq = mapToOpenAi(model, request, thinking = thinking, stream = false)
         val resp: HttpResponse = try {
             httpClient.post("$baseUrl/chat/completions") {
                 header(HttpHeaders.Authorization, "Bearer $apiKey")
@@ -99,7 +112,7 @@ public class OpenAiProvider(
     }
 
     override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
-        val openAiReq = mapToOpenAi(model, request, stream = true)
+        val openAiReq = mapToOpenAi(model, request, thinking = thinking, stream = true)
         try {
             httpClient.preparePost("$baseUrl/chat/completions") {
                 header(HttpHeaders.Authorization, "Bearer $apiKey")

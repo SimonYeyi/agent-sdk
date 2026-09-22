@@ -17,7 +17,12 @@ import kotlinx.serialization.json.JsonNull
 // (e.g., new provider-side fields) so the parser does not break.
 private val Mapper: Json = Json { ignoreUnknownKeys = true }
 
-internal fun mapToOpenAi(model: String, request: ChatRequest, stream: Boolean): OpenAiChatRequest {
+internal fun mapToOpenAi(
+    model: String,
+    request: ChatRequest,
+    stream: Boolean,
+    thinking: Boolean = false,
+): OpenAiChatRequest {
     val messages = request.messages.map { msg ->
         when (msg) {
             is ChatMessage.System -> OpenAiMessage(role = "system", content = OpenAiContent.StringValue(msg.content))
@@ -52,6 +57,7 @@ internal fun mapToOpenAi(model: String, request: ChatRequest, stream: Boolean): 
             parameters = td.parametersSchema
         ))
     }
+    val (thinkingConfig, enableThinking, reasoningEffort) = thinkingFields(thinking)
     return OpenAiChatRequest(
         model = model,
         messages = messages,
@@ -60,8 +66,28 @@ internal fun mapToOpenAi(model: String, request: ChatRequest, stream: Boolean): 
         maxTokens = request.maxTokens,
         stop = request.stopSequences.takeIf { it.isNotEmpty() },
         stream = if (stream) true else null,
-        streamOptions = if (stream) OpenAiStreamOptions(includeUsage = true) else null
+        streamOptions = if (stream) OpenAiStreamOptions(includeUsage = true) else null,
+        thinking = thinkingConfig,
+        enableThinking = enableThinking,
+        reasoningEffort = reasoningEffort,
     )
+}
+
+/**
+ * 把思考开关翻译为各主流 OpenAI 兼容方言的 wire 字段，统一一起发送。
+ *
+ * 国内厂商对"思考"概念字段不一：
+ * - `thinking: {"type": ...}` —— Kimi K2 / GLM / DeepSeek / 豆包 / MiniMax 等
+ * - `enable_thinking: bool` —— 通义千问（DashScope 兼容模式）等
+ * - `reasoning_effort: "high"/"minimal"` —— OpenAI 官方 o 系 / GPT-5 无布尔开关
+ *
+ * 开启时全部填开启配置，关闭时全部填关闭配置，目标厂商识别哪个就用哪个。
+ * 目前不区分方言（后续有需要可再拆分为枚举）。
+ */
+private fun thinkingFields(enabled: Boolean): Triple<OpenAiThinkingConfig?, Boolean?, String?> {
+    val type = if (enabled) "enabled" else "disabled"
+    val effort = if (enabled) "high" else "minimal"
+    return Triple(OpenAiThinkingConfig(type = type), enabled, effort)
 }
 
 private fun mapUserToOpenAi(msg: ChatMessage.User): OpenAiMessage {
