@@ -21,7 +21,7 @@ internal fun mapToOpenAi(
     model: String,
     request: ChatRequest,
     stream: Boolean,
-    thinking: Boolean = false,
+    thinkingType: OpenAiThinkingType = OpenAiThinkingType.DISABLED,
 ): OpenAiChatRequest {
     val messages = request.messages.map { msg ->
         when (msg) {
@@ -57,7 +57,7 @@ internal fun mapToOpenAi(
             parameters = td.parametersSchema
         ))
     }
-    val (thinkingConfig, enableThinking, reasoningEffort) = thinkingFields(thinking)
+    val (thinkingConfig, enableThinking, reasoningEffort) = thinkingFields(thinkingType)
     return OpenAiChatRequest(
         model = model,
         messages = messages,
@@ -81,13 +81,13 @@ internal fun mapToOpenAi(
  * - `enable_thinking: bool` —— 通义千问（DashScope 兼容模式）等
  * - `reasoning_effort: "high"/"minimal"` —— OpenAI 官方 o 系 / GPT-5 无布尔开关
  *
- * 开启时全部填开启配置，关闭时全部填关闭配置，目标厂商识别哪个就用哪个。
- * 目前不区分方言（后续有需要可再拆分为枚举）。
+ * [thinkingType] 即 `thinking.type` 的完整取值（含 [OpenAiThinkingType.DISABLED]），
+ * 开启/关闭状态由枚举本身表达，其余方言字段按同状态推导，目标厂商识别哪个就用哪个。
  */
-private fun thinkingFields(enabled: Boolean): Triple<OpenAiThinkingConfig?, Boolean?, String?> {
-    val type = if (enabled) "enabled" else "disabled"
+private fun thinkingFields(thinkingType: OpenAiThinkingType): Triple<OpenAiThinkingConfig?, Boolean?, String?> {
+    val enabled: Boolean = (thinkingType != OpenAiThinkingType.DISABLED)
     val effort = if (enabled) "high" else "minimal"
-    return Triple(OpenAiThinkingConfig(type = type), enabled, effort)
+    return Triple(OpenAiThinkingConfig(type = thinkingType), enabled, effort)
 }
 
 private fun mapUserToOpenAi(msg: ChatMessage.User): OpenAiMessage {

@@ -29,8 +29,20 @@ internal data class OpenAiChatRequest(
     @SerialName("reasoning_effort") val reasoningEffort: String? = null // 方言 REASONING_EFFORT（OpenAI 官方 o 系 / GPT-5）
 )
 
+/**
+ * 思考对象 `thinking.type` 的取值。
+ * 主流厂商（Kimi K2 / GLM / DeepSeek / 豆包）开启用 [ENABLED]；
+ * MiniMax 只接受 [ADAPTIVE]；关闭统一用 [DISABLED]。
+ */
 @Serializable
-internal data class OpenAiThinkingConfig(val type: String)
+internal enum class OpenAiThinkingType {
+    @SerialName("enabled") ENABLED,
+    @SerialName("adaptive") ADAPTIVE,
+    @SerialName("disabled") DISABLED,
+}
+
+@Serializable
+internal data class OpenAiThinkingConfig(val type: OpenAiThinkingType)
 
 @Serializable
 internal data class OpenAiStreamOptions(

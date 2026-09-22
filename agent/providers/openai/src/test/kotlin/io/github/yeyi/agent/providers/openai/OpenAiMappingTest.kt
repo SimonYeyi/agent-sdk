@@ -208,9 +208,9 @@ class OpenAiMappingTest {
     @Test
     fun `thinking false fills all dialect fields with disabled configs`() {
         val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
-        val out = mapToOpenAi("gpt-4o-mini", req, stream = false, thinking = false)
+        val out = mapToOpenAi("gpt-4o-mini", req, stream = false, thinkingType = OpenAiThinkingType.DISABLED)
         // 三种方言一起写: thinking 对象 + enable_thinking + reasoning_effort
-        assertEquals(OpenAiThinkingConfig("disabled"), out.thinking)
+        assertEquals(OpenAiThinkingConfig(OpenAiThinkingType.DISABLED), out.thinking)
         assertEquals(false, out.enableThinking)
         assertEquals("minimal", out.reasoningEffort)
     }
@@ -218,16 +218,28 @@ class OpenAiMappingTest {
     @Test
     fun `thinking true fills all dialect fields with enabled configs`() {
         val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
-        val out = mapToOpenAi("gpt-4o-mini", req, stream = false, thinking = true)
-        assertEquals(OpenAiThinkingConfig("enabled"), out.thinking)
+        val out = mapToOpenAi("gpt-4o-mini", req, stream = false, thinkingType = OpenAiThinkingType.ENABLED)
+        assertEquals(OpenAiThinkingConfig(OpenAiThinkingType.ENABLED), out.thinking)
         assertEquals(true, out.enableThinking)
         assertEquals("high", out.reasoningEffort)
     }
 
     @Test
+    fun `thinking true uses adaptive type for MiniMax dialect`() {
+        // MiniMax 严格校验 thinking.type，只接受 "adaptive" / "disabled"，不接受 "enabled"
+        val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
+        val out = mapToOpenAi("MiniMax-M2", req, stream = false, thinkingType = OpenAiThinkingType.ADAPTIVE)
+        assertEquals(OpenAiThinkingConfig(OpenAiThinkingType.ADAPTIVE), out.thinking)
+        assertEquals(true, out.enableThinking)
+        assertEquals("high", out.reasoningEffort)
+        val json = Json { explicitNulls = false }.encodeToString(OpenAiChatRequest.serializer(), out)
+        assertTrue(json.contains(""""thinking":{"type":"adaptive"}"""), "actual: $json")
+    }
+
+    @Test
     fun `thinking false serializes all dialect wire formats`() {
         val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
-        val out = mapToOpenAi("gpt-4o-mini", req, stream = false, thinking = false)
+        val out = mapToOpenAi("gpt-4o-mini", req, stream = false, thinkingType = OpenAiThinkingType.DISABLED)
         // explicitNulls=false 与生产 HttpClient 的 Json 配置保持一致
         val json = Json { explicitNulls = false }.encodeToString(OpenAiChatRequest.serializer(), out)
         // Kimi K2 / GLM / DeepSeek / 豆包 / MiniMax 认 thinking 对象
@@ -241,7 +253,7 @@ class OpenAiMappingTest {
     @Test
     fun `thinking true serializes all dialect wire formats`() {
         val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
-        val out = mapToOpenAi("gpt-4o-mini", req, stream = false, thinking = true)
+        val out = mapToOpenAi("gpt-4o-mini", req, stream = false, thinkingType = OpenAiThinkingType.ENABLED)
         val json = Json { explicitNulls = false }.encodeToString(OpenAiChatRequest.serializer(), out)
         assertTrue(json.contains(""""thinking":{"type":"enabled"}"""), "actual: $json")
         assertTrue(json.contains(""""enable_thinking":true"""), "actual: $json")
