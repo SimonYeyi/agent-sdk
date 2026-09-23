@@ -112,7 +112,7 @@ class OpenAiProviderChatTest {
     }
 
     @Test
-    fun `chat with MiniMax baseUrl uses adaptive thinking type when enabled`() = runTest {
+    fun `chat with MiniMax model uses adaptive thinking type when enabled`() = runTest {
         var capturedBody: String? = null
         val provider = OpenAiProvider(
             apiKey = "test",
@@ -131,5 +131,47 @@ class OpenAiProviderChatTest {
         provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
         assertTrue(capturedBody!!.contains(""""thinking":{"type":"adaptive"}"""), "actual: $capturedBody")
         assertTrue(capturedBody!!.contains(""""enable_thinking":true"""), "actual: $capturedBody")
+    }
+
+    @Test
+    fun `chat with MiniMax model through third-party gateway uses adaptive thinking type`() = runTest {
+        var capturedBody: String? = null
+        val provider = OpenAiProvider(
+            apiKey = "test",
+            model = "MiniMax-M2",
+            baseUrl = "https://gateway.example.com/v1",
+            thinking = true,
+            httpClient = mockOpenAiHttpClient { request ->
+                capturedBody = requestBodyText(request.body)
+                respond(
+                    content = """{"id":"c1","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}""",
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        )
+        provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
+        assertTrue(capturedBody!!.contains(""""thinking":{"type":"adaptive"}"""), "actual: $capturedBody")
+    }
+
+    @Test
+    fun `chat with non-MiniMax model uses enabled thinking type even with minimax baseUrl`() = runTest {
+        var capturedBody: String? = null
+        val provider = OpenAiProvider(
+            apiKey = "test",
+            model = "qwen-plus",
+            baseUrl = "https://api.minimaxi.com/v1",
+            thinking = true,
+            httpClient = mockOpenAiHttpClient { request ->
+                capturedBody = requestBodyText(request.body)
+                respond(
+                    content = """{"id":"c1","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}""",
+                    status = HttpStatusCode.OK,
+                    headers = headersOf(HttpHeaders.ContentType, "application/json"),
+                )
+            },
+        )
+        provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
+        assertTrue(capturedBody!!.contains(""""thinking":{"type":"enabled"}"""), "actual: $capturedBody")
     }
 }

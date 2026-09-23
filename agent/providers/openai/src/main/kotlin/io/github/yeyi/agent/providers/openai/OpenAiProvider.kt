@@ -31,8 +31,9 @@ import kotlinx.serialization.json.Json
  *   各不相同（`thinking` 对象 / `enable_thinking` / `reasoning_effort`），本 Provider
  *   在开启/关闭时统一带上各主流方言的对应配置，厂商识别哪个就用哪个。
  *   默认 false 显式关闭，可避免 DeepSeek R1、Kimi K2、通义千问 QwQ 等默认开思考的
- *   模型白白消耗 token、拉低响应速度。开启时 `thinking.type` 按端点适配：MiniMax
- *   只接受 "adaptive"（其余厂商为 "enabled"）。
+ *   模型白白消耗 token、拉低响应速度。开启时 `thinking.type` 按模型名适配：MiniMax
+ *   只接受 "adaptive"（其余厂商为 "enabled"）。按模型名而非 baseUrl 判断，是因为
+ *   第三方网关转发时 baseUrl 是网关地址，模型名才会跟随 MiniMax 模型本身。
  * - [httpClient] 可自定义 Ktor HTTP Client，不传则使用 [defaultHttpClient]
  *
  * 快捷构造：[official] 使用官方 endpoint 和默认 HTTP Client。
@@ -58,10 +59,10 @@ public class OpenAiProvider(
 ) : LlmProvider {
     override val name: String = "openai"
 
-    /** 最终发送的 thinking 类型：thinking=false 统一走 [OpenAiThinkingType.DISABLED]；开启时 MiniMax 端点选 ADAPTIVE，其余选 ENABLED。 */
+    /** 最终发送的 thinking 类型：thinking=false 统一走 [OpenAiThinkingType.DISABLED]；开启时 MiniMax 模型选 ADAPTIVE，其余选 ENABLED。 */
     private val thinkingType: OpenAiThinkingType =
         if (!thinking) OpenAiThinkingType.DISABLED
-        else if (baseUrl.contains("minimax", ignoreCase = true)) OpenAiThinkingType.ADAPTIVE
+        else if (model.contains("minimax", ignoreCase = true)) OpenAiThinkingType.ADAPTIVE
         else OpenAiThinkingType.ENABLED
 
     public companion object {
