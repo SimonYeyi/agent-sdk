@@ -307,6 +307,48 @@ class SteerableTest {
     }
 
     /**
+     * 回归：run() 调用即 eager 占据槽位，杜绝 "run 返回但未收集" 间隙的并发双 run。
+     *
+     * 场景：if (!steer()) { run.collect {} } 首次执行后，在 flow 尚未 collect 前
+     * 重复执行同一惯用法。若 create() 惰性在 flow body 内，第二次 steer() 仍 false，
+     * 会再起一个 run → 双 flow 并发 → 第二个 create() 抛并发异常。
+     * 修复：create() 在 run() 函数体 eager 执行，调用即占槽，steer() 立即 true。
+     */
+    @Test
+    fun `run call eagerly occupies slot before collection to prevent fallback double-run`() = runTest {
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "first"), finishReason = FinishReason.Stop)
+            )
+        )
+        val mem = InMemoryMemory()
+        val agent = ReActAgent(
+            persona = Persona(""),
+            llmProvider = provider,
+            toolRegistry = registryOf(),
+            memory = mem,
+            modalityAdapter = DefaultModalityAdapter(null),
+            maxRounds = 20,
+            maxIterations = 5
+        )
+
+        // 第一次 run() 返回 flow，但尚未 collect —— eager create 已占据槽位
+        val flow = agent.run(AgentQuery.text("one"))
+
+        // 此刻重复执行 fallback 惯用法：steer 必须返回 true，不触发第二次 run
+        assertTrue(
+            agent.steer(AgentQuery.text("two")),
+            "run() 调用后槽位必须已被占据，防止并发双 run"
+        )
+
+        // 正常收集第一个 run，应完整执行且不抛并发异常
+        val events = flow.toList()
+        assertTrue(events.first() is AgentEvent.Initial, "run must start with Initial")
+        assertTrue(events.last() is AgentEvent.Final, "run must end with Final")
+        assertEquals(1, provider.recordedRequests.size, "must not start a second run")
+    }
+
+    /**
      * 契约2：steer 返回 false 时，调用 run() 不会触发非法状态异常。
      *
      * 惯用法 if (!steer()) { run.collect {} } —— 空闲时 steer 必 false，

@@ -44,17 +44,31 @@ public class ReActAgent internal constructor(
     private val memory = RoundsBoundedMemory(RepairedMemory(memory), maxRounds, llmProvider)
     private val steerInbox = SteerInbox()
 
-    override fun run(query: AgentQuery): Flow<AgentEvent> = flow {
-        loop(query, { req -> llmProvider.chat(req) }, { emit(it) })
+    override fun run(query: AgentQuery): Flow<AgentEvent> {
+        acquireSteerSlot()
+        return flow {
+            loop(query, { req -> llmProvider.chat(req) }, { emit(it) })
+        }
     }
 
-    override fun runStream(query: AgentQuery): Flow<AgentEvent> = flow {
-        val runner = StreamingRunner(llmProvider)
-        loop(
-            query = query,
-            llmCall = { req -> runner.run(req) { emit(AgentEvent.TextDelta(it)) } },
-            emit = { emit(it) }
-        )
+    override fun runStream(query: AgentQuery): Flow<AgentEvent> {
+        acquireSteerSlot()
+        return flow {
+            val runner = StreamingRunner(llmProvider)
+            loop(
+                query = query,
+                llmCall = { req -> runner.run(req) { emit(AgentEvent.TextDelta(it)) } },
+                emit = { emit(it) }
+            )
+        }
+    }
+
+    /**
+     * eager 占据活跃 run 槽位：调用即建信箱，杜绝 "run 返回但未收集" 间隙里
+     * steer() 误判空闲导致并发双 run。已有活跃 run 时抛并发异常。
+     */
+    private fun acquireSteerSlot() {
+        if (!steerInbox.create()) error("Concurrent run not supported: another run is active")
     }
 
     /**
@@ -76,8 +90,6 @@ public class ReActAgent internal constructor(
         llmCall: suspend (ChatRequest) -> ChatResponse,
         emit: suspend (AgentEvent) -> Unit,
     ) {
-        if (steerInbox.create().not()) error("Concurrent run not supported: another run is active")
-
         val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
         var iterations = 0
 
