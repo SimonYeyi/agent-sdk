@@ -57,14 +57,13 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<ChatResponseEvent> 
             delta.toolCalls?.forEach { tc ->
                 val id = tc.id
                 val name = tc.function?.name
-                val resolvedId = if (id != null) {
-                    if (toolCallIdByIndex.putIfAbsent(tc.index, id) == null) {
-                        emit(ChatResponseEvent.ToolCallStart(id = id, name = name ?: ""))
-                    }
+                val resolvedId = if (id != null && toolCallIdByIndex.putIfAbsent(tc.index, id) == null) {
+                    emit(ChatResponseEvent.ToolCallStart(id = id, name = name ?: ""))
                     id
                 } else {
-                    toolCallIdByIndex[tc.index]
+                    toolCallIdByIndex[tc.index]   // 续帧回填——本帧 id（含空串）不作数
                 }
+
                 emit(ChatResponseEvent.ToolCallDelta(
                     id = resolvedId,
                     name = name,
