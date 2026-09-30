@@ -27,10 +27,10 @@ import kotlinx.serialization.json.Json
  * - [apiKey] Anthropic API Key（必填）
  * - [model] 模型名称，默认 [DEFAULT_MODEL]
  * - [baseUrl] API 地址，默认 [DEFAULT_BASE_URL]
- * - [thinking] 是否开启思考模式，默认 false。Anthropic Messages API 协议统一，
- *   思考字段只有 `thinking` 对象一种格式。默认 false 会显式发送
- *   `{"type":"disabled"}`，覆盖 Sonnet 5 等新模型默认开启的自适应思考，避免
- *   简单任务白白消耗思考 token；需要思考时传 true。
+ * - [thinking] 是否开启思考模式，默认 true。Anthropic Messages API 协议统一，
+ *   思考字段只有 `thinking` 对象一种格式。开启时发送 `{"type":"enabled",
+ *   "budget_tokens":4096}`；显式传 false 发送 `{"type":"disabled"}`，覆盖
+ *   Sonnet 5 等新模型默认开启的自适应思考，避免简单任务消耗思考 token。
  * - [httpClient] 可自定义 Ktor HTTP Client，不传则使用 [defaultAnthropicHttpClient]
  *
  * 快捷构造：[official] 使用官方 endpoint 和默认 HTTP Client。
@@ -44,7 +44,7 @@ public class AnthropicProvider(
     private val apiKey: String,
     private val model: String,
     private val baseUrl: String,
-    private val thinking: Boolean = false,
+    private val thinking: Boolean = true,
     private val httpClient: HttpClient = defaultAnthropicHttpClient(),
 ) : LlmProvider {
     override val name: String = "anthropic"

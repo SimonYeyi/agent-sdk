@@ -27,13 +27,12 @@ import kotlinx.serialization.json.Json
  * - [apiKey] OpenAI API Key（必填）
  * - [model] 模型名称，默认 [DEFAULT_MODEL]
  * - [baseUrl] API 地址，默认 [DEFAULT_BASE_URL]
- * - [thinking] 是否开启思考模式，默认 false。国内兼容厂商对"思考"的 wire 字段
+ * - [thinking] 是否开启思考模式，默认 true。国内兼容厂商对"思考"的 wire 字段
  *   各不相同（`thinking` 对象 / `enable_thinking` / `reasoning_effort`），本 Provider
  *   在开启/关闭时统一带上各主流方言的对应配置，厂商识别哪个就用哪个。
- *   默认 false 显式关闭，可避免 DeepSeek R1、Kimi K2、通义千问 QwQ 等默认开思考的
- *   模型白白消耗 token、拉低响应速度。开启时 `thinking.type` 按模型名适配：MiniMax
- *   只接受 "adaptive"（其余厂商为 "enabled"）。按模型名而非 baseUrl 判断，是因为
- *   第三方网关转发时 baseUrl 是网关地址，模型名才会跟随 MiniMax 模型本身。
+ *   开启时 `thinking.type` 按模型名适配：MiniMax 只接受 "adaptive"（其余厂商为
+ *   "enabled"）。按模型名而非 baseUrl 判断，是因为第三方网关转发时 baseUrl 是网关
+ *   地址，模型名才会跟随 MiniMax 模型本身；显式传 false 则统一走 DISABLED。
  * - [httpClient] 可自定义 Ktor HTTP Client，不传则使用 [defaultHttpClient]
  *
  * 快捷构造：[official] 使用官方 endpoint 和默认 HTTP Client。
@@ -41,7 +40,7 @@ import kotlinx.serialization.json.Json
  * 示例：
  * ```
  * val provider = OpenAiProvider.official(apiKey = "sk-...")
- * // 关闭国内兼容厂商默认开启的思考模式
+ * // 显式关闭思考模式（DeepSeek R1 / Kimi K2 / QwQ 等默认思考的模型可省 token）
  * val provider2 = OpenAiProvider(
  *     apiKey = "sk-...",
  *     model = "deepseek-chat",
@@ -54,7 +53,7 @@ public class OpenAiProvider(
     private val apiKey: String,
     private val model: String,
     private val baseUrl: String,
-    thinking: Boolean = false,
+    thinking: Boolean = true,
     private val httpClient: HttpClient = defaultHttpClient()
 ) : LlmProvider {
     override val name: String = "openai"

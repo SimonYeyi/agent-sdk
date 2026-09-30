@@ -111,7 +111,7 @@ class AnthropicProviderChatTest {
     }
 
     @Test
-    fun `chat sends thinking disabled by default`() = runTest {
+    fun `chat sends thinking disabled when thinking false`() = runTest {
         var capturedBody: String? = null
         val http = mockAnthropicHttpClient { request ->
             capturedBody = requestBodyText(request.body)
@@ -123,11 +123,11 @@ class AnthropicProviderChatTest {
                 headers = headersOf(HttpHeaders.ContentType, "application/json"),
             )
         }
-        // 默认 DISABLED: Sonnet 5 等新模型默认开自适应思考, 需显式关闭
         val provider = AnthropicProvider(
             apiKey = "k",
             model = "claude-sonnet-4-6",
             baseUrl = AnthropicProvider.DEFAULT_BASE_URL,
+            thinking = false,
             httpClient = http,
         )
         provider.chat(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi"))))))
