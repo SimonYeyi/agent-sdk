@@ -15,8 +15,8 @@ private val SseMapper: Json = Json { ignoreUnknownKeys = true }
  * - "data: {...}" 是 OpenAiStreamChunk
  * - 其他行(注释、空行)忽略
  *
- * 第一个见到 tool_call id 的 chunk 会先发 ToolCallStart,再发 ToolCallDelta,
- * 让消费方可以提前初始化 id/name/arguments 缓冲(spec §4.2 与 Anthropic decoder 对齐)。
+ * 每个 tool_call 块(含首帧与续帧)都发射一个 ToolCallDelta;首帧(该 index 第一次出现 id)
+ * 的 delta 携带 name,标记工具调用开始(spec §4.2 与 Anthropic decoder 对齐)。
  * `finishReason` 来自最后一个 chunk 的 `choices[*].finish_reason`,映射后挂到 Done 上。
  * Continuation ToolCallDelta events resolve id via `tc.index` into `toolCallIdByIndex`.
  */
@@ -55,18 +55,12 @@ internal fun decodeOpenAiSseLines(lines: Flow<String>): Flow<ChatResponseEvent> 
                 if (it.isNotEmpty()) emit(ChatResponseEvent.ContentDelta(it))
             }
             delta.toolCalls?.forEach { tc ->
-                val id = tc.id
-                val name = tc.function?.name
-                val resolvedId = if (id != null && toolCallIdByIndex.putIfAbsent(tc.index, id) == null) {
-                    emit(ChatResponseEvent.ToolCallStart(id = id, name = name ?: ""))
-                    id
-                } else {
-                    toolCallIdByIndex[tc.index]   // 续帧回填——本帧 id（含空串）不作数
-                }
-
+                if (tc.id != null) toolCallIdByIndex.putIfAbsent(tc.index, tc.id)   // 首帧记录 id
+                // 协议保证每个 tool call 首帧必带 id;缺失即违约,直接失败而非发出匿名 delta
+                val resolvedId = toolCallIdByIndex[tc.index]!!   // 续帧回填——本帧 id（含空串）不作数
                 emit(ChatResponseEvent.ToolCallDelta(
                     id = resolvedId,
-                    name = name,
+                    name = tc.function?.name,
                     argumentsDelta = tc.function?.arguments.orEmpty()
                 ))
             }

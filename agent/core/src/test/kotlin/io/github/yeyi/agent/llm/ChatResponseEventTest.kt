@@ -12,9 +12,9 @@ class ChatResponseEventTest {
     }
 
     @Test
-    fun `ToolCallDelta allows nullable id and name`() {
-        val e = ChatResponseEvent.ToolCallDelta(id = null, name = null, argumentsDelta = "{")
-        assertNull(e.id)
+    fun `ToolCallDelta requires non-null id and allows nullable name`() {
+        val e = ChatResponseEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{")
+        assertEquals("c1", e.id)
         assertNull(e.name)
         assertEquals("{", e.argumentsDelta)
     }

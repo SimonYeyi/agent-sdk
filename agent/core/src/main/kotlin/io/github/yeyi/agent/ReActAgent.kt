@@ -288,14 +288,15 @@ public class ReActAgent internal constructor(
                         onDelta(event.text)
                     }
 
-                    is ChatResponseEvent.ToolCallStart -> {
-                        callOrder.add(event.id)
-                        callNames[event.id] = event.name
-                        argumentsBuffers.getOrPut(event.id) { StringBuilder() }
-                    }
-
                     is ChatResponseEvent.ToolCallDelta -> {
-                        argumentsBuffers[event.id!!]?.append(event.argumentsDelta)
+                        if (callNames[event.id] == null) {
+                            callOrder.add(event.id)
+                            // 首个 delta 必须携带 name 标记开始(契约);缺失属 provider 违约,显式失败而非静默空串
+                            callNames[event.id] = requireNotNull(event.name) {
+                                "First ToolCallDelta for call '${event.id}' must carry a non-null name to mark the start"
+                            }
+                        }
+                        argumentsBuffers.getOrPut(event.id) { StringBuilder() }.append(event.argumentsDelta)
                     }
 
                     is ChatResponseEvent.Done -> {

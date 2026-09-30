@@ -9,6 +9,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 class AnthropicStreamDecoderTest {
 
@@ -27,15 +28,21 @@ class AnthropicStreamDecoderTest {
     @Test
     fun `input_json_delta maps to ToolCallDelta with argumentsDelta`() = runTest {
         val lines = flowOf(
+            "event: content_block_start",
+            """data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"search","input":{}}}""",
+            "",
             "event: content_block_delta",
-            "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\"{\\\"city\\\":\"}}",
+            """data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"city\":"}}""",
             "",
         )
         val events = decodeAnthropicSse(lines).toList()
         assertEquals(1, events.size)
         val ev = events[0]
         assertTrue(ev is ChatResponseEvent.ToolCallDelta)
-        assertEquals("{\"city\":", (ev as ChatResponseEvent.ToolCallDelta).argumentsDelta)
+        val delta = ev as ChatResponseEvent.ToolCallDelta
+        assertEquals("toolu_1", delta.id)
+        assertEquals("search", delta.name)
+        assertEquals("{\"city\":", delta.argumentsDelta)
     }
 
     @Test
@@ -131,7 +138,20 @@ class AnthropicStreamDecoderTest {
     }
 
     @Test
-    fun `currentToolCallId resets after content_block_stop so next tool_use gets own id`() = runTest {
+    fun `input_json_delta without preceding tool_use fails fast`() = runTest {
+        // 协议保证 input_json_delta 前必有 tool_use content_block_start;缺失即违约,decoder 用 !! 直接失败
+        val lines = flowOf(
+            "event: content_block_delta",
+            """data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{}"}}""",
+            "",
+        )
+        assertFailsWith<NullPointerException> {
+            decodeAnthropicSse(lines).toList()
+        }
+    }
+
+    @Test
+    fun `currentToolCallId and name reset after content_block_stop so next tool_use gets own`() = runTest {
         val lines = flowOf(
             "event: content_block_start",
             """data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_1","name":"first","input":{}}}""",
@@ -153,15 +173,14 @@ class AnthropicStreamDecoderTest {
             "",
         )
         val events = decodeAnthropicSse(lines).toList()
-        val starts = events.filterIsInstance<ChatResponseEvent.ToolCallStart>()
         val deltas = events.filterIsInstance<ChatResponseEvent.ToolCallDelta>()
-        assertEquals(2, starts.size)
-        assertEquals(setOf("toolu_1", "toolu_2"), starts.map { it.id }.toSet())
-        // Each delta carries the id of the tool_use block that produced it
+        // 每个 tool use 的首个 delta 携带自己的 name;id 来自所属 content_block
         assertEquals(2, deltas.size)
         assertEquals("toolu_1", deltas[0].id)
+        assertEquals("first", deltas[0].name)
         assertEquals("1", deltas[0].argumentsDelta)
         assertEquals("toolu_2", deltas[1].id)
+        assertEquals("second", deltas[1].name)
         assertEquals("2", deltas[1].argumentsDelta)
     }
 }

@@ -395,7 +395,7 @@ class ReActAgentTest {
         val provider = FakeLlmProvider(
             streamScripts = listOf(
                 listOf(
-                    ChatResponseEvent.ToolCallStart(id = "c1", name = "echo"),
+                    ChatResponseEvent.ToolCallDelta(id = "c1", name = "echo", argumentsDelta = ""),
                     ChatResponseEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":"),
                     ChatResponseEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "\"x\"}"),
                     ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
@@ -415,13 +415,31 @@ class ReActAgentTest {
     }
 
     @Test
+    fun `first delta without name fails the run explicitly`() = runTest {
+        // 契约:首个 delta 必须带 name 标记开始;缺失属 provider 违约,显式 Failed 而非静默空串
+        val provider = FakeLlmProvider(
+            streamScripts = listOf(
+                listOf(
+                    ChatResponseEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = ""),
+                    ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
+                )
+            )
+        )
+        val agent = ReActAgent(persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5)
+        val events = agent.runStream(AgentQuery.text("hi")).toList()
+        val failed = events.filterIsInstance<AgentEvent.Failed>().single()
+        assertTrue(failed.cause is IllegalArgumentException)
+        assertTrue(failed.cause.message!!.contains("must carry a non-null name"))
+    }
+
+    @Test
     fun `ToolCallStarted event is emitted before tool invocation`() = runTest {
         // 验证事件时序:Started 必须�?invokeTool 之前发出,Finished 之后
         val echo = EchoTool()
         val provider = FakeLlmProvider(
             streamScripts = listOf(
                 listOf(
-                    ChatResponseEvent.ToolCallStart(id = "c1", name = "echo"),
+                    ChatResponseEvent.ToolCallDelta(id = "c1", name = "echo", argumentsDelta = ""),
                     ChatResponseEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":\"x\"}"),
                     ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 ),
@@ -480,7 +498,7 @@ class ReActAgentTest {
     @Test
     fun `runStream exhausts max iterations`() = runTest {
         val toolResp = listOf(
-            ChatResponseEvent.ToolCallStart(id = "c", name = "echo"),
+            ChatResponseEvent.ToolCallDelta(id = "c", name = "echo", argumentsDelta = ""),
             ChatResponseEvent.ToolCallDelta(id = "c", name = null, argumentsDelta = "{\"text\":\"x\"}"),
             ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
         )

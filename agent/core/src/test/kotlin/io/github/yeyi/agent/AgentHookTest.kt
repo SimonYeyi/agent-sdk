@@ -104,7 +104,7 @@ class AgentHookTest {
         val provider = FakeLlmProvider(
             streamScripts = listOf(
                 listOf(
-                    ChatResponseEvent.ToolCallStart(id = "c1", name = "echo"),
+                    ChatResponseEvent.ToolCallDelta(id = "c1", name = "echo", argumentsDelta = ""),
                     ChatResponseEvent.ToolCallDelta(id = "c1", name = null, argumentsDelta = "{\"text\":\"x\"}"),
                     ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
                 ),

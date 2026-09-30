@@ -23,19 +23,18 @@ public sealed interface ChatResponseEvent {
      */
     public data class ContentDelta(public val text: String) : ChatResponseEvent
     /**
-     * Marks the start of a tool call. Emitted once per tool call id, before any [ToolCallDelta]
-     * events for that id. The (id, name) pair identifies the call.
-     */
-    public data class ToolCallStart(public val id: String, public val name: String) : ChatResponseEvent
-    /**
-     * A fragment of a tool call's arguments JSON. Emitted one or more times per tool call,
-     * after the corresponding [ToolCallStart]. The `id` MUST be non-null (providers fill it
-     * on continuation chunks — see [LlmProvider] contract). The `name` is non-null on the first
-     * delta for a given id and may be null on continuation chunks. Concatenate the
+     * A fragment of a tool call's arguments JSON. Emitted one or more times per tool call.
+     * The first delta for a given tool call carries a non-null `name` and marks the start of
+     * that call; on continuation chunks `name` carries no meaning and consumers must ignore it
+     * (it may be null or repeat the first delta's value). `id` is non-null (enforced by type):
+     * every delta belongs to a concrete tool call — providers fill it on continuation chunks
+     * (see [LlmProvider] contract). Upstream protocols guarantee the id on each tool call's
+     * first chunk / start block, so a missing one is a protocol violation and decoders fail
+     * fast (non-null assertion) rather than surfacing an anonymous delta. Concatenate the
      * `argumentsDelta` values in order to reconstruct the full arguments JSON.
      */
     public data class ToolCallDelta(
-        public val id: String?,
+        public val id: String,
         public val name: String?,
         public val argumentsDelta: String
     ) : ChatResponseEvent

@@ -80,7 +80,7 @@ class AnthropicProviderStreamTest {
     }
 
     @Test
-    fun `chatStream emits ToolCallStart and ToolCallDelta for tool_use block`() = runTest {
+    fun `chatStream emits ToolCallDelta with name on first delta for tool_use block`() = runTest {
         val sse = """
             event: message_start
             data: {"type":"message_start","message":{"id":"m1","usage":{"input_tokens":5,"output_tokens":0}}}
@@ -111,13 +111,16 @@ class AnthropicProviderStreamTest {
             httpClient = mockAnthropicHttpClient { respond(sse, HttpStatusCode.OK, sseHeaders) },
         )
         val events = provider.chatStream(ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))).toList()
-        val starts = events.filterIsInstance<ChatResponseEvent.ToolCallStart>()
         val deltas = events.filterIsInstance<ChatResponseEvent.ToolCallDelta>()
         val done = events.filterIsInstance<ChatResponseEvent.Done>().last()
-        assertEquals(1, starts.size)
-        assertEquals("toolu_1", starts[0].id)
-        assertEquals("calc", starts[0].name)
+        // 首个 delta 携带 name 标记开始;续帧 name 透传重复值(消费端忽略)
         assertEquals(2, deltas.size)
+        assertEquals("toolu_1", deltas[0].id)
+        assertEquals("calc", deltas[0].name)
+        assertEquals("toolu_1", deltas[1].id)
+        assertEquals("calc", deltas[1].name)
+        assertEquals("{\"a\":", deltas[0].argumentsDelta)
+        assertEquals("1}", deltas[1].argumentsDelta)
         assertEquals(FinishReason.ToolCalls, done.finishReason)
         assertEquals(Usage(5, 3, 8), done.usage)
     }

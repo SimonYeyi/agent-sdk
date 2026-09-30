@@ -8,6 +8,7 @@ import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
+import kotlin.test.assertFailsWith
 
 class OpenAiStreamDecoderTest {
 
@@ -33,23 +34,19 @@ class OpenAiStreamDecoderTest {
             "data: [DONE]"
         )
         val events = decodeOpenAiSseLines(flowOf(*sseLines.toTypedArray())).toList()
-        val starts = events.filterIsInstance<ChatResponseEvent.ToolCallStart>()
         val deltas = events.filterIsInstance<ChatResponseEvent.ToolCallDelta>()
-        // 第一个带 id 的 chunk 先发 ToolCallStart,再发 ToolCallDelta(spec §4.2)
-        assertEquals(1, starts.size)
-        assertEquals("c1", starts[0].id)
-        assertEquals("echo", starts[0].name)
-        // 两个 tool_call 都有 ToolCallDelta(continuation delta 的 id 由 decoder 按 index 从 toolCallIdByIndex 回填)
+        // 首帧 delta 携带 name 标记开始;续帧 name = null(id 由 decoder 按 index 回填)
         assertEquals(2, deltas.size)
         assertEquals("c1", deltas[0].id)
         assertEquals("echo", deltas[0].name)
         assertEquals("{\"", deltas[0].argumentsDelta)
         assertEquals("c1", deltas[1].id)
+        assertEquals(null, deltas[1].name)
         assertEquals("text\":\"x\"}", deltas[1].argumentsDelta)
     }
 
     @Test
-    fun `first tool_call chunk emits both ToolCallStart and ToolCallDelta with name`() = runTest {
+    fun `first tool_call delta carries name marking the start`() = runTest {
         val lines = flowOf(
             """data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_1","function":{"name":"get_time","arguments":""}}]},"finish_reason":null}]}""",
             """data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{}"}}]},"finish_reason":null}]}""",
@@ -58,7 +55,6 @@ class OpenAiStreamDecoderTest {
         val events = decodeOpenAiSseLines(lines).toList()
         assertEquals(
             listOf(
-                ChatResponseEvent.ToolCallStart(id = "call_1", name = "get_time"),
                 ChatResponseEvent.ToolCallDelta(id = "call_1", name = "get_time", argumentsDelta = ""),
                 ChatResponseEvent.ToolCallDelta(id = "call_1", name = null, argumentsDelta = "{}"),
                 ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop)
@@ -80,7 +76,7 @@ class OpenAiStreamDecoderTest {
     }
 
     @Test
-    fun `multiple distinct tool calls each get exactly one ToolCallStart`() = runTest {
+    fun `multiple distinct tool calls each start with a delta carrying its own name`() = runTest {
         val lines = flowOf(
             // First chunk: c1 starts with name, c2 starts with name
             """data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"c1","function":{"name":"calc","arguments":""}},{"index":1,"id":"c2","function":{"name":"time","arguments":""}}]}}]}""",
@@ -89,13 +85,11 @@ class OpenAiStreamDecoderTest {
             """data: [DONE]"""
         )
         val events = decodeOpenAiSseLines(lines).toList()
-        val starts = events.filterIsInstance<ChatResponseEvent.ToolCallStart>()
         val deltas = events.filterIsInstance<ChatResponseEvent.ToolCallDelta>()
-        assertEquals(2, starts.size)
-        assertEquals(setOf("c1", "c2"), starts.map { it.id }.toSet())
-        assertEquals(setOf("calc", "time"), starts.map { it.name }.toSet())
-        // 4 个 delta = 2 个首帧 + 2 个续帧
+        // 4 个 delta = 2 个首帧(带 name) + 2 个续帧(name=null)
         assertEquals(4, deltas.size)
+        // 首帧各自携带 name,标识两个 tool call 开始
+        assertEquals(setOf("calc", "time"), deltas.filter { it.name != null }.map { it.name }.toSet())
         // 续帧的 name=null;id 按 index 回填(toolCallIdByIndex[1] = "c2")
         val continuationDeltas = deltas.filter { it.name == null }
         assertEquals(2, continuationDeltas.size)
@@ -153,16 +147,24 @@ class OpenAiStreamDecoderTest {
             "data: [DONE]"
         )
         val events = decodeOpenAiSseLines(lines).toList()
-        val starts = events.filterIsInstance<ChatResponseEvent.ToolCallStart>()
         val deltas = events.filterIsInstance<ChatResponseEvent.ToolCallDelta>()
-        // 只发一次 ToolCallStart,id 取首次值
-        assertEquals(1, starts.size)
-        assertEquals("c1", starts[0].id)
-        // 续帧的重复 id 不作数,delta 挂首次 id
+        // 首帧 delta 挂首次 id;续帧的重复 id 不作数,delta 仍挂首次 id
         assertEquals(2, deltas.size)
         assertEquals("c1", deltas[0].id)
         assertEquals("c1", deltas[1].id)
         assertEquals("{\"x\":1}", deltas[1].argumentsDelta)
+    }
+
+    @Test
+    fun `tool_call first chunk without id fails fast`() = runTest {
+        // 协议保证每个 tool call 首帧必带 id;缺失即违约,decoder 用 !! 直接失败而非匿名 delta
+        val lines = flowOf(
+            """data: {"choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"name":"f1","arguments":"{"}}]}}]}""",
+            "data: [DONE]"
+        )
+        assertFailsWith<NullPointerException> {
+            decodeOpenAiSseLines(lines).toList()
+        }
     }
 
     @Test

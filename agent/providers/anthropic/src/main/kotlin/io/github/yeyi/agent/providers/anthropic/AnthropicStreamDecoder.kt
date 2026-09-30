@@ -18,6 +18,7 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<ChatResponseEvent> = 
     var lastStopReason: String? = null
     var lastUsage: Usage? = null
     var currentToolCallId: String? = null
+    var currentToolCallName: String? = null
 
     lines.collect { line ->
         when {
@@ -45,9 +46,9 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<ChatResponseEvent> = 
                         val contentBlock = parsed["content_block"]?.jsonObject
                         if (contentBlock?.get("type")?.jsonPrimitive?.content == "tool_use") {
                             val id = contentBlock["id"]?.jsonPrimitive?.content ?: return@collect
-                            val name = contentBlock["name"]?.jsonPrimitive?.content ?: return@collect
+                            val name = contentBlock["name"]?.jsonPrimitive?.content ?: ""
                             currentToolCallId = id
-                            emit(ChatResponseEvent.ToolCallStart(id = id, name = name))
+                            currentToolCallName = name
                         }
                     }
                     "content_block_delta" -> {
@@ -60,9 +61,10 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<ChatResponseEvent> = 
                             }
                             "input_json_delta" -> {
                                 val partial = delta["partial_json"]?.jsonPrimitive?.content ?: ""
+                                // name 透传 content_block_start 暂存值:首个 delta 标记开始,续帧重复无妨(消费端只认首个)
                                 emit(ChatResponseEvent.ToolCallDelta(
-                                    id = currentToolCallId,
-                                    name = null,
+                                    id = currentToolCallId!!,
+                                    name = currentToolCallName,
                                     argumentsDelta = partial
                                 ))
                             }
