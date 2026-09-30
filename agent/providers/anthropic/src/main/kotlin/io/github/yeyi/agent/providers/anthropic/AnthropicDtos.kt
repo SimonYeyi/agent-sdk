@@ -52,6 +52,20 @@ internal sealed class AnthropicContentBlock {
         @SerialName("is_error") val isError: Boolean = false,
     ) : AnthropicContentBlock()
 
+    // 思考开启后响应可能出现; 内容不进 LLM 层结果, 仅注册使反序列化通过
+    @Serializable
+    @SerialName("thinking")
+    data class Thinking(
+        val thinking: String,
+        val signature: String,
+    ) : AnthropicContentBlock()
+
+    @Serializable
+    @SerialName("redacted_thinking")
+    data class RedactedThinking(
+        val data: String,
+    ) : AnthropicContentBlock()
+
     @Serializable
     @SerialName("image")
     data class Image(val source: Source) : AnthropicContentBlock() {

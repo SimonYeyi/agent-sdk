@@ -184,6 +184,22 @@ class AnthropicMappingTest {
     }
 
     @Test
+    fun `response with thinking blocks deserializes and maps text only`() {
+        // thinking 开启后响应会带 thinking/redacted_thinking 块: 必须能反序列化, 内容不进 LLM 层结果
+        val body = """
+            {"id":"m1","model":"claude-sonnet-4-6","content":[
+              {"type":"thinking","thinking":"think step by step","signature":"sig_1"},
+              {"type":"text","text":"final answer"},
+              {"type":"redacted_thinking","data":"redacted"}
+            ],"stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}
+        """.trimIndent()
+        val resp = Json { ignoreUnknownKeys = true }.decodeFromString<AnthropicChatResponse>(body)
+        val core = mapAnthropicToCore(resp)
+        assertEquals("final answer", core.message.content)
+        assertEquals(emptyList(), core.message.toolCalls)
+    }
+
+    @Test
     fun `mapToAnthropic throws UnsupportedContent when User Image has Local MediaSource`() {
         val req = ChatRequest(
             messages = listOf(
