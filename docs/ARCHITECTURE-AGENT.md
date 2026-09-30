@@ -67,7 +67,7 @@ public interface Steerable {
 
 **关键实现细节**：
 - `run()` 和 `runStream()` 共享同一个 `loop()` 方法，差异仅在 LLM 调用方式（`chat` vs `chatStream`）
-- 流式模式通过 `StreamEvent` 累积 `ToolCall` 参数（`ContentDelta` / `ToolCallStart` / `ToolCallDelta` / `Done`）
+- 流式模式通过 `ChatResponseEvent` 累积 `ToolCall` 参数（`ContentDelta` / `ToolCallDelta` / `Done`）
 - Memory 自动轮次压缩：`RoundsBoundedMemory` 装饰，超限时触发摘要压缩
 - 上下文溢出处理：捕获 `context_length_exceeded` 错误，触发 memory 压缩后重试
 
@@ -77,13 +77,13 @@ public interface Steerable {
 public interface LlmProvider {
     val name: String
     suspend fun chat(request: ChatRequest): ChatResponse
-    fun chatStream(request: ChatRequest): Flow<StreamEvent>
+    fun chatStream(request: ChatRequest): Flow<ChatResponseEvent>
 }
 ```
 
-**StreamEvent** 统一流式事件模型：
+**ChatResponseEvent** 统一流式事件模型：
 - `ContentDelta` — 文本增量
-- `ToolCallStart` / `ToolCallDelta` — 工具调用增量
+- `ToolCallDelta` — 工具调用增量（首个 delta 携带非空 `name` 标记调用开始；`id` 始终非空，续帧由 provider 回填）
 - `Done` — 正常完成
 - `Error` — 错误
 
