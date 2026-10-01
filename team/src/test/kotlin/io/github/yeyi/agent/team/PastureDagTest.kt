@@ -44,14 +44,13 @@ class PastureDagTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = makeResponses(responseCount)),
-            toolRegistry = ToolRegistry(),
+            lazyToolRegistry = null,
+            toolsetRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
-            toolsetRegistry = null,
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
-            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         return Triple(bb, pasture, scope)
@@ -225,14 +224,13 @@ class PastureDagTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val assembler = BeastAssembler(
             llmProvider = slowLlm,
-            toolRegistry = ToolRegistry(),
+            lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
-            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
@@ -287,14 +285,13 @@ class PastureDagTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val assembler = BeastAssembler(
             llmProvider = slowLlm,
-            toolRegistry = ToolRegistry(),
+            lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
-            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }

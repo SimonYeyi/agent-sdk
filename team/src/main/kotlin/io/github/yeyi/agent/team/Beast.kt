@@ -12,7 +12,6 @@ import io.github.yeyi.agent.skill.skills
 import io.github.yeyi.agent.subagent.SubagentRegistry
 import io.github.yeyi.agent.subagent.subagents
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolRegistry
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.tool.lazy_loading.lazyTools
 import io.github.yeyi.agent.toolset.ToolsetRegistry
@@ -31,7 +30,6 @@ internal interface Beast : Agent
 internal class Ox internal constructor(
     private val llmProvider: LlmProvider,
     private val persona: Persona,
-    private val toolRegistry: ToolRegistry?,
     private val lazyToolRegistry: LazyToolRegistry?,
     private val toolsetRegistry: ToolsetRegistry?,
     private val skillRegistry: SkillRegistry?,
@@ -44,7 +42,6 @@ internal class Ox internal constructor(
             persona(this@Ox.persona)
             llmProvider(llmProvider)
             memory(InMemoryMemory(), maxRounds)
-            toolRegistry?.let { tools(it.all()) }
             lazyToolRegistry?.let { lazyTools(it) }
             toolsetRegistry?.let { toolsets(it) }
             skillRegistry?.let { skills(it) }

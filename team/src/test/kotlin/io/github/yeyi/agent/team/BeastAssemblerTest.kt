@@ -5,7 +5,7 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
-import io.github.yeyi.agent.tool.ToolRegistry
+import io.github.yeyi.agent.tool.lazy_loading.LazyTool
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.Toolset
 import io.github.yeyi.agent.toolset.ToolsetRegistry
@@ -25,27 +25,25 @@ private fun tool(name: String): Tool = object : Tool {
 class BeastAssemblerTest {
 
     private fun assembler(
-        toolReg: ToolRegistry? = null,
         lazyToolReg: LazyToolRegistry? = null,
         toolsetReg: ToolsetRegistry? = null,
         skillReg: SkillRegistry? = null,
     ): BeastAssembler = BeastAssembler(
         llmProvider = io.github.yeyi.agent.fakes.FakeLlmProvider(),
-        toolRegistry = toolReg,
+        lazyToolRegistry = lazyToolReg,
         skillRegistry = skillReg,
         subagentRegistry = null,
         toolsetRegistry = toolsetReg,
         baseRole = "test",
         maxIterations = 1,
         maxRounds = 1,
-        lazyToolRegistry = lazyToolReg,
     )
 
     @Test
     fun `mentioned tool name in skill text is returned`() {
         val fetchUrl = tool("fetch_url")
-        val reg = ToolRegistry().apply { register(fetchUrl) }
-        val a = assembler(toolReg = reg)
+        val reg = LazyToolRegistry().apply { register(LazyTool(fetchUrl)) }
+        val a = assembler(lazyToolReg = reg)
 
         val matched = a.extractTools("call fetch_url to get data")
 
@@ -55,8 +53,8 @@ class BeastAssemblerTest {
     @Test
     fun `unmentioned tool name is not returned`() {
         val fetchUrl = tool("fetch_url")
-        val reg = ToolRegistry().apply { register(fetchUrl) }
-        val a = assembler(toolReg = reg)
+        val reg = LazyToolRegistry().apply { register(LazyTool(fetchUrl)) }
+        val a = assembler(lazyToolReg = reg)
 
         val matched = a.extractTools("do something else entirely")
 
@@ -106,18 +104,18 @@ class BeastAssemblerTest {
     fun `same name across registries is preserved in flat result`() {
         // 跨 registry 同名 Tool 在 pool 层不冲突, flatMap 后也不去重 —
         // 不同 registry 提供的同名 Tool 可能实现不同,去重会丢失下游可用能力.
-        val echoInToolReg = tool("echo")
+        val echoInLazyToolReg = tool("echo")
         val echoInToolsetReg = tool("echo")
-        val toolReg = ToolRegistry().apply { register(echoInToolReg) }
+        val lazyToolReg = LazyToolRegistry().apply { register(LazyTool(echoInLazyToolReg)) }
         val toolsetReg = ToolsetRegistry().apply {
             register(Toolset("echo", "echo toolset").apply { add(echoInToolsetReg) })
         }
-        val a = assembler(toolReg = toolReg, toolsetReg = toolsetReg)
+        val a = assembler(lazyToolReg = lazyToolReg, toolsetReg = toolsetReg)
 
         val matched = a.extractTools("use echo")
 
         assertEquals(2, matched.size, "flatMap 后同名 Tool 应全部保留, got: ${matched.map { it.name }}")
-        assertTrue(matched.contains(echoInToolReg), "toolRegistry 的 echo 应保留")
+        assertTrue(matched.contains(echoInLazyToolReg), "lazyToolRegistry 的 echo 应保留")
         assertTrue(matched.contains(echoInToolsetReg), "toolsetRegistry 的 echo 应保留")
     }
 }

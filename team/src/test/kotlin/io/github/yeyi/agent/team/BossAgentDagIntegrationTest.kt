@@ -15,7 +15,7 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
-import io.github.yeyi.agent.tool.ToolRegistry
+import io.github.yeyi.agent.tool.lazy_loading.LazyTool
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -102,7 +102,6 @@ class BossAgentDagIntegrationTest {
         beastResponses: List<ChatResponse>,
         bossResponses: List<ChatResponse>,
     ): Pair<BossAgent, BulletinBoard> {
-        val toolReg = ToolRegistry().apply { register(EchoTool) }
         val capabilitiesByType: Map<String, List<NamedCapability>> = mapOf(
             "tool" to listOf(NamedCapability("echo", "Echo."))
         )
@@ -112,14 +111,13 @@ class BossAgentDagIntegrationTest {
 
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = beastResponses),
-            toolRegistry = toolReg,
+            lazyToolRegistry = LazyToolRegistry().apply { register(LazyTool(EchoTool)) },
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
-            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
@@ -202,7 +200,6 @@ class BossAgentDagIntegrationTest {
 
     @Test
     fun `cross-round accumulation — round 1 task done then round 2 task dep on round 1`() = runBlocking {
-        val toolReg = ToolRegistry().apply { register(EchoTool) }
         val caps: Map<String, List<NamedCapability>> = mapOf(
             "tool" to listOf(NamedCapability("echo", "Echo."))
         )
@@ -211,14 +208,13 @@ class BossAgentDagIntegrationTest {
 
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = listOf(BEAST_FINAL)),
-            toolRegistry = toolReg,
+            lazyToolRegistry = LazyToolRegistry().apply { register(LazyTool(EchoTool)) },
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
-            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
@@ -261,20 +257,18 @@ class BossAgentDagIntegrationTest {
                 kotlinx.coroutines.flow.flow { error("chatStream not expected") }
         }
 
-        val toolReg = ToolRegistry().apply { register(EchoTool) }
         val bb = BulletinBoard()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
         val assembler = BeastAssembler(
             llmProvider = failingLlm,
-            toolRegistry = toolReg,
+            lazyToolRegistry = LazyToolRegistry().apply { register(LazyTool(EchoTool)) },
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
-            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
@@ -365,7 +359,6 @@ class BossAgentDagIntegrationTest {
                 kotlinx.coroutines.flow.flow { error("not expected") }
         }
 
-        val toolReg = ToolRegistry().apply { register(EchoTool) }
         val caps: Map<String, List<NamedCapability>> = mapOf(
             "tool" to listOf(NamedCapability("echo", "Echo."))
         )
@@ -374,14 +367,13 @@ class BossAgentDagIntegrationTest {
 
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = listOf(BEAST_FINAL)),
-            toolRegistry = toolReg,
+            lazyToolRegistry = LazyToolRegistry().apply { register(LazyTool(EchoTool)) },
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
-            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }

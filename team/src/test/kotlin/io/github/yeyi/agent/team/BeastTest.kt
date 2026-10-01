@@ -15,7 +15,7 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
-import io.github.yeyi.agent.tool.ToolRegistry
+import io.github.yeyi.agent.tool.lazy_loading.LazyTool
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 import kotlinx.coroutines.test.runTest
@@ -46,7 +46,6 @@ class BeastTest {
         val ox = Ox(
             llmProvider = fake,
             persona = Persona("test"),
-            toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
@@ -63,12 +62,11 @@ class BeastTest {
     @Test
     fun `Ox repeated run does not mutate shared tool registry`() = runTest {
         val fake = FakeLlmProvider(nonStreamResponses = List(2) { FINAL_RESPONSE })
-        val toolRegistry = ToolRegistry().apply { register(EchoTool) }
+        val lazyToolReg = LazyToolRegistry().apply { register(LazyTool(EchoTool)) }
         val ox = Ox(
             llmProvider = fake,
             persona = Persona("test"),
-            toolRegistry = toolRegistry,
-            lazyToolRegistry = null,
+            lazyToolRegistry = lazyToolReg,
             skillRegistry = SkillRegistry(),
             subagentRegistry = SubagentRegistry(),
             toolsetRegistry = ToolsetRegistry(),
@@ -78,7 +76,7 @@ class BeastTest {
 
         repeat(2) { ox.run(AgentQuery.text("do it")).collect { } }
 
-        assertEquals(listOf("echo"), toolRegistry.all().map { it.name })
+        assertEquals(listOf("echo"), lazyToolReg.all().map { it.name })
     }
 
     @Test
@@ -131,7 +129,6 @@ class BeastTest {
         val ox = Ox(
             llmProvider = fake,
             persona = Persona(""),
-            toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
@@ -158,7 +155,6 @@ class BeastTest {
         val ox = Ox(
             llmProvider = failingFake,
             persona = Persona(""),
-            toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
@@ -180,7 +176,6 @@ class BeastTest {
         val ox = Ox(
             llmProvider = blockingFake,
             persona = Persona(""),
-            toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,

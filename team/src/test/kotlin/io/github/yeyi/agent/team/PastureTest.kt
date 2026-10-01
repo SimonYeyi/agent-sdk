@@ -8,7 +8,7 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
-import io.github.yeyi.agent.tool.ToolRegistry
+import io.github.yeyi.agent.tool.lazy_loading.LazyTool
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.Toolset
 import io.github.yeyi.agent.toolset.ToolsetRegistry
@@ -78,7 +78,7 @@ private suspend fun publishAndAwaitFinal(
 class PastureTest {
 
     private fun setupPasture(
-        toolReg: ToolRegistry? = null,
+        lazyToolReg: LazyToolRegistry? = null,
         skillReg: SkillRegistry? = null,
         toolsetReg: ToolsetRegistry? = null,
         llmResponses: List<ChatResponse> = listOf(PASTURE_FINAL),
@@ -87,14 +87,13 @@ class PastureTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = llmResponses),
-            toolRegistry = toolReg,
+            lazyToolRegistry = lazyToolReg,
             skillRegistry = skillReg,
             subagentRegistry = null,
             toolsetRegistry = toolsetReg,
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
-            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
@@ -102,13 +101,13 @@ class PastureTest {
     }
 
     private fun runPastureTest(
-        toolReg: ToolRegistry? = null,
+        lazyToolReg: LazyToolRegistry? = null,
         skillReg: SkillRegistry? = null,
         toolsetReg: ToolsetRegistry? = null,
         llmResponses: List<ChatResponse> = listOf(PASTURE_FINAL),
         block: suspend (BulletinBoard) -> Unit,
     ) = runBlocking {
-        val (bb, _, _) = setupPasture(toolReg, skillReg, toolsetReg, llmResponses)
+        val (bb, _, _) = setupPasture(lazyToolReg, skillReg, toolsetReg, llmResponses)
         block(bb)
     }
 
@@ -130,10 +129,10 @@ class PastureTest {
 
     @Test
     fun `tool not found falls back to Ox`() {
-        val toolReg = ToolRegistry().apply { register(EchoTool) }
-        runPastureTest(toolReg = toolReg) { bb ->
+        val lazyToolReg = LazyToolRegistry().apply { register(LazyTool(EchoTool)) }
+        runPastureTest(lazyToolReg = lazyToolReg) { bb ->
             val update = publishAndAwaitFinal(bb, "t1", Selection.Tool("nonexistent"), "task")
-            // 退 Ox — Ox 持 toolReg 但没有 "nonexistent", 仍能跑 (FakeLlm 返回 Final)
+            // 退 Ox — Ox 持 lazyToolReg 但没有 "nonexistent", 仍能跑 (FakeLlm 返回 Final)
             assertTrue(update.event is AgentEvent.Final, "expected Final, got: ${update.event}")
         }
     }
@@ -151,8 +150,8 @@ class PastureTest {
 
     @Test
     fun `tool selection assembles Horse and runs to Final`() {
-        val toolReg = ToolRegistry().apply { register(EchoTool) }
-        runPastureTest(toolReg = toolReg) { bb ->
+        val lazyToolReg = LazyToolRegistry().apply { register(LazyTool(EchoTool)) }
+        runPastureTest(lazyToolReg = lazyToolReg) { bb ->
             val update = publishAndAwaitFinal(bb, "t1", Selection.Tool("echo"), "task")
             assertTrue(update.event is AgentEvent.Final, "expected Final, got: ${update.event}")
         }
@@ -190,12 +189,12 @@ class PastureTest {
         // Selection.Tool("echo") 和 Selection.Toolset("echo") 是不同 route, 不应互冲.
         // 验证方式: 两个 task 顺序 publish, 都应拿到 Final — 若 Selection 路由有冲突,
         // assembleHorse / buildOx 路径会错乱 (e.g., 一个走 Horse 一个走 Ox, 或 look-up 报错).
-        val toolReg = ToolRegistry().apply { register(EchoTool) }
+        val lazyToolReg = LazyToolRegistry().apply { register(LazyTool(EchoTool)) }
         val toolsetReg = ToolsetRegistry().apply {
             register(Toolset("echo", "toolset named echo").apply { add(ToolSetTool) })
         }
         runPastureTest(
-            toolReg = toolReg,
+            lazyToolReg = lazyToolReg,
             toolsetReg = toolsetReg,
             llmResponses = listOf(PASTURE_FINAL, PASTURE_FINAL),
         ) { bb ->
@@ -221,14 +220,13 @@ class PastureCancellationTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = listOf(PASTURE_FINAL)),
-            toolRegistry = null,
+            lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
-            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
@@ -285,14 +283,13 @@ class PastureCancellationTest {
         }
         val assembler = BeastAssembler(
             llmProvider = slowLlm,
-            toolRegistry = null,
+            lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
-            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }

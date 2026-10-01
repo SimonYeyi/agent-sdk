@@ -5,13 +5,11 @@ import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.subagent.SubagentRegistry
 import io.github.yeyi.agent.tool.Tool
-import io.github.yeyi.agent.tool.ToolRegistry
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 
 internal class BeastAssembler(
     private val llmProvider: LlmProvider,
-    private val toolRegistry: ToolRegistry?,
     private val lazyToolRegistry: LazyToolRegistry?,
     private val toolsetRegistry: ToolsetRegistry?,
     private val skillRegistry: SkillRegistry?,
@@ -34,7 +32,7 @@ internal class BeastAssembler(
 
         when (selection) {
             is Selection.Tool -> {
-                val tool = toolRegistry?.all()?.firstOrNull { it.name == selection.name }
+                val tool = lazyToolRegistry?.all()?.firstOrNull { it.name == selection.name }?.tool
                     ?: error("assembleHorse: tool not found: ${selection.name}")
                 tools += tool
             }
@@ -77,7 +75,6 @@ internal class BeastAssembler(
     private fun buildOx(): Ox = Ox(
         llmProvider = llmProvider,
         persona = Persona(baseRole),
-        toolRegistry = toolRegistry,
         lazyToolRegistry = lazyToolRegistry,
         toolsetRegistry = toolsetRegistry,
         skillRegistry = skillRegistry,
@@ -90,11 +87,11 @@ internal class BeastAssembler(
      * 从 Skill.load() 返回的文本中扫描工具名,自动绑定 Skill 实际依赖的 Tool —
      * Skill 只声明人话描述, 描述里提到了哪些工具就拉哪些.
      *
-     * 池子来源: toolRegistry / lazyToolRegistry / toolsetRegistry 的顶层 name.
+     * 池子来源: lazyToolRegistry / toolsetRegistry 的顶层 name.
      *
      * 匹配规则: `\b<name>\b` 全词匹配 (防 "fetcher" 命中 "fetch").
      *
-     * 例子 (tool 池): Skill.load() 返回 "用 fetch_url 抓页面, parse_json 提取字段",
+     * 例子 (lazyTool 池): Skill.load() 返回 "用 fetch_url 抓页面, parse_json 提取字段",
      * 扫描后会把 fetch_url / parse_json 对应的 Tool 实例拉进 Horse 的 tools 列表.
      *
      * 例子 (toolset 池): 池里有 Toolset("weather", ...) 持有 GetWeather / GetForecast,
@@ -105,7 +102,6 @@ internal class BeastAssembler(
      */
     internal fun extractTools(text: String): List<Tool> {
         val providers: List<Pair<String, () -> List<Tool>>> = buildList {
-            toolRegistry?.all()?.forEach { add(it.name to { listOf(it) }) }
             lazyToolRegistry?.all()?.forEach { add(it.name to { listOf(it.tool) }) }
             toolsetRegistry?.all()?.forEach { add(it.name to { it.all() }) }
         }

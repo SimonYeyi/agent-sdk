@@ -11,7 +11,7 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
-import io.github.yeyi.agent.tool.ToolRegistry
+import io.github.yeyi.agent.tool.lazy_loading.LazyTool
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.toList
@@ -80,7 +80,7 @@ class BossAgentIntegrationTest {
     fun `end-to-end — boss publishes task, beast runs, boss continuation flows to user`() = runBlocking {
         // boss LLM 决策序列: 1) 调 publish_task → 2) Final "已派活" → 3) 续轮 Final "结果如下"
         // beast LLM 决策序列: 1) Final (没 tool call)
-        val toolReg = ToolRegistry().apply { register(EchoTool) }
+        val lazyToolReg = LazyToolRegistry().apply { register(LazyTool(EchoTool)) }
         val capabilitiesByType: Map<String, List<NamedCapability>> = mapOf(
             "tool" to listOf(NamedCapability("echo", "Echo back the argument."))
         )
@@ -90,14 +90,13 @@ class BossAgentIntegrationTest {
 
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = listOf(BEAST_FINAL)),
-            toolRegistry = toolReg,
+            lazyToolRegistry = lazyToolReg,
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
-            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
@@ -148,7 +147,7 @@ class BossAgentIntegrationTest {
     fun `end-to-end — boss publishes two concurrent tasks, both return`() = runBlocking {
         // 一次 publish_task tasks=[A, B] → 两个 TaskAssignment 并发跑 → 续轮看到两个结果
         // boss LLM 决策: 1) 调 publish_task(tasks=[A, B]) → 2) Final "已派两个" → 3) 续轮 Final
-        val toolReg = ToolRegistry().apply { register(EchoTool) }
+        val lazyToolReg = LazyToolRegistry().apply { register(LazyTool(EchoTool)) }
         val capabilitiesByType: Map<String, List<NamedCapability>> = mapOf(
             "tool" to listOf(NamedCapability("echo", "Echo."))
         )
@@ -158,14 +157,13 @@ class BossAgentIntegrationTest {
 
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = listOf(BEAST_FINAL, BEAST_FINAL)),
-            toolRegistry = toolReg,
+            lazyToolRegistry = lazyToolReg,
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
-            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }

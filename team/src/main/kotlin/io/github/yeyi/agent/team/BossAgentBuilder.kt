@@ -121,7 +121,6 @@ public class BossAgentBuilder internal constructor() {
 
         val assembler = BeastAssembler(
             llmProvider = llm,
-            toolRegistry = toolRegistry0,
             lazyToolRegistry = lazyToolRegistry0,
             toolsetRegistry = toolsetRegistry0,
             skillRegistry = skillRegistry0,
