@@ -43,7 +43,7 @@ class SearchToolTest {
         val text = result.parts.text
         assertTrue(text.contains("weather"))
         assertTrue(text.contains("天气查询"))
-        assertTrue(text.contains("search_tool 返回以下工具"))
+        assertTrue(text.contains("查询到以下工具"))
         assertTrue(text.contains("tool_caller"))
     }
 
@@ -80,7 +80,7 @@ class SearchToolTest {
 
         assertEquals(false, result.isError)
         val text = result.parts.text
-        assertTrue(text.contains("search_tool 返回以下工具"))
+        assertTrue(text.contains("查询到以下工具"))
     }
 
     @Test
@@ -91,10 +91,11 @@ class SearchToolTest {
     }
 
     @Test
-    fun `search_tool description is empty`() {
+    fun `search_tool description is meaningful`() {
         val registry = LazyToolRegistry()
         val searchTool = SearchTool(registry)
-        assertEquals("", searchTool.description)
+        assertTrue(searchTool.description.isNotEmpty(), "description should not be empty")
+        assertTrue(searchTool.description.contains("工具"), "description should mention tools")
     }
 
     private fun createStubContext(): ToolExecutionContext {

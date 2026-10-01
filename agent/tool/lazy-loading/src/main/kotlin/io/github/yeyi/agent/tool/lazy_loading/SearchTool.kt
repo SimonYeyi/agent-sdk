@@ -15,7 +15,7 @@ import kotlinx.serialization.json.jsonPrimitive
 internal class SearchTool(private val registry: LazyToolRegistry) : Tool {
     override val name: String = "search_tool"
 
-    override val description: String = ""
+    override val description: String = "当没有合适的工具处理用户请求时，使用该工具查询更多可用工具。"
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """
@@ -40,7 +40,7 @@ internal class SearchTool(private val registry: LazyToolRegistry) : Tool {
                 it.name.contains(query, ignoreCase = true)
         }
         val definitions = results.joinToString("\n") { it.tool.toDefinition().toString() }
-        val text = "search_tool 返回以下工具（通过 tool_caller 调用）:\n$definitions"
+        val text = "查询到以下工具（通过 tool_caller 调用）:\n$definitions"
         return ToolExecutionResult.success(text)
     }
 }
