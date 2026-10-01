@@ -120,12 +120,12 @@ object DemoAgentFactory {
             llmProvider(llmProvider)
             lazyTools(LazyToolRegistry().apply {
                 register(LazyTool(getLocationTool))
+                register(LazyTool(getWeatherTool))
                 register(LazyTool(WebSearchTool(), LazyTool.Level.TOOL))
             })
             val skillRegistry = SkillRegistry()
             skillRegistry.register(NewsSkill())
             skillRegistry.register(WeatherSkill())
-            skillRegistry.registerTools(listOf(getWeatherTool))
             skills(skillRegistry)
             mcps(mcpRegistry)
             hook(hook ?: HookPipeline(logging = true))

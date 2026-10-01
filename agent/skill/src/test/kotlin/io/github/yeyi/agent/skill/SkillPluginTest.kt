@@ -77,18 +77,7 @@ class SkillPluginTest {
     }
 
     @Test
-    fun `install does NOT install SkillToolLoader or SkillToolCaller when registry has no tools`() {
-        val registry = SkillRegistry().apply { register(StubSkill("alpha")) }
-        val installer = SkillPlugin(registry)
-        val context = FakePluginContext()
-        installer.install(context)
-        val toolNames = context.tools.map { it.name }
-        assertFalse("skill_tool_loader" in toolNames)
-        assertFalse("skill_tool_caller" in toolNames)
-    }
-
-    @Test
-    fun `install installs SkillToolLoader and SkillToolCaller when registry has tools`() {
+    fun `install does NOT install SkillToolLoader or SkillToolCaller`() {
         val registry = SkillRegistry().apply {
             register(StubSkill("alpha"))
             registerTools(listOf(StubSkillTool("helper_a")))
@@ -97,7 +86,7 @@ class SkillPluginTest {
         val context = FakePluginContext()
         installer.install(context)
         val toolNames = context.tools.map { it.name }
-        assertContains(toolNames, "skill_tool_loader")
-        assertContains(toolNames, "skill_tool_caller")
+        assertFalse("skill_tool_loader" in toolNames)
+        assertFalse("skill_tool_caller" in toolNames)
     }
 }
