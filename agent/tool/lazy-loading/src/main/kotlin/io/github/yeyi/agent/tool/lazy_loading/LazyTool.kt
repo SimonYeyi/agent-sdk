@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.tool.lazy_loading
 
 import io.github.yeyi.agent.capability.Capability
+import io.github.yeyi.agent.toDefinition
 import io.github.yeyi.agent.tool.Tool
 
 /**
@@ -24,7 +25,7 @@ public interface LazyTool : Capability<Unit, LazyToolContext> {
     public override suspend fun activate(
         arguments: Unit?,
         context: LazyToolContext,
-    ): String = "LazyTool '${name}' 参数 schema：${tool.parametersSchema}"
+    ): String = "LazyTool '${name}' 参数 schema：${tool.toDefinition().parametersSchema}（通过 lazy_tool_caller 调用）"
 
     public companion object {
         /** 能力框架中的路由类型，生成工具名 `load_lazy_tool`、路由字段 `tool_name`。 */
