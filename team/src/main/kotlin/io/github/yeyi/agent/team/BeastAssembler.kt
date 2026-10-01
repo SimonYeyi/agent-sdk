@@ -85,9 +85,9 @@ internal class BeastAssembler(
 
     /**
      * 从 Skill.load() 返回的文本中扫描工具名,自动绑定 Skill 实际依赖的 Tool —
-     * Skill 只声明人话描述, 描述里提到了哪些工具就拉哪些, 不需要 Skill 自己持有工具列表.
+     * Skill 只声明人话描述, 描述里提到了哪些工具就拉哪些.
      *
-     * 池子来源: toolRegistry / toolsetRegistry / skillRegistry.allTools() 的顶层 name.
+     * 池子来源: toolRegistry / toolsetRegistry 的顶层 name.
      *
      * 匹配规则: `\b<name>\b` 全词匹配 (防 "fetcher" 命中 "fetch").
      *
@@ -98,13 +98,12 @@ internal class BeastAssembler(
      * 文本里提到 "weather" → 整个 Toolset 展开 (GetWeather + GetForecast) 一起累入.
      * 但文本提 "GetWeather" 这种子 Tool 名不会触发 — 池子第一层是 Toolset 名字, 不是子 Tool 名字.
      *
-     * @return 返回 skill 需要使用的 Tool 列表。同名工具不去重，交由调用方处理
+     * @return 返回文本中提到的工具实例列表。同名工具不去重，交由调用方处理
      */
     internal fun extractTools(text: String): List<Tool> {
         val providers: List<Pair<String, () -> List<Tool>>> = buildList {
             toolRegistry?.all()?.forEach { add(it.name to { listOf(it) }) }
             toolsetRegistry?.all()?.forEach { add(it.name to { it.all() }) }
-            skillRegistry?.allTools()?.forEach { add(it.name to { listOf(it) }) }
         }
         if (providers.isEmpty()) return emptyList()
 

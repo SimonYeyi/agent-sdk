@@ -104,15 +104,17 @@ class BeastAssemblerTest {
         // 跨 registry 同名 Tool 在 pool 层不冲突, flatMap 后也不去重 —
         // 不同 registry 提供的同名 Tool 可能实现不同,去重会丢失下游可用能力.
         val echoInToolReg = tool("echo")
-        val echoInSkillReg = tool("echo")
+        val echoInToolsetReg = tool("echo")
         val toolReg = ToolRegistry().apply { register(echoInToolReg) }
-        val skillReg = SkillRegistry().apply { registerTools(listOf(echoInSkillReg)) }
-        val a = assembler(toolReg = toolReg, skillReg = skillReg)
+        val toolsetReg = ToolsetRegistry().apply {
+            register(Toolset("echo", "echo toolset").apply { add(echoInToolsetReg) })
+        }
+        val a = assembler(toolReg = toolReg, toolsetReg = toolsetReg)
 
         val matched = a.extractTools("use echo")
 
         assertEquals(2, matched.size, "flatMap 后同名 Tool 应全部保留, got: ${matched.map { it.name }}")
         assertTrue(matched.contains(echoInToolReg), "toolRegistry 的 echo 应保留")
-        assertTrue(matched.contains(echoInSkillReg), "skillRegistry 的 echo 应保留")
+        assertTrue(matched.contains(echoInToolsetReg), "toolsetRegistry 的 echo 应保留")
     }
 }
