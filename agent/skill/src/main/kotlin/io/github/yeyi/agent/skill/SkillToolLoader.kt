@@ -44,12 +44,21 @@ internal class SkillToolLoader(private val registry: SkillRegistry) : Tool {
             ?.map { it.jsonPrimitive.content }
             ?: return ToolExecutionResult.error("Missing tool_names")
 
-        return ToolExecutionResult.success("发现以下可用 Skill 工具（通过 skill_tool_caller 调用）：\n${toolNames.toDefinitions()}")
+        val allSkillTools = registry.allTools()
+        val found = toolNames.mapNotNull { name -> allSkillTools.find { it.name == name } }
+
+        if (found.size != toolNames.size) {
+            val notFound = toolNames.filter { name -> allSkillTools.none { it.name == name } }
+            return ToolExecutionResult.error(
+                "以下工具未找到：$notFound\n所有可用 Skill 工具：${allSkillTools.joinToString { it.name }}"
+            )
+        }
+
+        return ToolExecutionResult.success("发现以下可用 Skill 工具（通过 skill_tool_caller 调用）：\n${found.toDefinitions()}")
     }
 
-    private fun List<String>.toDefinitions(): String {
-        val items = mapNotNull { name -> registry.allTools().find { it.name == name } }
-            .joinToString(",\n") { tool -> tool.toDefinition().toString() }
+    private fun List<Tool>.toDefinitions(): String {
+        val items = joinToString(",\n") { tool -> tool.toDefinition().toString() }
         return if (items.isEmpty()) "[]" else "[\n    $items\n]"
     }
 }
