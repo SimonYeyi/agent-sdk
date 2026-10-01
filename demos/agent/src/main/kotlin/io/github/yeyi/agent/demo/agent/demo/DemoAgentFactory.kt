@@ -118,9 +118,9 @@ object DemoAgentFactory {
             persona(Persona(role = "你是一个 helpful 助手，优先使用工具完成任务。"))
             memory(memory ?: InMemoryMemory())
             llmProvider(llmProvider)
-            tool(getLocationTool)
             lazyTools(LazyToolRegistry().apply {
-                register(LazyTool(WebSearchTool()))
+                register(LazyTool(getLocationTool))
+                register(LazyTool(WebSearchTool(), LazyTool.Level.TOOL))
             })
             val skillRegistry = SkillRegistry()
             skillRegistry.register(NewsSkill())

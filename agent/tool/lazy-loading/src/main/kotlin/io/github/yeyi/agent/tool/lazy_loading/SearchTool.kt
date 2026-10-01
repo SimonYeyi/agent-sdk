@@ -15,7 +15,7 @@ import kotlinx.serialization.json.jsonPrimitive
 internal class SearchTool(private val registry: LazyToolRegistry) : Tool {
     override val name: String = "search_tool"
 
-    override val description: String = "当没有合适的工具处理用户请求时，使用该工具查询更多可用工具。"
+    override val description: String = "当没有合适的工具处理用户请求时，使用本工具查询更多可用工具。"
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """
@@ -35,10 +35,7 @@ internal class SearchTool(private val registry: LazyToolRegistry) : Tool {
     override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         val query = arguments.jsonObject["query"]?.jsonPrimitive?.content ?: ""
         // TODO: Use model-based semantic search instead of keyword match
-        val results = registry.all().filter {
-            it.description.contains(query, ignoreCase = true) ||
-                it.name.contains(query, ignoreCase = true)
-        }
+        val results = registry.all()
         val definitions = results.joinToString("\n") { it.tool.toDefinition().toString() }
         val text = "查询到以下工具（通过 tool_caller 调用）:\n$definitions"
         return ToolExecutionResult.success(text)

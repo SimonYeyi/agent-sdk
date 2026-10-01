@@ -9,7 +9,8 @@ import io.github.yeyi.agent.skill.Skill
  */
 class WeatherSkill : Skill {
     override val name: String = "weather"
-    override val description: String = "当需要查询无明确位置的天气情况时使用该技能，如：今天天气如何、明天天气怎样等无明确地点的情况，技能会指导你如何获取准确的位置信息。"
+    override val description: String =
+        "当需要查询无明确位置的天气情况时使用该技能，如：今天天气如何、明天天气怎样等无明确地点的情况，技能会指导你如何获取准确的位置信息。"
 
     override suspend fun load(): String = """
         # 天气查询助手
@@ -18,7 +19,7 @@ class WeatherSkill : Skill {
 
         ## 使用流程
 
-        1. **获取位置**：首先调用 `get_location` 工具获取用户当前位置
+        1. **获取位置**：获取用户当前位置
 
         2. **查询天气**：使用上一步返回的城市名称，调用 `get_weather` 工具
 

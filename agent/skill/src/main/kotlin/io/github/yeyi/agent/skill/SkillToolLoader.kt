@@ -17,7 +17,7 @@ internal class SkillToolLoader(private val registry: SkillRegistry) : Tool {
     override val name: String = "skill_tool_loader"
 
     override val description: String =
-        "Skill 工具加载器。当 Skill 中需要使用的工具还未注册时，调用本工具获取 Skill 所需工具的完整声明。"
+        "Skill 工具加载器。当 Skill 中指定的工具你不认识时，调用本工具去获取它们。"
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """
