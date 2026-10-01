@@ -17,7 +17,5 @@ internal class ToolsetPlugin(
 
     override fun contextFactory(): ToolsetContextFactory = ToolsetContextFactory()
 
-    override fun arguments(): CapabilityArguments<Unit>? = null
-
     override fun auxiliaryTools(): List<Tool> = listOf(MemberToolDelegate(registry))
 }

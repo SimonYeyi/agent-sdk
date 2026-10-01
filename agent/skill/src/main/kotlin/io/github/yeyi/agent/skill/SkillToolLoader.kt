@@ -44,7 +44,7 @@ internal class SkillToolLoader(private val registry: SkillRegistry) : Tool {
             ?.map { it.jsonPrimitive.content }
             ?: return ToolExecutionResult.error("Missing tool_names")
 
-        return ToolExecutionResult.success("发现以下可用 Skill 工具：\n${toolNames.toDefinitions()}")
+        return ToolExecutionResult.success("发现以下可用 Skill 工具（通过 skill_tool_caller 调用）：\n${toolNames.toDefinitions()}")
     }
 
     private fun List<String>.toDefinitions(): String {

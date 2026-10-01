@@ -13,7 +13,7 @@ internal class ToolSearchPlugin(
     private val toolCaller: ToolCaller,
 ) : AgentPlugin<Unit> {
 
-    override val id: String = "tool-search"
+    override val id: String = "tool_search"
 
     override fun configure(block: Unit.() -> Unit) {
         // no-op: this plugin has no config

@@ -29,8 +29,8 @@ public fun AgentBuilder.lazyTools(registry: LazyToolRegistry) {
 
     // TOOL level → 过滤后的 registry
     if (toolSearchTools.isNotEmpty()) {
-        val toolLevelRegistry = LazyToolRegistry()
-        toolSearchTools.forEach { toolLevelRegistry.register(it) }
-        plugin(ToolSearchPlugin(toolLevelRegistry, toolCaller))
+        val toolSearchRegistry = LazyToolRegistry()
+        toolSearchTools.forEach { toolSearchRegistry.register(it) }
+        plugin(ToolSearchPlugin(toolSearchRegistry, toolCaller))
     }
 }

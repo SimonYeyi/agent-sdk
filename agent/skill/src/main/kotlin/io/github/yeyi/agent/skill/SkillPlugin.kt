@@ -16,8 +16,6 @@ internal class SkillPlugin(
 
     override fun contextFactory(): SkillContextFactory = SkillContextFactory()
 
-    override fun arguments(): CapabilityArguments<Unit>? = null
-
     override fun auxiliaryTools(): List<Tool> {
         return if (registry.allTools().isEmpty()) emptyList()
         else listOf(SkillToolLoader(registry), SkillToolCaller(registry))

@@ -41,7 +41,7 @@ public abstract class CapabilityPlugin<C : Capability<T, Ctx>, T : Any, Ctx : Ca
     protected abstract fun contextFactory(): CapabilityContextFactory<Ctx>
 
     /** arguments schema + serializer;无 arguments 传 null。 */
-    protected abstract fun arguments(): CapabilityArguments<T>?
+    protected open fun arguments(): CapabilityArguments<T>? = null
 
     /** 框架自带辅助 tool —— 默认空。Skill/Toolset 等需要补 Loader/Caller/Delegate 等辅助 tool 时覆写。 */
     protected open fun auxiliaryTools(): List<Tool> = emptyList()

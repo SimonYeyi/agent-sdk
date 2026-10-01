@@ -21,8 +21,7 @@ import kotlinx.serialization.json.jsonPrimitive
 internal class MemberToolDelegate(private val registry: ToolsetRegistry) : Tool, DelegatingTool {
     override val name: String = "member_tool_delegate"
 
-    override val description: String =
-        "调用指定 toolset 内的成员 Tool：传入 toolset_name + tool_name + tool_arguments"
+    override val description: String = ""
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """

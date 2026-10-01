@@ -6,7 +6,6 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonNull
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -24,7 +23,7 @@ class LazyToolRegistryTest {
             ToolExecutionResult.success("ok")
     }
 
-    private fun emptyContext(): LazyToolContext = LazyToolContext()
+    private fun emptyContext(): SchemaLazyContext = SchemaLazyContext()
 
     @Test
     fun `registry capabilityType is lazy_tool`() {

@@ -16,12 +16,11 @@ import kotlinx.serialization.json.jsonPrimitive
  * 同时实现 [DelegatingTool]，使审批等拦截器能穿透委托层，基于目标 Skill 工具的
  * 策略做决策。[execute] 复用 [resolveTarget] 获取目标，避免路由解析逻辑重复。
  */
-internal class SkillToolCaller(private val registry: SkillRegistry) :
-    Tool, DelegatingTool {
+internal class SkillToolCaller(private val registry: SkillRegistry) : Tool, DelegatingTool {
 
     override val name: String = "skill_tool_caller"
 
-    override val description: String = "Skill 工具调用代理。代理调用动态加载的 Skill 工具。"
+    override val description: String = ""
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """
@@ -34,7 +33,7 @@ internal class SkillToolCaller(private val registry: SkillRegistry) :
                 },
                 "arguments": {
                     "type": "object",
-                    "description": "Actual parameters schema of the target tool of Skill. Replace this object with the specific parameters required by the tool."
+                    "description": "Actual parameters schema of the target tool by 'skill_tool_loader'."
                 }
             },
             "required": ["tool_name", "arguments"],
