@@ -33,7 +33,8 @@ internal class SearchTool(private val registry: LazyToolRegistry) : Tool {
     )
 
     override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
-        val query = arguments.jsonObject["query"]?.jsonPrimitive?.content ?: ""
+        val query = arguments.jsonObject["query"]?.jsonPrimitive?.content
+            ?: return ToolExecutionResult.error("Missing query")
         // TODO: Use model-based semantic search instead of keyword match
         val results = registry.all()
         val definitions = results.joinToString("\n") { it.tool.toDefinition().toString() }
