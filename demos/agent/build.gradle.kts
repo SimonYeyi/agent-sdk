@@ -64,6 +64,7 @@ dependencies {
     implementation(project(":agent:providers:anthropic"))
     implementation(project(":agent:tool:serialization"))
     implementation(project(":agent:tool:compression"))
+    implementation(project(":agent:tool:lazy-loading"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

@@ -28,6 +28,9 @@ import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.skill.skills
 import io.github.yeyi.agent.subagent.SubagentRegistry
 import io.github.yeyi.agent.subagent.subagents
+import io.github.yeyi.agent.tool.lazy_loading.LazyTool
+import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
+import io.github.yeyi.agent.tool.lazy_loading.lazyTools
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
@@ -115,8 +118,10 @@ object DemoAgentFactory {
             persona(Persona(role = "你是一个 helpful 助手，优先使用工具完成任务。"))
             memory(memory ?: InMemoryMemory())
             llmProvider(llmProvider)
-            tool(WebSearchTool())
             tool(getLocationTool)
+            lazyTools(LazyToolRegistry().apply {
+                register(LazyTool(WebSearchTool()))
+            })
             val skillRegistry = SkillRegistry()
             skillRegistry.register(NewsSkill())
             skillRegistry.register(WeatherSkill())

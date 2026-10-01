@@ -10,7 +10,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class LazyToolPluginTest {
+class SchemaLazyPluginTest {
 
     private class FixedTool(override val name: String, override val description: String = "test") : Tool {
         override val parametersSchema: ToolParameters = ToolParameters.Empty
@@ -19,10 +19,12 @@ class LazyToolPluginTest {
     }
 
     @Test
-    fun `plugin installs load_lazy_tool and lazytool_caller`() {
+    fun `plugin installs load_lazy_tool and tool_caller`() {
         val registry = LazyToolRegistry()
         registry.register(LazyTool(FixedTool("weather", "天气查询")))
         registry.register(LazyTool(FixedTool("news", "新闻查询")))
+
+        val toolCaller = ToolCaller(registry)
 
         var installedTools: List<Tool> = emptyList()
         val context = object : AgentPluginContext {
@@ -32,13 +34,13 @@ class LazyToolPluginTest {
             override fun appendPersona(label: String, content: String) {}
         }
 
-        val plugin = LazyToolPlugin(registry)
+        val plugin = SchemaLazyPlugin(registry, toolCaller)
         plugin.install(context)
 
         val toolNames = installedTools.map { it.name }
         assertEquals(2, toolNames.size, "Expected 2 tools but got: $toolNames")
         assertTrue("load_lazy_tool" in toolNames, "load_lazy_tool not found in $toolNames")
-        assertTrue("lazy_tool_caller" in toolNames, "lazy_tool_caller not found in $toolNames")
+        assertTrue("tool_caller" in toolNames, "tool_caller not found in $toolNames")
     }
 
     @Test
@@ -47,6 +49,8 @@ class LazyToolPluginTest {
         registry.register(LazyTool(FixedTool("weather", "天气查询")))
         registry.register(LazyTool(FixedTool("news", "新闻查询")))
 
+        val toolCaller = ToolCaller(registry)
+
         var installedTools: List<Tool> = emptyList()
         val context = object : AgentPluginContext {
             override fun registerTool(tool: Tool) {
@@ -55,7 +59,7 @@ class LazyToolPluginTest {
             override fun appendPersona(label: String, content: String) {}
         }
 
-        val plugin = LazyToolPlugin(registry)
+        val plugin = SchemaLazyPlugin(registry, toolCaller)
         plugin.install(context)
 
         val loadTool = installedTools.find { it.name == "load_lazy_tool" }!!

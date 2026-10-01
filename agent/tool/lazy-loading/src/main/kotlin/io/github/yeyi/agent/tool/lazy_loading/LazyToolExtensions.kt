@@ -5,16 +5,32 @@ import io.github.yeyi.agent.AgentBuilder
 /**
  * 注册多个 [LazyTool] 到 Agent。
  *
- * 该扩展函数：
- * 1. 将 [registry] 中的所有 LazyTool 安装到 AgentBuilder（通过 Capability 框架）
- * 2. 注册 [LazyToolCaller]
+ * 根据 [LazyTool.level] 分流：
+ * - [LazyTool.Level.SCHEMA] → [SchemaLazyPlugin]
+ * - [LazyTool.Level.TOOL] → [ToolSearchPlugin]
+ *
+ * 两个 plugin 共用同一个 [ToolCaller] 实例。
  *
  * @param registry LazyTool 注册中心，含所有待注册的 LazyTool 实例
- * @param enableDelegateAdaptMode 是否启用委托适配模式，默认 true
  */
-public fun AgentBuilder.lazyTools(
-    registry: LazyToolRegistry,
-    enableDelegateAdaptMode: Boolean = true,
-) {
-    plugin(LazyToolPlugin(registry, enableDelegateAdaptMode))
+public fun AgentBuilder.lazyTools(registry: LazyToolRegistry) {
+    val lazyTools = registry.all()
+    val schemaLazyTools = lazyTools.filter { it.level == LazyTool.Level.SCHEMA }
+    val toolSearchTools = lazyTools.filter { it.level == LazyTool.Level.TOOL }
+
+    val toolCaller = ToolCaller(registry)  // 全量 registry
+
+    // SCHEMA level → 过滤后的 registry
+    if (schemaLazyTools.isNotEmpty()) {
+        val schemaLazyRegistry = LazyToolRegistry()
+        schemaLazyTools.forEach { schemaLazyRegistry.register(it) }
+        plugin(SchemaLazyPlugin(schemaLazyRegistry, toolCaller))
+    }
+
+    // TOOL level → 过滤后的 registry
+    if (toolSearchTools.isNotEmpty()) {
+        val toolLevelRegistry = LazyToolRegistry()
+        toolSearchTools.forEach { toolLevelRegistry.register(it) }
+        plugin(ToolSearchPlugin(toolLevelRegistry, toolCaller))
+    }
 }

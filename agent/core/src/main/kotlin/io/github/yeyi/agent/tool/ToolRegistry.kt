@@ -26,9 +26,9 @@ public class ToolRegistry : ToolDispatcher {
      * tool calls ambiguous.
      */
     public fun register(tool: Tool) {
-        if (tool.name in byName) {
-            throw ToolDuplicateException(tool.name, byName.keys)
-        }
+        val existing = byName[tool.name]
+        if (existing == tool) return
+        if (existing != null) throw ToolDuplicateException(tool.name, byName.keys)
         byName[tool.name] = tool
     }
 
