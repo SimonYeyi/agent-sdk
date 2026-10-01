@@ -8,6 +8,8 @@ import io.github.yeyi.agent.subagent.SubagentRegistry
 import io.github.yeyi.agent.team.BossAgent
 import io.github.yeyi.agent.team.bossAgent
 import io.github.yeyi.agent.tool.ToolRegistry
+import io.github.yeyi.agent.tool.lazy_loading.LazyTool
+import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 
 /**
@@ -16,16 +18,16 @@ import io.github.yeyi.agent.toolset.ToolsetRegistry
 object CockpitAgent {
 
     fun create(llmProvider: LlmProvider): BossAgent {
-        // Quick tools - boss 直接执行
-        val quickToolRegistry = ToolRegistry().apply {
+        // Direct tools - boss 直接执行
+        val directToolRegistry = ToolRegistry().apply {
             register(GetTimeTool())
             register(GetDateTool())
         }
 
-        // Tools - 独立工具池（不在 toolsets 中）
-        val toolRegistry = ToolRegistry().apply {
-            register(GetCarStatusTool())
-            register(GetEnergyTool())
+        // Delegated tools - 延迟加载的工具池
+        val delegatedToolRegistry = LazyToolRegistry().apply {
+            register(LazyTool(GetCarStatusTool()))
+            register(LazyTool(GetEnergyTool()))
         }
 
         // Toolsets - 相似工具的集合（工具只在此处出现）
@@ -53,8 +55,8 @@ object CockpitAgent {
             memory(InMemoryMemory(), 40)
             llmProvider(llmProvider)
             maxIterations(40)
-            quickTools(quickToolRegistry)
-            tools(toolRegistry)
+            tools(directToolRegistry)
+            lazyTools(delegatedToolRegistry)
             toolsets(toolsetRegistry)
             skills(skillRegistry)
             subagents(subagentRegistry)

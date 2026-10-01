@@ -11,6 +11,7 @@ import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.tool.ToolRegistry
+import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -50,6 +51,7 @@ class PastureDagTest {
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
+            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         return Triple(bb, pasture, scope)
@@ -230,6 +232,7 @@ class PastureDagTest {
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
+            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
@@ -291,6 +294,7 @@ class PastureDagTest {
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
+            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }

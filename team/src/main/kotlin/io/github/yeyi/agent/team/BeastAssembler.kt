@@ -6,14 +6,16 @@ import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.subagent.SubagentRegistry
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolRegistry
+import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 
 internal class BeastAssembler(
     private val llmProvider: LlmProvider,
     private val toolRegistry: ToolRegistry?,
+    private val lazyToolRegistry: LazyToolRegistry?,
+    private val toolsetRegistry: ToolsetRegistry?,
     private val skillRegistry: SkillRegistry?,
     private val subagentRegistry: SubagentRegistry?,
-    private val toolsetRegistry: ToolsetRegistry?,
     private val baseRole: String,
     private val maxIterations: Int,
     private val maxRounds: Int,
@@ -76,9 +78,10 @@ internal class BeastAssembler(
         llmProvider = llmProvider,
         persona = Persona(baseRole),
         toolRegistry = toolRegistry,
+        lazyToolRegistry = lazyToolRegistry,
+        toolsetRegistry = toolsetRegistry,
         skillRegistry = skillRegistry,
         subagentRegistry = subagentRegistry,
-        toolsetRegistry = toolsetRegistry,
         maxIterations = maxIterations,
         maxRounds = maxRounds,
     )
@@ -87,7 +90,7 @@ internal class BeastAssembler(
      * 从 Skill.load() 返回的文本中扫描工具名,自动绑定 Skill 实际依赖的 Tool —
      * Skill 只声明人话描述, 描述里提到了哪些工具就拉哪些.
      *
-     * 池子来源: toolRegistry / toolsetRegistry 的顶层 name.
+     * 池子来源: toolRegistry / lazyToolRegistry / toolsetRegistry 的顶层 name.
      *
      * 匹配规则: `\b<name>\b` 全词匹配 (防 "fetcher" 命中 "fetch").
      *
@@ -103,6 +106,7 @@ internal class BeastAssembler(
     internal fun extractTools(text: String): List<Tool> {
         val providers: List<Pair<String, () -> List<Tool>>> = buildList {
             toolRegistry?.all()?.forEach { add(it.name to { listOf(it) }) }
+            lazyToolRegistry?.all()?.forEach { add(it.name to { listOf(it.tool) }) }
             toolsetRegistry?.all()?.forEach { add(it.name to { it.all() }) }
         }
         if (providers.isEmpty()) return emptyList()

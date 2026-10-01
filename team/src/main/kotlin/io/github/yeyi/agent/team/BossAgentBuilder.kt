@@ -9,6 +9,7 @@ import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.subagent.SubagentRegistry
 import io.github.yeyi.agent.tool.ToolRegistry
+import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -28,8 +29,8 @@ public class BossAgentBuilder internal constructor() {
     private var maxIterations0: Int = 20
     private var hook0: AgentHook? = null
 
-    private var delegatedToolRegistry0: ToolRegistry? = null
-    private var quickToolRegistry0: ToolRegistry? = null
+    private var toolRegistry0: ToolRegistry? = null
+    private var lazyToolRegistry0: LazyToolRegistry? = null
     private var toolsetRegistry0: ToolsetRegistry? = null
     private var skillRegistry0: SkillRegistry? = null
     private var subagentRegistry0: SubagentRegistry? = null
@@ -77,21 +78,22 @@ public class BossAgentBuilder internal constructor() {
     }
 
     /**
-     * 注册 tool 池 — boss 通过 [Selection.Tool] 选用, pasture 解析注入 Horse.
-     */
-    public fun tools(registry: ToolRegistry) {
-        delegatedToolRegistry0 = registry
-    }
-
-    /**
-     * 注册 boss 可快速调的工具 — 合并进 innerAgent 的 ToolRegistry.
+     * 注册直接可用的工具 — 合并进 innerAgent 的 ToolRegistry.
      * LLM 可见可调, 走 boss 同步路径, 无 beast 派发开销.
      *
      * **注意**: 注册的工具由 boss LLM 直接控制 (同步阻塞当前 run), 必须确保
      * 工具执行耗时足够短, 否则会阻塞 boss 的 ReAct 循环.
      */
-    public fun quickTools(registry: ToolRegistry) {
-        quickToolRegistry0 = registry
+    public fun tools(registry: ToolRegistry) {
+        toolRegistry0 = registry
+    }
+
+    /**
+     * 注册延迟加载的工具池 — boss 通过 [Selection.Tool] 选用, pasture 解析注入 Horse.
+     * 工具通过 [io.github.yeyi.agent.tool.lazy_loading.lazyTools] 机制按需激活.
+     */
+    public fun lazyTools(registry: LazyToolRegistry) {
+        lazyToolRegistry0 = registry
     }
 
     public fun toolsets(registry: ToolsetRegistry) {
@@ -119,10 +121,11 @@ public class BossAgentBuilder internal constructor() {
 
         val assembler = BeastAssembler(
             llmProvider = llm,
-            toolRegistry = delegatedToolRegistry0,
+            toolRegistry = toolRegistry0,
+            lazyToolRegistry = lazyToolRegistry0,
+            toolsetRegistry = toolsetRegistry0,
             skillRegistry = skillRegistry0,
             subagentRegistry = subagentRegistry0,
-            toolsetRegistry = toolsetRegistry0,
             baseRole = "You are a helpful worker. Complete the given task and return the result.",
             maxIterations = maxIterations0,
             maxRounds = maxRounds0,
@@ -151,7 +154,7 @@ public class BossAgentBuilder internal constructor() {
         scope: CoroutineScope,
     ): BossAgent {
         val capabilitiesByType: Map<String, List<NamedCapability>> = buildMap {
-            delegatedToolRegistry0?.let { reg ->
+            lazyToolRegistry0?.let { reg ->
                 put(Selection.Type.Tool.value, reg.all().map { NamedCapability(it.name, it.description) })
             }
             toolsetRegistry0?.let { reg ->
@@ -186,7 +189,7 @@ public class BossAgentBuilder internal constructor() {
             hook0?.let { hook(it) }
             tool(publishTask)
             tool(cancelTask)
-            quickToolRegistry0?.let { tools(it) }
+            toolRegistry0?.let { tools(it) }
         }
 
         return BossAgent(innerAgent, SYSTEM_REPORT_MARKER, scope)

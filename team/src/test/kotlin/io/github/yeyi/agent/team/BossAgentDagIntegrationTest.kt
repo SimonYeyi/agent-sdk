@@ -16,6 +16,7 @@ import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.ToolRegistry
+import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancel
@@ -118,6 +119,7 @@ class BossAgentDagIntegrationTest {
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
+            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
@@ -216,6 +218,7 @@ class BossAgentDagIntegrationTest {
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
+            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
@@ -271,6 +274,7 @@ class BossAgentDagIntegrationTest {
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
+            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }
@@ -377,6 +381,7 @@ class BossAgentDagIntegrationTest {
             baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
+            lazyToolRegistry = null,
         )
         val pasture = Pasture(assembler = assembler, scope = scope)
         runBlocking { pasture.observe(bb) }

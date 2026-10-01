@@ -14,10 +14,11 @@ kotlin {
 dependencies {
     api(project(":agent:core"))
     api(project(":agent:capability"))
+    api(project(":agent:tool:lazy-loading"))
     api(project(":agent:toolset"))
+    api(project(":agent:mcp"))
     api(project(":agent:skill"))
     api(project(":agent:subagent"))
-    api(project(":agent:mcp"))
 
     api(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
