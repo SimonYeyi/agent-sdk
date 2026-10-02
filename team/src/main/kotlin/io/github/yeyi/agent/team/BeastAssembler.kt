@@ -73,7 +73,7 @@ internal class BeastAssembler(
         return Horse(
             llmProvider,
             persona,
-            if (tools == null) toolRegistry else ToolRegistry().apply { register(tools) },
+            if (tools == null) toolRegistry.copy() else ToolRegistry().apply { register(tools) },
             if (tools == null) lazyToolRegistry else null,
             if (tools == null) toolsetRegistry else null,
             maxIterations,
@@ -84,7 +84,7 @@ internal class BeastAssembler(
     private fun buildOx(): Ox = Ox(
         llmProvider = llmProvider,
         persona = Persona(baseRole),
-        toolRegistry = toolRegistry,
+        toolRegistry = toolRegistry.copy(),
         lazyToolRegistry = lazyToolRegistry,
         toolsetRegistry = toolsetRegistry,
         skillRegistry = skillRegistry,
@@ -92,4 +92,7 @@ internal class BeastAssembler(
         maxIterations = maxIterations,
         maxRounds = maxRounds,
     )
+
+    private fun ToolRegistry?.copy(): ToolRegistry? =
+        this?.let { ToolRegistry().apply { register(it.all()) } }
 }

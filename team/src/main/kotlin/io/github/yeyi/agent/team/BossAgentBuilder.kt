@@ -189,7 +189,7 @@ public class BossAgentBuilder internal constructor() {
             hook0?.let { hook(it) }
             tool(publishTask)
             tool(cancelTask)
-            toolRegistry0?.let { tools(it) }
+            toolRegistry0?.let { tools(it.all()) }
         }
 
         return BossAgent(innerAgent, SYSTEM_REPORT_MARKER, scope)
