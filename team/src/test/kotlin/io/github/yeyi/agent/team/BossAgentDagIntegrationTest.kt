@@ -111,6 +111,7 @@ class BossAgentDagIntegrationTest {
 
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = beastResponses),
+            toolRegistry = null,
             lazyToolRegistry = LazyToolRegistry().apply { register(LazyTool(EchoTool)) },
             skillRegistry = null,
             subagentRegistry = null,
@@ -208,6 +209,7 @@ class BossAgentDagIntegrationTest {
 
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = listOf(BEAST_FINAL)),
+            toolRegistry = null,
             lazyToolRegistry = LazyToolRegistry().apply { register(LazyTool(EchoTool)) },
             skillRegistry = null,
             subagentRegistry = null,
@@ -262,6 +264,7 @@ class BossAgentDagIntegrationTest {
 
         val assembler = BeastAssembler(
             llmProvider = failingLlm,
+            toolRegistry = null,
             lazyToolRegistry = LazyToolRegistry().apply { register(LazyTool(EchoTool)) },
             skillRegistry = null,
             subagentRegistry = null,
@@ -367,6 +370,7 @@ class BossAgentDagIntegrationTest {
 
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = listOf(BEAST_FINAL)),
+            toolRegistry = null,
             lazyToolRegistry = LazyToolRegistry().apply { register(LazyTool(EchoTool)) },
             skillRegistry = null,
             subagentRegistry = null,

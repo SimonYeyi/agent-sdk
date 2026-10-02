@@ -44,6 +44,7 @@ class PastureDagTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = makeResponses(responseCount)),
+            toolRegistry = null,
             lazyToolRegistry = null,
             toolsetRegistry = null,
             skillRegistry = null,
@@ -224,6 +225,7 @@ class PastureDagTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val assembler = BeastAssembler(
             llmProvider = slowLlm,
+            toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
@@ -285,6 +287,7 @@ class PastureDagTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val assembler = BeastAssembler(
             llmProvider = slowLlm,
+            toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,

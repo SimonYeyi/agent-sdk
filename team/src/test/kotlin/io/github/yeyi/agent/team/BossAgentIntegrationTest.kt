@@ -90,6 +90,7 @@ class BossAgentIntegrationTest {
 
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = listOf(BEAST_FINAL)),
+            toolRegistry = null,
             lazyToolRegistry = lazyToolReg,
             skillRegistry = null,
             subagentRegistry = null,
@@ -157,6 +158,7 @@ class BossAgentIntegrationTest {
 
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = listOf(BEAST_FINAL, BEAST_FINAL)),
+            toolRegistry = null,
             lazyToolRegistry = lazyToolReg,
             skillRegistry = null,
             subagentRegistry = null,

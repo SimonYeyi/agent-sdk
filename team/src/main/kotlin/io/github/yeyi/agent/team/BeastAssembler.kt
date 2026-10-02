@@ -5,11 +5,13 @@ import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.subagent.SubagentRegistry
 import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.tool.ToolRegistry
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 
 internal class BeastAssembler(
     private val llmProvider: LlmProvider,
+    private val toolRegistry: ToolRegistry?,
     private val lazyToolRegistry: LazyToolRegistry?,
     private val toolsetRegistry: ToolsetRegistry?,
     private val skillRegistry: SkillRegistry?,
@@ -27,54 +29,60 @@ internal class BeastAssembler(
     }
 
     private suspend fun assembleHorse(selection: Selection): Horse {
-        var skillText: String? = null
-        val tools = mutableListOf<Tool>()
+        var instruction: String? = null
+        var tools: List<Tool>? = null
 
         when (selection) {
             is Selection.Tool -> {
                 val tool = lazyToolRegistry?.all()?.firstOrNull { it.name == selection.name }?.tool
                     ?: error("assembleHorse: tool not found: ${selection.name}")
-                tools += tool
+                tools = listOf(tool)
             }
 
             is Selection.Toolset -> {
                 val toolset = toolsetRegistry?.all()?.firstOrNull { it.name == selection.name }
                     ?: error("assembleHorse: toolset not found: ${selection.name}")
-                tools += toolset.all()
+                tools = toolset.all()
             }
 
             is Selection.Skill -> {
                 val skill = skillRegistry?.all()?.firstOrNull { it.name == selection.name }
                     ?: error("assembleHorse: skill not found: ${selection.name}")
-                if (!skill.standalone) error("assembleHorse: skill '${skill.name}' is not standalone")
-                skillText = skill.load()
-                tools += extractTools(skillText)
+                instruction = skill.load()
+                if (skill.standalone) tools = emptyList()
             }
 
             is Selection.Subagent -> {
                 val subagent = subagentRegistry?.all()?.firstOrNull { it.name == selection.name }
                     ?: error("assembleHorse: subagent not found: ${selection.name}")
-                if (subagent.tools == null) {
-                    error("assembleHorse: subagent '${selection.name}' requires global tools")
-                } else {
-                    tools += subagent.tools!!
-                }
+                instruction = subagent.load()
+                tools = subagent.tools
             }
         }
 
         val persona = Persona(
             buildString {
                 append(baseRole)
-                skillText?.let { append("\n\n").append(it) }
+                instruction?.let { append("\n\n").append(it) }
             }
         )
 
-        return Horse(llmProvider, persona, tools, maxIterations, maxRounds)
+        // tools == null 表示无法预处理工具
+        return Horse(
+            llmProvider,
+            persona,
+            if (tools == null) toolRegistry else ToolRegistry().apply { register(tools) },
+            if (tools == null) lazyToolRegistry else null,
+            if (tools == null) toolsetRegistry else null,
+            maxIterations,
+            maxRounds
+        )
     }
 
     private fun buildOx(): Ox = Ox(
         llmProvider = llmProvider,
         persona = Persona(baseRole),
+        toolRegistry = toolRegistry,
         lazyToolRegistry = lazyToolRegistry,
         toolsetRegistry = toolsetRegistry,
         skillRegistry = skillRegistry,
@@ -82,34 +90,4 @@ internal class BeastAssembler(
         maxIterations = maxIterations,
         maxRounds = maxRounds,
     )
-
-    /**
-     * 从 Skill.load() 返回的文本中扫描工具名,自动绑定 Skill 实际依赖的 Tool —
-     * Skill 只声明人话描述, 描述里提到了哪些工具就拉哪些.
-     *
-     * 池子来源: lazyToolRegistry / toolsetRegistry 的顶层 name.
-     *
-     * 匹配规则: `\b<name>\b` 全词匹配 (防 "fetcher" 命中 "fetch").
-     *
-     * 例子 (lazyTool 池): Skill.load() 返回 "用 fetch_url 抓页面, parse_json 提取字段",
-     * 扫描后会把 fetch_url / parse_json 对应的 Tool 实例拉进 Horse 的 tools 列表.
-     *
-     * 例子 (toolset 池): 池里有 Toolset("weather", ...) 持有 GetWeather / GetForecast,
-     * 文本里提到 "weather" → 整个 Toolset 展开 (GetWeather + GetForecast) 一起累入.
-     * 但文本提 "GetWeather" 这种子 Tool 名不会触发 — 池子第一层是 Toolset 名字, 不是子 Tool 名字.
-     *
-     * @return 返回文本中提到的工具实例列表。同名工具不去重，交由调用方处理
-     */
-    internal fun extractTools(text: String): List<Tool> {
-        val providers: List<Pair<String, () -> List<Tool>>> = buildList {
-            lazyToolRegistry?.all()?.forEach { add(it.name to { listOf(it.tool) }) }
-            toolsetRegistry?.all()?.forEach { add(it.name to { it.all() }) }
-        }
-        if (providers.isEmpty()) return emptyList()
-
-        val names = providers.joinToString(separator = "\\b|\\b") { Regex.escape(it.first) }
-        val pattern = Regex("\\b$names\\b")
-        val matched = pattern.findAll(text).map { it.value }
-        return providers.filter { it.first in matched }.flatMap { it.second() }
-    }
 }

@@ -87,6 +87,7 @@ class PastureTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = llmResponses),
+            toolRegistry = null,
             lazyToolRegistry = lazyToolReg,
             skillRegistry = skillReg,
             subagentRegistry = null,
@@ -220,6 +221,7 @@ class PastureCancellationTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val assembler = BeastAssembler(
             llmProvider = FakeLlmProvider(nonStreamResponses = listOf(PASTURE_FINAL)),
+            toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
@@ -283,6 +285,7 @@ class PastureCancellationTest {
         }
         val assembler = BeastAssembler(
             llmProvider = slowLlm,
+            toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,

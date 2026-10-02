@@ -39,8 +39,7 @@ import io.github.yeyi.agent.capability.Capability
  */
 public interface Skill : Capability<Unit, SkillContext> {
     /**
-     * Skill 是否自包含 —— true 仅依赖 tool/toolset 等工具调用,
-     * 不组合其他 skill / subagent / script 等外部能力
+     * Skill 是否独立（自包含） —— true 不依赖任何外部工具
      */
     public val standalone: Boolean get() = false
 

@@ -12,6 +12,7 @@ import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.subagent.SubagentRegistry
 import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.tool.ToolRegistry
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
@@ -46,6 +47,7 @@ class BeastTest {
         val ox = Ox(
             llmProvider = fake,
             persona = Persona("test"),
+            toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
@@ -66,6 +68,7 @@ class BeastTest {
         val ox = Ox(
             llmProvider = fake,
             persona = Persona("test"),
+            toolRegistry = null,
             lazyToolRegistry = lazyToolReg,
             skillRegistry = SkillRegistry(),
             subagentRegistry = SubagentRegistry(),
@@ -85,7 +88,8 @@ class BeastTest {
         val horse = Horse(
             llmProvider = fake,
             persona = Persona("specialist"),
-            tools = emptyList(),
+            lazyToolRegistry = null,
+            toolsetRegistry = null,
             maxIterations = 1, maxRounds = 5,
         )
 
@@ -96,8 +100,8 @@ class BeastTest {
     }
 
     @Test
-    fun `Horse can call tool from pre-loaded list`() = runTest {
-        // 第一轮 LLM 调 tool, 第二轮 Final — Horse.tools 里要有 echo.
+    fun `Horse can call tool from pre-loaded ToolRegistry`() = runTest {
+        // 第一轮 LLM 调 tool, 第二轮 Final — toolRegistry 里要有 echo.
         val toolCallResponse = ChatResponse(
             message = ChatMessage.Assistant(
                 content = "", toolCalls = listOf(
@@ -109,10 +113,13 @@ class BeastTest {
         )
         val finalResponse = FINAL_RESPONSE
         val fake = FakeLlmProvider(nonStreamResponses = listOf(toolCallResponse, finalResponse))
+        val toolReg = ToolRegistry().apply { register(EchoTool) }
         val horse = Horse(
             llmProvider = fake,
             persona = Persona("specialist"),
-            tools = listOf(EchoTool),
+            toolRegistry = toolReg,
+            lazyToolRegistry = null,
+            toolsetRegistry = null,
             maxIterations = 5, maxRounds = 5,
         )
 
@@ -129,6 +136,7 @@ class BeastTest {
         val ox = Ox(
             llmProvider = fake,
             persona = Persona(""),
+            toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
@@ -155,6 +163,7 @@ class BeastTest {
         val ox = Ox(
             llmProvider = failingFake,
             persona = Persona(""),
+            toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
@@ -176,6 +185,7 @@ class BeastTest {
         val ox = Ox(
             llmProvider = blockingFake,
             persona = Persona(""),
+            toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
