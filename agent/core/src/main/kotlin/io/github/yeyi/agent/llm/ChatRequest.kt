@@ -13,13 +13,15 @@ import kotlinx.serialization.json.JsonObject
  * @param temperature 采样温度，控制随机性；null 表示使用 provider 默认值
  * @param maxTokens 最大生成 token 数；null 表示不限制
  * @param stopSequences 遇到此列表中的字符串时停止生成
+ * @param thinkingEnabled 是否启用思考模式；null 表示使用 provider 默认值，false 表示禁用
  */
 public data class ChatRequest(
     public val messages: List<ChatMessage>,
     public val tools: List<ToolDefinition> = emptyList(),
     public val temperature: Double? = null,
     public val maxTokens: Int? = null,
-    public val stopSequences: List<String> = emptyList()
+    public val stopSequences: List<String> = emptyList(),
+    public val thinkingEnabled: Boolean? = null,
 ) {
     override fun toString(): String = "ChatRequest(message=${messages.lastOrNull() ?: "empty"})"
 }

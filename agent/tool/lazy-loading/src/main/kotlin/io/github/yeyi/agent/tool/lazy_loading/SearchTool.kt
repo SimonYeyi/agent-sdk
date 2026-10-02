@@ -85,6 +85,7 @@ internal class SearchTool(private val registry: LazyToolRegistry) : Tool {
                 ChatMessage.User(listOf(ContentPart.Text(query)))
             ),
             temperature = 0.0,
+            thinkingEnabled = false,
         )
 
         val content = llm.chat(request).message.content
