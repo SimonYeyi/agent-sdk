@@ -69,9 +69,20 @@ class LazyToolExtensionsTest {
 
         val searchTool = SearchTool(registry)
 
+        val fakeLlmProvider = object : io.github.yeyi.agent.llm.LlmProvider {
+            override val name: String = "fake"
+            override suspend fun chat(request: io.github.yeyi.agent.llm.ChatRequest) =
+                io.github.yeyi.agent.llm.ChatResponse(
+                    message = io.github.yeyi.agent.llm.ChatMessage.Assistant(content = """{"matched_tools": ["weather"]}""", toolCalls = emptyList()),
+                    usage = null,
+                    finishReason = io.github.yeyi.agent.llm.FinishReason.Stop,
+                )
+            override fun chatStream(request: io.github.yeyi.agent.llm.ChatRequest) = error("not implemented")
+        }
+
         val result = searchTool.execute(
             arguments = buildJsonObject { put("query", "天气") },
-            context = createStubContext()
+            context = createStubContext(fakeLlmProvider)
         )
 
         assertTrue(!result.isError)
@@ -79,7 +90,7 @@ class LazyToolExtensionsTest {
         assertTrue(text.contains("weather"))
         assertTrue(text.contains("天气查询"))
         assertTrue(text.contains("查询到以下工具"))
-        assertTrue(text.contains("tool_caller"))
+        assertTrue("news" !in text, "should NOT contain news: $text")
     }
 
     @Test
@@ -143,7 +154,12 @@ class LazyToolExtensionsTest {
         assertEquals("news", newsResult.tool.name)
     }
 
-    private fun createStubContext(): ToolExecutionContext {
+    private fun createStubContext(llmProvider: io.github.yeyi.agent.llm.LlmProvider? = null): ToolExecutionContext {
+        val provider = llmProvider ?: object : io.github.yeyi.agent.llm.LlmProvider {
+            override val name: String = "test"
+            override suspend fun chat(request: io.github.yeyi.agent.llm.ChatRequest) = error("not implemented")
+            override fun chatStream(request: io.github.yeyi.agent.llm.ChatRequest) = error("not implemented")
+        }
         return ToolExecutionContext(
             toolCallId = "test",
             agentContext = io.github.yeyi.agent.AgentContext(
@@ -151,11 +167,7 @@ class LazyToolExtensionsTest {
                 maxIterations = 10,
                 currentIteration = 1,
                 memory = io.github.yeyi.agent.memory.InMemoryMemory(),
-                llmProvider = object : io.github.yeyi.agent.llm.LlmProvider {
-                    override val name: String = "test"
-                    override suspend fun chat(request: io.github.yeyi.agent.llm.ChatRequest) = error("not implemented")
-                    override fun chatStream(request: io.github.yeyi.agent.llm.ChatRequest) = error("not implemented")
-                },
+                llmProvider = provider,
                 tools = emptyList(),
                 maxRounds = 20,
             )
