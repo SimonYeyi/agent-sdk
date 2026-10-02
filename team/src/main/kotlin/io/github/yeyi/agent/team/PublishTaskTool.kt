@@ -24,7 +24,6 @@ internal class PublishTaskTool(
     override val name: String = "publish_task"
 
     override val description: String = buildString {
-        val typeList = Selection.FACTORIES.keys.joinToString(" | ") { "'$it'" }
         append("""
             Publish an array of tasks to the bulletin board. Each task declares a `ref` (your short symbolic name, unique within this call)
             and optionally lists references in `depends_on` to form a DAG. References in `depends_on` rules:
@@ -68,6 +67,7 @@ internal class PublishTaskTool(
         arguments: JsonElement,
         context: ToolExecutionContext,
     ): ToolExecutionResult {
+        val query = arguments.jsonObject.str("query") ?: return ToolExecutionResult.error("Missing 'query'")
         val tasksArray = arguments.jsonObject["tasks"] as? JsonArray
             ?: return ToolExecutionResult.error("Missing 'tasks' array")
         if (tasksArray.isEmpty()) return ToolExecutionResult.error("'tasks' must not be empty")
@@ -76,7 +76,7 @@ internal class PublishTaskTool(
         val placeholder = tasksArray.mapIndexed { idx, el ->
             val obj = el.jsonObject
             val ref = obj.str("ref") ?: return ToolExecutionResult.error("Missing 'ref' in task #$idx")
-            if (ref.isBlank()) return ToolExecutionResult.error("'ref' must not be empty in task #$idx")
+            if (ref.isBlank()) return ToolExecutionResult.error("'ref' must not be blank in task #$idx")
             val task = obj.str("task") ?: return ToolExecutionResult.error("Missing 'task' in task '$ref'")
             val context = obj["context"]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
             val selObj = obj["selection"] as? JsonObject
@@ -112,7 +112,7 @@ internal class PublishTaskTool(
 
         // === Pass 3: intra-call 环检测 + publish + 登记 knownTaskIds ===
         detectIntraCycle(resolved)?.let { return ToolExecutionResult.error("Cycle detected involving task '$it'") }
-        bulletinBoard.publishEvent(TaskAssignments(resolved))
+        bulletinBoard.publishEvent(TaskAssignments(query, resolved))
         knownTaskIdsLock.withLock { resolved.forEach { knownTaskIds.add(it.taskId) } }
 
         // === Summary: 返回 task_id 给 LLM 后续轮次引用 ===
@@ -158,6 +158,10 @@ internal class PublishTaskTool(
             {
               "type": "object",
               "properties": {
+                "query": {
+                  "type": "string",
+                  "description": "The user's intent after coreference resolution — a clear, unambiguous instruction derived from the original user input. This is required and will be stored as the canonical query for all tasks in this call."
+                },
                 "tasks": {
                   "type": "array",
                   "minItems": 1,
@@ -202,7 +206,7 @@ internal class PublishTaskTool(
                   }
                 }
               },
-              "required": ["tasks"]
+              "required": ["query", "tasks"]
             }
         """.trimIndent()
     }

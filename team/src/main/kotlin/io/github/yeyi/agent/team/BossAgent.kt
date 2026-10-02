@@ -43,7 +43,7 @@ public data class TaskState(
     public val taskId: String,
     public val task: String,
     internal val roundId: String,
-    internal val userInput: String,
+    internal val query: String,
     internal val createdAt: Long,
     public val events: MutableList<AgentEvent> = mutableListOf(),
 ) {
@@ -55,7 +55,7 @@ public data class TaskState(
  * 一个 round 内所有任务的状态快照，作为 [BossAgent.tasksState] Flow 的推送单元.
  *
  * @property roundId round ID
- * @property userInput 该 round 的用户输入
+ * @property query 该 round 的用户意图
  * @property createdAt 任务组创建时间，用于 UI 排序
  * @property tasks 该 round 内所有任务的 [TaskState] 列表
  * @property terminal 是否所有任务都处于终态
@@ -63,7 +63,7 @@ public data class TaskState(
  */
 public data class TasksState(
     public val roundId: String,
-    public val userInput: String,
+    public val query: String,
     public val createdAt: Long,
     public val tasks: List<TaskState>,
     private val latestChanged: String
@@ -200,7 +200,7 @@ public class BossAgent internal constructor(
                         task.taskId,
                         task.task,
                         currentRound.id,
-                        currentRound.input,
+                        event.query,
                         currentRound.createdAt
                     )
             }
@@ -222,7 +222,7 @@ public class BossAgent internal constructor(
         // 每次 TaskUpdate 都推送当前 round 状态
         roundTasks
             .map { ts -> ts.copy(events = ts.events.toMutableList()) }
-            .let { TasksState(state.roundId, state.userInput, state.createdAt, it, state.taskId) }
+            .let { TasksState(state.roundId, state.query, state.createdAt, it, state.taskId) }
             .run { (tasksState as MutableSharedFlow).tryEmit(this) }
 
         if (isTerminal.not()) return

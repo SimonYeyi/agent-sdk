@@ -117,7 +117,7 @@ private fun TaskGroupBody(
 
         // User input
         Text(
-            text = "用户: ${groupState.userInput}",
+            text = "用户: ${groupState.query}",
             style = MaterialTheme.typography.bodySmall,
             maxLines = maxLines,
             overflow = overflow,

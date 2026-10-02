@@ -25,6 +25,7 @@ internal data class TaskAssignment(
 )
 
 internal data class TaskAssignments(
+    internal val query: String,
     internal val tasks: List<TaskAssignment>,
 ) : PublishEvent
 
