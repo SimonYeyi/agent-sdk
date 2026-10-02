@@ -53,16 +53,10 @@ public class OpenAiProvider(
     private val apiKey: String,
     private val model: String,
     private val baseUrl: String,
-    thinking: Boolean = true,
+    private val thinking: Boolean = true,
     private val httpClient: HttpClient = defaultHttpClient()
 ) : LlmProvider {
     override val name: String = "openai"
-
-    /** 最终发送的 thinking 类型：thinking=false 统一走 [OpenAiThinkingType.DISABLED]；开启时 MiniMax 模型选 ADAPTIVE，其余选 ENABLED。 */
-    private val thinkingType: OpenAiThinkingType =
-        if (!thinking) OpenAiThinkingType.DISABLED
-        else if (model.contains("minimax", ignoreCase = true)) OpenAiThinkingType.ADAPTIVE
-        else OpenAiThinkingType.ENABLED
 
     public companion object {
         public const val DEFAULT_MODEL: String = "gpt-4o-mini"
@@ -94,7 +88,12 @@ public class OpenAiProvider(
     }
 
     override suspend fun chat(request: ChatRequest): ChatResponse {
-        val openAiReq = mapToOpenAi(model, request, stream = false, thinkingType = thinkingType)
+        val openAiReq = mapToOpenAi(
+            model,
+            request,
+            stream = false,
+            thinkingType = thinkingType(request.thinkingEnabled ?: thinking)
+        )
         val resp: HttpResponse = try {
             httpClient.post("$baseUrl/chat/completions") {
                 header(HttpHeaders.Authorization, "Bearer $apiKey")
@@ -119,7 +118,12 @@ public class OpenAiProvider(
     }
 
     override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
-        val openAiReq = mapToOpenAi(model, request, stream = true, thinkingType = thinkingType)
+        val openAiReq = mapToOpenAi(
+            model,
+            request,
+            true,
+            thinkingType = thinkingType(request.thinkingEnabled ?: thinking)
+        )
         try {
             httpClient.preparePost("$baseUrl/chat/completions") {
                 header(HttpHeaders.Authorization, "Bearer $apiKey")
@@ -147,4 +151,10 @@ public class OpenAiProvider(
             throw AgentException.LlmError(t)
         }
     }
+
+    /** 最终发送的 thinking 类型：thinking=false 统一走 [OpenAiThinkingType.DISABLED]；开启时 MiniMax 模型选 ADAPTIVE，其余选 ENABLED。 */
+    private fun thinkingType(thinking: Boolean): OpenAiThinkingType =
+        if (!thinking) OpenAiThinkingType.DISABLED
+        else if (model.contains("minimax", ignoreCase = true)) OpenAiThinkingType.ADAPTIVE
+        else OpenAiThinkingType.ENABLED
 }

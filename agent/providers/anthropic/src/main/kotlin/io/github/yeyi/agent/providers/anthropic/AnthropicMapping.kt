@@ -79,7 +79,7 @@ internal fun mapToAnthropic(
         maxTokens = maxTokens,
         temperature = request.temperature,
         stopSequences = request.stopSequences.takeIf { it.isNotEmpty() },
-        thinking = thinking(thinking),
+        thinking = thinking(request.thinkingEnabled ?: thinking),
     )
 }
 
