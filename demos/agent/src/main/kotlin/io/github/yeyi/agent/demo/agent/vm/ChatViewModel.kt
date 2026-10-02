@@ -7,7 +7,6 @@ import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.Streamable
 import io.github.yeyi.agent.llm.ChatMessage
-import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.demo.agent.demo.DemoAgentFactory
 import io.github.yeyi.agent.memory.Memory
@@ -42,6 +41,8 @@ class ChatViewModel(
 
     private var memory: Memory = io.github.yeyi.agent.memory.InMemoryMemory()
     private var agent: Agent = agentFactory(memory)
+
+    private var runJob: kotlinx.coroutines.Job? = null
 
     init {
         viewModelScope.launch { reloadMessages() }
@@ -80,6 +81,8 @@ class ChatViewModel(
     }
 
     fun clearMessages() {
+        runJob?.cancel()
+        runJob = null
         _messages.value = emptyList()
         _liveBubble.value = null
         inProgressByCallId.clear()
@@ -98,7 +101,7 @@ class ChatViewModel(
         if (text.isBlank() || _isProcessing.value) return
         _isProcessing.value = true
 
-        viewModelScope.launch {
+        runJob = viewModelScope.launch {
             try {
                 // 流式是可选能力：Agent 未实现 Streamable 时降级为批式路径。
                 val flow = when (_mode.value) {
