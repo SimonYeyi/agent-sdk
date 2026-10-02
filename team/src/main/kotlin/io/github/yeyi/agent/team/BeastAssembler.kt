@@ -32,29 +32,31 @@ internal class BeastAssembler(
         var instruction: String? = null
         var tools: List<Tool>? = null
 
+        val notFoundError =
+            { error("assembleHorse: ${selection.type} not found: ${selection.name}") }
         when (selection) {
             is Selection.Tool -> {
                 val tool = lazyToolRegistry?.all()?.firstOrNull { it.name == selection.name }?.tool
-                    ?: error("assembleHorse: tool not found: ${selection.name}")
+                    ?: notFoundError.invoke()
                 tools = listOf(tool)
             }
 
             is Selection.Toolset -> {
                 val toolset = toolsetRegistry?.all()?.firstOrNull { it.name == selection.name }
-                    ?: error("assembleHorse: toolset not found: ${selection.name}")
+                    ?: notFoundError.invoke()
                 tools = toolset.all()
             }
 
             is Selection.Skill -> {
                 val skill = skillRegistry?.all()?.firstOrNull { it.name == selection.name }
-                    ?: error("assembleHorse: skill not found: ${selection.name}")
+                    ?: notFoundError.invoke()
                 instruction = skill.load()
                 if (skill.standalone) tools = emptyList()
             }
 
             is Selection.Subagent -> {
                 val subagent = subagentRegistry?.all()?.firstOrNull { it.name == selection.name }
-                    ?: error("assembleHorse: subagent not found: ${selection.name}")
+                    ?: notFoundError.invoke()
                 instruction = subagent.load()
                 tools = subagent.tools
             }
