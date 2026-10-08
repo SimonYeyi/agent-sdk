@@ -80,22 +80,12 @@ public class BossAgent internal constructor(
     private val beastReportMarker: String,
     private val scope: CoroutineScope,
 ) : Agent {
-
     private val state = MutableStateFlow(BossState.WAITING)
 
     // ===== 任务追踪 =====
     private val tasks: MutableMap<String, TaskState> = mutableMapOf()
-    private val tasksLock: Mutex = Mutex()
 
-    // ===== 报告事件流 (hot SharedFlow) =====
-    /**
-     * 报告事件流 (hot SharedFlow) — 任务结果触发的 round 事件都流到这里.
-     * 与 [run] 互补: `run` 是用户驱动的单次 round 流, `report` 是任务驱动的多 round 流.
-     * 调用方订阅一次即可收所有报告 (UI + logger 多消费者支持).
-     */
-    public val report: Flow<AgentEvent> = MutableSharedFlow(
-        replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
+    private val tasksLock: Mutex = Mutex()
 
     private lateinit var currentRound: UserRound
 
@@ -107,14 +97,6 @@ public class BossAgent internal constructor(
     // 结果完成时由 formatTasksResult 格式化后压入,runPendingRound 消费.
     private val pendingResultEvents: Channel<String> = Channel(capacity = Channel.UNLIMITED)
 
-    /**
-     * 任务组状态流 — 每次 TaskUpdate 时推送当前 round 的完整状态.
-     * 调用方订阅此 Flow 即可实时获取所有任务的更新状态.
-     */
-    public val tasksState: Flow<TasksState> = MutableSharedFlow(
-        replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
-
     // ===== 并发控制 =====
     // decisionLock 锁内 atomically: 读 state + scope.launch.
     // 跑 round 期间 (LLM 调用) 不持锁; handlePending 之间互斥防 TOCTOU & 字段竞争.
@@ -124,6 +106,29 @@ public class BossAgent internal constructor(
     // lateinit: 由 [attach] 赋值, 后续 collect 统一从此字段读取.
     // 未初始化访问抛 UninitializedPropertyAccessException (消息固定但可读).
     private lateinit var bulletinBoard: BulletinBoard
+
+    /**
+     * 活跃任务.
+     */
+    public val activeTasks: List<TaskState> get() = tasks.values.toList()
+
+    /**
+     * 任务组状态流 — 每次 TaskUpdate 时推送当前 round 的完整状态.
+     * 调用方订阅此 Flow 即可实时获取所有任务的更新状态.
+     */
+    public val tasksState: Flow<TasksState> = MutableSharedFlow(
+        replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
+
+    // ===== 报告事件流 (hot SharedFlow) =====
+    /**
+     * 报告事件流 (hot SharedFlow) — 任务结果触发的 round 事件都流到这里.
+     * 与 [run] 互补: `run` 是用户驱动的单次 round 流, `report` 是任务驱动的多 round 流.
+     * 调用方订阅一次即可收所有报告 (UI + logger 多消费者支持).
+     */
+    public val report: Flow<AgentEvent> = MutableSharedFlow(
+        replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
 
     /**
      * 启动后台 collect 协程, 订阅 [bb] 的原始 [BulletinBoard.events] 统一流, 内部 when 区分
@@ -173,11 +178,6 @@ public class BossAgent internal constructor(
         scope.launch { handlePending(false) }
         return flow { for (e in round.channel) emit(e) }
     }
-
-    /**
-     * 获取当前所有任务（结束的任务已被移除）.
-     */
-    public fun getAllTasks(): List<TaskState> = tasks.values.toList()
 
     /**
      * 关闭 BossAgent — 取消 [scope], 停止所有 boss/pasture 的后台任务.

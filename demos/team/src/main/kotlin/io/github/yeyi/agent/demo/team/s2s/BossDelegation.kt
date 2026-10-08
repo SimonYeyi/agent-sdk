@@ -16,7 +16,7 @@ import kotlinx.coroutines.flow.merge
 
 class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
     /*override val classifier: IntentionClassifier by lazy {
-        LlmIntentionClassifier(capabilities) { boss.getAllTasks().map { it.task } }
+        LlmIntentionClassifier(capabilities) { boss.activeTasks.map { it.task } }
     }*/
 
     override val capabilities: List<String> by lazy {
