@@ -14,7 +14,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.viewmodel.compose.viewModel
-import io.github.yeyi.agent.demo.team.s2s.SmartHomeS2sScreen
+import io.github.yeyi.agent.demo.team.s2s.CockpitS2sScreen
 import io.github.yeyi.agent.demo.team.smartCockpit.CockpitAgent
 import io.github.yeyi.agent.demo.team.ui.DemoScreen
 import io.github.yeyi.agent.demo.team.vm.DemoViewModel
@@ -53,12 +53,12 @@ class MainActivity : ComponentActivity() {
                         inputText = inputText,
                         onInputChange = viewModel::onInputChange,
                         onSend = viewModel::onSend,
-                        scenarioName = "智能家居",
+                        scenarioName = "智能座舱",
                         voiceMode = voiceMode,
                         onVoiceToggle = { voiceMode = !voiceMode },
                         s2sContent = if (voiceMode) {
                             {
-                                SmartHomeS2sScreen(
+                                CockpitS2sScreen(
                                     apiKey = BuildConfig.VOLC_API_KEY,
                                     boss = cockpitBoss,
                                     onBack = onBack,

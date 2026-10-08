@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
-import io.github.yeyi.agent.demo.team.smartHome.SmartHomeAgent
+import io.github.yeyi.agent.demo.team.smartCockpit.CockpitAgent
 import io.github.yeyi.agent.demo.team.ui.ChatMessageUi
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.text
@@ -47,7 +47,7 @@ class DemoViewModel(
         tasksStatesJob?.cancel()
         reportJob?.cancel()
 
-        bossAgent = SmartHomeAgent.create(llmProvider)
+        bossAgent = CockpitAgent.create(llmProvider)
 
         // Collect task states
         tasksStatesJob = viewModelScope.launch {

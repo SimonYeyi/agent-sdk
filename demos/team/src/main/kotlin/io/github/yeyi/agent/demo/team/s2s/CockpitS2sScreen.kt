@@ -49,7 +49,7 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SmartHomeS2sScreen(
+fun CockpitS2sScreen(
     apiKey: String,
     boss: BossAgent,
     onBack: () -> Unit = {},

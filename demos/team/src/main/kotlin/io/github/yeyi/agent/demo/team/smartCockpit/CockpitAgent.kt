@@ -25,9 +25,9 @@ object CockpitAgent {
         }
 
         // Delegated tools - 延迟加载的工具池
-        val delegatedToolRegistry = LazyToolRegistry().apply {
+        val lazyToolRegistry = LazyToolRegistry().apply {
             register(LazyTool(GetCarStatusTool()))
-            register(LazyTool(GetEnergyTool()))
+            register(LazyTool(GetEnergyTool(), LazyTool.Level.TOOL))
         }
 
         // Toolsets - 相似工具的集合（工具只在此处出现）
@@ -56,7 +56,7 @@ object CockpitAgent {
             llmProvider(llmProvider)
             maxIterations(40)
             tools(directToolRegistry)
-            lazyTools(delegatedToolRegistry)
+            lazyTools(lazyToolRegistry)
             toolsets(toolsetRegistry)
             skills(skillRegistry)
             subagents(subagentRegistry)
