@@ -71,7 +71,7 @@ private suspend fun publishAndAwaitFinal(
     task: String,
 ): TaskUpdate = coroutineScope {
     val deferred = async(start = CoroutineStart.UNDISPATCHED) { awaitFinalUpdate(bb) }
-    bb.publishEvent(TaskAssignments(listOf(TaskAssignment(taskId, selection, task, null, emptyList()))))
+    bb.publishEvent(TaskAssignments("query", listOf(TaskAssignment(taskId, selection, task, null, emptyList()))))
     deferred.await()
 }
 
@@ -305,7 +305,7 @@ class PastureCancellationTest {
                 .filterIsInstance<TaskUpdate>()
                 .first { it.event is AgentEvent.Failed }
         }
-        bb.publishEvent(TaskAssignments(listOf(TaskAssignment("t1", Selection.Tool("foo"), "long task", null, emptyList()))))
+        bb.publishEvent(TaskAssignments("query", listOf(TaskAssignment("t1", Selection.Tool("foo"), "long task", null, emptyList()))))
         delay(100)  // 让 Pasture collect 协程消费 TaskAssignment, 把 beast job 注册到 runningJobs — handleCancellation 依赖这个, 否则 cancel 是 no-op
 
         bb.publishEvent(Cancellation("t1"))

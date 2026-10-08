@@ -164,7 +164,8 @@ class BossAgentTest {
         val taskId = "test-task-1"
         bb.publishEvent(
             TaskAssignments(
-                listOf(
+                query = "init",
+                tasks = listOf(
                     TaskAssignment(
                         taskId = taskId,
                         selection = Selection.Tool("dummy"),

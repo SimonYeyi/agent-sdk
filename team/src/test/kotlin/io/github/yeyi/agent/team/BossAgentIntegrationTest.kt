@@ -40,6 +40,7 @@ class BossAgentIntegrationTest {
                     id = "c1",
                     name = "publish_task",
                     arguments = buildJsonObject {
+                        put("query", "query")
                         putJsonArray("tasks") {
                             add(buildJsonObject {
                                 put("ref", "hello_task")
@@ -178,6 +179,7 @@ class BossAgentIntegrationTest {
                         id = "c1",
                         name = "publish_task",
                         arguments = buildJsonObject {
+                            put("query", "query")
                             putJsonArray("tasks") {
                                 add(buildJsonObject {
                                     put("ref", "task_a")

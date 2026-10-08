@@ -66,7 +66,7 @@ class PastureDagTest {
         val collectJob = launch { bb.progressEvents.collect { e -> if (e is TaskUpdate) updates.add(e) } }
         delay(50)
 
-        bb.publishEvent(TaskAssignments(listOf(
+        bb.publishEvent(TaskAssignments("query", listOf(
             TaskAssignment("a", Selection.Tool("t"), "task a", null, emptyList()),
             TaskAssignment("b", Selection.Tool("t"), "task b", null, listOf("a")),
         )))
@@ -89,7 +89,7 @@ class PastureDagTest {
         val collectJob = launch { bb.progressEvents.collect { e -> if (e is TaskUpdate) updates.add(e) } }
         delay(50)
 
-        bb.publishEvent(TaskAssignments(listOf(
+        bb.publishEvent(TaskAssignments("query", listOf(
             TaskAssignment("a", Selection.Tool("t"), "task a", null, emptyList()),
             TaskAssignment("b", Selection.Tool("t"), "task b", null, listOf("a")),
             TaskAssignment("c", Selection.Tool("t"), "task c", null, listOf("a")),
@@ -113,7 +113,7 @@ class PastureDagTest {
         val collectJob = launch { bb.progressEvents.collect { e -> if (e is TaskUpdate) updates.add(e) } }
         delay(50)
 
-        bb.publishEvent(TaskAssignments(listOf(
+        bb.publishEvent(TaskAssignments("query", listOf(
             TaskAssignment("a", Selection.Tool("t"), "task a", null, emptyList()),
             TaskAssignment("b", Selection.Tool("t"), "task b", null, emptyList()),
         )))
@@ -139,7 +139,7 @@ class PastureDagTest {
         val collectJob = launch { bb.progressEvents.collect { e -> if (e is TaskUpdate) updates.add(e) } }
         delay(50)
 
-        bb.publishEvent(TaskAssignments(listOf(
+        bb.publishEvent(TaskAssignments("query", listOf(
             TaskAssignment("b", Selection.Tool("t"), "task b", null, listOf("nonexistent")),
         )))
 
@@ -161,11 +161,11 @@ class PastureDagTest {
         val collectJob = launch { bb.progressEvents.collect { e -> if (e is TaskUpdate) updates.add(e) } }
         delay(50)
 
-        bb.publishEvent(TaskAssignments(listOf(
+        bb.publishEvent(TaskAssignments("query", listOf(
             TaskAssignment("a", Selection.Tool("t"), "task a", null, emptyList()),
         )))
 
-        bb.publishEvent(TaskAssignments(listOf(
+        bb.publishEvent(TaskAssignments("query", listOf(
             TaskAssignment("b", Selection.Tool("t"), "task b", null, listOf("a")),
         )))
 
@@ -191,7 +191,7 @@ class PastureDagTest {
         val collectJob = launch { bb.progressEvents.collect { e -> if (e is TaskUpdate) updates.add(e) } }
         delay(50)
 
-        bb.publishEvent(TaskAssignments(listOf(
+        bb.publishEvent(TaskAssignments("query", listOf(
             TaskAssignment("a", Selection.Tool("t"), "task a", null, emptyList()),
             TaskAssignment("b", Selection.Tool("t"), "task b", null, listOf("a")),
         )))
@@ -244,7 +244,7 @@ class PastureDagTest {
         delay(50)
 
         // publish [a, b dep a, c dep b]
-        bb.publishEvent(TaskAssignments(listOf(
+        bb.publishEvent(TaskAssignments("query", listOf(
             TaskAssignment("a", Selection.Tool("t"), "task a", null, emptyList()),
             TaskAssignment("b", Selection.Tool("t"), "task b", null, listOf("a")),
             TaskAssignment("c", Selection.Tool("t"), "task c", null, listOf("b")),
@@ -306,7 +306,7 @@ class PastureDagTest {
         delay(50)
 
         // publish [a, b dep a]; b is PENDING
-        bb.publishEvent(TaskAssignments(listOf(
+        bb.publishEvent(TaskAssignments("query", listOf(
             TaskAssignment("a", Selection.Tool("t"), "task a", null, emptyList()),
             TaskAssignment("b", Selection.Tool("t"), "task b", null, listOf("a")),
         )))

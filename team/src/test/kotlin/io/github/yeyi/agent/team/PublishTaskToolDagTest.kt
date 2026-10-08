@@ -50,6 +50,7 @@ class PublishTaskToolDagTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "lookup")
@@ -95,6 +96,7 @@ class PublishTaskToolDagTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "a"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
@@ -124,6 +126,7 @@ class PublishTaskToolDagTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "a"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
@@ -146,6 +149,7 @@ class PublishTaskToolDagTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "a"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
@@ -164,6 +168,7 @@ class PublishTaskToolDagTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "a"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
@@ -182,6 +187,7 @@ class PublishTaskToolDagTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "dup"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
@@ -204,6 +210,7 @@ class PublishTaskToolDagTest {
 
         // First call: publish task "x"
         val firstArgs = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "x"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "X")
@@ -216,6 +223,7 @@ class PublishTaskToolDagTest {
 
         // Second call: publish task "a" depends_on x's task_id (cross-publish reference)
         val secondArgs = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "a"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
@@ -259,6 +267,7 @@ class PublishTaskToolDagTest {
 
         // Pre-publish: task "x" to seed knownTaskIds
         val preArgs = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "x"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "X")
@@ -270,6 +279,7 @@ class PublishTaskToolDagTest {
 
         // Single call: a depends on ref "x_inline" (same call) + xTaskId (cross-call)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "x_inline")
@@ -295,6 +305,7 @@ class PublishTaskToolDagTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "a"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
@@ -321,6 +332,7 @@ class PublishTaskToolDagTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "t1"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "T1")
@@ -344,6 +356,7 @@ class PublishTaskToolDagTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "t1"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "T1")
@@ -370,6 +383,7 @@ class PublishTaskToolDagTest {
 
         // Successful publish
         val okArgs = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "ok"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "OK")
@@ -381,6 +395,7 @@ class PublishTaskToolDagTest {
 
         // Verify the task_id is accepted in a second publish (proves registration)
         val refOk = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "dep"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "Dep")
@@ -392,6 +407,7 @@ class PublishTaskToolDagTest {
 
         // Failed publish (self-loop) — should not affect knownTaskIds
         val failArgs = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "a"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "A")
@@ -407,6 +423,7 @@ class PublishTaskToolDagTest {
         // Since we can't get a task_id from a failed publish, we verify by checking
         // that the failed publish did NOT corrupt knownTaskIds: the previous dep still works.
         val refDep2 = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "dep2"); put("selection", buildJsonObject { put("type", "tool"); put("name", "echo") }); put("task", "Dep2")

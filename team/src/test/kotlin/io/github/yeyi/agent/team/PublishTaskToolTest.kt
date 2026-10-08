@@ -42,6 +42,7 @@ class PublishTaskToolTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "my_task")
@@ -63,7 +64,7 @@ class PublishTaskToolTest {
     fun `missing tasks array returns error`() = runTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
-        val args = buildJsonObject { }
+        val args = buildJsonObject { put("query", "query") }
 
         val result = tool.execute(args, ctx())
         assertTrue(result.isError)
@@ -75,6 +76,7 @@ class PublishTaskToolTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("selection", buildJsonObject {
@@ -96,6 +98,7 @@ class PublishTaskToolTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "t1")
@@ -118,6 +121,7 @@ class PublishTaskToolTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "t1")
@@ -147,6 +151,7 @@ class PublishTaskToolTest {
         val bb = BulletinBoard()
         val tool = PublishTaskTool(bb, emptyCaps)
         val args = buildJsonObject {
+            put("query", "query")
             putJsonArray("tasks") {
                 add(buildJsonObject {
                     put("ref", "my_task")

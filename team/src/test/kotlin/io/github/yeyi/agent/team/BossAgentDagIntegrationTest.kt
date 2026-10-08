@@ -72,6 +72,7 @@ class BossAgentDagIntegrationTest {
                         id = "c1",
                         name = "publish_task",
                         arguments = buildJsonObject {
+                            put("query", "query")
                             putJsonArray("tasks") { taskJson.forEach { add(it) } }
                         },
                     )
@@ -222,7 +223,7 @@ class BossAgentDagIntegrationTest {
         runBlocking { pasture.observe(bb) }
 
         // Round 1: publish task "a"
-        bb.publishEvent(TaskAssignments(listOf(
+        bb.publishEvent(TaskAssignments("query", listOf(
             TaskAssignment("a_id", Selection.Tool("echo"), "task a", null, emptyList()),
         )))
         delay(200)
@@ -233,7 +234,7 @@ class BossAgentDagIntegrationTest {
         )))
 
         // Round 2: publish task "b" depends_on "a_id" (cross-round ref)
-        bb.publishEvent(TaskAssignments(listOf(
+        bb.publishEvent(TaskAssignments("query", listOf(
             TaskAssignment("b_id", Selection.Tool("echo"), "task b", null, listOf("a_id")),
         )))
         delay(200)
@@ -284,7 +285,7 @@ class BossAgentDagIntegrationTest {
         }
         delay(50)
 
-        bb.publishEvent(TaskAssignments(listOf(
+        bb.publishEvent(TaskAssignments("query", listOf(
             TaskAssignment("a", Selection.Tool("echo"), "task a", null, emptyList()),
             TaskAssignment("b", Selection.Tool("echo"), "task b", null, listOf("a")),
             TaskAssignment("c", Selection.Tool("echo"), "task c", null, listOf("b")),
