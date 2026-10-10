@@ -16,11 +16,16 @@ import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
+import io.github.yeyi.agent.tool.FinalizeTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -573,4 +578,151 @@ class ReActAgentTest {
             "synthetic User's Image should pass through unchanged, got: ${syntheticUser.parts}"
         )
     }
+
+    /** 测试辅助:异步派发型终结工具。执行返回执行中状态,但承诺本轮必然终结。 */
+    private fun finalizeTool(name: String = "finalize_echo"): Tool = object : Tool, FinalizeTool {
+        override val name = name
+        override val description = "dispatches async and finalizes the round"
+        override val parametersSchema = ToolParameters.Empty
+        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
+            ToolExecutionResult.success("dispatched async")
+    }
+
+    @Test
+    fun `single FinalizeTool call short-circuits round without triggering another LLM call`() = runTest {
+        // 异步派发型工具:执行后必然终结本轮,ReAct 不应再触发下一轮推理。
+        val toolCall = ToolCall(id = "c1", name = "finalize_echo", arguments = JsonNull)
+        // 只提供一个响应:若短路失效,FakeLlmProvider 会在第二次 chat() 时越界 check 直接失败
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    ChatMessage.Assistant(content = "正在派发,请稍等", toolCalls = listOf(toolCall)),
+                    finishReason = FinishReason.ToolCalls
+                )
+            )
+        )
+        val mem = InMemoryMemory()
+        val agent = ReActAgent(
+            persona = Persona(""),
+            llmProvider = provider,
+            toolRegistry = registryOf(finalizeTool()),
+            memory = mem,
+            modalityAdapter = DefaultModalityAdapter(null),
+            maxRounds = 20,
+            maxIterations = 5
+        )
+        val events = agent.run(AgentQuery.text("hi")).toList()
+
+        // 短路成立:LLM 仅调用一次
+        assertEquals(1, provider.recordedRequests.size)
+        assertTrue(events.first() is AgentEvent.Initial, "must start with Initial: $events")
+        assertTrue(events.last() is AgentEvent.Final, "must end with Final: $events")
+        assertTrue(events.none { it is AgentEvent.Failed }, "no Failed on short-circuit round")
+
+        // 事件尾序: ToolCallExplanation → ToolCallStart → ToolCallEnd → Final
+        val tail = events.takeLast(4)
+        assertTrue(tail[0] is AgentEvent.ToolCallExplanation)
+        assertTrue(tail[1] is AgentEvent.ToolCallStart)
+        assertTrue(tail[2] is AgentEvent.ToolCallEnd)
+        assertTrue(tail[3] is AgentEvent.Final)
+
+        // Final 内容即模型首次同步输出的过渡语
+        assertEquals("正在派发,请稍等", events.filterIsInstance<AgentEvent.Final>().single().result.message.content)
+        // 工具结果已写入 memory,供后续异步唤醒轮次引用
+        assertEquals(1, mem.history().map { it.message }.filterIsInstance<ChatMessage.ToolResult>().size)
+    }
+
+    @Test
+    fun `mixing FinalizeTool with a regular tool does not short-circuit`() = runTest {
+        val echo = EchoTool()
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    ChatMessage.Assistant(
+                        content = "开始处理",
+                        toolCalls = listOf(
+                            ToolCall("c1", "finalize_echo", JsonNull),
+                            ToolCall("c2", "echo", JsonObject(mapOf("text" to JsonPrimitive("x"))))
+                        )
+                    ),
+                    finishReason = FinishReason.ToolCalls
+                ),
+                ChatResponse(ChatMessage.Assistant(content = "final answer"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = ReActAgent(
+            persona = Persona(""),
+            llmProvider = provider,
+            toolRegistry = registryOf(finalizeTool(), echo),
+            memory = InMemoryMemory(),
+            modalityAdapter = DefaultModalityAdapter(null),
+            maxRounds = 20,
+            maxIterations = 5
+        )
+        val result = agent.run(AgentQuery.text("hi")).awaitResult()
+
+        // 混调普通工具 → 不短路,LLM 再跑一轮给出最终答复
+        assertEquals(2, provider.recordedRequests.size)
+        assertEquals(2, result.iterations)
+        assertEquals("final answer", result.message.content)
+        assertEquals(2, result.toolCalls.size)
+        assertEquals(1, echo.invocations.size)
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `steer injected at short-circuit point preempts Final and forces another round`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // iter 1: LLM 调 FinalizeTool → 工具执行 → 短路点发现在途 steer → 放弃终结
+            // iter 2: 带着 steer 指令再跑一轮 → 正常 Final
+            val provider = ControllableLlmProvider(
+                listOf(
+                    ChatResponse(
+                        ChatMessage.Assistant(content = null, toolCalls = listOf(ToolCall("c1", "finalize_echo", JsonNull))),
+                        finishReason = FinishReason.ToolCalls
+                    ),
+                    ChatResponse(ChatMessage.Assistant(content = "steered final"), finishReason = FinishReason.Stop)
+                )
+            )
+            val mem = InMemoryMemory()
+            val agent = ReActAgent(
+                persona = Persona(""),
+                llmProvider = provider,
+                toolRegistry = registryOf(finalizeTool()),
+                memory = mem,
+                modalityAdapter = DefaultModalityAdapter(null),
+                maxRounds = 20,
+                maxIterations = 5
+            )
+
+            backgroundScope.launch {
+                agent.run(AgentQuery.text("hi")).collect { }
+            }
+            advanceUntilIdle()
+
+            // 在工具执行 / 短路裁决前注入 steer
+            assertTrue(agent.steer(AgentQuery.text("switch to plan B")))
+
+            // 释放 iter 1 → 工具执行 → 短路点发现 steer → 放弃终结 → iter 2
+            provider.completeNext()
+            advanceUntilIdle()
+
+            // 释放 iter 2 → Final
+            provider.completeNext()
+            advanceUntilIdle()
+
+            // 未短路:LLM 被调用两次
+            assertEquals(2, provider.recordedRequests.size)
+            // 第二轮 request 应携带 steer 指令
+            val secondRequest = provider.recordedRequests[1]
+            val steerInRequest = secondRequest.messages
+                .filterIsInstance<ChatMessage.User>()
+                .flatMap { it.parts }
+                .filterIsInstance<ContentPart.Text>()
+                .any { it.text.contains("switch to plan B") }
+            assertTrue(steerInRequest, "steer instruction should appear in the second LLM request")
+            // Final 内容为第二轮回答,而非第一轮的过渡语
+            val finalMsg = mem.history().map { it.message }.filterIsInstance<ChatMessage.Assistant>().last()
+            assertEquals("steered final", finalMsg.content)
+        }
 }

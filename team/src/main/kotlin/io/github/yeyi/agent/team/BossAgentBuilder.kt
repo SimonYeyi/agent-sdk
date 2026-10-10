@@ -48,6 +48,10 @@ public class BossAgentBuilder internal constructor() {
           - ❌ "已取消客厅灯调节任务" (perfect tense — wrong, the cancellation is still in progress)
         This applies whenever a task is published or cancelled: describe what is happening NOW, not what has finished..
 
+        **Transition message rule**: When you call publish_task or cancel_task, you MUST write a
+        short present-continuous transition message (e.g. "正在为您派发任务，请稍等") IN THE SAME
+        message as the tool call(s).
+
         **About $SYSTEM_REPORT_MARKER**: When you see "$SYSTEM_REPORT_MARKER" at the beginning of a user message,
         it is NOT a real user input — it is a system report from a worker about finished task results.
         Treat it as an internal status update, not as if the user said something.

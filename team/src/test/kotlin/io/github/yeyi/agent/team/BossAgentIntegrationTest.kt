@@ -20,6 +20,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.putJsonArray
 import org.junit.Test
+import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
 private val EchoTool = object : Tool {
@@ -243,5 +244,47 @@ class BossAgentIntegrationTest {
 
         // 续轮至少发生一次
         assertTrue(report.isNotEmpty(), "no report: $report")
+    }
+
+    @Test
+    fun `publish_task short-circuits boss round - LLM called once and events end with Final`() = runBlocking {
+        // boss 调 publish_task → FinalizeTool 短路 → 本轮直接 Final,不再触发第二轮推理
+        val capabilitiesByType: Map<String, List<NamedCapability>> = mapOf(
+            "tool" to listOf(NamedCapability("echo", "Echo."))
+        )
+        val bb = BulletinBoard()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+        // 只提供一个响应:若短路失效,FakeLlmProvider 会在第二次 chat() 时越界 check 直接失败
+        val bossLlm = FakeLlmProvider(nonStreamResponses = listOf(BOSS_PUBLISH_CALL))
+        val publishTask = PublishTaskTool(bb, capabilitiesByType)
+        val cancelTask = CancelTaskTool(bb)
+        val innerAgent = io.github.yeyi.agent.agent {
+            llmProvider(bossLlm)
+            io.github.yeyi.agent.memory.InMemoryMemory().let { memory(it, 20) }
+            tool(publishTask)
+            tool(cancelTask)
+            maxIterations(5)
+        }
+        val boss = BossAgent(innerAgent, "[系统汇报]", scope)
+        runBlocking { boss.attach(bb) }
+
+        val events = boss.run(AgentQuery.text("帮我跑 echo")).toList()
+
+        // 短路成立:LLM 仅调用一次,无第二轮推理
+        assertEquals(1, bossLlm.recordedRequests.size, "boss LLM must be called exactly once on short-circuit")
+        assertTrue(events.first() is AgentEvent.Initial, "must start with Initial: $events")
+        assertTrue(events.last() is AgentEvent.Final, "must end with Final: $events")
+        assertTrue(events.none { it is AgentEvent.Failed }, "no Failed on short-circuit round")
+        assertEquals(1, events.filterIsInstance<AgentEvent.Final>().size, "exactly one Final expected")
+
+        // 事件尾序: ToolCallExplanation → ToolCallStart → ToolCallEnd → Final
+        val tail = events.takeLast(4)
+        assertTrue(tail[0] is AgentEvent.ToolCallExplanation)
+        assertTrue(tail[1] is AgentEvent.ToolCallStart)
+        assertTrue(tail[2] is AgentEvent.ToolCallEnd)
+        assertTrue(tail[3] is AgentEvent.Final)
+
+        boss.shutdown()
     }
 }

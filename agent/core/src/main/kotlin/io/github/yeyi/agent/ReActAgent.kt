@@ -19,6 +19,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
 import io.github.yeyi.agent.modality.ModalityAdapter
+import io.github.yeyi.agent.tool.FinalizeTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -139,35 +140,8 @@ public class ReActAgent internal constructor(
         response.message.addToMemory(memory)
 
         if (response.message.toolCalls.isEmpty()) {
-            // 检查点②：Final 抢占 + 终局。与 steer() 锁下互斥。
-            steerInbox.lock.lock()
-            if (!steerInbox.isEmpty()) {
-                steerInbox.lock.unlock()
-                // 指令已注入 memory，抢占 Final，强制再跑一轮让 LLM 带着新指令重新作答
-                consumeSteering(steerInbox)
-                return null
-            }
-            val result = AgentResult(
-                message = response.message,
-                iterations = iterations,
-                toolCalls = toolCalls.toList(),
-                usage = response.usage,
-            )
-            hook.safeInvoke { onRunCompleted(context, result) }
-            try {
-                emit(AgentEvent.Final(result))
-                // 终局：终态发射 → 关门，全程持锁。
-                // unlock 之后 steer() 拿到的 false 才意味着"可安全开新 run"——
-                // 若把 emit(Final) 放锁外，缝隙里 steer()==false 触发的 fallback run
-                // 会先发 Initial，旧 run 的 Final 后到，混流。
-                // 先发射后关门：emit 抛异常时此处 destroy 不执行，由 loop 的 finally
-                // 兜底清理——保证 false ⟹ Final 已发射的严格性（发射失败即失败路径，
-                // 退化为 best-effort）。
-                steerInbox.destroy()
-            } finally {
-                steerInbox.lock.unlock()
-            }
-            return result
+            // 正常收敛：模型无工具调用，直接进入终局
+            return finalize(response, iterations, toolCalls, context, emit)
         }
 
         emit(
@@ -210,7 +184,58 @@ public class ReActAgent internal constructor(
 
             emit(AgentEvent.ToolCallEnd(call, final))
         }
+
+        // 短路判断：本轮所有工具调用均为 FinalizeTool 才进入终局，
+        // 不再触发下一轮推理；混调普通工具说明模型仍有后续动作，继续下一轮。
+        // 短路时 AgentResult.message 即当前 response.message —— content 是模型首次响应
+        // 同步输出的过渡语文本，UI 照常渲染 Final，无需感知新事件类型。
+        if (response.message.toolCalls.all { call -> toolRegistry.getOrNull(call.name) is FinalizeTool }) {
+            return finalize(response, iterations, toolCalls, context, emit)
+        }
         return null
+    }
+
+    /**
+     * 终局协议：steer 检查点 → onRunCompleted → Final → destroy。
+     * 正常收敛与 [FinalizeTool] 短路共用，保证协议一致性。
+     * 若在途指令 (steer) 非空，放弃终局返回 null，强制再跑一轮让 LLM 带着指令重新作答。
+     */
+    private suspend fun finalize(
+        response: ChatResponse,
+        iterations: Int,
+        toolCalls: MutableList<AgentResult.ToolCallRecord>,
+        context: AgentContext,
+        emit: suspend (AgentEvent) -> Unit,
+    ): AgentResult? {
+        // 终局：Final 抢占 + 终局。与 steer() 锁下互斥。
+        steerInbox.lock.lock()
+        if (!steerInbox.isEmpty()) {
+            steerInbox.lock.unlock()
+            // 指令已注入 memory，抢占 Final，强制再跑一轮让 LLM 带着新指令重新作答
+            consumeSteering(steerInbox)
+            return null
+        }
+        val result = AgentResult(
+            message = response.message,
+            iterations = iterations,
+            toolCalls = toolCalls.toList(),
+            usage = response.usage,
+        )
+        hook.safeInvoke { onRunCompleted(context, result) }
+        try {
+            emit(AgentEvent.Final(result))
+            // 终局：终态发射 → 关门，全程持锁。
+            // unlock 之后 steer() 拿到的 false 才意味着"可安全开新 run"——
+            // 若把 emit(Final) 放锁外，缝隙里 steer()==false 触发的 fallback run
+            // 会先发 Initial，旧 run 的 Final 后到，混流。
+            // 先发射后关门：emit 抛异常时此处 destroy 不执行，由 loop 的 finally
+            // 兜底清理——保证 false ⟹ Final 已发射的严格性（发射失败即失败路径，
+            // 退化为 best-effort）。
+            steerInbox.destroy()
+        } finally {
+            steerInbox.lock.unlock()
+        }
+        return result
     }
 
     private suspend fun consumeSteering(steerInbox: SteerInbox) {
@@ -296,7 +321,8 @@ public class ReActAgent internal constructor(
                                 "First ToolCallDelta for call '${event.id}' must carry a non-null name to mark the start"
                             }
                         }
-                        argumentsBuffers.getOrPut(event.id) { StringBuilder() }.append(event.argumentsDelta)
+                        argumentsBuffers.getOrPut(event.id) { StringBuilder() }
+                            .append(event.argumentsDelta)
                     }
 
                     is ChatResponseEvent.Done -> {
