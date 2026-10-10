@@ -149,8 +149,9 @@ public class ReActAgent internal constructor(
 
         emit(
             AgentEvent.ToolCallExplanation(
-                response.message.content?.takeIf { it != "" && !allAsync },
-                response.message.toolCalls
+                text = response.message.content?.takeIf { it != "" && !allAsync },
+                toolCalls = response.message.toolCalls,
+                allAsync = allAsync,
             )
         )
 

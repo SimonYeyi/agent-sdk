@@ -32,10 +32,15 @@ public sealed interface AgentEvent {
      *
      * @param text 说明文本。可能为 null，表示 LLM 没有产出解释性文本
      * @param toolCalls 即将执行的工具调用列表
+     * @param allAsync 本轮工具调用是否全部为异步派发型能力（[io.github.yeyi.agent.tool.AsyncTool]）。
+     * 为 true 时 ReAct 将在工具执行后直接进入终局协议（emit [Final]），不再触发下一轮推理，
+     * 此时 [Final] 携带的即本轮同步输出的过渡语文本。消费者应优先用本字段判断，而非
+     * 通过 `toolCalls.any { it.name == ... }` 隐式探测具体工具
      */
     public data class ToolCallExplanation(
         public val text: String?,
-        public val toolCalls: List<ToolCall>
+        public val toolCalls: List<ToolCall>,
+        public val allAsync: Boolean
     ) : AgentEvent
 
     /** 工具调用开始事件。在 [ToolCallExplanation] 之后发出，仅作信号，不提交消息。 */

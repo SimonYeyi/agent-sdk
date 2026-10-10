@@ -281,6 +281,7 @@ class BossAgentIntegrationTest {
         // 事件尾序: ToolCallExplanation → ToolCallStart → ToolCallEnd → Final
         val tail = events.takeLast(4)
         assertTrue(tail[0] is AgentEvent.ToolCallExplanation)
+        assertEquals(true, (tail[0] as AgentEvent.ToolCallExplanation).allAsync, "publish-only round must be all-async")
         assertTrue(tail[1] is AgentEvent.ToolCallStart)
         assertTrue(tail[2] is AgentEvent.ToolCallEnd)
         assertTrue(tail[3] is AgentEvent.Final)
