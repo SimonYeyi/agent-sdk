@@ -148,7 +148,8 @@ public class BossAgent internal constructor(
                 when (event) {
                     is TaskAssignments -> handleTaskAssignments(event)
                     is TaskUpdate -> handleTaskUpdate(event)
-                    // 其他事件 (Cancellation 等) BossAgent 不关心, 显式 no-op
+                    is Cancellation -> handleCancellation(event)
+                    // 其他事件 BossAgent 不关心, 显式 no-op
                     // 让编译器在 BulletinEvent 加新类型时强制更新此 when.
                     else -> Unit
                 }
@@ -235,6 +236,28 @@ public class BossAgent internal constructor(
 
             tasksLock.withLock { roundTasks.forEach { tasks.remove(it.taskId) } }
         }
+    }
+
+    /**
+     * 处理取消请求.
+     *
+     * 取消目标分两种情形:
+     * 1. 任务在活跃追踪表中 —— Boss 不干预:
+     *    - 未终态: Pasture 负责真正取消, 通过 TaskUpdate 走既有续轮流程;
+     *    - 已终态 (同轮其它任务未完成): 取消落空但轮次语义不变 —— 继续等待
+     *      全部任务终态后自然完成, 不提前唤醒产生不完整报告.
+     * 2. 任务不在追踪表中 —— 已完成并归档 (或从未发布): 取消必然落空.
+     *    直接唤醒续轮, 告知模型: 任务已结束, 无法取消.
+     */
+    private suspend fun handleCancellation(e: Cancellation) {
+        val tracked = tasksLock.withLock { e.taskId in tasks }
+        if (tracked) return
+        val notice = buildString {
+            append("$beastReportMarker\n")
+            append("Task ${e.taskId} has already finished and cannot be cancelled.")
+        }
+        pendingResultEvents.trySend(notice)
+        handlePending(postRound = false)
     }
 
     // ========== 内部: 决定 + 启动 (并发安全) ==========

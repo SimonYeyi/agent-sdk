@@ -140,6 +140,48 @@ class BossAgentDagIntegrationTest {
         return boss to bb
     }
 
+    /**
+     * Build BossAgent only (no Pasture), for deterministic event-driven tests.
+     * The test publishes TaskAssignments / TaskUpdate / Cancellation directly to
+     * the bulletin board to drive the boss's lifecycle.
+     */
+    private fun buildBossOnly(bossLlm: LlmProvider): Pair<BossAgent, BulletinBoard> {
+        val bb = BulletinBoard()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val innerAgent = io.github.yeyi.agent.agent {
+            llmProvider(bossLlm)
+            io.github.yeyi.agent.memory.InMemoryMemory().let { memory(it, 20) }
+            maxIterations(5)
+        }
+        val boss = BossAgent(innerAgent, "[系统汇报]", scope)
+        runBlocking { boss.attach(bb) }
+        return boss to bb
+    }
+
+    /**
+     * Scripted LLM that records the text of each user-turn input (index-aligned
+     * with the responses list) so tests can assert what the boss was told.
+     */
+    private fun recordingLlm(
+        responses: List<ChatResponse>,
+        recordedInputs: MutableList<String>,
+    ): LlmProvider = object : LlmProvider {
+        override val name = "recording"
+        private var index = 0
+        override suspend fun chat(request: ChatRequest): ChatResponse {
+            val lastUserMsg = request.messages.lastOrNull { it is ChatMessage.User }
+            if (lastUserMsg != null) {
+                recordedInputs.add(
+                    (lastUserMsg as ChatMessage.User).parts.firstOrNull { it is ContentPart.Text }
+                        ?.let { (it as ContentPart.Text).text } ?: ""
+                )
+            }
+            return responses[index++]
+        }
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> =
+            kotlinx.coroutines.flow.flow { error("not expected") }
+    }
+
     @Test
     fun `single task round — one publish triggers one continuation`() = runBlocking {
         val (boss, _) = buildBossAndPasture(
@@ -417,5 +459,183 @@ class BossAgentDagIntegrationTest {
         val summaryInput = recordedInputs.lastOrNull()
         assertTrue(summaryInput?.contains("[系统汇报]") == true,
             "LLM input should contain '[系统汇报]' summary, got: $summaryInput")
+    }
+
+    @Test
+    fun `cancel of archived completed task wakes continuation round`() = runBlocking {
+        val recordedInputs = mutableListOf<String>()
+        val (boss, bb) = buildBossOnly(
+            recordingLlm(
+                listOf(BOSS_WAITING, BOSS_WAITING, BOSS_CONTINUATION),
+                recordedInputs,
+            )
+        )
+
+        val report = mutableListOf<AgentEvent>()
+        val contJob = launch(start = CoroutineStart.UNDISPATCHED) {
+            boss.report.collect { report.add(it) }
+        }
+
+        boss.run(AgentQuery.text("查天气")).toList()
+
+        // 任务进入追踪表并终态 → 整轮完成 → 归档 + 结果轮次
+        bb.publishEvent(TaskAssignments("query", listOf(
+            TaskAssignment("a", Selection.Tool("echo"), "task a", null, emptyList()),
+        )))
+        bb.progressEvent(TaskUpdate("a", AgentEvent.Final(
+            AgentResult(ChatMessage.Assistant("a done"), 0, emptyList(), null)
+        )))
+        withTimeout(5000) { while (recordedInputs.size < 2) delay(50) }  // 用户轮 + 结果轮 1
+
+        // 取消一个已完成且已归档的任务 → 直接唤醒续轮告知模型任务已完成, 无法取消
+        bb.publishEvent(Cancellation("a"))
+        withTimeout(5000) { while (recordedInputs.size < 3) delay(50) }
+        delay(300)
+
+        contJob.cancel()
+        boss.shutdown()
+
+        val notice = recordedInputs[2]
+        assertTrue(notice.contains("already finished and cannot be cancelled"),
+            "notice round should be told the task is already finished, got: $notice")
+        assertTrue(report.any { it is AgentEvent.Final }, "no Final in report: $report")
+    }
+
+    @Test
+    fun `cancel of completed task in an incomplete round does not wake boss early`() = runBlocking {
+        val recordedInputs = mutableListOf<String>()
+        val (boss, bb) = buildBossOnly(
+            recordingLlm(listOf(BOSS_WAITING, BOSS_CONTINUATION), recordedInputs)
+        )
+
+        val report = mutableListOf<AgentEvent>()
+        val contJob = launch(start = CoroutineStart.UNDISPATCHED) {
+            boss.report.collect { report.add(it) }
+        }
+
+        boss.run(AgentQuery.text("跑两个任务")).toList()
+
+        // 同轮两个任务: a 已终态, b 仍在跑 → 轮次未完成
+        bb.publishEvent(TaskAssignments("query", listOf(
+            TaskAssignment("a", Selection.Tool("echo"), "task a", null, emptyList()),
+            TaskAssignment("b", Selection.Tool("echo"), "task b", null, emptyList()),
+        )))
+        bb.progressEvent(TaskUpdate("a", AgentEvent.Final(
+            AgentResult(ChatMessage.Assistant("a done"), 0, emptyList(), null)
+        )))
+        delay(200)
+
+        // 取消已完成但同轮未全终态的 a → Boss 不应被唤醒 (轮次继续等 b)
+        bb.publishEvent(Cancellation("a"))
+        delay(300)
+        assertEquals(1, recordedInputs.size, "no continuation round should start: $recordedInputs")
+
+        // b 终态 → 整轮完成 → 唯一的结果轮次
+        bb.progressEvent(TaskUpdate("b", AgentEvent.Final(
+            AgentResult(ChatMessage.Assistant("b done"), 0, emptyList(), null)
+        )))
+        withTimeout(5000) { while (recordedInputs.size < 2) delay(50) }
+        delay(300)
+
+        contJob.cancel()
+        boss.shutdown()
+
+        assertEquals(2, recordedInputs.size, "exactly one result round after round completes: $recordedInputs")
+        assertTrue(report.any { it is AgentEvent.Final }, "no Final in report: $report")
+    }
+
+    @Test
+    fun `cancel of completed task in result round wakes continuation`() = runBlocking {
+        val recordedInputs = mutableListOf<String>()
+        val cancellingLlm = object : LlmProvider {
+            override val name = "cancelling"
+            private var index = 0
+            override suspend fun chat(request: ChatRequest): ChatResponse {
+                val lastUserMsg = request.messages.lastOrNull { it is ChatMessage.User }
+                if (lastUserMsg != null) {
+                    recordedInputs.add(
+                        (lastUserMsg as ChatMessage.User).parts.firstOrNull { it is ContentPart.Text }
+                            ?.let { (it as ContentPart.Text).text } ?: ""
+                    )
+                }
+                return when (index++) {
+                    0 -> publishTaskArgs(listOf("a" to emptyList()))
+                    1 -> {
+                        val input = recordedInputs.last()
+                        val taskId = Regex("""- (\S+):""").find(input)?.groupValues?.get(1)
+                            ?: error("no task_id in result round input: $input")
+                        ChatResponse(
+                            message = ChatMessage.Assistant(
+                                content = "",
+                                toolCalls = listOf(
+                                    io.github.yeyi.agent.llm.ToolCall(
+                                        id = "c1",
+                                        name = "cancel_task",
+                                        arguments = buildJsonObject { put("task_id", taskId) },
+                                    )
+                                ),
+                            ),
+                            usage = null,
+                            finishReason = FinishReason.ToolCalls,
+                        )
+                    }
+                    else -> BOSS_CONTINUATION
+                }
+            }
+            override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> =
+                kotlinx.coroutines.flow.flow { error("not expected") }
+        }
+
+        val caps: Map<String, List<NamedCapability>> = mapOf(
+            "tool" to listOf(NamedCapability("echo", "Echo."))
+        )
+        val bb = BulletinBoard()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+        val assembler = BeastAssembler(
+            llmProvider = FakeLlmProvider(nonStreamResponses = listOf(BEAST_FINAL)),
+            toolRegistry = null,
+            lazyToolRegistry = LazyToolRegistry().apply { register(LazyTool(EchoTool)) },
+            skillRegistry = null,
+            subagentRegistry = null,
+            toolsetRegistry = null,
+            baseRole = "You are a helpful worker.",
+            maxIterations = 1,
+            maxRounds = 5,
+        )
+        val pasture = Pasture(assembler = assembler, scope = scope)
+        runBlocking { pasture.observe(bb) }
+
+        val publishTask = PublishTaskTool(bb, caps)
+        val cancelTask = CancelTaskTool(bb)
+        val innerAgent = io.github.yeyi.agent.agent {
+            llmProvider(cancellingLlm)
+            io.github.yeyi.agent.memory.InMemoryMemory().let { memory(it, 20) }
+            tool(publishTask)
+            tool(cancelTask)
+            maxIterations(5)
+        }
+        val boss = BossAgent(innerAgent, "[系统汇报]", scope)
+        runBlocking { boss.attach(bb) }
+
+        val report = mutableListOf<AgentEvent>()
+        val contJob = launch(start = CoroutineStart.UNDISPATCHED) {
+            boss.report.collect { report.add(it) }
+        }
+
+        boss.run(AgentQuery.text("查天气")).toList()
+
+        // 结果轮 1: 模型对已完成任务调 cancel_task → Cancellation 落空 (Pasture 静默)
+        // → Boss 查活跃表发现任务已归档 → 通知轮唤醒续轮, 避免卡在"正在取消"进行态
+        withTimeout(5000) { while (recordedInputs.size < 3) delay(50) }
+        delay(300)
+
+        contJob.cancel()
+        boss.shutdown()
+
+        val notice = recordedInputs[2]
+        assertTrue(notice.contains("already finished and cannot be cancelled"),
+            "notice round should be told the task is already finished, got: $notice")
+        assertTrue(report.any { it is AgentEvent.Final }, "no Final in report: $report")
     }
 }
