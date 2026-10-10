@@ -142,7 +142,8 @@ public class Persona(public val role: String) {
 AgentEvent (sealed interface)
 ├── Initial(userInput)              — 用户输入事件
 ├── TextDelta(text)                 — 流式文本增量
-├── ToolCallExplanation(text, names) — 工具调用解释
+├── ToolCallExplanation(text, toolCalls, allAsync) — 工具调用解释
+│       allAsync=true 表示本轮全部工具为 AsyncTool，ReAct 将直接进入终局
 ├── ToolCallStart(callId, toolName) — 工具调用开始
 ├── ToolCallEnd(callId, result)     — 工具调用结束
 ├── Final(result)                   — 最终结果
