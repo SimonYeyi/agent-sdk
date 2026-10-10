@@ -46,14 +46,14 @@ public class ReActAgent internal constructor(
     private val steerInbox = SteerInbox()
 
     override fun run(query: AgentQuery): Flow<AgentEvent> {
-        acquireSteerSlot()
+        acquireSteerInbox()
         return flow {
             loop(query, { req -> llmProvider.chat(req) }, { emit(it) })
         }
     }
 
     override fun runStream(query: AgentQuery): Flow<AgentEvent> {
-        acquireSteerSlot()
+        acquireSteerInbox()
         return flow {
             val runner = StreamingRunner(llmProvider)
             loop(
@@ -68,7 +68,7 @@ public class ReActAgent internal constructor(
      * eager 占据活跃 run 槽位：调用即建信箱，杜绝 "run 返回但未收集" 间隙里
      * steer() 误判空闲导致并发双 run。已有活跃 run 时抛并发异常。
      */
-    private fun acquireSteerSlot() {
+    private fun acquireSteerInbox() {
         if (!steerInbox.create()) error("Concurrent run not supported: another run is active")
     }
 
