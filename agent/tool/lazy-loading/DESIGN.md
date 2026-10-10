@@ -70,7 +70,7 @@ public class LazyToolRegistry : CapabilityRegistry<LazyTool, Unit, LazyToolConte
 代理执行工具，实现 Tool 接口。两个 plugin 共用同一个 ToolCaller 实例：
 
 ```kotlin
-internal class ToolCaller(private val registry: LazyToolRegistry) : Tool, DelegatingTool {
+internal class ToolCaller(private val registry: LazyToolRegistry) : Tool, DelegateTool {
     override val name: String = "tool_caller"
 
     override val description: String = ""

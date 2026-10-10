@@ -9,7 +9,7 @@ import io.github.yeyi.agent.hook.HookResult
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.DelegateTarget
-import io.github.yeyi.agent.tool.DelegatingTool
+import io.github.yeyi.agent.tool.DelegateTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -235,7 +235,7 @@ class ApprovalHookTest {
     private class FakeDelegateTool(
         override val name: String,
         private val target: Tool,
-    ) : Tool, DelegatingTool {
+    ) : Tool, DelegateTool {
         override val description: String = "delegate"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
 

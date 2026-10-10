@@ -6,7 +6,7 @@ import io.github.yeyi.agent.hook.HookContext
 import io.github.yeyi.agent.hook.HookEvent
 import io.github.yeyi.agent.hook.HookResult
 import io.github.yeyi.agent.tool.DelegateTarget
-import io.github.yeyi.agent.tool.DelegatingTool
+import io.github.yeyi.agent.tool.DelegateTool
 import io.github.yeyi.agent.tool.Tool
 import kotlinx.serialization.json.JsonElement
 import kotlin.reflect.KClass
@@ -14,11 +14,11 @@ import kotlin.reflect.KClass
 /**
  * 审批 Hook，拦截需要审批的工具执行。
  *
- * 支持委托工具穿透：当工具是 [DelegatingTool] 时，递归解析到底层目标 Tool，
+ * 支持委托工具穿透：当工具是 [DelegateTool] 时，递归解析到底层目标 Tool，
  * 基于底层 Tool 的 [Approvable] 策略与参数做审批决策。这样委托工具自身无需
  * 实现 [Approvable]，内部成员工具的审批需求自动生效。
  *
- * [DelegatingTool.resolveTarget] 解析失败时抛出 [IllegalArgumentException]，
+ * [DelegateTool.resolveTarget] 解析失败时抛出 [IllegalArgumentException]，
  * 由 hook 流水线异常隔离捕获，调用按放行处理（等同于默认 HookResult.Continue 语义）。
  *
  * 用法：
@@ -54,12 +54,12 @@ public class ApprovalHook(
     }
 
     /**
-     * 递归穿透 [DelegatingTool] 委托链，定位到底层目标 Tool 及其参数。
-     * 解析失败时 [DelegatingTool.resolveTarget] 会抛 [IllegalArgumentException]，
+     * 递归穿透 [DelegateTool] 委托链，定位到底层目标 Tool 及其参数。
+     * 解析失败时 [DelegateTool.resolveTarget] 会抛 [IllegalArgumentException]，
      * 由 hook 流水线异常隔离统一兜底（按 Continue 放行，记 WARN 日志）。
      */
     private tailrec fun resolveTarget(tool: Tool, arguments: JsonElement): DelegateTarget {
-        if (tool !is DelegatingTool) return DelegateTarget(tool, arguments)
+        if (tool !is DelegateTool) return DelegateTarget(tool, arguments)
         val next = tool.resolveTarget(arguments)
         return resolveTarget(next.tool, next.arguments)
     }

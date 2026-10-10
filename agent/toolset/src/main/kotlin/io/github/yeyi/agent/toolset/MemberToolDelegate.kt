@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.toolset
 
 import io.github.yeyi.agent.tool.DelegateTarget
-import io.github.yeyi.agent.tool.DelegatingTool
+import io.github.yeyi.agent.tool.DelegateTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -15,10 +15,10 @@ import kotlinx.serialization.json.jsonPrimitive
  * 共享代理 Tool — 接收 LLM 的 `{toolset_name, tool_name, tool_arguments}` 调用，
  * 转发到指定 [Toolset] 的对应成员 Tool。
  *
- * 同时实现 [DelegatingTool]，使审批等拦截器能穿透委托层，基于成员 Tool 的策略
+ * 同时实现 [DelegateTool]，使审批等拦截器能穿透委托层，基于成员 Tool 的策略
  * 做决策。[execute] 复用 [resolveTarget] 获取目标，避免路由解析逻辑重复。
  */
-internal class MemberToolDelegate(private val registry: ToolsetRegistry) : Tool, DelegatingTool {
+internal class MemberToolDelegate(private val registry: ToolsetRegistry) : Tool, DelegateTool {
     override val name: String = "member_tool_delegate"
 
     override val description: String = ""

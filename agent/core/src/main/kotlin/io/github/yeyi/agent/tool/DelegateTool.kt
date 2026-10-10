@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonElement
  * - 在 [resolveTarget] 中从原始参数解析路由字段，返回目标 [Tool] 及其实际参数
  * - 在 [Tool.execute] 中复用 [resolveTarget] 获取目标并转发执行，避免路由解析逻辑重复
  *
- * [resolveTarget] 返回的目标 [Tool] 自身也可能是 [DelegatingTool]（多层委托），
+ * [resolveTarget] 返回的目标 [Tool] 自身也可能是 [DelegateTool]（多层委托），
  * 调用方应递归穿透直至非委托 [Tool]，并使用每层返回的 [DelegateTarget.arguments]
  * 作为下一层的输入。
  *
@@ -18,7 +18,7 @@ import kotlinx.serialization.json.JsonElement
  *
  * @see DelegateTarget
  */
-public interface DelegatingTool {
+public interface DelegateTool {
 
     /**
      * 解析本次委托调用的目标 [Tool] 及其参数。
@@ -33,7 +33,7 @@ public interface DelegatingTool {
 /**
  * 委托调用的解析结果：目标 [Tool] 及其参数。
  *
- * @param tool 目标 [Tool]；若自身也是 [DelegatingTool]，调用方应继续穿透
+ * @param tool 目标 [Tool]；若自身也是 [DelegateTool]，调用方应继续穿透
  * @param arguments 传给目标 [Tool] 的参数（从委托参数中剥离路由字段后的部分）
  */
 public data class DelegateTarget(

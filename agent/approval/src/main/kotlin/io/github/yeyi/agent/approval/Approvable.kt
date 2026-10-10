@@ -18,7 +18,7 @@ import kotlinx.serialization.json.JsonElement
  * }
  * ```
  *
- * 委托工具（实现 [io.github.yeyi.agent.tool.DelegatingTool]）无需实现此接口 ——
+ * 委托工具（实现 [io.github.yeyi.agent.tool.DelegateTool]）无需实现此接口 ——
  * [io.github.yeyi.agent.approval.ApprovalHook] 会递归穿透委托链，基于底层目标
  * Tool 的 [Approvable] 策略做审批决策，内部成员工具的审批需求自动生效。
  */
