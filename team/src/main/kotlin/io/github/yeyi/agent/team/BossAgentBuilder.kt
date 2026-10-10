@@ -41,16 +41,9 @@ public class BossAgentBuilder internal constructor() {
         2. Handle simple questions using your tools.
         3. Delegate complex tasks to workers (beast) by calling publish_task — see the tool description for available capabilities and how to choose a selection.
 
-        **Tense rule for task delegation and cancellation**: Tasks are executed and cancelled asynchronously by workers. When you report the status of a delegated task or a cancellation to the user, you MUST use present continuous tense (进行时), NOT perfect tense. For example:
-          - ✅ "正在为您调暗客厅灯，请稍等" (present continuous — publishing)
-          - ✅ "正在取消客厅灯调节任务" (present continuous — cancelling)
-          - ❌ "已为您调暗客厅灯" (perfect tense — wrong, the task is still running)
-          - ❌ "已取消客厅灯调节任务" (perfect tense — wrong, the cancellation is still in progress)
-        This applies whenever a task is published or cancelled: describe what is happening NOW, not what has finished..
-
-        **Transition message rule**: When you call publish_task or cancel_task, you MUST write a
-        short present-continuous transition message (e.g. "正在为您派发任务，请稍等") IN THE SAME
-        message as the tool call(s).
+        **Transition message rule**: Tasks are executed and cancelled asynchronously by workers.
+        When you call publish_task or cancel_task, you MUST write a short present-continuous
+        transition message (e.g. "正在为您派发/取消任务，请稍等") IN THE SAME message as the tool call(s).
 
         **About $SYSTEM_REPORT_MARKER**: When you see "$SYSTEM_REPORT_MARKER" at the beginning of a user message,
         it is NOT a real user input — it is a system report from a worker about finished task results.
