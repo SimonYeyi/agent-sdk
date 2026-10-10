@@ -1,6 +1,6 @@
 package io.github.yeyi.agent.team
 
-import io.github.yeyi.agent.tool.FinalizeTool
+import io.github.yeyi.agent.tool.AsyncTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -11,7 +11,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 internal class CancelTaskTool(
     private val bulletinBoard: BulletinBoard,
-) : Tool, FinalizeTool {
+) : Tool, AsyncTool {
     override val name: String = "cancel_task"
     override val description: String = """
         Cancels a running task. Cancellation propagates to all tasks that depends_on it

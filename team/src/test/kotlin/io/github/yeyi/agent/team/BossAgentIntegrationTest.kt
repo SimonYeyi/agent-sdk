@@ -248,7 +248,7 @@ class BossAgentIntegrationTest {
 
     @Test
     fun `publish_task short-circuits boss round - LLM called once and events end with Final`() = runBlocking {
-        // boss 调 publish_task → FinalizeTool 短路 → 本轮直接 Final,不再触发第二轮推理
+        // boss 调 publish_task → AsyncTool 短路 → 本轮直接 Final,不再触发第二轮推理
         val capabilitiesByType: Map<String, List<NamedCapability>> = mapOf(
             "tool" to listOf(NamedCapability("echo", "Echo."))
         )

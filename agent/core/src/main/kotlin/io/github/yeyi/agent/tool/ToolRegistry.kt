@@ -44,7 +44,7 @@ public class ToolRegistry : ToolDispatcher {
     public fun get(name: String): Tool = byName[name]
         ?: throw AgentException.ToolNotFound(name, byName.keys)
 
-    /** 根据名称获取工具，找不到返回 null —— 供能力探测（如 `is FinalizeTool`）等非抛错场景使用。 */
+    /** 根据名称获取工具，找不到返回 null —— 供能力探测（如 `is AsyncTool`）等非抛错场景使用。 */
     public fun getOrNull(name: String): Tool? = byName[name]
 
     override suspend fun dispatch(

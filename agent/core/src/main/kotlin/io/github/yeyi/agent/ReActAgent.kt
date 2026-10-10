@@ -19,7 +19,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
 import io.github.yeyi.agent.modality.ModalityAdapter
-import io.github.yeyi.agent.tool.FinalizeTool
+import io.github.yeyi.agent.tool.AsyncTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -144,9 +144,12 @@ public class ReActAgent internal constructor(
             return finalize(response, iterations, toolCalls, context, emit)
         }
 
+        val allAsync =
+            response.message.toolCalls.all { call -> toolRegistry.getOrNull(call.name) is AsyncTool }
+
         emit(
             AgentEvent.ToolCallExplanation(
-                response.message.content?.takeIf { it != "" },
+                response.message.content?.takeIf { it != "" && !allAsync },
                 response.message.toolCalls
             )
         )
@@ -185,19 +188,19 @@ public class ReActAgent internal constructor(
             emit(AgentEvent.ToolCallEnd(call, final))
         }
 
-        // 短路判断：本轮所有工具调用均为 FinalizeTool 才进入终局，
-        // 不再触发下一轮推理；混调普通工具说明模型仍有后续动作，继续下一轮。
+        // 短路判断：本轮所有工具调用均为 AsyncTool 才进入终局——异步工具的结果
+        // 由外部异步通道送达，本轮无可同步等待的下一步，不再触发下一轮推理；
+        // 混调普通工具说明模型仍需同步结果，继续下一轮。
         // 短路时 AgentResult.message 即当前 response.message —— content 是模型首次响应
         // 同步输出的过渡语文本，UI 照常渲染 Final，无需感知新事件类型。
-        if (response.message.toolCalls.all { call -> toolRegistry.getOrNull(call.name) is FinalizeTool }) {
-            return finalize(response, iterations, toolCalls, context, emit)
-        }
+        if (allAsync) return finalize(response, iterations, toolCalls, context, emit)
+
         return null
     }
 
     /**
      * 终局协议：steer 检查点 → onRunCompleted → Final → destroy。
-     * 正常收敛与 [FinalizeTool] 短路共用，保证协议一致性。
+     * 正常收敛与 [AsyncTool] 短路共用，保证协议一致性。
      * 若在途指令 (steer) 非空，放弃终局返回 null，强制再跑一轮让 LLM 带着指令重新作答。
      */
     private suspend fun finalize(

@@ -1,6 +1,6 @@
 package io.github.yeyi.agent.team
 
-import io.github.yeyi.agent.tool.FinalizeTool
+import io.github.yeyi.agent.tool.AsyncTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -20,7 +20,7 @@ internal data class NamedCapability(val name: String, val description: String)
 internal class PublishTaskTool(
     private val bulletinBoard: BulletinBoard,
     private val capabilitiesByType: Map<String, List<NamedCapability>>,
-) : Tool, FinalizeTool {
+) : Tool, AsyncTool {
 
     override val name: String = "publish_task"
 

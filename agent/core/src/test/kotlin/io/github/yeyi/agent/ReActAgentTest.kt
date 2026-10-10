@@ -16,7 +16,7 @@ import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
-import io.github.yeyi.agent.tool.FinalizeTool
+import io.github.yeyi.agent.tool.AsyncTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -579,19 +579,19 @@ class ReActAgentTest {
         )
     }
 
-    /** 测试辅助:异步派发型终结工具。执行返回执行中状态,但承诺本轮必然终结。 */
-    private fun finalizeTool(name: String = "finalize_echo"): Tool = object : Tool, FinalizeTool {
+    /** 测试辅助:异步派发型工具。执行后立即返回执行中状态,结果由外部异步送达。 */
+    private fun asyncTool(name: String = "async_echo"): Tool = object : Tool, AsyncTool {
         override val name = name
-        override val description = "dispatches async and finalizes the round"
+        override val description = "dispatches async"
         override val parametersSchema = ToolParameters.Empty
         override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
             ToolExecutionResult.success("dispatched async")
     }
 
     @Test
-    fun `single FinalizeTool call short-circuits round without triggering another LLM call`() = runTest {
-        // 异步派发型工具:执行后必然终结本轮,ReAct 不应再触发下一轮推理。
-        val toolCall = ToolCall(id = "c1", name = "finalize_echo", arguments = JsonNull)
+    fun `single AsyncTool call short-circuits round without triggering another LLM call`() = runTest {
+        // 异步派发型工具:本轮无可同步等待的下一步结果,ReAct 不应再触发下一轮推理。
+        val toolCall = ToolCall(id = "c1", name = "async_echo", arguments = JsonNull)
         // 只提供一个响应:若短路失效,FakeLlmProvider 会在第二次 chat() 时越界 check 直接失败
         val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
@@ -605,7 +605,7 @@ class ReActAgentTest {
         val agent = ReActAgent(
             persona = Persona(""),
             llmProvider = provider,
-            toolRegistry = registryOf(finalizeTool()),
+            toolRegistry = registryOf(asyncTool()),
             memory = mem,
             modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
@@ -633,7 +633,7 @@ class ReActAgentTest {
     }
 
     @Test
-    fun `mixing FinalizeTool with a regular tool does not short-circuit`() = runTest {
+    fun `mixing AsyncTool with a regular tool does not short-circuit`() = runTest {
         val echo = EchoTool()
         val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
@@ -641,7 +641,7 @@ class ReActAgentTest {
                     ChatMessage.Assistant(
                         content = "开始处理",
                         toolCalls = listOf(
-                            ToolCall("c1", "finalize_echo", JsonNull),
+                            ToolCall("c1", "async_echo", JsonNull),
                             ToolCall("c2", "echo", JsonObject(mapOf("text" to JsonPrimitive("x"))))
                         )
                     ),
@@ -653,7 +653,7 @@ class ReActAgentTest {
         val agent = ReActAgent(
             persona = Persona(""),
             llmProvider = provider,
-            toolRegistry = registryOf(finalizeTool(), echo),
+            toolRegistry = registryOf(asyncTool(), echo),
             memory = InMemoryMemory(),
             modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
@@ -673,12 +673,12 @@ class ReActAgentTest {
     @Test
     fun `steer injected at short-circuit point preempts Final and forces another round`() =
         runTest(UnconfinedTestDispatcher()) {
-            // iter 1: LLM 调 FinalizeTool → 工具执行 → 短路点发现在途 steer → 放弃终结
+            // iter 1: LLM 调 AsyncTool → 工具执行 → 短路点发现在途 steer → 放弃终结
             // iter 2: 带着 steer 指令再跑一轮 → 正常 Final
             val provider = ControllableLlmProvider(
                 listOf(
                     ChatResponse(
-                        ChatMessage.Assistant(content = null, toolCalls = listOf(ToolCall("c1", "finalize_echo", JsonNull))),
+                        ChatMessage.Assistant(content = null, toolCalls = listOf(ToolCall("c1", "async_echo", JsonNull))),
                         finishReason = FinishReason.ToolCalls
                     ),
                     ChatResponse(ChatMessage.Assistant(content = "steered final"), finishReason = FinishReason.Stop)
@@ -688,7 +688,7 @@ class ReActAgentTest {
             val agent = ReActAgent(
                 persona = Persona(""),
                 llmProvider = provider,
-                toolRegistry = registryOf(finalizeTool()),
+                toolRegistry = registryOf(asyncTool()),
                 memory = mem,
                 modalityAdapter = DefaultModalityAdapter(null),
                 maxRounds = 20,
