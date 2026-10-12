@@ -126,11 +126,13 @@ data class TaskState(
 
 data class TasksState(
     val roundId: String,
-    val userInput: String,
+    val query: String,
+    val createdAt: Long,
     val tasks: List<TaskState>,
-    val terminal: Boolean,
-    val latestChangedTask: TaskState,
-)
+    val latestChanged: TaskState,
+) {
+    val terminal: Boolean get() = tasks.all { it.terminal }
+}
 ```
 
 BossAgent 通过 `tasksState` Flow 推送实时任务看板状态，调用方订阅即可获得 UI 更新。

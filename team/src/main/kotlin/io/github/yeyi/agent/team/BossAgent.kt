@@ -59,18 +59,16 @@ public data class TaskState(
  * @property createdAt 任务组创建时间，用于 UI 排序
  * @property tasks 该 round 内所有任务的 [TaskState] 列表
  * @property terminal 是否所有任务都处于终态
- * @property latestChangedTask 最新有状态变化的任务
+ * @property latestChanged 最新有状态变化的任务
  */
 public data class TasksState(
     public val roundId: String,
     public val query: String,
     public val createdAt: Long,
     public val tasks: List<TaskState>,
-    private val latestChanged: String
+    public val latestChanged: TaskState
 ) {
     public val terminal: Boolean get() = tasks.all { it.terminal }
-
-    public val latestChangedTask: TaskState get() = tasks.first { it.taskId == latestChanged }
 }
 
 // ===== BossAgent =====
@@ -257,7 +255,7 @@ public class BossAgent internal constructor(
 
             roundTasks
                 .map { ts -> ts.copy(events = ts.events.toMutableList()) }
-                .let { TasksState(task.roundId, task.query, task.createdAt, it, task.taskId) }
+                .let { TasksState(task.roundId, task.query, task.createdAt, it, task) }
                 .let { states.tryEmit(it) }
 
             if (!terminal || roundTasks.any { !it.terminal }) return null
