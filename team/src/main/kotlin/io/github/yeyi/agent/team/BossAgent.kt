@@ -80,28 +80,11 @@ public class BossAgent internal constructor(
     private val beastReportMarker: String,
     private val scope: CoroutineScope,
 ) : Agent {
-    private val state = MutableStateFlow(BossState.WAITING)
-
     // ===== 任务追踪 =====
-    private val tasks: MutableMap<String, TaskState> = mutableMapOf()
+    private val tracker = TaskTracker()
 
-    private val tasksLock: Mutex = Mutex()
-
-    private lateinit var currentRound: UserRound
-
-    // ===== 用户轮次队列 =====
-    // Channel(UNLIMITED) 自然排队，handlePending 消费时取队首
-    private val pendingUserRounds: Channel<UserRound> = Channel(capacity = Channel.UNLIMITED)
-
-    // ===== 报告队列 =====
-    // 结果完成时由 formatTasksResult 格式化后压入,runPendingRound 消费.
-    private val pendingResultEvents: Channel<String> = Channel(capacity = Channel.UNLIMITED)
-
-    // ===== 并发控制 =====
-    // decisionLock 锁内 atomically: 读 state + scope.launch.
-    // 跑 round 期间 (LLM 调用) 不持锁; handlePending 之间互斥防 TOCTOU & 字段竞争.
-    // 单一入口: 所有 race-free 集中在 [handlePending] 锁内.
-    private val decisionLock: Mutex = Mutex()
+    // ===== 调度器 =====
+    private val scheduler = RoundScheduler()
 
     // lateinit: 由 [attach] 赋值, 后续 collect 统一从此字段读取.
     // 未初始化访问抛 UninitializedPropertyAccessException (消息固定但可读).
@@ -110,15 +93,13 @@ public class BossAgent internal constructor(
     /**
      * 活跃任务.
      */
-    public val activeTasks: List<TaskState> get() = tasks.values.toList()
+    public val activeTasks: List<TaskState> get() = tracker.activeTasks
 
     /**
      * 任务组状态流 — 每次 TaskUpdate 时推送当前 round 的完整状态.
      * 调用方订阅此 Flow 即可实时获取所有任务的更新状态.
      */
-    public val tasksState: Flow<TasksState> = MutableSharedFlow(
-        replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
+    public val tasksState: Flow<TasksState> get() = tracker.states
 
     // ===== 报告事件流 (hot SharedFlow) =====
     /**
@@ -151,7 +132,6 @@ public class BossAgent internal constructor(
                     is Cancellation -> handleCancellation(event)
                     // 其他事件 BossAgent 不关心, 显式 no-op
                     // 让编译器在 BulletinEvent 加新类型时强制更新此 when.
-                    else -> Unit
                 }
             }
         }
@@ -174,9 +154,7 @@ public class BossAgent internal constructor(
             System.currentTimeMillis(),
             Channel(Channel.UNLIMITED)
         )
-        pendingUserRounds.trySend(round)
-
-        scope.launch { handlePending(false) }
+        scope.launch { scheduler.submitUserRound(round) }
         return flow { for (e in round.channel) emit(e) }
     }
 
@@ -194,48 +172,13 @@ public class BossAgent internal constructor(
     private suspend fun handleTaskAssignments(event: TaskAssignments) {
         // BossAgent 内部 currentRoundId, 自行关联这批 task 到当前 round.
         // 一次 publish_task 调用可以属于当前 round 的多次调用之一.
-        tasksLock.withLock {
-            for (task in event.tasks) {
-                tasks[task.taskId] =
-                    TaskState(
-                        task.taskId,
-                        task.task,
-                        currentRound.id,
-                        event.query,
-                        currentRound.createdAt
-                    )
-            }
-        }
+        // publish 只发生在 user round 进行中 (LLM 调用), 此时 currentRound 必已赋值.
+        val round = scheduler.currentRound
+        tracker.register(event, round.id, round.createdAt)
     }
 
     private suspend fun handleTaskUpdate(update: TaskUpdate) {
-        val isTerminal: Boolean
-        val state: TaskState
-        val roundTasks: List<TaskState>
-        tasksLock.withLock {
-            val task = tasks[update.taskId]!!
-            task.events += update.event
-            isTerminal = task.terminal
-            roundTasks = tasks.values.filter { it.roundId == task.roundId }
-            state = task
-        }
-
-        // 每次 TaskUpdate 都推送当前 round 状态
-        roundTasks
-            .map { ts -> ts.copy(events = ts.events.toMutableList()) }
-            .let { TasksState(state.roundId, state.query, state.createdAt, it, state.taskId) }
-            .run { (tasksState as MutableSharedFlow).tryEmit(this) }
-
-        if (isTerminal.not()) return
-
-        // 检查 round 内所有 task 是否都 terminal
-        if (roundTasks.all { it.terminal }) {
-            val result = formatTasksResult(state.roundId)
-            pendingResultEvents.trySend(result)
-            handlePending(postRound = false)
-
-            tasksLock.withLock { roundTasks.forEach { tasks.remove(it.taskId) } }
-        }
+        tracker.apply(update)?.let { result -> scheduler.submitResult(result) }
     }
 
     /**
@@ -250,46 +193,12 @@ public class BossAgent internal constructor(
      *    直接唤醒续轮, 告知模型: 任务已结束, 无法取消.
      */
     private suspend fun handleCancellation(e: Cancellation) {
-        val tracked = tasksLock.withLock { e.taskId in tasks }
-        if (tracked) return
+        if (tracker.isTracked(e.taskId)) return
         val notice = buildString {
             append("$beastReportMarker\n")
             append("Task ${e.taskId} has already finished and cannot be cancelled.")
         }
-        pendingResultEvents.trySend(notice)
-        handlePending(postRound = false)
-    }
-
-    // ========== 内部: 决定 + 启动 (并发安全) ==========
-
-    /**
-     * 唯一决策点 — 锁内决策是否启动 runPendingRound.
-     *
-     * 触发源:
-     * - run() 投递 user round 到 pendingUserRounds
-     * - 终态 TaskUpdate 投递 result 到 pendingResultEvents
-     */
-    private suspend fun handlePending(postRound: Boolean) {
-        decisionLock.withLock {
-            if (!postRound && state.value == BossState.RUNNING) return@withLock
-
-            pendingUserRounds.tryReceive().getOrNull()?.let { userRound ->
-                currentRound = userRound
-                state.value = BossState.RUNNING
-                scope.launch { runUserRound(userRound) }
-                return
-            }
-
-            pendingResultEvents.tryReceive().getOrNull()?.let { result ->
-                state.value = BossState.RUNNING
-                scope.launch { runResultRound(result) }
-                return
-            }
-
-            if (state.value != BossState.WAITING) {
-                state.value = BossState.WAITING
-            }
-        }
+        scheduler.submitResult(notice)
     }
 
     // ========== 内部: 跑轮次 ==========
@@ -301,7 +210,7 @@ public class BossAgent internal constructor(
             }
         } finally {
             userRound.channel.close()
-            handlePending(postRound = true)
+            scheduler.roundFinished()
         }
     }
 
@@ -309,25 +218,123 @@ public class BossAgent internal constructor(
         innerAgent.run(AgentQuery.text(result)).collect { e ->
             (report as MutableSharedFlow).emit(e)
         }
-        handlePending(postRound = true)
+        scheduler.roundFinished()
     }
 
-    // ========== 内部: 状态查询与合并 ==========
+    // ========== 内部类: 任务追踪域 ==========
 
     /**
-     * 格式化 round 内所有 task 的 terminal event 为可读 result.
-     * 由 BossAgent 从 tasks.get(taskId).events 聚合,不依赖 Pasture 提供.
+     * 任务追踪 — 独占 [lock], 管理活跃任务表与看板状态.
      *
-     * @param roundId 要汇总的 round ID
-     * @return result 字符串
+     * [apply] 在单次持锁内完成: 事件落账 + 看板推送 + 整轮终态判断 + 格式化结果 + 归档删除,
+     * 消除原实现"跨两段锁"的理论缝隙 (快照删除与按 roundId 过滤不一致).
+     * 整轮终态返回格式化 result 供调度器唤醒续轮; 非终态返回 null.
      */
-    private suspend fun formatTasksResult(roundId: String): String = tasksLock.withLock {
-        val roundTasks = tasks.entries.filter { it.value.roundId == roundId }
-        buildString {
-            append("$beastReportMarker\n")
-            for ((taskId, task) in roundTasks) {
-                val lastEvent = task.events.last()
-                append("- $taskId: $lastEvent\n")
+    private inner class TaskTracker {
+        private val lock = Mutex()
+        private val tasks: MutableMap<String, TaskState> = mutableMapOf()
+        val states: MutableSharedFlow<TasksState> = MutableSharedFlow(
+            replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
+        )
+
+        val activeTasks: List<TaskState> get() = tasks.values.toList()
+
+        suspend fun register(event: TaskAssignments, roundId: String, createdAt: Long) {
+            lock.withLock {
+                for (task in event.tasks) {
+                    tasks[task.taskId] = TaskState(
+                        task.taskId, task.task, roundId, event.query, createdAt
+                    )
+                }
+            }
+        }
+
+        suspend fun apply(update: TaskUpdate): String? = lock.withLock {
+            val task = tasks[update.taskId]!!
+            task.events += update.event
+            val terminal = task.terminal
+            val roundTasks = tasks.values.filter { it.roundId == task.roundId }
+
+            roundTasks
+                .map { ts -> ts.copy(events = ts.events.toMutableList()) }
+                .let { TasksState(task.roundId, task.query, task.createdAt, it, task.taskId) }
+                .let { states.tryEmit(it) }
+
+            if (!terminal || roundTasks.any { !it.terminal }) return null
+
+            roundTasks.forEach { tasks.remove(it.taskId) }
+
+            // 整轮终态: 格式化 + 归档删除, 单锁内完成
+            return buildString {
+                append("$beastReportMarker\n")
+                for (t in roundTasks) {
+                    append("- ${t.taskId}: ${t.events.last()}\n")
+                }
+            }
+        }
+
+        suspend fun isTracked(taskId: String): Boolean = lock.withLock { taskId in tasks }
+    }
+
+    // ========== 内部类: 轮次调度域 ==========
+
+    /**
+     * 轮次调度 — 独占 [decideLock], 序列化"读状态 + 启动轮次"的决策.
+     *
+     * 对外三个方法即全部唤醒入口: 提交用户轮次 / 提交结果 / 轮次结束.
+     * 跑 round 期间 (LLM 调用) 不持锁; 决策之间互斥防 TOCTOU & 字段竞争,
+     * 所有 race-free 集中在 [decide] 锁内.
+     */
+    private inner class RoundScheduler {
+        private val state = MutableStateFlow(BossState.WAITING)
+
+        /** 当前 user round — handleTaskAssignments 读它关联任务归属 (publish 必在 user round 进行中). */
+        lateinit var currentRound: UserRound
+            private set
+
+        // Channel(UNLIMITED) 自然排队, decide 消费时取队首
+        private val pendingUserRounds: Channel<UserRound> = Channel(capacity = Channel.UNLIMITED)
+        private val pendingResultEvents: Channel<String> = Channel(capacity = Channel.UNLIMITED)
+        private val decideLock: Mutex = Mutex()
+
+        /** 提交用户轮次: 入队后立即尝试启动. 由 run() 调用. */
+        suspend fun submitUserRound(round: UserRound) {
+            pendingUserRounds.trySend(round)
+            decide(postRound = false)
+        }
+
+        /** 提交结果轮次: 入队后立即尝试启动. 由终态 TaskUpdate / 落空 Cancellation 调用. */
+        suspend fun submitResult(result: String) {
+            pendingResultEvents.trySend(result)
+            decide(postRound = false)
+        }
+
+        /** 轮次结束: postRound=true 绕过 RUNNING 守卫, 让排队中的结果轮次接续. 由 run*Round 的 finally 调用. */
+        suspend fun roundFinished() = decide(postRound = true)
+
+        /**
+         * 唯一决策点 — 锁内决策是否启动轮次.
+         */
+        private suspend fun decide(postRound: Boolean) {
+            decideLock.withLock {
+                if (!postRound && state.value == BossState.RUNNING) return@withLock
+
+                pendingUserRounds.tryReceive().getOrNull()?.let { userRound ->
+                    currentRound = userRound
+                    state.value = BossState.RUNNING
+                    scope.launch { runUserRound(userRound) }
+                    return
+                }
+
+                pendingResultEvents.tryReceive().getOrNull()?.let { result ->
+                    state.value = BossState.RUNNING
+                    scope.launch { runResultRound(result) }
+                    return
+                }
+
+                if (state.value != BossState.WAITING) {
+                    state.value = BossState.WAITING
+                }
             }
         }
     }
