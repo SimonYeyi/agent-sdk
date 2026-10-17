@@ -64,6 +64,7 @@ android {
 dependencies {
     implementation(project(":agent:core"))
     implementation(project(":agent:session"))
+    implementation(project(":agent:config"))
     implementation(project(":gateway:core"))
     implementation(project(":agent:providers:anthropic"))
     implementation(project(":agent:providers:openai"))

@@ -11,6 +11,7 @@ import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.text
+import io.github.yeyi.agent.session.AgentReference
 import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.session.SessionManager
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -39,6 +40,7 @@ public data class SessionUiState(
 public class SessionViewModel(application: Application) : AndroidViewModel(application) {
     private val hookPipeline = HookPipeline(logging = true)
     private val sessionManager = SessionManager(application.filesDir, hookPipeline)
+    private val demoAgent = AgentReference(name = "demo")
     private val _uiState = MutableStateFlow(SessionUiState())
     public val uiState: StateFlow<SessionUiState> = _uiState.asStateFlow()
 
@@ -61,7 +63,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     public fun createSession(name: String) {
         viewModelScope.launch {
             try {
-                val session = sessionManager.create(accountId, name)
+                val session = sessionManager.create(accountId, name, demoAgent)
                 loadSessions()
                 selectSession(session.id)
             } catch (e: Exception) {
@@ -129,7 +131,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     private fun createSessionAndSend(name: String) {
         viewModelScope.launch {
             try {
-                val session = sessionManager.create(accountId, name)
+                val session = sessionManager.create(accountId, name, demoAgent)
                 loadSessions()
                 _uiState.value = _uiState.value.copy(
                     currentSession = session,

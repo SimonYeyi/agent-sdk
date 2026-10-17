@@ -39,7 +39,7 @@ class SessionRepositoryTest {
 
     @Test
     fun `createSession creates per-session directory with three siblings`() {
-        val session = repo.createSession("alice", "chat1", null)
+        val session = repo.createSession("alice", "chat1", AgentReference("test"))
         val sessionDir = File(File(tempDir, "agent/sessions/alice"), session.id)
         assertTrue(sessionDir.isDirectory)
 
@@ -57,7 +57,7 @@ class SessionRepositoryTest {
 
     @Test
     fun `first add populates memory conversations and media siblings`() = runTest {
-        val session = repo.createSession("alice", "chat1", null)
+        val session = repo.createSession("alice", "chat1", AgentReference("test"))
         val sessionDir = File(File(tempDir, "agent/sessions/alice"), session.id)
 
         // 模拟 caller: 先 archive 大 Data 落盘, 再把 Local 加进 memory
@@ -81,7 +81,7 @@ class SessionRepositoryTest {
 
     @Test
     fun `hydrateSession builds JsonlMemory as the memory and JsonlConversation as paged view`() {
-        val session = repo.createSession("alice", "chat1", null)
+        val session = repo.createSession("alice", "chat1", AgentReference("test"))
 
         // session.memory 是 JsonlMemory —— 直接暴露 MediaArchivable 供 AgentBuilder
         // 能力检测;session.conversation 是 JsonlConversation 分页只读视图,
@@ -96,7 +96,7 @@ class SessionRepositoryTest {
 
     @Test
     fun `large Data archived by caller then added resolves back through mediaArchive`() = runTest {
-        val session = repo.createSession("alice", "chat1", null)
+        val session = repo.createSession("alice", "chat1", AgentReference("test"))
         val data = MediaSource.Data("image/jpeg", "x".repeat(2048))
 
         // 模拟 caller: 先 archive, 再 memory.add(Local)
@@ -117,7 +117,7 @@ class SessionRepositoryTest {
 
     @Test
     fun `deleteSession removes entire per-session directory but keeps sessions_jsonl`() = runTest {
-        val session = repo.createSession("alice", "chat1", null)
+        val session = repo.createSession("alice", "chat1", AgentReference("test"))
         val sessionDir = File(File(tempDir, "agent/sessions/alice"), session.id)
 
         // 触发 archive 创建 media/
@@ -146,7 +146,7 @@ class SessionRepositoryTest {
 
     @Test
     fun `findSession returns null after deleteSession`() {
-        val session = repo.createSession("alice", "chat1", null)
+        val session = repo.createSession("alice", "chat1", AgentReference("test"))
         assertNotNull(repo.findSession("alice", session.id))
 
         repo.deleteSession("alice", session.id)

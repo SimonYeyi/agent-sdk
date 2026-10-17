@@ -19,10 +19,11 @@ public class SessionManager(
     public suspend fun create(
         accountId: String,
         sessionName: String,
+        agent: AgentReference,
         sessionId: String? = null
     ): Session {
         return mutex.withLock {
-            repository.createSession(accountId, sessionName, sessionId)
+            repository.createSession(accountId, sessionName, agent, sessionId)
         }.also {
             hookPipeline?.run(SessionHookEvent.Created(session = it))
             start(it)
@@ -41,6 +42,7 @@ public class SessionManager(
     public suspend fun getOrCreate(
         accountId: String,
         sessionName: String,
+        agent: AgentReference,
         sessionId: String
     ): Session = try {
         get(accountId, sessionId)
@@ -48,6 +50,7 @@ public class SessionManager(
         create(
             accountId = accountId,
             sessionName = sessionName,
+            agent = agent,
             sessionId = sessionId,
         )
     }

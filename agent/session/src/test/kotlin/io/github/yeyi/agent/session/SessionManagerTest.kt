@@ -60,7 +60,7 @@ class SessionManagerTest {
     @Test
     fun `create should create a new session`() = runTest {
         val sessionManager = SessionManager(tempDir, createMockPipeline())
-        val session = sessionManager.create("user1", "test session")
+        val session = sessionManager.create("user1", "test session", AgentReference("test"))
 
         assertNotNull(session.id)
         assertEquals("user1", session.accountId)
@@ -72,7 +72,7 @@ class SessionManagerTest {
     @Test
     fun `get should return existing session`() = runTest {
         val sessionManager = SessionManager(tempDir, createMockPipeline())
-        val created = sessionManager.create("user1", "test session")
+        val created = sessionManager.create("user1", "test session", AgentReference("test"))
         val retrieved = sessionManager.get("user1", created.id)
 
         assertEquals(created.id, retrieved.id)
@@ -92,9 +92,9 @@ class SessionManagerTest {
     @Test
     fun `list should return all sessions for user`() = runTest {
         val sessionManager = SessionManager(tempDir, createMockPipeline())
-        val session1 = sessionManager.create("user1", "session 1")
-        val session2 = sessionManager.create("user1", "session 2")
-        val session3 = sessionManager.create("user2", "session 3")
+        val session1 = sessionManager.create("user1", "session 1", AgentReference("test"))
+        val session2 = sessionManager.create("user1", "session 2", AgentReference("test"))
+        val session3 = sessionManager.create("user2", "session 3", AgentReference("test"))
 
         val user1Sessions = sessionManager.list("user1")
         val user2Sessions = sessionManager.list("user2")
@@ -109,7 +109,7 @@ class SessionManagerTest {
     @Test
     fun `delete should remove session`() = runTest {
         val sessionManager = SessionManager(tempDir, createMockPipeline())
-        val session = sessionManager.create("user1", "test session")
+        val session = sessionManager.create("user1", "test session", AgentReference("test"))
         sessionManager.delete(session)
 
         assertFailsWith<NoSuchElementException> {
@@ -121,7 +121,7 @@ class SessionManagerTest {
     @Test
     fun `memory should persist messages`() = runTest {
         val sessionManager = SessionManager(tempDir, createMockPipeline())
-        val session = sessionManager.create("user1", "test session")
+        val session = sessionManager.create("user1", "test session", AgentReference("test"))
         val memory = session.memory
 
         memory.add(ChatMessage.User(listOf(ContentPart.Text("Hello"))))
@@ -143,7 +143,7 @@ class SessionManagerTest {
             }
         }
         val manager = SessionManager(tempDir, pipeline)
-        val session = manager.create("user1", "my session")
+        val session = manager.create("user1", "my session", AgentReference("test"))
         assertEquals(listOf("onSessionCreated(${session.id},my session)"), events)
     }
 
@@ -156,7 +156,7 @@ class SessionManagerTest {
             }
         }
         val manager = SessionManager(tempDir, pipeline)
-        val session = manager.create("user1", "my session")
+        val session = manager.create("user1", "my session", AgentReference("test"))
         manager.delete(session)
         assertEquals(listOf("onSessionDeleted(user1,${session.id})"), events)
     }
@@ -170,7 +170,7 @@ class SessionManagerTest {
             }
         }
         val manager = SessionManager(tempDir, pipeline)
-        manager.create("user1", "my session")
+        manager.create("user1", "my session", AgentReference("test"))
         events.clear()
         manager.get("user1", manager.list("user1").first().id)
         manager.list("user1")

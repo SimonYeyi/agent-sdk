@@ -9,6 +9,7 @@ public data class Session(
     val id: String,
     val accountId: String,
     val name: String,
+    val agent: AgentReference,
     val createdAt: kotlinx.datetime.Instant,
     val lastActiveAt: kotlinx.datetime.Instant,
     @Transient private val _memory: Memory? = null,

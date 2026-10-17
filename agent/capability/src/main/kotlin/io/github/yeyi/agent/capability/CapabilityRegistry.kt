@@ -22,6 +22,9 @@ public interface CapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : Capab
     /** 按名称查找，找不到抛 [NoSuchElementException]。 */
     public fun get(name: String): C
 
+    /** 按名称查找，找不到返回 null。 */
+    public fun getOrNull(name: String): C?
+
     /** 返回所有已注册 capability。 */
     public fun all(): List<C>
 
@@ -55,6 +58,8 @@ public class DefaultCapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : Ca
         return capabilities[name]
             ?: throw NoSuchElementException("$capabilityType with name '$name' not found")
     }
+
+    override fun getOrNull(name: String): C? = capabilities[name]
 
     override fun all(): List<C> = capabilities.values.toList()
 

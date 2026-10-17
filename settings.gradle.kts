@@ -28,6 +28,7 @@ include(":demos:team")
 
 include(":agent:core")
 include(":agent:capability")
+include(":agent:config")
 include(":agent:session")
 include(":agent:skill")
 include(":agent:hook")

@@ -208,7 +208,7 @@ public fun AgentDefinition.spawn(
     }
 }
 
-private fun AgentDefinition.createLlmProvider(provider: Provider): LlmProvider {
+private fun createLlmProvider(provider: Provider): LlmProvider {
     return when (provider.name) {
         "anthropic" -> AnthropicProvider(
             baseUrl = provider.baseUrl,

@@ -1,0 +1,41 @@
+package io.github.yeyi.agent.config
+
+public data class AgentDefinition(
+    val name: String,
+    val version: Int = 0,
+    val persona: String,
+    val provider: Provider,
+    val maxIterations: Int = 20,
+    val maxMemoryRounds: Int = 20,
+    val tools: List<String> = emptyList(),
+    val toolsets: List<String> = emptyList(),
+    val mcps: List<Mcp> = emptyList(),
+    val skills: List<String> = emptyList(),
+    val subagents: List<String> = emptyList(),
+) {
+    public data class Provider(
+        val name: String,        // "anthropic" | "openai"
+        val baseUrl: String,
+        val model: String,
+        val apiKey: String
+    )
+
+    public data class Mcp(
+        val name: String,
+        val description: String,
+        val transport: Transport
+    ) {
+        public sealed interface Transport {
+            public data class Stdio(
+                val command: String,
+                val args: List<String> = emptyList(),
+                val env: Map<String, String> = emptyMap()
+            ) : Transport
+
+            public data class Http(
+                val url: String,
+                val headers: Map<String, String> = emptyMap()
+            ) : Transport
+        }
+    }
+}

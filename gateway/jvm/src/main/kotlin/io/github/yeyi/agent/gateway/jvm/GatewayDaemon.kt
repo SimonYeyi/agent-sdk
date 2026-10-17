@@ -3,10 +3,11 @@ package io.github.yeyi.agent.gateway.jvm
 import io.gateway.engine.GatewayEngineBuilder
 import io.gateway.platform.feishu.FeishuAdapter
 import io.gateway.platform.feishu.FeishuConfig
-import io.github.yeyi.agent.agent
-import io.github.yeyi.agent.llm.LlmProvider
-import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
-import io.github.yeyi.agent.providers.openai.OpenAiProvider
+import io.github.yeyi.agent.Agent
+import io.github.yeyi.agent.config.AgentDefinition
+import io.github.yeyi.agent.config.AgentRegistry
+import io.github.yeyi.agent.config.spawn
+import io.github.yeyi.agent.session.AgentReference
 import io.github.yeyi.agent.session.SessionManager
 import io.github.yeyi.agent.hook.HookPipeline
 import kotlinx.coroutines.CoroutineScope
@@ -31,12 +32,19 @@ class GatewayDaemon(private val config: GatewayDaemonConfig) {
         }
         println("[gateway-jvm] starting with model.name=${config.modelName}, appStorageDir=${config.appStorageDir}")
 
-        val llmProvider = resolveLlmProvider(
+        val provider = resolveProvider(
             providerRaw = config.modelProvider,
             apiKey = config.modelApiKey,
             baseUrl = config.modelBaseUrl,
             model = config.modelName,
         )
+
+        val agentDefinition = AgentDefinition(
+            name = "gateway",
+            persona = "",
+            provider = provider
+        )
+        val agentRegistry = AgentRegistry().apply { register(agentDefinition) }
 
         val baseDir = File(config.appStorageDir).also { it.mkdirs() }
         val sessionManager = SessionManager(baseDir, HookPipeline())
@@ -49,13 +57,16 @@ class GatewayDaemon(private val config: GatewayDaemonConfig) {
             coroutineScope = scope,
         )
 
-        val createAgent: suspend (String, String, String) -> io.github.yeyi.agent.Agent =
+        val createAgent: suspend (String, String, String) -> Agent =
             { accountId, sessionId, sessionName ->
-                val session = sessionManager.getOrCreate(accountId, sessionName, sessionId)
-                agent {
-                    memory(session.memory)
-                    llmProvider(llmProvider)
-                }
+                val agentReference = AgentReference(name = agentDefinition.name)
+                val session = sessionManager.getOrCreate(
+                    accountId = accountId,
+                    sessionName = sessionName,
+                    agent = agentReference,
+                    sessionId = sessionId
+                )
+                agentDefinition.spawn(session.memory)
             }
 
         val builtEngine = GatewayEngineBuilder()
@@ -86,12 +97,12 @@ class GatewayDaemon(private val config: GatewayDaemonConfig) {
 private const val PROVIDER_OPENAI = "openai"
 private const val PROVIDER_ANTHROPIC = "anthropic"
 
-private fun resolveLlmProvider(
+private fun resolveProvider(
     providerRaw: String,
     apiKey: String,
     baseUrl: String,
     model: String,
-): LlmProvider {
+): AgentDefinition.Provider {
     require(apiKey.isNotEmpty()) { "model.api.key is required" }
     require(baseUrl.isNotEmpty()) { "model.base.url is required" }
     require(model.isNotEmpty()) { "model.name is required" }
@@ -110,9 +121,10 @@ private fun resolveLlmProvider(
         else -> PROVIDER_OPENAI
     }
 
-    return if (provider == PROVIDER_ANTHROPIC) {
-        AnthropicProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
-    } else {
-        OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
-    }
+    return AgentDefinition.Provider(
+        name = provider,
+        baseUrl = baseUrl,
+        model = model,
+        apiKey = apiKey
+    )
 }

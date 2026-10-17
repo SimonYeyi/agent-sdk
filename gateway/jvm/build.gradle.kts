@@ -21,6 +21,7 @@ dependencies {
     implementation(project(":agent:providers:openai"))
     implementation(project(":agent:session"))
     implementation(project(":agent:core"))
+    implementation(project(":agent:config"))
     implementation(project(":agent:hook"))
 
     testImplementation(libs.kotlin.test)

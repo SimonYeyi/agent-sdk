@@ -57,10 +57,11 @@ internal class SessionRepository(baseDir: File) {
      *
      * @param accountId 账号标识
      * @param sessionName session 名称
+     * @param agent AgentReference
      * @param sessionId 可选指定 ID，不传则自动生成 UUID
      * @throws IllegalArgumentException sessionId 已存在
      */
-    fun createSession(accountId: String, sessionName: String, sessionId: String?): Session {
+    fun createSession(accountId: String, sessionName: String, agent: AgentReference, sessionId: String? = null): Session {
         val now = Clock.System.now()
         val id = sessionId ?: UUID.randomUUID().toString()
         require(findSession(accountId, id) == null) { "Session already exists: $id" }
@@ -68,6 +69,7 @@ internal class SessionRepository(baseDir: File) {
             id = id,
             accountId = accountId,
             name = sessionName.take(50),
+            agent = agent,
             createdAt = now,
             lastActiveAt = now
         ).let { hydrateSession(it) }

@@ -43,7 +43,7 @@ class SessionAgentIntegrationTest {
 
     @Test
     fun `agent built from session archives large Data and resolves back for LLM`() = runTest {
-        val session = repo.createSession("alice", "chat1", null)
+        val session = repo.createSession("alice", "chat1", AgentReference("test"))
         val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
