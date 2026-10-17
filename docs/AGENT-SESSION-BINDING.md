@@ -14,8 +14,10 @@ Session 模块（agent/session）
 └── Session            # 会话，包含 AgentReference
 
 config 模块（agent/config）
-├── AgentDefinition    # Agent 的完整声明
-└── AgentRegistry      # 管理 AgentDefinition 的注册与查找
+├── AgentDefinition              # Agent 的完整声明
+├── AgentDefinitionExtensions    # spawn 扩展
+├── LoggingExtensions            # 日志 tag 封装
+└── AgentRegistry                # 管理 AgentDefinition 的注册与查找
 ```
 
 ## 依赖扩展
@@ -107,11 +109,11 @@ public data class AgentDefinition(
     val provider: Provider,
     val maxIterations: Int = 20,
     val maxMemoryRounds: Int = 20,
-    val tools: List<String> = emptyList(),
-    val toolsets: List<String> = emptyList(),
+    val tools: List<String>? = null,
+    val toolsets: List<String>? = null,
+    val skills: List<String>? = null,
+    val subagents: List<String>? = null,
     val mcps: List<Mcp> = emptyList(),
-    val skills: List<String> = emptyList(),
-    val subagents: List<String> = emptyList(),
 ) {
     public data class Provider(
         val name: String,        // "anthropic" | "openai"
@@ -149,10 +151,11 @@ public fun AgentDefinition.spawn(
     subagentRegistry: SubagentRegistry? = null
 ): Agent {
     // 1. 从各 registry 中过滤出声明的项
-    // tools 列表优先从 lazyToolRegistry 查找，未找到则从 toolRegistry 查找
+    // null 表示使用 registry 中全部项，emptyList() 表示不使用任何项
     val filteredToolRegistry = ToolRegistry()
     val filteredLazyToolRegistry = LazyToolRegistry()
-    tools.forEach { name ->
+    val toolNames = tools ?: lazyToolRegistry?.all()?.map { it.name } ?: toolRegistry?.all()?.map { it.name } ?: emptyList()
+    toolNames.forEach { name ->
         lazyToolRegistry?.getOrNull(name)?.let {
             filteredLazyToolRegistry.register(it)
         } ?: toolRegistry?.getOrNull(name)?.let {
@@ -161,21 +164,21 @@ public fun AgentDefinition.spawn(
     }
 
     val filteredToolsetRegistry = ToolsetRegistry().apply {
-        toolsets.forEach { name ->
+        (toolsets ?: toolsetRegistry?.all()?.map { it.name } ?: emptyList()).forEach { name ->
             toolsetRegistry?.getOrNull(name)?.let { register(it) }
                 ?: log.warn("Runtime Toolset not found: $name")
         }
     }
 
     val filteredSkillRegistry = SkillRegistry().apply {
-        skills.forEach { name ->
+        (skills ?: skillRegistry?.all()?.map { it.name } ?: emptyList()).forEach { name ->
             skillRegistry?.getOrNull(name)?.let { register(it) }
                 ?: log.warn("Runtime Skill not found: $name")
         }
     }
 
     val filteredSubagentRegistry = SubagentRegistry().apply {
-        subagents.forEach { name ->
+        (subagents ?: subagentRegistry?.all()?.map { it.name } ?: emptyList()).forEach { name ->
             subagentRegistry?.getOrNull(name)?.let { register(it) }
                 ?: log.warn("Runtime Subagent not found: $name")
         }
@@ -288,6 +291,18 @@ toolsets = ["iotToolset"]
 skills = ["weatherSkill", "homeSkill"]
 subagents = ["helpSubagent"]
 mcps = ["filesystem", "httpMcp"]
+```
+
+**配置说明：**
+- 字段不写 → `null` → 使用 registry 中全部项
+- 字段写 `= []` → `emptyList()` → 不使用任何项
+- 字段写 `= ["xxx"]` → 只使用指定的项
+
+例如：
+```toml
+tools = []          # 不使用任何 tool
+tools = ["getWeather"]  # 只使用 getWeather
+# 不写 tools 字段 → 使用 registry 中全部 tool
 ```
 
 ### 配置解析流程

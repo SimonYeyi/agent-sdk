@@ -7,11 +7,11 @@ public data class AgentDefinition(
     val provider: Provider,
     val maxIterations: Int = 20,
     val maxMemoryRounds: Int = 20,
-    val tools: List<String> = emptyList(),
-    val toolsets: List<String> = emptyList(),
+    val tools: List<String>? = null,
+    val toolsets: List<String>? = null,
+    val skills: List<String>? = null,
+    val subagents: List<String>? = null,
     val mcps: List<Mcp> = emptyList(),
-    val skills: List<String> = emptyList(),
-    val subagents: List<String> = emptyList(),
 ) {
     public data class Provider(
         val name: String,        // "anthropic" | "openai"

@@ -32,10 +32,11 @@ public fun AgentDefinition.spawn(
     subagentRegistry: SubagentRegistry? = null
 ): Agent {
     // 1. 从各 registry 中过滤出声明的项
-    // tools 列表优先从 lazyToolRegistry 查找，未找到则从 toolRegistry 查找
+    // null 表示使用 registry 中全部项，emptyList() 表示不使用任何项
     val filteredToolRegistry = ToolRegistry()
     val filteredLazyToolRegistry = LazyToolRegistry()
-    tools.forEach { name ->
+    val toolNames = tools ?: lazyToolRegistry?.all()?.map { it.name } ?: toolRegistry?.all()?.map { it.name } ?: emptyList()
+    toolNames.forEach { name ->
         lazyToolRegistry?.getOrNull(name)?.let {
             filteredLazyToolRegistry.register(it)
         } ?: toolRegistry?.getOrNull(name)?.let {
@@ -44,21 +45,21 @@ public fun AgentDefinition.spawn(
     }
 
     val filteredToolsetRegistry = ToolsetRegistry().apply {
-        toolsets.forEach { name ->
+        (toolsets ?: toolsetRegistry?.all()?.map { it.name } ?: emptyList()).forEach { name ->
             toolsetRegistry?.getOrNull(name)?.let { register(it) }
                 ?: log.warn("Runtime Toolset not found: $name")
         }
     }
 
     val filteredSkillRegistry = SkillRegistry().apply {
-        skills.forEach { name ->
+        (skills ?: skillRegistry?.all()?.map { it.name } ?: emptyList()).forEach { name ->
             skillRegistry?.getOrNull(name)?.let { register(it) }
                 ?: log.warn("Runtime Skill not found: $name")
         }
     }
 
     val filteredSubagentRegistry = SubagentRegistry().apply {
-        subagents.forEach { name ->
+        (subagents ?: subagentRegistry?.all()?.map { it.name } ?: emptyList()).forEach { name ->
             subagentRegistry?.getOrNull(name)?.let { register(it) }
                 ?: log.warn("Runtime Subagent not found: $name")
         }
