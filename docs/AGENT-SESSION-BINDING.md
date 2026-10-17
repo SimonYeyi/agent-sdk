@@ -53,6 +53,17 @@ data class Session(
 
 ### AgentDefinition（config 模块）
 
+config 模块的日志扩展：
+
+```kotlin
+// io.github.yeyi.agent.config.LoggingExtensions.kt
+package io.github.yeyi.agent.config
+
+import io.github.yeyi.agent.log.LoggingTagged
+
+internal val log = LoggingTagged("config")
+```
+
 ```kotlin
 public data class AgentDefinition(
     val name: String,
@@ -107,28 +118,31 @@ public fun AgentDefinition.spawn(
     val filteredToolRegistry = ToolRegistry()
     val filteredLazyToolRegistry = LazyToolRegistry()
     tools.forEach { name ->
-        lazyToolRegistry?.find(name)?.let {
+        lazyToolRegistry?.getOrNull(name)?.let {
             filteredLazyToolRegistry.register(it)
-        } ?: toolRegistry?.get(name)?.let {
+        } ?: toolRegistry?.getOrNull(name)?.let {
             filteredToolRegistry.register(it)
-        }
+        } ?: log.warn("Runtime Tool not found: $name")
     }
 
     val filteredToolsetRegistry = ToolsetRegistry().apply {
         toolsets.forEach { name ->
-            toolsetRegistry?.get(name)?.let { register(it) }
+            toolsetRegistry?.getOrNull(name)?.let { register(it) }
+                ?: log.warn("Runtime Toolset not found: $name")
         }
     }
 
     val filteredSkillRegistry = SkillRegistry().apply {
         skills.forEach { name ->
-            skillRegistry?.get(name)?.let { register(it) }
+            skillRegistry?.getOrNull(name)?.let { register(it) }
+                ?: log.warn("Runtime Skill not found: $name")
         }
     }
 
     val filteredSubagentRegistry = SubagentRegistry().apply {
         subagents.forEach { name ->
-            subagentRegistry?.get(name)?.let { register(it) }
+            subagentRegistry?.getOrNull(name)?.let { register(it) }
+                ?: log.warn("Runtime Subagent not found: $name")
         }
     }
 
@@ -332,6 +346,44 @@ val agent = definition.spawn(
 6. **Registry 外置**：Registry 是运行时 pool，spawn 时注入，AgentDefinition 只存 name 列表
 7. **MCP 内置**：MCP 通过 toolset 机制处理，配置声明在 mcps 字段
 8. **配置自包含**：AgentDefinition 包含构建 Agent 所需的完整配置（含 apiKey），由配置文件管理安全性
+
+## 待实现
+
+### agent/capability/.../CapabilityRegistry.kt
+
+新增 `getOrNull` 方法：
+
+```kotlin
+// io.github.yeyi.agent.capability.CapabilityRegistry.kt
+
+public interface CapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext> {
+    // ... 现有方法 ...
+
+    /** 按名称查找，找不到返回 null。 */
+    public fun getOrNull(name: String): C?
+}
+
+public class DefaultCapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext>(
+    override val capabilityType: String
+) : CapabilityRegistry<C, T, Ctx> {
+    // ... 现有实现 ...
+
+    override fun getOrNull(name: String): C? = capabilities[name]
+}
+```
+
+### agent/config/.../LoggingExtensions.kt
+
+新建文件：
+
+```kotlin
+// io.github.yeyi.agent.config.LoggingExtensions.kt
+package io.github.yeyi.agent.config
+
+import io.github.yeyi.agent.log.LoggingTagged
+
+internal val log = LoggingTagged("config")
+```
 
 ## 待清理
 
