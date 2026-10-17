@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertTrue
 
 class AgentDefinitionTest {
 
@@ -71,8 +72,126 @@ class AgentDefinitionTest {
         assertEquals(30, decoded.maxIterations)
         assertEquals(listOf("getWeather", "controlTV"), decoded.tools)
         assertEquals(listOf("iotToolset"), decoded.toolsets)
+        assertEquals(listOf("weatherSkill"), decoded.skills)
+        assertEquals(listOf("helpSubagent"), decoded.subagents)
         assertEquals(1, decoded.mcps.size)
         assertEquals("filesystem", decoded.mcps[0].name)
+
+        // Verify JSON format: discriminator should be "type": "stdio" (lowercase)
+        assertTrue(jsonStr.contains("\"type\": \"stdio\""), "Expected lowercase 'stdio' discriminator")
+    }
+
+    @Test
+    fun `full AgentDefinition JSON format with Http transport`() {
+        val definition = AgentDefinition(
+            name = "httpAgent",
+            persona = "HTTP Agent",
+            provider = AgentDefinition.Provider(
+                name = "anthropic",
+                baseUrl = "https://api.anthropic.com",
+                model = "claude-3-5-sonnet",
+                apiKey = "sk-test"
+            ),
+            mcps = listOf(
+                AgentDefinition.Mcp(
+                    name = "remoteMcp",
+                    description = "Remote MCP",
+                    transport = AgentDefinition.Mcp.Transport.Http(
+                        url = "https://mcp.example.com",
+                        headers = mapOf("Authorization" to "Bearer token")
+                    )
+                )
+            )
+        )
+
+        val jsonStr = json.encodeToString(definition)
+        val decoded = json.decodeFromString<AgentDefinition>(jsonStr)
+
+        assertEquals("httpAgent", decoded.name)
+        assertEquals(1, decoded.mcps.size)
+        assertEquals("remoteMcp", decoded.mcps[0].name)
+
+        // Verify JSON format: discriminator should be "type": "http" (lowercase)
+        assertTrue(jsonStr.contains("\"type\": \"http\""), "Expected lowercase 'http' discriminator")
+        assertTrue(jsonStr.contains("\"url\": \"https://mcp.example.com\""))
+        assertTrue(jsonStr.contains("\"Authorization\": \"Bearer token\""))
+    }
+
+    @Test
+    fun `complete AgentDefinition JSON template structure`() {
+        val definition = AgentDefinition(
+            name = "completeAgent",
+            version = 2,
+            persona = "Test persona",
+            provider = AgentDefinition.Provider(
+                name = "openai",
+                baseUrl = "https://api.openai.com",
+                model = "gpt-4",
+                apiKey = "sk-complete"
+            ),
+            maxIterations = 50,
+            maxMemoryRounds = 40,
+            tools = listOf("tool1", "tool2"),
+            toolsets = listOf("toolset1"),
+            skills = listOf("skill1"),
+            subagents = listOf("subagent1"),
+            mcps = listOf(
+                AgentDefinition.Mcp(
+                    name = "stdioMcp",
+                    description = "Stdio MCP",
+                    transport = AgentDefinition.Mcp.Transport.Stdio(
+                        command = "npx",
+                        args = listOf("-y", "server"),
+                        env = mapOf("KEY" to "value")
+                    )
+                ),
+                AgentDefinition.Mcp(
+                    name = "httpMcp",
+                    description = "HTTP MCP",
+                    transport = AgentDefinition.Mcp.Transport.Http(
+                        url = "https://example.com",
+                        headers = mapOf("Auth" to "Bearer abc")
+                    )
+                )
+            )
+        )
+
+        val jsonStr = json.encodeToString(definition)
+
+        // Verify complete JSON structure
+        assertTrue(jsonStr.contains("\"name\": \"completeAgent\""))
+        assertTrue(jsonStr.contains("\"version\": 2"))
+        assertTrue(jsonStr.contains("\"persona\": \"Test persona\""))
+        assertTrue(jsonStr.contains("\"name\": \"openai\""))
+        assertTrue(jsonStr.contains("\"baseUrl\": \"https://api.openai.com\""))
+        assertTrue(jsonStr.contains("\"model\": \"gpt-4\""))
+        assertTrue(jsonStr.contains("\"apiKey\": \"sk-complete\""))
+        assertTrue(jsonStr.contains("\"maxIterations\": 50"))
+        assertTrue(jsonStr.contains("\"maxMemoryRounds\": 40"))
+        assertTrue(jsonStr.contains("\"tools\": ["))
+        assertTrue(jsonStr.contains("\"tool1\""))
+        assertTrue(jsonStr.contains("\"tool2\""))
+        assertTrue(jsonStr.contains("\"toolsets\": ["))
+        assertTrue(jsonStr.contains("\"toolset1\""))
+        assertTrue(jsonStr.contains("\"skills\": ["))
+        assertTrue(jsonStr.contains("\"skill1\""))
+        assertTrue(jsonStr.contains("\"subagents\": ["))
+        assertTrue(jsonStr.contains("\"subagent1\""))
+        assertTrue(jsonStr.contains("\"mcps\": ["))
+
+        // Verify Stdio transport: "type": "stdio" (lowercase)
+        assertTrue(jsonStr.contains("\"type\": \"stdio\""), "Expected 'stdio' discriminator")
+        assertTrue(jsonStr.contains("\"command\": \"npx\""))
+        assertTrue(jsonStr.contains("\"args\": ["))
+        assertTrue(jsonStr.contains("\"-y\""))
+        assertTrue(jsonStr.contains("\"server\""))
+        assertTrue(jsonStr.contains("\"env\": {"))
+        assertTrue(jsonStr.contains("\"KEY\": \"value\""))
+
+        // Verify Http transport: "type": "http" (lowercase)
+        assertTrue(jsonStr.contains("\"type\": \"http\""), "Expected 'http' discriminator")
+        assertTrue(jsonStr.contains("\"url\": \"https://example.com\""))
+        assertTrue(jsonStr.contains("\"Auth\": \"Bearer abc\""))
     }
 
     @Test
@@ -144,6 +263,7 @@ class AgentDefinitionTest {
         val decoded = json.decodeFromString<AgentDefinition.Mcp>(jsonStr)
 
         assertEquals("stdioMcp", decoded.name)
+        assertTrue(jsonStr.contains("\"type\": \"stdio\""), "Expected 'stdio' discriminator, got: $jsonStr")
         val transport = decoded.transport as AgentDefinition.Mcp.Transport.Stdio
         assertEquals("node", transport.command)
         assertEquals(listOf("--version"), transport.args)
@@ -165,6 +285,7 @@ class AgentDefinitionTest {
         val decoded = json.decodeFromString<AgentDefinition.Mcp>(jsonStr)
 
         assertEquals("httpMcp", decoded.name)
+        assertTrue(jsonStr.contains("\"type\": \"http\""), "Expected 'http' discriminator, got: $jsonStr")
         val transport = decoded.transport as AgentDefinition.Mcp.Transport.Http
         assertEquals("https://mcp.example.com", transport.url)
         assertEquals(mapOf("Authorization" to "Bearer token"), transport.headers)

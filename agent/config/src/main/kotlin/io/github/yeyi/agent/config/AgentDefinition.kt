@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.config
 
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -33,6 +34,7 @@ public data class AgentDefinition(
         @Serializable
         public sealed interface Transport {
             @Serializable
+            @SerialName("stdio")
             public data class Stdio(
                 val command: String,
                 val args: List<String> = emptyList(),
@@ -40,6 +42,7 @@ public data class AgentDefinition(
             ) : Transport
 
             @Serializable
+            @SerialName("http")
             public data class Http(
                 val url: String,
                 val headers: Map<String, String> = emptyMap()
