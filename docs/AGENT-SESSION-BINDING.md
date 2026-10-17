@@ -154,32 +154,45 @@ public fun AgentDefinition.spawn(
     // null 表示使用 registry 中全部项，emptyList() 表示不使用任何项
     val filteredToolRegistry = ToolRegistry()
     val filteredLazyToolRegistry = LazyToolRegistry()
-    val toolNames = tools ?: lazyToolRegistry?.all()?.map { it.name } ?: toolRegistry?.all()?.map { it.name } ?: emptyList()
-    toolNames.forEach { name ->
-        lazyToolRegistry?.getOrNull(name)?.let {
-            filteredLazyToolRegistry.register(it)
-        } ?: toolRegistry?.getOrNull(name)?.let {
-            filteredToolRegistry.register(it)
-        } ?: log.warn("Runtime Tool not found: $name")
+    if (tools == null) {
+        filteredToolRegistry.register(toolRegistry?.all() ?: emptyList())
+        filteredLazyToolRegistry.register(lazyToolRegistry?.all() ?: emptyList())
+    } else {
+        tools.forEach { name ->
+            lazyToolRegistry?.getOrNull(name)?.let {
+                filteredLazyToolRegistry.register(it)
+            } ?: toolRegistry?.getOrNull(name)?.let {
+                filteredToolRegistry.register(it)
+            } ?: log.warn("Runtime Tool not found: $name")
+        }
     }
 
-    val filteredToolsetRegistry = ToolsetRegistry().apply {
-        (toolsets ?: toolsetRegistry?.all()?.map { it.name } ?: emptyList()).forEach { name ->
-            toolsetRegistry?.getOrNull(name)?.let { register(it) }
+    val filteredToolsetRegistry = ToolsetRegistry()
+    if (toolsets == null) {
+        filteredToolsetRegistry.register(toolsetRegistry?.all() ?: emptyList())
+    } else {
+        toolsets.forEach { name ->
+            toolsetRegistry?.getOrNull(name)?.let { filteredToolsetRegistry.register(it) }
                 ?: log.warn("Runtime Toolset not found: $name")
         }
     }
 
-    val filteredSkillRegistry = SkillRegistry().apply {
-        (skills ?: skillRegistry?.all()?.map { it.name } ?: emptyList()).forEach { name ->
-            skillRegistry?.getOrNull(name)?.let { register(it) }
+    val filteredSkillRegistry = SkillRegistry()
+    if (skills == null) {
+        filteredSkillRegistry.register(skillRegistry?.all() ?: emptyList())
+    } else {
+        skills.forEach { name ->
+            skillRegistry?.getOrNull(name)?.let { filteredSkillRegistry.register(it) }
                 ?: log.warn("Runtime Skill not found: $name")
         }
     }
 
-    val filteredSubagentRegistry = SubagentRegistry().apply {
-        (subagents ?: subagentRegistry?.all()?.map { it.name } ?: emptyList()).forEach { name ->
-            subagentRegistry?.getOrNull(name)?.let { register(it) }
+    val filteredSubagentRegistry = SubagentRegistry()
+    if (subagents == null) {
+        filteredSubagentRegistry.register(subagentRegistry?.all() ?: emptyList())
+    } else {
+        subagents.forEach { name ->
+            subagentRegistry?.getOrNull(name)?.let { filteredSubagentRegistry.register(it) }
                 ?: log.warn("Runtime Subagent not found: $name")
         }
     }
@@ -401,4 +414,4 @@ val agent = definition.spawn(
 
 ## 待清理
 
-- [ ] `SessionExtensions.kt` 中的 `AgentBuilder.memory(session: Session)` extension 已多余，应删除。现有流程通过 `AgentDefinition.spawn(session.memory, registries)` 构建 Agent，不再需要此 extension。
+- [x] `SessionExtensions.kt` 中的 `AgentBuilder.memory(session: Session)` extension 已多余，应删除。现有流程通过 `AgentDefinition.spawn(session.memory, registries)` 构建 Agent，不再需要此 extension。

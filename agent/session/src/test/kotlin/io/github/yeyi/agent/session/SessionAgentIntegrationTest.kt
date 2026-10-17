@@ -49,11 +49,9 @@ class SessionAgentIntegrationTest {
                 ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
             )
         )
-        // SessionExtensions.memory(session) → AgentBuilder 在 build() 时通过
-        // `memory as? MediaArchivable` 检测 JsonlMemory,自动注入 DefaultModalityAdapter(archive)
         val agent = agent {
             llmProvider(provider)
-            memory(session)
+            memory(session.memory)
         }
 
         // 超过 ArchiveAdapter.ARCHIVE_THRESHOLD(1024) 的 base64,触发 Data → Local
