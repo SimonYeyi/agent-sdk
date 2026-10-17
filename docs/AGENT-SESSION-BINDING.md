@@ -18,6 +18,41 @@ config 模块（agent/config）
 └── AgentRegistry      # 管理 AgentDefinition 的注册与查找
 ```
 
+## 依赖扩展
+
+### agent/capability/.../CapabilityRegistry.kt
+
+新增 `getOrNull` 方法：
+
+```kotlin
+public interface CapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext> {
+    // ... 现有方法 ...
+
+    /** 按名称查找，找不到返回 null。 */
+    public fun getOrNull(name: String): C?
+}
+
+public class DefaultCapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext>(
+    override val capabilityType: String
+) : CapabilityRegistry<C, T, Ctx> {
+    // ... 现有实现 ...
+
+    override fun getOrNull(name: String): C? = capabilities[name]
+}
+```
+
+### agent/config/.../LoggingExtensions.kt
+
+新建文件：
+
+```kotlin
+package io.github.yeyi.agent.config
+
+import io.github.yeyi.agent.log.LoggingTagged
+
+internal val log = LoggingTagged("config")
+```
+
 ## 核心类型
 
 ### AgentReference（Session 模块）
@@ -259,6 +294,8 @@ mcps = ["filesystem", "httpMcp"]
 
 ```
 1. 解析 [mcp.xxx] 顶层定义 → Map<String, Mcp>
+   - transport = "stdio" → Mcp.Transport.Stdio(command, args, env)
+   - transport = "http"  → Mcp.Transport.Http(url, headers)
 2. 解析 [agent.xxx] 配置块
 3. agent.mcps = ["filesystem", "httpMcp"] → 引用顶层 MCP 模板
 4. 解析时将引用替换为完整 Mcp 对象
@@ -346,44 +383,6 @@ val agent = definition.spawn(
 6. **Registry 外置**：Registry 是运行时 pool，spawn 时注入，AgentDefinition 只存 name 列表
 7. **MCP 内置**：MCP 通过 toolset 机制处理，配置声明在 mcps 字段
 8. **配置自包含**：AgentDefinition 包含构建 Agent 所需的完整配置（含 apiKey），由配置文件管理安全性
-
-## 待实现
-
-### agent/capability/.../CapabilityRegistry.kt
-
-新增 `getOrNull` 方法：
-
-```kotlin
-// io.github.yeyi.agent.capability.CapabilityRegistry.kt
-
-public interface CapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext> {
-    // ... 现有方法 ...
-
-    /** 按名称查找，找不到返回 null。 */
-    public fun getOrNull(name: String): C?
-}
-
-public class DefaultCapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : CapabilityContext>(
-    override val capabilityType: String
-) : CapabilityRegistry<C, T, Ctx> {
-    // ... 现有实现 ...
-
-    override fun getOrNull(name: String): C? = capabilities[name]
-}
-```
-
-### agent/config/.../LoggingExtensions.kt
-
-新建文件：
-
-```kotlin
-// io.github.yeyi.agent.config.LoggingExtensions.kt
-package io.github.yeyi.agent.config
-
-import io.github.yeyi.agent.log.LoggingTagged
-
-internal val log = LoggingTagged("config")
-```
 
 ## 待清理
 
