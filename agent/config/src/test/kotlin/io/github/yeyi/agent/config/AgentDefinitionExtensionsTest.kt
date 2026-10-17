@@ -46,8 +46,9 @@ class AgentDefinitionExtensionsTest {
     fun `spawn creates agent with memory and provider`() = runTest {
         val definition = createTestDefinition()
         val memory = InMemoryMemory()
+        val wiring = AgentWiring(memory = memory)
 
-        val agent = definition.spawn(memory)
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }
@@ -73,11 +74,9 @@ class AgentDefinitionExtensionsTest {
 
         val definition = createTestDefinition(tools = null)
         val memory = InMemoryMemory()
+        val wiring = AgentWiring(memory = memory, toolRegistry = toolRegistry)
 
-        val agent = definition.spawn(
-            memory = memory,
-            toolRegistry = toolRegistry
-        )
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }
@@ -96,11 +95,9 @@ class AgentDefinitionExtensionsTest {
 
         val definition = createTestDefinition(tools = emptyList())
         val memory = InMemoryMemory()
+        val wiring = AgentWiring(memory = memory, toolRegistry = toolRegistry)
 
-        val agent = definition.spawn(
-            memory = memory,
-            toolRegistry = toolRegistry
-        )
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }
@@ -133,11 +130,9 @@ class AgentDefinitionExtensionsTest {
 
         val definition = createTestDefinition(tools = listOf("weather", "search"))
         val memory = InMemoryMemory()
+        val wiring = AgentWiring(memory = memory, toolRegistry = toolRegistry)
 
-        val agent = definition.spawn(
-            memory = memory,
-            toolRegistry = toolRegistry
-        )
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }
@@ -167,11 +162,9 @@ class AgentDefinitionExtensionsTest {
 
         val definition = createTestDefinition(toolsets = null)
         val memory = InMemoryMemory()
+        val wiring = AgentWiring(memory = memory, toolsetRegistry = toolsetRegistry)
 
-        val agent = definition.spawn(
-            memory = memory,
-            toolsetRegistry = toolsetRegistry
-        )
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }
@@ -184,11 +177,9 @@ class AgentDefinitionExtensionsTest {
 
         val definition = createTestDefinition(toolsets = emptyList())
         val memory = InMemoryMemory()
+        val wiring = AgentWiring(memory = memory, toolsetRegistry = toolsetRegistry)
 
-        val agent = definition.spawn(
-            memory = memory,
-            toolsetRegistry = toolsetRegistry
-        )
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }
@@ -203,11 +194,9 @@ class AgentDefinitionExtensionsTest {
 
         val definition = createTestDefinition(toolsets = listOf("weather", "search"))
         val memory = InMemoryMemory()
+        val wiring = AgentWiring(memory = memory, toolsetRegistry = toolsetRegistry)
 
-        val agent = definition.spawn(
-            memory = memory,
-            toolsetRegistry = toolsetRegistry
-        )
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }
@@ -229,11 +218,9 @@ class AgentDefinitionExtensionsTest {
 
         val definition = createTestDefinition(skills = null)
         val memory = InMemoryMemory()
+        val wiring = AgentWiring(memory = memory, skillRegistry = skillRegistry)
 
-        val agent = definition.spawn(
-            memory = memory,
-            skillRegistry = skillRegistry
-        )
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }
@@ -250,11 +237,9 @@ class AgentDefinitionExtensionsTest {
 
         val definition = createTestDefinition(skills = emptyList())
         val memory = InMemoryMemory()
+        val wiring = AgentWiring(memory = memory, skillRegistry = skillRegistry)
 
-        val agent = definition.spawn(
-            memory = memory,
-            skillRegistry = skillRegistry
-        )
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }
@@ -265,7 +250,7 @@ class AgentDefinitionExtensionsTest {
             register(object : Subagent {
                 override val name: String = "subagent1"
                 override val description: String = "Subagent 1"
-                                        override val maxIterations: Int? = null
+                override val maxIterations: Int? = null
                 override val memory: io.github.yeyi.agent.memory.Memory? = null
                 override val tools: List<Tool>? = null
                 override suspend fun load(): String = "Subagent 1 content"
@@ -282,11 +267,9 @@ class AgentDefinitionExtensionsTest {
 
         val definition = createTestDefinition(subagents = null)
         val memory = InMemoryMemory()
+        val wiring = AgentWiring(memory = memory, subagentRegistry = subagentRegistry)
 
-        val agent = definition.spawn(
-            memory = memory,
-            subagentRegistry = subagentRegistry
-        )
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }
@@ -306,11 +289,9 @@ class AgentDefinitionExtensionsTest {
 
         val definition = createTestDefinition(subagents = emptyList())
         val memory = InMemoryMemory()
+        val wiring = AgentWiring(memory = memory, subagentRegistry = subagentRegistry)
 
-        val agent = definition.spawn(
-            memory = memory,
-            subagentRegistry = subagentRegistry
-        )
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }
@@ -326,7 +307,7 @@ class AgentDefinitionExtensionsTest {
         }
 
         val lazyToolRegistry = LazyToolRegistry().apply {
-            register(io.github.yeyi.agent.tool.lazy_loading.LazyTool(weatherTool))
+            register(LazyTool(weatherTool))
         }
 
         val toolRegistry = io.github.yeyi.agent.tool.ToolRegistry().apply {
@@ -341,12 +322,13 @@ class AgentDefinitionExtensionsTest {
 
         val definition = createTestDefinition(tools = listOf("lazyWeather", "runtimeTool"))
         val memory = InMemoryMemory()
-
-        val agent = definition.spawn(
+        val wiring = AgentWiring(
             memory = memory,
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry
         )
+
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }
@@ -360,8 +342,9 @@ class AgentDefinitionExtensionsTest {
             subagents = null
         )
         val memory = InMemoryMemory()
+        val wiring = AgentWiring(memory = memory)
 
-        val agent = definition.spawn(memory)
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }
@@ -381,8 +364,9 @@ class AgentDefinitionExtensionsTest {
             )
         )
         val memory = InMemoryMemory()
+        val wiring = AgentWiring(memory = memory)
 
-        val agent = definition.spawn(memory)
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }
@@ -403,8 +387,9 @@ class AgentDefinitionExtensionsTest {
             )
         )
         val memory = InMemoryMemory()
+        val wiring = AgentWiring(memory = memory)
 
-        val agent = definition.spawn(memory)
+        val agent = definition.spawn(wiring)
 
         assertTrue(agent is Agent)
     }

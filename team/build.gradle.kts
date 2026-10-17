@@ -14,6 +14,7 @@ kotlin {
 dependencies {
     api(project(":agent:core"))
     api(project(":agent:capability"))
+    api(project(":agent:config"))
     api(project(":agent:tool:lazy-loading"))
     api(project(":agent:toolset"))
     api(project(":agent:mcp"))
