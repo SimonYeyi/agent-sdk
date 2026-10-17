@@ -1,5 +1,8 @@
 package io.github.yeyi.agent.config
 
+import kotlinx.serialization.Serializable
+
+@Serializable
 public data class AgentDefinition(
     val name: String,
     val version: Int = 0,
@@ -13,6 +16,7 @@ public data class AgentDefinition(
     val subagents: List<String>? = null,
     val mcps: List<Mcp> = emptyList(),
 ) {
+    @Serializable
     public data class Provider(
         val name: String,        // "anthropic" | "openai"
         val baseUrl: String,
@@ -20,18 +24,22 @@ public data class AgentDefinition(
         val apiKey: String
     )
 
+    @Serializable
     public data class Mcp(
         val name: String,
         val description: String,
         val transport: Transport
     ) {
+        @Serializable
         public sealed interface Transport {
+            @Serializable
             public data class Stdio(
                 val command: String,
                 val args: List<String> = emptyList(),
                 val env: Map<String, String> = emptyMap()
             ) : Transport
 
+            @Serializable
             public data class Http(
                 val url: String,
                 val headers: Map<String, String> = emptyMap()
