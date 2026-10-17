@@ -74,8 +74,8 @@ class AgentDefinitionTest {
         assertEquals(listOf("iotToolset"), decoded.toolsets)
         assertEquals(listOf("weatherSkill"), decoded.skills)
         assertEquals(listOf("helpSubagent"), decoded.subagents)
-        assertEquals(1, decoded.mcps.size)
-        assertEquals("filesystem", decoded.mcps[0].name)
+        assertEquals(1, decoded.mcps?.size)
+        assertEquals("filesystem", decoded.mcps!![0].name)
 
         // Verify JSON format: discriminator should be "type": "stdio" (lowercase)
         assertTrue(jsonStr.contains("\"type\": \"stdio\""), "Expected lowercase 'stdio' discriminator")
@@ -108,8 +108,8 @@ class AgentDefinitionTest {
         val decoded = json.decodeFromString<AgentDefinition>(jsonStr)
 
         assertEquals("httpAgent", decoded.name)
-        assertEquals(1, decoded.mcps.size)
-        assertEquals("remoteMcp", decoded.mcps[0].name)
+        assertEquals(1, decoded.mcps?.size)
+        assertEquals("remoteMcp", decoded.mcps!![0].name)
 
         // Verify JSON format: discriminator should be "type": "http" (lowercase)
         assertTrue(jsonStr.contains("\"type\": \"http\""), "Expected lowercase 'http' discriminator")
@@ -307,6 +307,6 @@ class AgentDefinitionTest {
         assertEquals(0, definition.version)
         assertEquals(20, definition.maxIterations)
         assertEquals(20, definition.maxMemoryRounds)
-        assertEquals(emptyList(), definition.mcps)
+        assertEquals(null, definition.mcps)
     }
 }

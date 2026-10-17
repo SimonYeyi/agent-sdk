@@ -163,7 +163,7 @@ public data class AgentWiring(
      * - toolsetRegistry 为 null → 使用空 ToolsetRegistry
      */
     public fun resolveMcpRegistry(definition: AgentDefinition, toolsetRegistry: ToolsetRegistry?): McpRegistry? {
-        if (definition.mcps.isEmpty()) return null
+        if (definition.mcps.isNullOrEmpty()) return null
         val registry = McpRegistry(
             toolsetRegistry = toolsetRegistry ?: ToolsetRegistry(),
             clientInfo = ClientInfo("agent", definition.version.toString())

@@ -15,7 +15,7 @@ public data class AgentDefinition(
     val toolsets: List<String>? = null,
     val skills: List<String>? = null,
     val subagents: List<String>? = null,
-    val mcps: List<Mcp> = emptyList(),
+    val mcps: List<Mcp>? = null,
 ) {
     @Serializable
     public data class Provider(
