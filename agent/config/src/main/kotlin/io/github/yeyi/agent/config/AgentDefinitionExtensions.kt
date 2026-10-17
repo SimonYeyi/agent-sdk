@@ -3,6 +3,7 @@ package io.github.yeyi.agent.config
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
+import io.github.yeyi.agent.mcp.mcps
 import io.github.yeyi.agent.skill.skills
 import io.github.yeyi.agent.subagent.subagents
 import io.github.yeyi.agent.tool.lazy_loading.lazyTools
@@ -15,6 +16,7 @@ import io.github.yeyi.agent.toolset.toolsets
  * @return Agent 实例
  */
 public fun AgentDefinition.spawn(wiring: AgentWiring): Agent {
+    val toolsetRegistry = wiring.resolveToolsetRegistry(this@spawn)
     return agent {
         persona(Persona(persona))
         llmProvider(wiring.resolveLlmProvider(this@spawn))
@@ -22,8 +24,9 @@ public fun AgentDefinition.spawn(wiring: AgentWiring): Agent {
         maxIterations(maxIterations)
         wiring.resolveToolRegistry(this@spawn)?.let { tools(it) }
         wiring.resolveLazyToolRegistry(this@spawn)?.let { lazyTools(it) }
-        wiring.resolveToolsetRegistry(this@spawn)?.let { toolsets(it) }
+        toolsetRegistry?.let { toolsets(it) }
         wiring.resolveSkillRegistry(this@spawn)?.let { skills(it) }
         wiring.resolveSubagentRegistry(this@spawn)?.let { subagents(it) }
+        wiring.resolveMcpRegistry(this@spawn, toolsetRegistry)?.let { mcps(it) }
     }
 }

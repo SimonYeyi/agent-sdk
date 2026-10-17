@@ -11,6 +11,7 @@ import io.github.yeyi.agent.config.AgentWiring
  * @return BossAgent 实例
  */
 public fun AgentDefinition.spawnBoss(wiring: AgentWiring): BossAgent {
+    val toolsetRegistry = wiring.resolveToolsetRegistry(this@spawnBoss)
     return bossAgent {
         memory(wiring.memory, maxMemoryRounds)
         llmProvider(wiring.resolveLlmProvider(this@spawnBoss))
@@ -18,9 +19,9 @@ public fun AgentDefinition.spawnBoss(wiring: AgentWiring): BossAgent {
         persona(Persona(persona))
         wiring.resolveToolRegistry(this@spawnBoss)?.let { tools(it) }
         wiring.resolveLazyToolRegistry(this@spawnBoss)?.let { lazyTools(it) }
-        wiring.resolveToolsetRegistry(this@spawnBoss)?.let { toolsets(it) }
+        toolsetRegistry?.let { toolsets(it) }
         wiring.resolveSkillRegistry(this@spawnBoss)?.let { skills(it) }
         wiring.resolveSubagentRegistry(this@spawnBoss)?.let { subagents(it) }
-        wiring.resolveMcpRegistry(this@spawnBoss, wiring.resolveToolsetRegistry(this@spawnBoss))?.let { mcps(it) }
+        wiring.resolveMcpRegistry(this@spawnBoss, toolsetRegistry)?.let { mcps(it) }
     }
 }
