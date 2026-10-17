@@ -116,7 +116,7 @@ maxIterations = 20
 maxMemoryRounds = 20
 
 [agent.smartHome.provider]
-type = "anthropic"
+name = "anthropic"
 baseUrl = "https://api.anthropic.com"
 model = "claude-3-5-sonnet"
 apiKey = "sk-xxx"
@@ -189,3 +189,7 @@ val agent = definition.spawn(
 4. **统一 tool 声明**：lazy/lazyLevel 是 Tool 的属性，配置中统一用 tools 字段
 5. **版本预留**：AgentReference.version 和 AgentDefinition.version 占位，默认 0，暂不涉及版本概念
 6. **Registry 外置**：Registry 是运行时 pool，spawn 时注入，AgentDefinition 只存 name 列表
+
+## 待清理
+
+- [ ] `SessionExtensions.kt` 中的 `AgentBuilder.memory(session: Session)` extension 已多余，应删除。现有流程通过 `AgentDefinition.spawn(session.memory, registries)` 构建 Agent，不再需要此 extension。
