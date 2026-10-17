@@ -96,16 +96,19 @@ public fun AgentDefinition.spawn(
     val llmProvider = createLlmProvider(provider)
 
     // 4. 构建 Agent
+    // 注意：只有 registry 非 null 时才安装对应插件
+    // 原因：如果传入空 registry，插件会用空快照初始化，之后动态注入也感知不到
+    // 使用 ?.let 语法确保 null 时不安装插件，支持未来运行时动态注册
     return agent {
         persona(Persona(persona))
         llmProvider(llmProvider)
         memory(memory, maxMemoryRounds)
         maxIterations(maxIterations)
-        tools(filteredToolRegistry)
-        lazyTools(filteredLazyToolRegistry)
-        toolsets(filteredToolsetRegistry)
-        skills(filteredSkillRegistry)
-        subagents(filteredSubagentRegistry)
+        toolRegistry?.let { tools(filteredToolRegistry) }
+        lazyToolRegistry?.let { lazyTools(filteredLazyToolRegistry) }
+        toolsetRegistry?.let { toolsets(filteredToolsetRegistry) }
+        skillRegistry?.let { skills(filteredSkillRegistry) }
+        subagentRegistry?.let { subagents(filteredSubagentRegistry) }
     }
 }
 
