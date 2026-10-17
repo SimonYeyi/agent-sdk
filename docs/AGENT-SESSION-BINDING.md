@@ -79,7 +79,7 @@ public data class AgentDefinition(
     }
 }
 
-public fun AgentDefinition.build(
+public fun AgentDefinition.spawn(
     memory: Memory,
     providerApiKey: String,
     toolRegistry: ToolRegistry? = null,
@@ -101,30 +101,30 @@ Agent 的完整声明，包含构建 Agent 所需的所有配置信息（不含�
 ```kotlin
 public class AgentRegistry {
     public fun register(definition: AgentDefinition)
-    public fun get(name: String): AgentDefinition
+    public fun find(name: String): AgentDefinition?
 }
 ```
 
-管理 AgentDefinition 的注册与查找。
+管理 AgentDefinition 的注册与查找。`find` 返回可空，查不到时返回 null。
 
 ## 创建会话流程
 
 ```
 1. 应用层：确定要创建的 Agent 类型（如 "smartHome"）
-2. AgentRegistry.get("smartHome") → AgentDefinition
+2. AgentRegistry.find("smartHome") → AgentDefinition
 3. 创建 Session，传入 AgentReference(name = "smartHome")
-4. 调用 definition.build(memory, providerApiKey) 构建 Agent
+4. 调用 definition.spawn(memory, providerApiKey) 构建 Agent
 ```
 
 ```kotlin
 // 示例
-val definition = agentRegistry.get("smartHome")
+val definition = agentRegistry.find("smartHome") ?: error("Agent not found")
 val session = sessionManager.create(
     accountId = "user1",
     sessionName = "我的智能家居",
     agent = AgentReference(name = "smartHome")
 )
-val agent = definition.build(session.memory, providerApiKey = "sk-xxx")
+val agent = definition.spawn(session.memory, providerApiKey = "sk-xxx")
 ```
 
 ## 恢复会话流程
@@ -132,15 +132,15 @@ val agent = definition.build(session.memory, providerApiKey = "sk-xxx")
 ```
 1. SessionManager.get(accountId, sessionId) → Session
 2. Session.agent.name → "smartHome"
-3. AgentRegistry.get("smartHome") → AgentDefinition
-4. 调用 definition.build(session.memory, apiKey) 构建 Agent
+3. AgentRegistry.find("smartHome") → AgentDefinition
+4. 调用 definition.spawn(session.memory, apiKey) 构建 Agent
 ```
 
 ```kotlin
 // 示例
 val session = sessionManager.get("user1", "session-id")
-val definition = agentRegistry.get(session.agent.name)
-val agent = definition.build(session.memory, providerApiKey = "sk-xxx")
+val definition = agentRegistry.find(session.agent.name) ?: error("Agent not found")
+val agent = definition.spawn(session.memory, providerApiKey = "sk-xxx")
 ```
 
 ## 设计原则
@@ -148,8 +148,4 @@ val agent = definition.build(session.memory, providerApiKey = "sk-xxx")
 1. **模块解耦**：Session 模块与 config 模块独立，不相互依赖
 2. **投影引用**：Session 只持有 AgentReference，不持有完整声明
 3. **敏感信息外置**：apiKey 等敏感信息由调用方在构建时注入，不存储
-4. **版本预留**：AgentReference.version 和 AgentDefinition.version 占位，默认 0
-
-## 待补充
-
-- [ ] config 模块的目录结构和模块名
+4. **版本预留**：AgentReference.version 和 AgentDefinition.version 占位，默认 0，暂不涉及版本概念
