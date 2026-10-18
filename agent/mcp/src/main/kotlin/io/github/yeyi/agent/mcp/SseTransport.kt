@@ -50,14 +50,14 @@ import kotlinx.serialization.json.jsonObject
  *
  * @param endpoint The MCP server endpoint URL.
  * @param enableNotifications Whether to establish an SSE connection for server-to-client notifications.
- * @param configure 可选的 HttpClient 配置函数，会与内部默认配置合并。
+ * @param httpConfigure 可选的 HttpClient 配置函数，会与内部默认配置合并。
  *   内部核心配置（JSON 序列化、超时）会被强制覆盖，其余插件会被保留。
  */
 public class SseTransport(
     private val endpoint: String,
     private val httpHeaders: Map<String, String>? = null,
     private val enableNotifications: Boolean = false,
-    private val configure: (HttpClientConfig<*>.() -> Unit)? = null,
+    private val httpConfigure: (HttpClientConfig<*>.() -> Unit)? = null,
 ) : McpTransport {
     private object Defaults {
         const val SSE_RECONNECT_DELAY_MS = 5000L
@@ -75,7 +75,7 @@ public class SseTransport(
 
     private val httpClient: HttpClient by lazy {
         HttpClient(CIO) {
-            configure?.invoke(this)
+            httpConfigure?.invoke(this)
             expectSuccess = true
             installOrReplace(ContentNegotiation) { json(json) }
             installOrReplace(HttpTimeout) {

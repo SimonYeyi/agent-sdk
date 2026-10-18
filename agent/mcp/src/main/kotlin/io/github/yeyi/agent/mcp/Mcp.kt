@@ -17,10 +17,10 @@ import kotlinx.coroutines.runBlocking
  * - [get] 通过 [delegate] 按名称查找成员 Tool。
  * 使用方式:
  * ```kotlin
- * class MyMcp(configure: (HttpClientConfig<*>.() -> Unit)?) : Mcp {
+ * class MyMcp(httpConfigure: (HttpClientConfig<*>.() -> Unit)?) : Mcp {
  *     override val name = "my_service"
  *     override val description = "我的 MCP 服务，提供 xxx 能力"
- *     override val client = McpClient(SseTransport("https://...", configure = configure))
+ *     override val client = McpClient(SseTransport("https://...", httpConfigure = httpConfigure))
  * }
  * ```
  */
