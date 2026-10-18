@@ -7,8 +7,7 @@ import kotlin.test.assertNull
 
 class AgentRegistryTest {
 
-    private fun createTestProvider() = AgentDefinition.Provider(
-        name = "anthropic",
+    private fun createTestProvider() = AgentDefinition.Provider.Anthropic(
         baseUrl = "https://api.anthropic.com",
         model = "claude-3-5-sonnet",
         apiKey = "sk-test"

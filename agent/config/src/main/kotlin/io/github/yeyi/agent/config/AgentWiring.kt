@@ -128,20 +128,18 @@ public data class AgentWiring(
      * 解析 LLM Provider。
      */
     public fun resolveLlmProvider(definition: AgentDefinition): LlmProvider {
-        return when (definition.provider.name) {
-            "anthropic" -> AnthropicProvider(
+        return when (definition.provider) {
+            is AgentDefinition.Provider.OpenAi -> OpenAiProvider(
                 baseUrl = definition.provider.baseUrl,
                 model = definition.provider.model,
                 apiKey = definition.provider.apiKey
             )
 
-            "openai" -> OpenAiProvider(
+            is AgentDefinition.Provider.Anthropic -> AnthropicProvider(
                 baseUrl = definition.provider.baseUrl,
                 model = definition.provider.model,
                 apiKey = definition.provider.apiKey
             )
-
-            else -> error("Unknown provider: ${definition.provider.name}")
         }
     }
 

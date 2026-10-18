@@ -122,10 +122,16 @@ private fun resolveProvider(
         else -> PROVIDER_OPENAI
     }
 
-    return AgentDefinition.Provider(
-        name = provider,
-        baseUrl = baseUrl,
-        model = model,
-        apiKey = apiKey
-    )
+    return when (provider) {
+        PROVIDER_ANTHROPIC -> AgentDefinition.Provider.Anthropic(
+            baseUrl = baseUrl,
+            model = model,
+            apiKey = apiKey
+        )
+        else -> AgentDefinition.Provider.OpenAi(
+            baseUrl = baseUrl,
+            model = model,
+            apiKey = apiKey
+        )
+    }
 }

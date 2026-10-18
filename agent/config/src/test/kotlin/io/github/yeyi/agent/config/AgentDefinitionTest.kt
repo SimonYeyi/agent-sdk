@@ -16,8 +16,7 @@ class AgentDefinitionTest {
         val definition = AgentDefinition(
             name = "testAgent",
             persona = "You are a helpful assistant",
-            provider = AgentDefinition.Provider(
-                name = "anthropic",
+            provider = AgentDefinition.Provider.Anthropic(
                 baseUrl = "https://api.anthropic.com",
                 model = "claude-3-5-sonnet",
                 apiKey = "sk-test"
@@ -38,8 +37,7 @@ class AgentDefinitionTest {
             name = "smartHome",
             version = 1,
             persona = "智能家居助手",
-            provider = AgentDefinition.Provider(
-                name = "openai",
+            provider = AgentDefinition.Provider.OpenAi(
                 baseUrl = "https://api.openai.com",
                 model = "gpt-4",
                 apiKey = "sk-openai"
@@ -68,7 +66,7 @@ class AgentDefinitionTest {
         assertEquals("smartHome", decoded.name)
         assertEquals(1, decoded.version)
         assertEquals("智能家居助手", decoded.persona)
-        assertEquals("openai", decoded.provider.name)
+        assertTrue(decoded.provider is AgentDefinition.Provider.OpenAi)
         assertEquals(30, decoded.maxIterations)
         assertEquals(listOf("getWeather", "controlTV"), decoded.tools)
         assertEquals(listOf("iotToolset"), decoded.toolsets)
@@ -86,8 +84,7 @@ class AgentDefinitionTest {
         val definition = AgentDefinition(
             name = "httpAgent",
             persona = "HTTP Agent",
-            provider = AgentDefinition.Provider(
-                name = "anthropic",
+            provider = AgentDefinition.Provider.Anthropic(
                 baseUrl = "https://api.anthropic.com",
                 model = "claude-3-5-sonnet",
                 apiKey = "sk-test"
@@ -123,8 +120,7 @@ class AgentDefinitionTest {
             name = "completeAgent",
             version = 2,
             persona = "Test persona",
-            provider = AgentDefinition.Provider(
-                name = "openai",
+            provider = AgentDefinition.Provider.OpenAi(
                 baseUrl = "https://api.openai.com",
                 model = "gpt-4",
                 apiKey = "sk-complete"
@@ -199,8 +195,7 @@ class AgentDefinitionTest {
         val definition = AgentDefinition(
             name = "testAgent",
             persona = "Test persona",
-            provider = AgentDefinition.Provider(
-                name = "anthropic",
+            provider = AgentDefinition.Provider.Anthropic(
                 baseUrl = "https://api.anthropic.com",
                 model = "claude-3-5-sonnet",
                 apiKey = "sk-test"
@@ -229,8 +224,7 @@ class AgentDefinitionTest {
         val definition = AgentDefinition(
             name = "testAgent",
             persona = "Test persona",
-            provider = AgentDefinition.Provider(
-                name = "anthropic",
+            provider = AgentDefinition.Provider.Anthropic(
                 baseUrl = "https://api.anthropic.com",
                 model = "claude-3-5-sonnet",
                 apiKey = "sk-test"
@@ -296,8 +290,7 @@ class AgentDefinitionTest {
         val definition = AgentDefinition(
             name = "testAgent",
             persona = "Test persona",
-            provider = AgentDefinition.Provider(
-                name = "anthropic",
+            provider = AgentDefinition.Provider.Anthropic(
                 baseUrl = "https://api.anthropic.com",
                 model = "claude-3-5-sonnet",
                 apiKey = "sk-test"

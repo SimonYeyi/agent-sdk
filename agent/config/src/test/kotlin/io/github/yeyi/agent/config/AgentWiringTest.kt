@@ -28,8 +28,7 @@ class AgentWiringTest {
     ) = AgentDefinition(
         name = "testAgent",
         persona = "Test persona",
-        provider = AgentDefinition.Provider(
-            name = "anthropic",
+        provider = AgentDefinition.Provider.Anthropic(
             baseUrl = "https://api.anthropic.com",
             model = "claude-3-5-sonnet",
             apiKey = "sk-test"

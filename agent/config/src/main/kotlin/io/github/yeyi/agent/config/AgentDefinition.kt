@@ -1,7 +1,9 @@
 package io.github.yeyi.agent.config
 
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonClassDiscriminator
 
 @Serializable
 public data class AgentDefinition(
@@ -17,13 +19,30 @@ public data class AgentDefinition(
     val subagents: List<String>? = null,
     val mcps: List<Mcp>? = null,
 ) {
+    @OptIn(ExperimentalSerializationApi::class)
     @Serializable
-    public data class Provider(
-        val name: String,        // "anthropic" | "openai"
-        val baseUrl: String,
-        val model: String,
-        val apiKey: String
-    )
+    @JsonClassDiscriminator("name")
+    public sealed interface Provider {
+        public val baseUrl: String
+        public val model: String
+        public val apiKey: String
+
+        @Serializable
+        @SerialName("openai")
+        public data class OpenAi(
+            override val baseUrl: String,
+            override val model: String,
+            override val apiKey: String
+        ) : Provider
+
+        @Serializable
+        @SerialName("anthropic")
+        public data class Anthropic(
+            override val baseUrl: String,
+            override val model: String,
+            override val apiKey: String
+        ) : Provider
+    }
 
     @Serializable
     public data class Mcp(
