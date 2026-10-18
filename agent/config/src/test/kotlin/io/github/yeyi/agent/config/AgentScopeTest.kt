@@ -64,7 +64,7 @@ class AgentScopeTest {
     }
 
     @Test
-    fun `resolveToolRegistries with null tools returns all from both registries`() = runTest {
+    fun `resolve with null tools returns all from both registries`() = runTest {
         val toolRegistry = io.github.yeyi.agent.tool.ToolRegistry().apply {
             register(createTool("tool1"))
             register(createTool("tool2"))
@@ -72,40 +72,42 @@ class AgentScopeTest {
         val lazyToolRegistry = LazyToolRegistry().apply {
             register(LazyTool(createTool("lazy1")))
         }
-        val scope = AgentScope(memory = InMemoryMemory(), 
+        val scope = AgentScope(
+            memory = InMemoryMemory(),
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry
         )
         val definition = createTestDefinition(tools = null)
 
-        val (reg, lazyReg) = scope.resolver().resolveTools(definition)
+        val registries = scope.resolver().resolve(definition)
 
-        assertEquals(2, reg!!.all().size)
-        assertEquals(1, lazyReg!!.all().size)
+        assertEquals(2, registries.toolRegistry!!.all().size)
+        assertEquals(1, registries.lazyToolRegistry!!.all().size)
     }
 
     @Test
-    fun `resolveToolRegistries with emptyList tools returns null for both`() = runTest {
+    fun `resolve with emptyList tools returns null for both`() = runTest {
         val toolRegistry = io.github.yeyi.agent.tool.ToolRegistry().apply {
             register(createTool("tool1"))
         }
         val lazyToolRegistry = LazyToolRegistry().apply {
             register(LazyTool(createTool("lazy1")))
         }
-        val scope = AgentScope(memory = InMemoryMemory(), 
+        val scope = AgentScope(
+            memory = InMemoryMemory(),
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry
         )
         val definition = createTestDefinition(tools = emptyList())
 
-        val (reg, lazyReg) = scope.resolver().resolveTools(definition)
+        val registries = scope.resolver().resolve(definition)
 
-        assertTrue(reg == null || reg.all().isEmpty())
-        assertNull(lazyReg)
+        assertTrue(registries.toolRegistry == null || registries.toolRegistry.all().isEmpty())
+        assertNull(registries.lazyToolRegistry)
     }
 
     @Test
-    fun `resolveToolRegistries with specific tools filters correctly`() = runTest {
+    fun `resolve with specific tools filters correctly`() = runTest {
         val toolRegistry = io.github.yeyi.agent.tool.ToolRegistry().apply {
             register(createTool("weather"))
             register(createTool("search"))
@@ -114,64 +116,23 @@ class AgentScopeTest {
         val lazyToolRegistry = LazyToolRegistry().apply {
             register(LazyTool(createTool("lazyWeather")))
         }
-        val scope = AgentScope(memory = InMemoryMemory(), 
+        val scope = AgentScope(
+            memory = InMemoryMemory(),
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry
         )
         val definition = createTestDefinition(tools = listOf("weather", "lazyWeather"))
 
-        val (reg, lazyReg) = scope.resolver().resolveTools(definition)
+        val registries = scope.resolver().resolve(definition)
 
-        assertEquals(1, reg!!.all().size)
-        assertEquals("weather", reg.all()[0].name)
-        assertEquals(1, lazyReg!!.all().size)
-        assertEquals("lazyWeather", lazyReg.all()[0].name)
+        assertEquals(1, registries.toolRegistry!!.all().size)
+        assertEquals("weather", registries.toolRegistry.all()[0].name)
+        assertEquals(1, registries.lazyToolRegistry!!.all().size)
+        assertEquals("lazyWeather", registries.lazyToolRegistry.all()[0].name)
     }
 
     @Test
-    fun `resolveToolRegistries falls back from lazy to tool registry`() = runTest {
-        val toolRegistry = io.github.yeyi.agent.tool.ToolRegistry().apply {
-            register(createTool("runtimeTool"))
-        }
-        val lazyToolRegistry = LazyToolRegistry().apply {
-            register(LazyTool(createTool("lazyWeather")))
-        }
-        val scope = AgentScope(memory = InMemoryMemory(), 
-            toolRegistry = toolRegistry,
-            lazyToolRegistry = lazyToolRegistry
-        )
-        val definition = createTestDefinition(tools = listOf("lazyWeather", "runtimeTool"))
-
-        val (reg, lazyReg) = scope.resolver().resolveTools(definition)
-
-        assertEquals(1, reg!!.all().size)
-        assertEquals("runtimeTool", reg.all()[0].name)
-        assertEquals(1, lazyReg!!.all().size)
-        assertEquals("lazyWeather", lazyReg.all()[0].name)
-    }
-
-    @Test
-    fun `resolveToolRegistries returns null when tool not found in either registry`() = runTest {
-        val toolRegistry = io.github.yeyi.agent.tool.ToolRegistry().apply {
-            register(createTool("tool1"))
-        }
-        val lazyToolRegistry = LazyToolRegistry().apply {
-            register(LazyTool(createTool("lazy1")))
-        }
-        val scope = AgentScope(memory = InMemoryMemory(), 
-            toolRegistry = toolRegistry,
-            lazyToolRegistry = lazyToolRegistry
-        )
-        val definition = createTestDefinition(tools = listOf("nonexistent"))
-
-        val (reg, lazyReg) = scope.resolver().resolveTools(definition)
-
-        assertTrue(reg == null || reg.all().isEmpty())
-        assertNull(lazyReg)
-    }
-
-    @Test
-    fun `resolveToolsetRegistry with null toolsets returns all`() = runTest {
+    fun `resolve with null toolsets returns all`() = runTest {
         val toolsetRegistry = io.github.yeyi.agent.toolset.ToolsetRegistry().apply {
             register(Toolset("ts1", "Toolset 1"))
             register(Toolset("ts2", "Toolset 2"))
@@ -179,26 +140,26 @@ class AgentScopeTest {
         val scope = AgentScope(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
         val definition = createTestDefinition(toolsets = null)
 
-        val result = scope.resolver().resolveToolsets(definition)
+        val registries = scope.resolver().resolve(definition)
 
-        assertEquals(2, result!!.all().size)
+        assertEquals(2, registries.toolsetRegistry!!.all().size)
     }
 
     @Test
-    fun `resolveToolsetRegistry with emptyList returns null`() = runTest {
+    fun `resolve with emptyList toolsets returns null`() = runTest {
         val toolsetRegistry = io.github.yeyi.agent.toolset.ToolsetRegistry().apply {
             register(Toolset("ts1", "Toolset 1"))
         }
         val scope = AgentScope(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
         val definition = createTestDefinition(toolsets = emptyList())
 
-        val result = scope.resolver().resolveToolsets(definition)
+        val registries = scope.resolver().resolve(definition)
 
-        assertNull(result)
+        assertNull(registries.toolsetRegistry)
     }
 
     @Test
-    fun `resolveToolsetRegistry with specific names filters correctly`() = runTest {
+    fun `resolve with specific toolsets filters correctly`() = runTest {
         val toolsetRegistry = io.github.yeyi.agent.toolset.ToolsetRegistry().apply {
             register(Toolset("weather", "Weather"))
             register(Toolset("search", "Search"))
@@ -207,16 +168,16 @@ class AgentScopeTest {
         val scope = AgentScope(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
         val definition = createTestDefinition(toolsets = listOf("weather", "search"))
 
-        val result = scope.resolver().resolveToolsets(definition)
+        val registries = scope.resolver().resolve(definition)
 
-        assertEquals(2, result!!.all().size)
-        assertTrue(result.all().any { it.name == "weather" })
-        assertTrue(result.all().any { it.name == "search" })
-        assertTrue(result.all().none { it.name == "calculator" })
+        assertEquals(2, registries.toolsetRegistry!!.all().size)
+        assertTrue(registries.toolsetRegistry.all().any { it.name == "weather" })
+        assertTrue(registries.toolsetRegistry.all().any { it.name == "search" })
+        assertTrue(registries.toolsetRegistry.all().none { it.name == "calculator" })
     }
 
     @Test
-    fun `resolveSkillRegistry with null skills returns all`() = runTest {
+    fun `resolve with null skills returns all`() = runTest {
         val skillRegistry = io.github.yeyi.agent.skill.SkillRegistry().apply {
             register(createSkill("skill1"))
             register(createSkill("skill2"))
@@ -224,26 +185,26 @@ class AgentScopeTest {
         val scope = AgentScope(memory = InMemoryMemory(), skillRegistry = skillRegistry)
         val definition = createTestDefinition(skills = null)
 
-        val result = scope.resolver().resolveSkills(definition)
+        val registries = scope.resolver().resolve(definition)
 
-        assertEquals(2, result!!.all().size)
+        assertEquals(2, registries.skillRegistry!!.all().size)
     }
 
     @Test
-    fun `resolveSkillRegistry with emptyList returns null`() = runTest {
+    fun `resolve with emptyList skills returns null`() = runTest {
         val skillRegistry = io.github.yeyi.agent.skill.SkillRegistry().apply {
             register(createSkill("skill1"))
         }
         val scope = AgentScope(memory = InMemoryMemory(), skillRegistry = skillRegistry)
         val definition = createTestDefinition(skills = emptyList())
 
-        val result = scope.resolver().resolveSkills(definition)
+        val registries = scope.resolver().resolve(definition)
 
-        assertNull(result)
+        assertNull(registries.skillRegistry)
     }
 
     @Test
-    fun `resolveSubagentRegistry with null subagents returns all`() = runTest {
+    fun `resolve with null subagents returns all`() = runTest {
         val subagentRegistry = io.github.yeyi.agent.subagent.SubagentRegistry().apply {
             register(createSubagent("subagent1"))
             register(createSubagent("subagent2"))
@@ -251,47 +212,47 @@ class AgentScopeTest {
         val scope = AgentScope(memory = InMemoryMemory(), subagentRegistry = subagentRegistry)
         val definition = createTestDefinition(subagents = null)
 
-        val result = scope.resolver().resolveSubagents(definition)
+        val registries = scope.resolver().resolve(definition)
 
-        assertEquals(2, result!!.all().size)
+        assertEquals(2, registries.subagentRegistry!!.all().size)
     }
 
     @Test
-    fun `resolveSubagentRegistry with emptyList returns null`() = runTest {
+    fun `resolve with emptyList subagents returns null`() = runTest {
         val subagentRegistry = io.github.yeyi.agent.subagent.SubagentRegistry().apply {
             register(createSubagent("subagent1"))
         }
         val scope = AgentScope(memory = InMemoryMemory(), subagentRegistry = subagentRegistry)
         val definition = createTestDefinition(subagents = emptyList())
 
-        val result = scope.resolver().resolveSubagents(definition)
+        val registries = scope.resolver().resolve(definition)
 
-        assertNull(result)
+        assertNull(registries.subagentRegistry)
     }
 
     @Test
-    fun `resolveMcpRegistry with null mcps returns null`() = runTest {
-        val scope = AgentScope(memory = InMemoryMemory(), )
+    fun `resolve with null mcps returns null`() = runTest {
+        val scope = AgentScope(memory = InMemoryMemory())
         val definition = createTestDefinition(mcps = null)
 
-        val result = scope.resolver().resolveMcps(definition, null)
+        val registries = scope.resolver().resolve(definition)
 
-        assertNull(result)
+        assertNull(registries.mcpRegistry)
     }
 
     @Test
-    fun `resolveMcpRegistry with emptyList mcps returns null`() = runTest {
-        val scope = AgentScope(memory = InMemoryMemory(), )
+    fun `resolve with emptyList mcps returns null`() = runTest {
+        val scope = AgentScope(memory = InMemoryMemory())
         val definition = createTestDefinition(mcps = emptyList())
 
-        val result = scope.resolver().resolveMcps(definition, null)
+        val registries = scope.resolver().resolve(definition)
 
-        assertNull(result)
+        assertNull(registries.mcpRegistry)
     }
 
     @Test
-    fun `resolveMcpRegistry with Http transport creates Mcp`() = runTest {
-        val scope = AgentScope(memory = InMemoryMemory(), )
+    fun `resolve with Http transport creates Mcp`() = runTest {
+        val scope = AgentScope(memory = InMemoryMemory())
         val definition = createTestDefinition(
             mcps = listOf(
                 AgentDefinition.Mcp(
@@ -305,14 +266,14 @@ class AgentScopeTest {
             )
         )
 
-        val result = scope.resolver().resolveMcps(definition, null)
+        val registries = scope.resolver().resolve(definition)
 
-        assertTrue(result != null)
+        assertTrue(registries.mcpRegistry != null)
     }
 
     @Test
-    fun `resolveMcpRegistry with Stdio transport creates Mcp`() = runTest {
-        val scope = AgentScope(memory = InMemoryMemory(), )
+    fun `resolve with Stdio transport creates Mcp`() = runTest {
+        val scope = AgentScope(memory = InMemoryMemory())
         val definition = createTestDefinition(
             mcps = listOf(
                 AgentDefinition.Mcp(
@@ -326,8 +287,8 @@ class AgentScopeTest {
             )
         )
 
-        val result = scope.resolver().resolveMcps(definition, null)
+        val registries = scope.resolver().resolve(definition)
 
-        assertTrue(result != null)
+        assertTrue(registries.mcpRegistry != null)
     }
 }

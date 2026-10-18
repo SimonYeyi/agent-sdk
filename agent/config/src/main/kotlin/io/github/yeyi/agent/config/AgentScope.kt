@@ -81,7 +81,7 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
     /**
      * 解析工具注册表和延迟加载工具注册表，带 fallback 逻辑。
      */
-    public fun resolveTools(definition: AgentDefinition): Pair<ToolRegistry?, LazyToolRegistry?> {
+    private fun resolveTools(definition: AgentDefinition): Pair<ToolRegistry?, LazyToolRegistry?> {
         val filteredToolRegistry = ToolRegistry()
         val filteredLazyToolRegistry = LazyToolRegistry()
 
@@ -104,7 +104,7 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
     /**
      * 解析工具集注册表。
      */
-    public fun resolveToolsets(definition: AgentDefinition): ToolsetRegistry? {
+    private fun resolveToolsets(definition: AgentDefinition): ToolsetRegistry? {
         if (scope.toolsetRegistry == null) return null
         val filtered = ToolsetRegistry()
         if (definition.toolsets == null) {
@@ -121,7 +121,7 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
     /**
      * 解析技能注册表。
      */
-    public fun resolveSkills(definition: AgentDefinition): SkillRegistry? {
+    private fun resolveSkills(definition: AgentDefinition): SkillRegistry? {
         if (scope.skillRegistry == null) return null
         val filtered = SkillRegistry()
         if (definition.skills == null) {
@@ -138,7 +138,7 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
     /**
      * 解析子代理注册表。
      */
-    public fun resolveSubagents(definition: AgentDefinition): SubagentRegistry? {
+    private fun resolveSubagents(definition: AgentDefinition): SubagentRegistry? {
         if (scope.subagentRegistry == null) return null
         val filtered = SubagentRegistry()
         if (definition.subagents == null) {
@@ -155,7 +155,7 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
     /**
      * 解析 LLM Provider。
      */
-    public fun resolveProvider(definition: AgentDefinition): LlmProvider {
+    private fun resolveProvider(definition: AgentDefinition): LlmProvider {
         return when (definition.provider) {
             is AgentDefinition.Provider.OpenAi -> OpenAiProvider(
                 baseUrl = definition.provider.baseUrl,
