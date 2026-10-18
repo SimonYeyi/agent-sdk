@@ -33,12 +33,8 @@ import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.tool.lazy_loading.lazyTools
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 import io.ktor.client.HttpClientConfig
-import io.ktor.client.plugins.HttpTimeout
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logging
-import io.ktor.serialization.kotlinx.json.json
-import kotlinx.serialization.json.Json
 
 /**
  * 构造一个配好演示 Tool 与默认 LLM Provider 的 Agent。
@@ -96,9 +92,9 @@ object DemoAgentFactory {
         }
 
         val llmProvider: LlmProvider = if (provider == PROVIDER_ANTHROPIC) {
-            AnthropicProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
+            AnthropicProvider(apiKey = apiKey, model = model, baseUrl = baseUrl, httpConfigure = httpClientConfigure())
         } else {
-            OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
+            OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl, httpConfigure = httpClientConfigure())
         }
 
         val mcpRegistry =
@@ -138,18 +134,7 @@ object DemoAgentFactory {
         return this
     }
 
-    private fun httpClientConfigure(): (io.ktor.client.HttpClientConfig<*>.() -> Unit) = {
-        install(ContentNegotiation) {
-            json(Json {
-                ignoreUnknownKeys = true
-                encodeDefaults = true
-                explicitNulls = false
-            })
-        }
-        install(HttpTimeout) {
-            requestTimeoutMillis = 60_000
-            socketTimeoutMillis = 60_000
-        }
+    private fun httpClientConfigure(): (HttpClientConfig<*>.() -> Unit) = {
         install(Logging) {
             logger = HttpLogger()
             level = LogLevel.ALL
