@@ -41,9 +41,9 @@ public class AgentScope(
 }
 
 /**
- * Agent 组件注册表封装，按正确顺序解析。
+ * Agent 解析结果信息。
  */
-public class AgentRegistries(
+public class ResolveInfo(
     public val toolRegistry: ToolRegistry?,
     public val lazyToolRegistry: LazyToolRegistry?,
     public val toolsetRegistry: ToolsetRegistry?,
@@ -61,14 +61,14 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
     /**
      * 一次性解析所有组件，按正确顺序。
      */
-    public fun resolve(definition: AgentDefinition): AgentRegistries {
+    public fun resolve(definition: AgentDefinition): ResolveInfo {
         val (toolRegistry, lazyToolRegistry) = resolveTools(definition)
         val toolsetRegistry = resolveToolsets(definition)
         val skillRegistry = resolveSkills(definition)
         val subagentRegistry = resolveSubagents(definition)
         val llmProvider = resolveProvider(definition)
         val mcpRegistry = resolveMcps(definition, toolsetRegistry)
-        return AgentRegistries(
+        return ResolveInfo(
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry,
             toolsetRegistry = toolsetRegistry,
@@ -174,7 +174,7 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
     /**
      * 解析 MCP Registry。
      */
-    public fun resolveMcps(
+    private fun resolveMcps(
         definition: AgentDefinition,
         toolsetRegistry: ToolsetRegistry?
     ): McpRegistry? {
