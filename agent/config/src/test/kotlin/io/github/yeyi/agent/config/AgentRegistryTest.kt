@@ -20,21 +20,21 @@ class AgentRegistryTest {
     )
 
     @Test
-    fun `register and find single definition`() {
+    fun `register and getOrNull single definition`() {
         val registry = AgentRegistry()
         val definition = createDefinition("agent1")
 
         registry.register(definition)
 
-        val found = registry.find("agent1")
+        val found = registry.getOrNull("agent1")
         assertEquals(definition, found)
     }
 
     @Test
-    fun `find returns null for non-existent name`() {
+    fun `getOrNull returns null for non-existent name`() {
         val registry = AgentRegistry()
 
-        val found = registry.find("nonExistent")
+        val found = registry.getOrNull("nonExistent")
 
         assertNull(found)
     }
@@ -50,9 +50,9 @@ class AgentRegistryTest {
         registry.register(agent2)
         registry.register(agent3)
 
-        assertEquals(agent1, registry.find("agent1"))
-        assertEquals(agent2, registry.find("agent2"))
-        assertEquals(agent3, registry.find("agent3"))
+        assertEquals(agent1, registry.getOrNull("agent1"))
+        assertEquals(agent2, registry.getOrNull("agent2"))
+        assertEquals(agent3, registry.getOrNull("agent3"))
     }
 
     @Test
@@ -69,7 +69,7 @@ class AgentRegistryTest {
     }
 
     @Test
-    fun `find non-existent after failed registration`() {
+    fun `getOrNull returns existing after failed registration`() {
         val registry = AgentRegistry()
         val agent1 = createDefinition("duplicate")
 
@@ -79,6 +79,6 @@ class AgentRegistryTest {
             registry.register(agent1)
         }
 
-        assertEquals(agent1, registry.find("duplicate"))
+        assertEquals(agent1, registry.getOrNull("duplicate"))
     }
 }

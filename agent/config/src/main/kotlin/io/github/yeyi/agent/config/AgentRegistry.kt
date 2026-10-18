@@ -10,5 +10,5 @@ public class AgentRegistry {
         definitions[definition.name] = definition
     }
 
-    public fun find(name: String): AgentDefinition? = definitions[name]
+    public fun getOrNull(name: String): AgentDefinition? = definitions[name]
 }

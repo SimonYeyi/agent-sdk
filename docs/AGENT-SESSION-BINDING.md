@@ -366,7 +366,7 @@ fun parseAgentDefinition(toml: Toml): AgentDefinition {
 
 ```
 1. 应用层：确定要创建的 Agent 类型（如 "smartHome"）
-2. AgentRegistry.find("smartHome") → AgentDefinition
+2. AgentRegistry.getOrNull("smartHome") → AgentDefinition
 3. 创建 Session，传入 AgentReference(name = "smartHome")
 4. 调用 definition.spawn(memory, registries) 构建 Agent
 ```
@@ -394,7 +394,7 @@ val agent = definition.spawn(
 ```
 1. SessionManager.get(accountId, sessionId) → Session
 2. Session.agent.name → "smartHome"
-3. AgentRegistry.find("smartHome") → AgentDefinition
+3. AgentRegistry.getOrNull("smartHome") → AgentDefinition
 4. 调用 definition.spawn(session.memory, registries) 构建 Agent
 ```
 
