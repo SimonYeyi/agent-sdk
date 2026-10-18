@@ -17,7 +17,7 @@ import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 
 /**
- * Agent 接线配置，封装运行时所需的 registries。
+ * Agent 运行时上下文，封装 memory 和各组件注册表。
  *
  * @param memory 会话记忆（必需）
  * @param toolRegistry 工具注册表，null 表示不使用
@@ -26,7 +26,7 @@ import io.github.yeyi.agent.toolset.ToolsetRegistry
  * @param skillRegistry 技能注册表，null 表示不使用
  * @param subagentRegistry 子代理注册表，null 表示不使用
  */
-public data class AgentWiring(
+public data class AgentScope(
     public val memory: Memory,
     private val toolRegistry: ToolRegistry? = null,
     private val lazyToolRegistry: LazyToolRegistry? = null,

@@ -6,7 +6,7 @@ import io.gateway.platform.feishu.FeishuConfig
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.config.AgentDefinition
 import io.github.yeyi.agent.config.AgentRegistry
-import io.github.yeyi.agent.config.AgentWiring
+import io.github.yeyi.agent.config.AgentScope
 import io.github.yeyi.agent.config.spawn
 import io.github.yeyi.agent.session.AgentReference
 import io.github.yeyi.agent.session.SessionManager
@@ -67,7 +67,7 @@ class GatewayDaemon(private val config: GatewayDaemonConfig) {
                     agent = agentReference,
                     sessionId = sessionId
                 )
-                agentDefinition.spawn(AgentWiring(memory = session.memory))
+                agentDefinition.spawn(AgentScope(session.memory))
             }
 
         val builtEngine = GatewayEngineBuilder()

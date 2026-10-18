@@ -17,7 +17,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class AgentWiringTest {
+class AgentScopeTest {
 
     private fun createTestDefinition(
         tools: List<String>? = null,
@@ -72,14 +72,13 @@ class AgentWiringTest {
         val lazyToolRegistry = LazyToolRegistry().apply {
             register(LazyTool(createTool("lazy1")))
         }
-        val wiring = AgentWiring(
-            memory = InMemoryMemory(),
+        val scope = AgentScope(memory = InMemoryMemory(), 
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry
         )
         val definition = createTestDefinition(tools = null)
 
-        val (reg, lazyReg) = wiring.resolveToolRegistries(definition)
+        val (reg, lazyReg) = scope.resolveToolRegistries(definition)
 
         assertEquals(2, reg!!.all().size)
         assertEquals(1, lazyReg!!.all().size)
@@ -93,14 +92,13 @@ class AgentWiringTest {
         val lazyToolRegistry = LazyToolRegistry().apply {
             register(LazyTool(createTool("lazy1")))
         }
-        val wiring = AgentWiring(
-            memory = InMemoryMemory(),
+        val scope = AgentScope(memory = InMemoryMemory(), 
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry
         )
         val definition = createTestDefinition(tools = emptyList())
 
-        val (reg, lazyReg) = wiring.resolveToolRegistries(definition)
+        val (reg, lazyReg) = scope.resolveToolRegistries(definition)
 
         assertTrue(reg == null || reg.all().isEmpty())
         assertNull(lazyReg)
@@ -116,14 +114,13 @@ class AgentWiringTest {
         val lazyToolRegistry = LazyToolRegistry().apply {
             register(LazyTool(createTool("lazyWeather")))
         }
-        val wiring = AgentWiring(
-            memory = InMemoryMemory(),
+        val scope = AgentScope(memory = InMemoryMemory(), 
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry
         )
         val definition = createTestDefinition(tools = listOf("weather", "lazyWeather"))
 
-        val (reg, lazyReg) = wiring.resolveToolRegistries(definition)
+        val (reg, lazyReg) = scope.resolveToolRegistries(definition)
 
         assertEquals(1, reg!!.all().size)
         assertEquals("weather", reg.all()[0].name)
@@ -139,14 +136,13 @@ class AgentWiringTest {
         val lazyToolRegistry = LazyToolRegistry().apply {
             register(LazyTool(createTool("lazyWeather")))
         }
-        val wiring = AgentWiring(
-            memory = InMemoryMemory(),
+        val scope = AgentScope(memory = InMemoryMemory(), 
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry
         )
         val definition = createTestDefinition(tools = listOf("lazyWeather", "runtimeTool"))
 
-        val (reg, lazyReg) = wiring.resolveToolRegistries(definition)
+        val (reg, lazyReg) = scope.resolveToolRegistries(definition)
 
         assertEquals(1, reg!!.all().size)
         assertEquals("runtimeTool", reg.all()[0].name)
@@ -162,14 +158,13 @@ class AgentWiringTest {
         val lazyToolRegistry = LazyToolRegistry().apply {
             register(LazyTool(createTool("lazy1")))
         }
-        val wiring = AgentWiring(
-            memory = InMemoryMemory(),
+        val scope = AgentScope(memory = InMemoryMemory(), 
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry
         )
         val definition = createTestDefinition(tools = listOf("nonexistent"))
 
-        val (reg, lazyReg) = wiring.resolveToolRegistries(definition)
+        val (reg, lazyReg) = scope.resolveToolRegistries(definition)
 
         assertTrue(reg == null || reg.all().isEmpty())
         assertNull(lazyReg)
@@ -181,10 +176,10 @@ class AgentWiringTest {
             register(Toolset("ts1", "Toolset 1"))
             register(Toolset("ts2", "Toolset 2"))
         }
-        val wiring = AgentWiring(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
+        val scope = AgentScope(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
         val definition = createTestDefinition(toolsets = null)
 
-        val result = wiring.resolveToolsetRegistry(definition)
+        val result = scope.resolveToolsetRegistry(definition)
 
         assertEquals(2, result!!.all().size)
     }
@@ -194,10 +189,10 @@ class AgentWiringTest {
         val toolsetRegistry = io.github.yeyi.agent.toolset.ToolsetRegistry().apply {
             register(Toolset("ts1", "Toolset 1"))
         }
-        val wiring = AgentWiring(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
+        val scope = AgentScope(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
         val definition = createTestDefinition(toolsets = emptyList())
 
-        val result = wiring.resolveToolsetRegistry(definition)
+        val result = scope.resolveToolsetRegistry(definition)
 
         assertNull(result)
     }
@@ -209,10 +204,10 @@ class AgentWiringTest {
             register(Toolset("search", "Search"))
             register(Toolset("calculator", "Calculator"))
         }
-        val wiring = AgentWiring(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
+        val scope = AgentScope(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
         val definition = createTestDefinition(toolsets = listOf("weather", "search"))
 
-        val result = wiring.resolveToolsetRegistry(definition)
+        val result = scope.resolveToolsetRegistry(definition)
 
         assertEquals(2, result!!.all().size)
         assertTrue(result.all().any { it.name == "weather" })
@@ -226,10 +221,10 @@ class AgentWiringTest {
             register(createSkill("skill1"))
             register(createSkill("skill2"))
         }
-        val wiring = AgentWiring(memory = InMemoryMemory(), skillRegistry = skillRegistry)
+        val scope = AgentScope(memory = InMemoryMemory(), skillRegistry = skillRegistry)
         val definition = createTestDefinition(skills = null)
 
-        val result = wiring.resolveSkillRegistry(definition)
+        val result = scope.resolveSkillRegistry(definition)
 
         assertEquals(2, result!!.all().size)
     }
@@ -239,10 +234,10 @@ class AgentWiringTest {
         val skillRegistry = io.github.yeyi.agent.skill.SkillRegistry().apply {
             register(createSkill("skill1"))
         }
-        val wiring = AgentWiring(memory = InMemoryMemory(), skillRegistry = skillRegistry)
+        val scope = AgentScope(memory = InMemoryMemory(), skillRegistry = skillRegistry)
         val definition = createTestDefinition(skills = emptyList())
 
-        val result = wiring.resolveSkillRegistry(definition)
+        val result = scope.resolveSkillRegistry(definition)
 
         assertNull(result)
     }
@@ -253,10 +248,10 @@ class AgentWiringTest {
             register(createSubagent("subagent1"))
             register(createSubagent("subagent2"))
         }
-        val wiring = AgentWiring(memory = InMemoryMemory(), subagentRegistry = subagentRegistry)
+        val scope = AgentScope(memory = InMemoryMemory(), subagentRegistry = subagentRegistry)
         val definition = createTestDefinition(subagents = null)
 
-        val result = wiring.resolveSubagentRegistry(definition)
+        val result = scope.resolveSubagentRegistry(definition)
 
         assertEquals(2, result!!.all().size)
     }
@@ -266,37 +261,37 @@ class AgentWiringTest {
         val subagentRegistry = io.github.yeyi.agent.subagent.SubagentRegistry().apply {
             register(createSubagent("subagent1"))
         }
-        val wiring = AgentWiring(memory = InMemoryMemory(), subagentRegistry = subagentRegistry)
+        val scope = AgentScope(memory = InMemoryMemory(), subagentRegistry = subagentRegistry)
         val definition = createTestDefinition(subagents = emptyList())
 
-        val result = wiring.resolveSubagentRegistry(definition)
+        val result = scope.resolveSubagentRegistry(definition)
 
         assertNull(result)
     }
 
     @Test
     fun `resolveMcpRegistry with null mcps returns null`() = runTest {
-        val wiring = AgentWiring(memory = InMemoryMemory())
+        val scope = AgentScope(memory = InMemoryMemory(), )
         val definition = createTestDefinition(mcps = null)
 
-        val result = wiring.resolveMcpRegistry(definition, null)
+        val result = scope.resolveMcpRegistry(definition, null)
 
         assertNull(result)
     }
 
     @Test
     fun `resolveMcpRegistry with emptyList mcps returns null`() = runTest {
-        val wiring = AgentWiring(memory = InMemoryMemory())
+        val scope = AgentScope(memory = InMemoryMemory(), )
         val definition = createTestDefinition(mcps = emptyList())
 
-        val result = wiring.resolveMcpRegistry(definition, null)
+        val result = scope.resolveMcpRegistry(definition, null)
 
         assertNull(result)
     }
 
     @Test
     fun `resolveMcpRegistry with Http transport creates Mcp`() = runTest {
-        val wiring = AgentWiring(memory = InMemoryMemory())
+        val scope = AgentScope(memory = InMemoryMemory(), )
         val definition = createTestDefinition(
             mcps = listOf(
                 AgentDefinition.Mcp(
@@ -310,14 +305,14 @@ class AgentWiringTest {
             )
         )
 
-        val result = wiring.resolveMcpRegistry(definition, null)
+        val result = scope.resolveMcpRegistry(definition, null)
 
         assertTrue(result != null)
     }
 
     @Test
     fun `resolveMcpRegistry with Stdio transport creates Mcp`() = runTest {
-        val wiring = AgentWiring(memory = InMemoryMemory())
+        val scope = AgentScope(memory = InMemoryMemory(), )
         val definition = createTestDefinition(
             mcps = listOf(
                 AgentDefinition.Mcp(
@@ -331,7 +326,7 @@ class AgentWiringTest {
             )
         )
 
-        val result = wiring.resolveMcpRegistry(definition, null)
+        val result = scope.resolveMcpRegistry(definition, null)
 
         assertTrue(result != null)
     }
