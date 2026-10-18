@@ -78,7 +78,7 @@ class AgentScopeTest {
         )
         val definition = createTestDefinition(tools = null)
 
-        val (reg, lazyReg) = scope.resolveToolRegistries(definition)
+        val (reg, lazyReg) = scope.resolver().resolveTools(definition)
 
         assertEquals(2, reg!!.all().size)
         assertEquals(1, lazyReg!!.all().size)
@@ -98,7 +98,7 @@ class AgentScopeTest {
         )
         val definition = createTestDefinition(tools = emptyList())
 
-        val (reg, lazyReg) = scope.resolveToolRegistries(definition)
+        val (reg, lazyReg) = scope.resolver().resolveTools(definition)
 
         assertTrue(reg == null || reg.all().isEmpty())
         assertNull(lazyReg)
@@ -120,7 +120,7 @@ class AgentScopeTest {
         )
         val definition = createTestDefinition(tools = listOf("weather", "lazyWeather"))
 
-        val (reg, lazyReg) = scope.resolveToolRegistries(definition)
+        val (reg, lazyReg) = scope.resolver().resolveTools(definition)
 
         assertEquals(1, reg!!.all().size)
         assertEquals("weather", reg.all()[0].name)
@@ -142,7 +142,7 @@ class AgentScopeTest {
         )
         val definition = createTestDefinition(tools = listOf("lazyWeather", "runtimeTool"))
 
-        val (reg, lazyReg) = scope.resolveToolRegistries(definition)
+        val (reg, lazyReg) = scope.resolver().resolveTools(definition)
 
         assertEquals(1, reg!!.all().size)
         assertEquals("runtimeTool", reg.all()[0].name)
@@ -164,7 +164,7 @@ class AgentScopeTest {
         )
         val definition = createTestDefinition(tools = listOf("nonexistent"))
 
-        val (reg, lazyReg) = scope.resolveToolRegistries(definition)
+        val (reg, lazyReg) = scope.resolver().resolveTools(definition)
 
         assertTrue(reg == null || reg.all().isEmpty())
         assertNull(lazyReg)
@@ -179,7 +179,7 @@ class AgentScopeTest {
         val scope = AgentScope(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
         val definition = createTestDefinition(toolsets = null)
 
-        val result = scope.resolveToolsetRegistry(definition)
+        val result = scope.resolver().resolveToolsets(definition)
 
         assertEquals(2, result!!.all().size)
     }
@@ -192,7 +192,7 @@ class AgentScopeTest {
         val scope = AgentScope(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
         val definition = createTestDefinition(toolsets = emptyList())
 
-        val result = scope.resolveToolsetRegistry(definition)
+        val result = scope.resolver().resolveToolsets(definition)
 
         assertNull(result)
     }
@@ -207,7 +207,7 @@ class AgentScopeTest {
         val scope = AgentScope(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
         val definition = createTestDefinition(toolsets = listOf("weather", "search"))
 
-        val result = scope.resolveToolsetRegistry(definition)
+        val result = scope.resolver().resolveToolsets(definition)
 
         assertEquals(2, result!!.all().size)
         assertTrue(result.all().any { it.name == "weather" })
@@ -224,7 +224,7 @@ class AgentScopeTest {
         val scope = AgentScope(memory = InMemoryMemory(), skillRegistry = skillRegistry)
         val definition = createTestDefinition(skills = null)
 
-        val result = scope.resolveSkillRegistry(definition)
+        val result = scope.resolver().resolveSkills(definition)
 
         assertEquals(2, result!!.all().size)
     }
@@ -237,7 +237,7 @@ class AgentScopeTest {
         val scope = AgentScope(memory = InMemoryMemory(), skillRegistry = skillRegistry)
         val definition = createTestDefinition(skills = emptyList())
 
-        val result = scope.resolveSkillRegistry(definition)
+        val result = scope.resolver().resolveSkills(definition)
 
         assertNull(result)
     }
@@ -251,7 +251,7 @@ class AgentScopeTest {
         val scope = AgentScope(memory = InMemoryMemory(), subagentRegistry = subagentRegistry)
         val definition = createTestDefinition(subagents = null)
 
-        val result = scope.resolveSubagentRegistry(definition)
+        val result = scope.resolver().resolveSubagents(definition)
 
         assertEquals(2, result!!.all().size)
     }
@@ -264,7 +264,7 @@ class AgentScopeTest {
         val scope = AgentScope(memory = InMemoryMemory(), subagentRegistry = subagentRegistry)
         val definition = createTestDefinition(subagents = emptyList())
 
-        val result = scope.resolveSubagentRegistry(definition)
+        val result = scope.resolver().resolveSubagents(definition)
 
         assertNull(result)
     }
@@ -274,7 +274,7 @@ class AgentScopeTest {
         val scope = AgentScope(memory = InMemoryMemory(), )
         val definition = createTestDefinition(mcps = null)
 
-        val result = scope.resolveMcpRegistry(definition, null)
+        val result = scope.resolver().resolveMcps(definition, null)
 
         assertNull(result)
     }
@@ -284,7 +284,7 @@ class AgentScopeTest {
         val scope = AgentScope(memory = InMemoryMemory(), )
         val definition = createTestDefinition(mcps = emptyList())
 
-        val result = scope.resolveMcpRegistry(definition, null)
+        val result = scope.resolver().resolveMcps(definition, null)
 
         assertNull(result)
     }
@@ -305,7 +305,7 @@ class AgentScopeTest {
             )
         )
 
-        val result = scope.resolveMcpRegistry(definition, null)
+        val result = scope.resolver().resolveMcps(definition, null)
 
         assertTrue(result != null)
     }
@@ -326,7 +326,7 @@ class AgentScopeTest {
             )
         )
 
-        val result = scope.resolveMcpRegistry(definition, null)
+        val result = scope.resolver().resolveMcps(definition, null)
 
         assertTrue(result != null)
     }

@@ -20,39 +20,45 @@ import io.github.yeyi.agent.toolset.ToolsetRegistry
  * Agent 运行时上下文，封装 memory 和各组件注册表。
  *
  * @param memory 会话记忆（必需）
- * @param toolRegistry 工具注册表，null 表示不使用
- * @param lazyToolRegistry 延迟加载工具注册表，null 表示不使用
- * @param toolsetRegistry 工具集注册表，null 表示不使用
- * @param skillRegistry 技能注册表，null 表示不使用
- * @param subagentRegistry 子代理注册表，null 表示不使用
+ * @param toolRegistry 工具注册表
+ * @param lazyToolRegistry 延迟加载工具注册表
+ * @param toolsetRegistry 工具集注册表
+ * @param skillRegistry 技能注册表
+ * @param subagentRegistry 子代理注册表
  */
-public data class AgentScope(
+public class AgentScope(
     public val memory: Memory,
-    private val toolRegistry: ToolRegistry? = null,
-    private val lazyToolRegistry: LazyToolRegistry? = null,
-    private val toolsetRegistry: ToolsetRegistry? = null,
-    private val skillRegistry: SkillRegistry? = null,
-    private val subagentRegistry: SubagentRegistry? = null
+    public val toolRegistry: ToolRegistry? = null,
+    public val lazyToolRegistry: LazyToolRegistry? = null,
+    public val toolsetRegistry: ToolsetRegistry? = null,
+    public val skillRegistry: SkillRegistry? = null,
+    public val subagentRegistry: SubagentRegistry? = null
 ) {
     /**
-     * 解析工具注册表和延迟加载工具注册表，带 fallback 逻辑。
-     * - tools 为 null → 从两个 registry 获取全部
-     * - tools 为 emptyList() → 两个都返回空
-     * - tools 为特定列表 → 优先从 lazyToolRegistry 查找，找到则注册到 lazyToolRegistry；否则从 toolRegistry 查找，找到则注册到 toolRegistry
-     * - 都没找到 → 记录警告
+     * 创建 AgentResolver 实例。
      */
-    public fun resolveToolRegistries(definition: AgentDefinition): Pair<ToolRegistry?, LazyToolRegistry?> {
+    public fun resolver(): AgentResolver = AgentResolver(this)
+}
+
+/**
+ * 从 AgentScope 解析运行时所需的组件。
+ */
+public class AgentResolver internal constructor(private val scope: AgentScope) {
+    /**
+     * 解析工具注册表和延迟加载工具注册表，带 fallback 逻辑。
+     */
+    public fun resolveTools(definition: AgentDefinition): Pair<ToolRegistry?, LazyToolRegistry?> {
         val filteredToolRegistry = ToolRegistry()
         val filteredLazyToolRegistry = LazyToolRegistry()
 
         if (definition.tools == null) {
-            filteredToolRegistry.register(toolRegistry?.all() ?: emptyList())
-            filteredLazyToolRegistry.register(lazyToolRegistry?.all() ?: emptyList())
+            filteredToolRegistry.register(scope.toolRegistry?.all() ?: emptyList())
+            filteredLazyToolRegistry.register(scope.lazyToolRegistry?.all() ?: emptyList())
         } else {
             definition.tools.forEach { name ->
-                lazyToolRegistry?.getOrNull(name)?.let {
+                scope.lazyToolRegistry?.getOrNull(name)?.let {
                     filteredLazyToolRegistry.register(it)
-                } ?: toolRegistry?.getOrNull(name)?.let {
+                } ?: scope.toolRegistry?.getOrNull(name)?.let {
                     filteredToolRegistry.register(it)
                 } ?: log.warn("Runtime Tool not found: $name")
             }
@@ -63,19 +69,15 @@ public data class AgentScope(
 
     /**
      * 解析工具集注册表。
-     * - toolsetRegistry 为 null → 返回 null
-     * - definition.toolsets 为 null → 使用 toolsetRegistry 中全部项
-     * - definition.toolsets 为 emptyList() → 返回 null
-     * - definition.toolsets 为特定列表 → 只使用指定的项，找不到记录警告
      */
-    public fun resolveToolsetRegistry(definition: AgentDefinition): ToolsetRegistry? {
-        if (toolsetRegistry == null) return null
+    public fun resolveToolsets(definition: AgentDefinition): ToolsetRegistry? {
+        if (scope.toolsetRegistry == null) return null
         val filtered = ToolsetRegistry()
         if (definition.toolsets == null) {
-            filtered.register(toolsetRegistry.all())
+            filtered.register(scope.toolsetRegistry.all())
         } else {
             definition.toolsets.forEach { name ->
-                toolsetRegistry.getOrNull(name)?.let { filtered.register(it) }
+                scope.toolsetRegistry.getOrNull(name)?.let { filtered.register(it) }
                     ?: log.warn("Runtime Toolset not found: $name")
             }
         }
@@ -84,19 +86,15 @@ public data class AgentScope(
 
     /**
      * 解析技能注册表。
-     * - skillRegistry 为 null → 返回 null
-     * - definition.skills 为 null → 使用 skillRegistry 中全部项
-     * - definition.skills 为 emptyList() → 返回 null
-     * - definition.skills 为特定列表 → 只使用指定的项，找不到记录警告
      */
-    public fun resolveSkillRegistry(definition: AgentDefinition): SkillRegistry? {
-        if (skillRegistry == null) return null
+    public fun resolveSkills(definition: AgentDefinition): SkillRegistry? {
+        if (scope.skillRegistry == null) return null
         val filtered = SkillRegistry()
         if (definition.skills == null) {
-            filtered.register(skillRegistry.all())
+            filtered.register(scope.skillRegistry.all())
         } else {
             definition.skills.forEach { name ->
-                skillRegistry.getOrNull(name)?.let { filtered.register(it) }
+                scope.skillRegistry.getOrNull(name)?.let { filtered.register(it) }
                     ?: log.warn("Runtime Skill not found: $name")
             }
         }
@@ -105,19 +103,15 @@ public data class AgentScope(
 
     /**
      * 解析子代理注册表。
-     * - subagentRegistry 为 null → 返回 null
-     * - definition.subagents 为 null → 使用 subagentRegistry 中全部项
-     * - definition.subagents 为 emptyList() → 返回 null
-     * - definition.subagents 为特定列表 → 只使用指定的项，找不到记录警告
      */
-    public fun resolveSubagentRegistry(definition: AgentDefinition): SubagentRegistry? {
-        if (subagentRegistry == null) return null
+    public fun resolveSubagents(definition: AgentDefinition): SubagentRegistry? {
+        if (scope.subagentRegistry == null) return null
         val filtered = SubagentRegistry()
         if (definition.subagents == null) {
-            filtered.register(subagentRegistry.all())
+            filtered.register(scope.subagentRegistry.all())
         } else {
             definition.subagents.forEach { name ->
-                subagentRegistry.getOrNull(name)?.let { filtered.register(it) }
+                scope.subagentRegistry.getOrNull(name)?.let { filtered.register(it) }
                     ?: log.warn("Runtime Subagent not found: $name")
             }
         }
@@ -127,7 +121,7 @@ public data class AgentScope(
     /**
      * 解析 LLM Provider。
      */
-    public fun resolveLlmProvider(definition: AgentDefinition): LlmProvider {
+    public fun resolveProvider(definition: AgentDefinition): LlmProvider {
         return when (definition.provider) {
             is AgentDefinition.Provider.OpenAi -> OpenAiProvider(
                 baseUrl = definition.provider.baseUrl,
@@ -145,10 +139,8 @@ public data class AgentScope(
 
     /**
      * 解析 MCP Registry。
-     * - definition.mcps 为空 → 返回 null
-     * - toolsetRegistry 为 null → 使用空 ToolsetRegistry
      */
-    public fun resolveMcpRegistry(
+    public fun resolveMcps(
         definition: AgentDefinition,
         toolsetRegistry: ToolsetRegistry?
     ): McpRegistry? {
