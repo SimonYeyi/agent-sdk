@@ -41,9 +41,43 @@ public class AgentScope(
 }
 
 /**
+ * Agent 组件注册表封装，按正确顺序解析。
+ */
+public class AgentRegistries(
+    public val toolRegistry: ToolRegistry?,
+    public val lazyToolRegistry: LazyToolRegistry?,
+    public val toolsetRegistry: ToolsetRegistry?,
+    public val skillRegistry: SkillRegistry?,
+    public val subagentRegistry: SubagentRegistry?,
+    public val llmProvider: LlmProvider,
+    public val mcpRegistry: McpRegistry?
+)
+
+/**
  * 从 AgentScope 解析运行时所需的组件。
  */
 public class AgentResolver internal constructor(private val scope: AgentScope) {
+
+    /**
+     * 一次性解析所有组件，按正确顺序。
+     */
+    public fun resolve(definition: AgentDefinition): AgentRegistries {
+        val (toolRegistry, lazyToolRegistry) = resolveTools(definition)
+        val toolsetRegistry = resolveToolsets(definition)
+        val skillRegistry = resolveSkills(definition)
+        val subagentRegistry = resolveSubagents(definition)
+        val llmProvider = resolveProvider(definition)
+        val mcpRegistry = resolveMcps(definition, toolsetRegistry)
+        return AgentRegistries(
+            toolRegistry = toolRegistry,
+            lazyToolRegistry = lazyToolRegistry,
+            toolsetRegistry = toolsetRegistry,
+            skillRegistry = skillRegistry,
+            subagentRegistry = subagentRegistry,
+            llmProvider = llmProvider,
+            mcpRegistry = mcpRegistry
+        )
+    }
     /**
      * 解析工具注册表和延迟加载工具注册表，带 fallback 逻辑。
      */

@@ -11,19 +11,17 @@ import io.github.yeyi.agent.config.AgentScope
  * @return BossAgent 实例
  */
 public fun AgentDefinition.spawnBoss(scope: AgentScope): BossAgent {
-    val resolver = scope.resolver()
-    val toolsetRegistry = resolver.resolveToolsets(this@spawnBoss)
-    val (toolRegistry, lazyToolRegistry) = resolver.resolveTools(this@spawnBoss)
+    val registries = scope.resolver().resolve(this@spawnBoss)
     return bossAgent {
         memory(scope.memory, maxMemoryRounds)
-        llmProvider(resolver.resolveProvider(this@spawnBoss))
+        llmProvider(registries.llmProvider)
         maxIterations(maxIterations)
         persona(Persona(persona))
-        toolRegistry?.let { tools(it) }
-        lazyToolRegistry?.let { lazyTools(it) }
-        toolsetRegistry?.let { toolsets(it) }
-        resolver.resolveSkills(this@spawnBoss)?.let { skills(it) }
-        resolver.resolveSubagents(this@spawnBoss)?.let { subagents(it) }
-        resolver.resolveMcps(this@spawnBoss, toolsetRegistry)?.let { mcps(it) }
+        registries.toolRegistry?.let { tools(it) }
+        registries.lazyToolRegistry?.let { lazyTools(it) }
+        registries.toolsetRegistry?.let { toolsets(it) }
+        registries.skillRegistry?.let { skills(it) }
+        registries.subagentRegistry?.let { subagents(it) }
+        registries.mcpRegistry?.let { mcps(it) }
     }
 }
