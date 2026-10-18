@@ -58,8 +58,7 @@ public data class AgentWiring(
             }
         }
 
-        return (if (filteredToolRegistry.all().isEmpty()) null else filteredToolRegistry) to
-                if (filteredLazyToolRegistry.all().isEmpty()) null else filteredLazyToolRegistry
+        return filteredToolRegistry to if (filteredLazyToolRegistry.isEmpty()) null else filteredLazyToolRegistry
     }
 
     /**
@@ -80,7 +79,7 @@ public data class AgentWiring(
                     ?: log.warn("Runtime Toolset not found: $name")
             }
         }
-        return if (filtered.all().isEmpty()) null else filtered
+        return if (filtered.isEmpty()) null else filtered
     }
 
     /**
@@ -101,7 +100,7 @@ public data class AgentWiring(
                     ?: log.warn("Runtime Skill not found: $name")
             }
         }
-        return if (filtered.all().isEmpty()) null else filtered
+        return if (filtered.isEmpty()) null else filtered
     }
 
     /**
@@ -122,7 +121,7 @@ public data class AgentWiring(
                     ?: log.warn("Runtime Subagent not found: $name")
             }
         }
-        return if (filtered.all().isEmpty()) null else filtered
+        return if (filtered.isEmpty()) null else filtered
     }
 
     /**
