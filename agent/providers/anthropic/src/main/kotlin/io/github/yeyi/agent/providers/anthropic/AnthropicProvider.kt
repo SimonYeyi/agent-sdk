@@ -5,17 +5,18 @@ import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
-import io.ktor.client.*
+import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
 import io.ktor.client.call.*
-import io.ktor.client.engine.cio.*
-import io.ktor.client.plugins.*
-import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.*
-import io.ktor.serialization.kotlinx.json.*
-import io.ktor.utils.io.readUTF8Line
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.utils.io.readLineStrict
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
@@ -31,9 +32,10 @@ import kotlinx.serialization.json.Json
  *   思考字段只有 `thinking` 对象一种格式。开启时发送 `{"type":"enabled",
  *   "budget_tokens":4096}`；显式传 false 发送 `{"type":"disabled"}`，覆盖
  *   Sonnet 5 等新模型默认开启的自适应思考，避免简单任务消耗思考 token。
- * - [httpClient] 可自定义 Ktor HTTP Client，不传则使用 [defaultAnthropicHttpClient]
+ * - [configure] 可选的 HttpClient 配置函数，会与内部默认配置合并。
+ *   内部核心配置（JSON 序列化、超时）会被强制覆盖，其余插件会被保留。
  *
- * 快捷构造：[official] 使用官方 endpoint 和默认 HTTP Client。
+ * 快捷构造：[official] 使用官方 endpoint 和默认配置。
  *
  * 示例：
  * ```
@@ -45,37 +47,26 @@ public class AnthropicProvider(
     private val model: String,
     private val baseUrl: String,
     private val thinking: Boolean = true,
-    private val httpClient: HttpClient = defaultAnthropicHttpClient(),
+    private val configure: (HttpClientConfig<*>.() -> Unit)? = null,
 ) : LlmProvider {
     override val name: String = "anthropic"
 
-    public companion object {
-        public const val DEFAULT_MODEL: String = "claude-sonnet-4-6"
-        public const val DEFAULT_BASE_URL: String = "https://api.anthropic.com"
-
-        public fun defaultAnthropicHttpClient(): HttpClient = HttpClient(CIO) {
-            install(ContentNegotiation) {
+    private val httpClient: HttpClient by lazy {
+        HttpClient(CIO) {
+            configure?.invoke(this)
+            expectSuccess = true
+            installOrReplace(ContentNegotiation) {
                 json(Json {
                     ignoreUnknownKeys = true
                     encodeDefaults = true
                     explicitNulls = false
                 })
             }
-            install(HttpTimeout) {
+            installOrReplace(HttpTimeout) {
                 requestTimeoutMillis = 60_000
                 socketTimeoutMillis = 60_000
             }
         }
-
-        public fun official(
-            apiKey: String,
-            httpClient: HttpClient = defaultAnthropicHttpClient(),
-        ): AnthropicProvider = AnthropicProvider(
-            apiKey = apiKey,
-            model = DEFAULT_MODEL,
-            baseUrl = DEFAULT_BASE_URL,
-            httpClient = httpClient,
-        )
     }
 
     override suspend fun chat(request: ChatRequest): ChatResponse {
@@ -122,7 +113,7 @@ public class AnthropicProvider(
                 val channel = resp.bodyAsChannel()
                 val lineFlow = flow {
                     while (true) {
-                        val line = channel.readUTF8Line() ?: break
+                        val line = channel.readLineStrict() ?: break
                         emit(line)
                     }
                     // Anthropic SSE decoder uses empty lines to delimit events.
@@ -137,5 +128,20 @@ public class AnthropicProvider(
             if (t is AgentException) throw t
             throw AgentException.LlmError(t)
         }
+    }
+
+    public companion object {
+        private const val DEFAULT_MODEL: String = "claude-sonnet-4-6"
+        private const val DEFAULT_BASE_URL: String = "https://api.anthropic.com"
+
+        public fun official(
+            apiKey: String,
+            configure: (HttpClientConfig<*>.() -> Unit)? = null,
+        ): AnthropicProvider = AnthropicProvider(
+            apiKey = apiKey,
+            model = DEFAULT_MODEL,
+            baseUrl = DEFAULT_BASE_URL,
+            configure = configure,
+        )
     }
 }

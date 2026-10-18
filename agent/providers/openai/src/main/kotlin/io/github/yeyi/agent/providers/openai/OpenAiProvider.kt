@@ -5,17 +5,18 @@ import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
-import io.ktor.client.*
+import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
 import io.ktor.client.call.*
-import io.ktor.client.engine.cio.*
-import io.ktor.client.plugins.*
-import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.*
-import io.ktor.serialization.kotlinx.json.*
-import io.ktor.utils.io.readUTF8Line
+import io.ktor.serialization.kotlinx.json.json
+import io.ktor.utils.io.readLineStrict
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
@@ -33,9 +34,10 @@ import kotlinx.serialization.json.Json
  *   开启时 `thinking.type` 按模型名适配：MiniMax 只接受 "adaptive"（其余厂商为
  *   "enabled"）。按模型名而非 baseUrl 判断，是因为第三方网关转发时 baseUrl 是网关
  *   地址，模型名才会跟随 MiniMax 模型本身；显式传 false 则统一走 DISABLED。
- * - [httpClient] 可自定义 Ktor HTTP Client，不传则使用 [defaultHttpClient]
+ * - [configure] 可选的 HttpClient 配置函数，会与内部默认配置合并。
+ *   内部核心配置（JSON 序列化、超时）会被强制覆盖，其余插件会被保留。
  *
- * 快捷构造：[official] 使用官方 endpoint 和默认 HTTP Client。
+ * 快捷构造：[official] 使用官方 endpoint 和默认配置。
  *
  * 示例：
  * ```
@@ -54,37 +56,26 @@ public class OpenAiProvider(
     private val model: String,
     private val baseUrl: String,
     private val thinking: Boolean = true,
-    private val httpClient: HttpClient = defaultHttpClient()
+    private val configure: (HttpClientConfig<*>.() -> Unit)? = null,
 ) : LlmProvider {
     override val name: String = "openai"
 
-    public companion object {
-        public const val DEFAULT_MODEL: String = "gpt-4o-mini"
-        public const val DEFAULT_BASE_URL: String = "https://api.openai.com/v1"
-
-        public fun defaultHttpClient(): HttpClient = HttpClient(CIO) {
-            install(ContentNegotiation) {
+    private val httpClient: HttpClient by lazy {
+        HttpClient(CIO) {
+            configure?.invoke(this)
+            expectSuccess = true
+            installOrReplace(ContentNegotiation) {
                 json(Json {
                     ignoreUnknownKeys = true
                     encodeDefaults = true
                     explicitNulls = false
                 })
             }
-            install(HttpTimeout) {
+            installOrReplace(HttpTimeout) {
                 requestTimeoutMillis = 60_000
                 socketTimeoutMillis = 60_000
             }
         }
-
-        public fun official(
-            apiKey: String,
-            httpClient: HttpClient = defaultHttpClient(),
-        ): OpenAiProvider = OpenAiProvider(
-            apiKey = apiKey,
-            model = DEFAULT_MODEL,
-            baseUrl = DEFAULT_BASE_URL,
-            httpClient = httpClient,
-        )
     }
 
     override suspend fun chat(request: ChatRequest): ChatResponse {
@@ -139,7 +130,7 @@ public class OpenAiProvider(
                 val channel = resp.bodyAsChannel()
                 val lineFlow = flow {
                     while (true) {
-                        val line = channel.readUTF8Line() ?: break
+                        val line = channel.readLineStrict() ?: break
                         emit(line)
                     }
                 }
@@ -157,4 +148,20 @@ public class OpenAiProvider(
         if (!thinking) OpenAiThinkingType.DISABLED
         else if (model.contains("minimax", ignoreCase = true)) OpenAiThinkingType.ADAPTIVE
         else OpenAiThinkingType.ENABLED
+
+
+    public companion object {
+        private const val DEFAULT_MODEL: String = "gpt-4o-mini"
+        private const val DEFAULT_BASE_URL: String = "https://api.openai.com/v1"
+
+        public fun official(
+            apiKey: String,
+            configure: (HttpClientConfig<*>.() -> Unit)? = null,
+        ): OpenAiProvider = OpenAiProvider(
+            apiKey = apiKey,
+            model = DEFAULT_MODEL,
+            baseUrl = DEFAULT_BASE_URL,
+            configure = configure,
+        )
+    }
 }

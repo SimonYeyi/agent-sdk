@@ -2,6 +2,7 @@ package io.github.yeyi.agent.mcp
 
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.toolset.Toolset
+import io.ktor.client.HttpClientConfig
 import kotlin.jvm.Volatile
 import kotlinx.coroutines.runBlocking
 
@@ -16,10 +17,10 @@ import kotlinx.coroutines.runBlocking
  * - [get] 通过 [delegate] 按名称查找成员 Tool。
  * 使用方式:
  * ```kotlin
- * class MyMcp(httpClient: HttpClient) : Mcp {
+ * class MyMcp(configure: (HttpClientConfig<*>.() -> Unit)?) : Mcp {
  *     override val name = "my_service"
  *     override val description = "我的 MCP 服务，提供 xxx 能力"
- *     override val client = McpClient(SseTransport("https://...", httpClient = httpClient))
+ *     override val client = McpClient(SseTransport("https://...", configure = configure))
  * }
  * ```
  */

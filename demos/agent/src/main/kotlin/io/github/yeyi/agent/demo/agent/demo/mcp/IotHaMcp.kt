@@ -7,16 +7,16 @@ import io.github.yeyi.agent.mcp.SseTransport
 import io.github.yeyi.agent.mcp.ToolDef
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.compression.CompressTool
-import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
 
-class IotHaMcp(httpClient: HttpClient) : Mcp() {
+class IotHaMcp(configure: (HttpClientConfig<*>.() -> Unit)?) : Mcp() {
     override val name: String = "Iot Ha"
     override val description: String = "智能家居控制 MCP 服务"
     override val client: McpClient = McpClient(
         SseTransport(
             BuildConfig.IOT_HA_ENDPOINT,
             mapOf("Authorization" to "Bearer ${BuildConfig.IOT_HA_TOKEN}"),
-            httpClient = httpClient
+            configure = configure
         )
     )
 

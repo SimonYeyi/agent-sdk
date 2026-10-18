@@ -32,8 +32,7 @@ import io.github.yeyi.agent.tool.lazy_loading.LazyTool
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.tool.lazy_loading.lazyTools
 import io.github.yeyi.agent.toolset.ToolsetRegistry
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.cio.CIO
+import io.ktor.client.HttpClientConfig
 import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.logging.LogLevel
@@ -96,12 +95,10 @@ object DemoAgentFactory {
             else -> PROVIDER_OPENAI
         }
 
-        val httpClient = httpClient()
-
         val llmProvider: LlmProvider = if (provider == PROVIDER_ANTHROPIC) {
-            AnthropicProvider(apiKey = apiKey, model = model, baseUrl = baseUrl, httpClient = httpClient)
+            AnthropicProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
         } else {
-            OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl, httpClient = httpClient)
+            OpenAiProvider(apiKey = apiKey, model = model, baseUrl = baseUrl)
         }
 
         val mcpRegistry =
@@ -111,7 +108,7 @@ object DemoAgentFactory {
             ).apply {
                 // Local MCP server
                 register(CalculatorMcp())
-                register(IotHaMcp(httpClient))
+                register(IotHaMcp(httpClientConfigure()))
             }
 
         return agent {
@@ -141,8 +138,7 @@ object DemoAgentFactory {
         return this
     }
 
-    private fun httpClient() = HttpClient(CIO) {
-        expectSuccess = true
+    private fun httpClientConfigure(): (io.ktor.client.HttpClientConfig<*>.() -> Unit) = {
         install(ContentNegotiation) {
             json(Json {
                 ignoreUnknownKeys = true

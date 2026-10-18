@@ -1,8 +1,11 @@
 package io.github.yeyi.agent.mcp
 
 import io.ktor.client.HttpClient
+import io.ktor.client.HttpClientConfig
+import io.ktor.client.engine.cio.CIO
+import io.ktor.client.plugins.HttpTimeout
 import io.ktor.client.plugins.ServerResponseException
-import io.ktor.client.plugins.expectSuccess
+import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.accept
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -15,8 +18,9 @@ import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
 import io.ktor.http.HttpMessageBuilder
 import io.ktor.http.contentType
+import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.ByteReadChannel
-import io.ktor.utils.io.readUTF8Line
+import io.ktor.utils.io.readLineStrict
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -45,17 +49,15 @@ import kotlinx.serialization.json.jsonObject
  * - Session affinity is maintained via the Mcp-Session-Id header.
  *
  * @param endpoint The MCP server endpoint URL.
- * @param protocolVersion The MCP protocol version.
  * @param enableNotifications Whether to establish an SSE connection for server-to-client notifications.
- * @param httpClient External [HttpClient] instance. Caller is responsible for
- *   configuring timeouts, SSL, and any other settings as needed. If not provided,
- *   a default client with 120s request timeout is created internally.
+ * @param configure 可选的 HttpClient 配置函数，会与内部默认配置合并。
+ *   内部核心配置（JSON 序列化、超时）会被强制覆盖，其余插件会被保留。
  */
 public class SseTransport(
     private val endpoint: String,
     private val httpHeaders: Map<String, String>? = null,
     private val enableNotifications: Boolean = false,
-    httpClient: HttpClient? = null
+    private val configure: (HttpClientConfig<*>.() -> Unit)? = null,
 ) : McpTransport {
     private object Defaults {
         const val SSE_RECONNECT_DELAY_MS = 5000L
@@ -64,13 +66,23 @@ public class SseTransport(
     }
 
     private val protocolVersion: String = McpServer.SUPPORTED_PROTOCOL_VERSION
-    private val httpClient = httpClient ?: HttpClient()
-    private val isDefaultHttpClient = httpClient == null
 
     private val json = Json {
         ignoreUnknownKeys = true
         encodeDefaults = true
         explicitNulls = false
+    }
+
+    private val httpClient: HttpClient by lazy {
+        HttpClient(CIO) {
+            configure?.invoke(this)
+            expectSuccess = true
+            installOrReplace(ContentNegotiation) { json(json) }
+            installOrReplace(HttpTimeout) {
+                requestTimeoutMillis = 60_000
+                socketTimeoutMillis = 60_000
+            }
+        }
     }
 
     @Volatile
@@ -92,7 +104,6 @@ public class SseTransport(
         val body = json.encodeToString(request)
 
         val response: HttpResponse = httpClient.post(endpoint) {
-            expectSuccess = true
             contentType(ContentType.Application.Json)
             withCommonHeaders()
             header(
@@ -109,7 +120,8 @@ public class SseTransport(
         val contentType = response.contentType()
         return if (contentType != null && ContentType.Text.EventStream.match(contentType)) {
             val channel = response.bodyAsChannel()
-            readSseEvents(channel) ?: throw IllegalStateException("SSE stream closed without returning a response")
+            readSseEvents(channel)
+                ?: throw IllegalStateException("SSE stream closed without returning a response")
         } else {
             val bodyText = response.bodyAsText()
             parseJsonResponse(bodyText, request.id)
@@ -120,7 +132,6 @@ public class SseTransport(
         val body = json.encodeToString(notification)
 
         httpClient.post(endpoint) {
-            expectSuccess = true
             contentType(ContentType.Application.Json)
             withCommonHeaders()
             header(
@@ -143,7 +154,7 @@ public class SseTransport(
 
         backgroundScope.cancel()
 
-        if (isDefaultHttpClient) runCatching { httpClient.close() }
+        httpClient.close()
     }
 
     private fun startSseConnection() {
@@ -151,7 +162,6 @@ public class SseTransport(
             while (isActive) {
                 try {
                     val response: HttpResponse = httpClient.get(endpoint) {
-                        expectSuccess = true
                         accept(ContentType.Text.EventStream)
                         withCommonHeaders()
                         header(Defaults.MCP_PROTOCOL_VERSION_HEADER, protocolVersion)
@@ -176,7 +186,7 @@ public class SseTransport(
         val currentEvent = StringBuilder()
 
         while (!channel.isClosedForRead) {
-            val line = channel.readUTF8Line() ?: break
+            val line = channel.readLineStrict() ?: break
 
             if (line.isEmpty()) {
                 val result = processSseEvent(currentEvent.toString())
