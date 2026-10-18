@@ -16,17 +16,17 @@ import io.github.yeyi.agent.toolset.toolsets
  * @return Agent 实例
  */
 public fun AgentDefinition.spawn(scope: AgentScope): Agent {
-    val registries = scope.resolver().resolve(this@spawn)
+    val resolveInfo = scope.resolver().resolve(this@spawn)
     return agent {
         persona(Persona(persona))
-        llmProvider(registries.llmProvider)
+        llmProvider(resolveInfo.llmProvider)
         memory(scope.memory, maxMemoryRounds)
         maxIterations(maxIterations)
-        registries.toolRegistry?.let { tools(it) }
-        registries.lazyToolRegistry?.let { lazyTools(it) }
-        registries.toolsetRegistry?.let { toolsets(it) }
-        registries.skillRegistry?.let { skills(it) }
-        registries.subagentRegistry?.let { subagents(it) }
-        registries.mcpRegistry?.let { mcps(it) }
+        resolveInfo.toolRegistry?.let { tools(it) }
+        resolveInfo.lazyToolRegistry?.let { lazyTools(it) }
+        resolveInfo.toolsetRegistry?.let { toolsets(it) }
+        resolveInfo.skillRegistry?.let { skills(it) }
+        resolveInfo.subagentRegistry?.let { subagents(it) }
+        resolveInfo.mcpRegistry?.let { mcps(it) }
     }
 }

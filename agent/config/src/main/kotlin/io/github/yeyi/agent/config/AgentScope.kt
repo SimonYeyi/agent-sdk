@@ -41,22 +41,22 @@ public class AgentScope(
 }
 
 /**
- * Agent 解析结果信息。
- */
-public class ResolveInfo(
-    public val toolRegistry: ToolRegistry?,
-    public val lazyToolRegistry: LazyToolRegistry?,
-    public val toolsetRegistry: ToolsetRegistry?,
-    public val skillRegistry: SkillRegistry?,
-    public val subagentRegistry: SubagentRegistry?,
-    public val llmProvider: LlmProvider,
-    public val mcpRegistry: McpRegistry?
-)
-
-/**
  * 从 AgentScope 解析运行时所需的组件。
  */
 public class AgentResolver internal constructor(private val scope: AgentScope) {
+
+    /**
+     * Agent 解析结果信息。
+     */
+    public class ResolveInfo(
+        public val toolRegistry: ToolRegistry?,
+        public val lazyToolRegistry: LazyToolRegistry?,
+        public val toolsetRegistry: ToolsetRegistry?,
+        public val skillRegistry: SkillRegistry?,
+        public val subagentRegistry: SubagentRegistry?,
+        public val llmProvider: LlmProvider,
+        public val mcpRegistry: McpRegistry?
+    )
 
     /**
      * 一次性解析所有组件，按正确顺序。
@@ -78,9 +78,7 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
             mcpRegistry = mcpRegistry
         )
     }
-    /**
-     * 解析工具注册表和延迟加载工具注册表，带 fallback 逻辑。
-     */
+
     private fun resolveTools(definition: AgentDefinition): Pair<ToolRegistry?, LazyToolRegistry?> {
         val filteredToolRegistry = ToolRegistry()
         val filteredLazyToolRegistry = LazyToolRegistry()
@@ -101,9 +99,6 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
         return filteredToolRegistry to if (filteredLazyToolRegistry.isEmpty()) null else filteredLazyToolRegistry
     }
 
-    /**
-     * 解析工具集注册表。
-     */
     private fun resolveToolsets(definition: AgentDefinition): ToolsetRegistry? {
         if (scope.toolsetRegistry == null) return null
         val filtered = ToolsetRegistry()
@@ -118,9 +113,6 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
         return if (filtered.isEmpty()) null else filtered
     }
 
-    /**
-     * 解析技能注册表。
-     */
     private fun resolveSkills(definition: AgentDefinition): SkillRegistry? {
         if (scope.skillRegistry == null) return null
         val filtered = SkillRegistry()
@@ -135,9 +127,6 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
         return if (filtered.isEmpty()) null else filtered
     }
 
-    /**
-     * 解析子代理注册表。
-     */
     private fun resolveSubagents(definition: AgentDefinition): SubagentRegistry? {
         if (scope.subagentRegistry == null) return null
         val filtered = SubagentRegistry()
@@ -152,9 +141,6 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
         return if (filtered.isEmpty()) null else filtered
     }
 
-    /**
-     * 解析 LLM Provider。
-     */
     private fun resolveProvider(definition: AgentDefinition): LlmProvider {
         return when (definition.provider) {
             is AgentDefinition.Provider.OpenAi -> OpenAiProvider(
@@ -171,9 +157,6 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
         }
     }
 
-    /**
-     * 解析 MCP Registry。
-     */
     private fun resolveMcps(
         definition: AgentDefinition,
         toolsetRegistry: ToolsetRegistry?
