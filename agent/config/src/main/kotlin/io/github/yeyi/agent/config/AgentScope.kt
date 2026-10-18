@@ -80,65 +80,65 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
     }
 
     private fun resolveTools(definition: AgentDefinition): Pair<ToolRegistry?, LazyToolRegistry?> {
-        val filteredToolRegistry = ToolRegistry()
-        val filteredLazyToolRegistry = LazyToolRegistry()
+        val resolvedToolRegistry = ToolRegistry()
+        val resolvedLazyToolRegistry = LazyToolRegistry()
 
         if (definition.tools == null) {
-            filteredToolRegistry.register(scope.toolRegistry?.all() ?: emptyList())
-            filteredLazyToolRegistry.register(scope.lazyToolRegistry?.all() ?: emptyList())
+            resolvedToolRegistry.register(scope.toolRegistry?.all() ?: emptyList())
+            resolvedLazyToolRegistry.register(scope.lazyToolRegistry?.all() ?: emptyList())
         } else {
             definition.tools.forEach { name ->
                 scope.lazyToolRegistry?.getOrNull(name)?.let {
-                    filteredLazyToolRegistry.register(it)
+                    resolvedLazyToolRegistry.register(it)
                 } ?: scope.toolRegistry?.getOrNull(name)?.let {
-                    filteredToolRegistry.register(it)
+                    resolvedToolRegistry.register(it)
                 } ?: log.warn("Runtime Tool not found: $name")
             }
         }
 
-        return filteredToolRegistry to if (filteredLazyToolRegistry.isEmpty()) null else filteredLazyToolRegistry
+        return resolvedToolRegistry to if (resolvedLazyToolRegistry.isEmpty()) null else resolvedLazyToolRegistry
     }
 
     private fun resolveToolsets(definition: AgentDefinition): ToolsetRegistry? {
         if (scope.toolsetRegistry == null) return null
-        val filtered = ToolsetRegistry()
+        val resolved = ToolsetRegistry()
         if (definition.toolsets == null) {
-            filtered.register(scope.toolsetRegistry.all())
+            resolved.register(scope.toolsetRegistry.all())
         } else {
             definition.toolsets.forEach { name ->
-                scope.toolsetRegistry.getOrNull(name)?.let { filtered.register(it) }
+                scope.toolsetRegistry.getOrNull(name)?.let { resolved.register(it) }
                     ?: log.warn("Runtime Toolset not found: $name")
             }
         }
-        return if (filtered.isEmpty()) null else filtered
+        return if (resolved.isEmpty()) null else resolved
     }
 
     private fun resolveSkills(definition: AgentDefinition): SkillRegistry? {
         if (scope.skillRegistry == null) return null
-        val filtered = SkillRegistry()
+        val resolved = SkillRegistry()
         if (definition.skills == null) {
-            filtered.register(scope.skillRegistry.all())
+            resolved.register(scope.skillRegistry.all())
         } else {
             definition.skills.forEach { name ->
-                scope.skillRegistry.getOrNull(name)?.let { filtered.register(it) }
+                scope.skillRegistry.getOrNull(name)?.let { resolved.register(it) }
                     ?: log.warn("Runtime Skill not found: $name")
             }
         }
-        return if (filtered.isEmpty()) null else filtered
+        return if (resolved.isEmpty()) null else resolved
     }
 
     private fun resolveSubagents(definition: AgentDefinition): SubagentRegistry? {
         if (scope.subagentRegistry == null) return null
-        val filtered = SubagentRegistry()
+        val resolved = SubagentRegistry()
         if (definition.subagents == null) {
-            filtered.register(scope.subagentRegistry.all())
+            resolved.register(scope.subagentRegistry.all())
         } else {
             definition.subagents.forEach { name ->
-                scope.subagentRegistry.getOrNull(name)?.let { filtered.register(it) }
+                scope.subagentRegistry.getOrNull(name)?.let { resolved.register(it) }
                     ?: log.warn("Runtime Subagent not found: $name")
             }
         }
-        return if (filtered.isEmpty()) null else filtered
+        return if (resolved.isEmpty()) null else resolved
     }
 
     private fun resolveProvider(definition: AgentDefinition): LlmProvider {
