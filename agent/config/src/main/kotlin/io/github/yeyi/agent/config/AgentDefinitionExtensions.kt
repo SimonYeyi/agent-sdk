@@ -17,13 +17,14 @@ import io.github.yeyi.agent.toolset.toolsets
  */
 public fun AgentDefinition.spawn(wiring: AgentWiring): Agent {
     val toolsetRegistry = wiring.resolveToolsetRegistry(this@spawn)
+    val (toolRegistry, lazyToolRegistry) = wiring.resolveToolRegistries(this@spawn)
     return agent {
         persona(Persona(persona))
         llmProvider(wiring.resolveLlmProvider(this@spawn))
         memory(wiring.memory, maxMemoryRounds)
         maxIterations(maxIterations)
-        wiring.resolveToolRegistry(this@spawn)?.let { tools(it) }
-        wiring.resolveLazyToolRegistry(this@spawn)?.let { lazyTools(it) }
+        toolRegistry?.let { tools(it) }
+        lazyToolRegistry?.let { lazyTools(it) }
         toolsetRegistry?.let { toolsets(it) }
         wiring.resolveSkillRegistry(this@spawn)?.let { skills(it) }
         wiring.resolveSubagentRegistry(this@spawn)?.let { subagents(it) }

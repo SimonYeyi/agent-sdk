@@ -35,52 +35,39 @@ public data class AgentWiring(
     private val subagentRegistry: SubagentRegistry? = null
 ) {
     /**
-     * 解析工具注册表。
-     * - toolRegistry 为 null → 返回 null
-     * - definition.tools 为 null → 使用 toolRegistry 中全部项
-     * - definition.tools 为 emptyList() → 不使用任何项
-     * - definition.tools 为特定列表 → 只使用指定的项
+     * 解析工具注册表和延迟加载工具注册表，带 fallback 逻辑。
+     * - tools 为 null → 从两个 registry 获取全部
+     * - tools 为 emptyList() → 两个都返回空
+     * - tools 为特定列表 → 优先从 lazyToolRegistry 查找，找到则注册到 lazyToolRegistry；否则从 toolRegistry 查找，找到则注册到 toolRegistry
+     * - 都没找到 → 记录警告
      */
-    public fun resolveToolRegistry(definition: AgentDefinition): ToolRegistry? {
-        if (toolRegistry == null) return null
-        val filtered = ToolRegistry()
-        if (definition.tools == null) {
-            filtered.register(toolRegistry.all())
-        } else {
-            definition.tools.forEach { name ->
-                toolRegistry.getOrNull(name)?.let { filtered.register(it) }
-                    ?: log.warn("Runtime Tool not found: $name")
-            }
-        }
-        return filtered
-    }
+    public fun resolveToolRegistries(definition: AgentDefinition): Pair<ToolRegistry?, LazyToolRegistry?> {
+        val filteredToolRegistry = ToolRegistry()
+        val filteredLazyToolRegistry = LazyToolRegistry()
 
-    /**
-     * 解析延迟加载工具注册表。
-     * - lazyToolRegistry 为 null → 返回 null
-     * - definition.tools 为 null → 使用 lazyToolRegistry 中全部项
-     * - definition.tools 为 emptyList() → 不使用任何项
-     * - definition.tools 为特定列表 → 只使用指定的项
-     */
-    public fun resolveLazyToolRegistry(definition: AgentDefinition): LazyToolRegistry? {
-        if (lazyToolRegistry == null) return null
-        val filtered = LazyToolRegistry()
         if (definition.tools == null) {
-            filtered.register(lazyToolRegistry.all())
+            filteredToolRegistry.register(toolRegistry?.all() ?: emptyList())
+            filteredLazyToolRegistry.register(lazyToolRegistry?.all() ?: emptyList())
         } else {
             definition.tools.forEach { name ->
-                lazyToolRegistry.getOrNull(name)?.let { filtered.register(it) }
+                lazyToolRegistry?.getOrNull(name)?.let {
+                    filteredLazyToolRegistry.register(it)
+                } ?: toolRegistry?.getOrNull(name)?.let {
+                    filteredToolRegistry.register(it)
+                } ?: log.warn("Runtime Tool not found: $name")
             }
         }
-        return filtered
+
+        return (if (filteredToolRegistry.all().isEmpty()) null else filteredToolRegistry) to
+                if (filteredLazyToolRegistry.all().isEmpty()) null else filteredLazyToolRegistry
     }
 
     /**
      * 解析工具集注册表。
      * - toolsetRegistry 为 null → 返回 null
      * - definition.toolsets 为 null → 使用 toolsetRegistry 中全部项
-     * - definition.toolsets 为 emptyList() → 不使用任何项
-     * - definition.toolsets 为特定列表 → 只使用指定的项
+     * - definition.toolsets 为 emptyList() → 返回 null
+     * - definition.toolsets 为特定列表 → 只使用指定的项，找不到记录警告
      */
     public fun resolveToolsetRegistry(definition: AgentDefinition): ToolsetRegistry? {
         if (toolsetRegistry == null) return null
@@ -93,15 +80,15 @@ public data class AgentWiring(
                     ?: log.warn("Runtime Toolset not found: $name")
             }
         }
-        return filtered
+        return if (filtered.all().isEmpty()) null else filtered
     }
 
     /**
      * 解析技能注册表。
      * - skillRegistry 为 null → 返回 null
      * - definition.skills 为 null → 使用 skillRegistry 中全部项
-     * - definition.skills 为 emptyList() → 不使用任何项
-     * - definition.skills 为特定列表 → 只使用指定的项
+     * - definition.skills 为 emptyList() → 返回 null
+     * - definition.skills 为特定列表 → 只使用指定的项，找不到记录警告
      */
     public fun resolveSkillRegistry(definition: AgentDefinition): SkillRegistry? {
         if (skillRegistry == null) return null
@@ -114,15 +101,15 @@ public data class AgentWiring(
                     ?: log.warn("Runtime Skill not found: $name")
             }
         }
-        return filtered
+        return if (filtered.all().isEmpty()) null else filtered
     }
 
     /**
      * 解析子代理注册表。
      * - subagentRegistry 为 null → 返回 null
      * - definition.subagents 为 null → 使用 subagentRegistry 中全部项
-     * - definition.subagents 为 emptyList() → 不使用任何项
-     * - definition.subagents 为特定列表 → 只使用指定的项
+     * - definition.subagents 为 emptyList() → 返回 null
+     * - definition.subagents 为特定列表 → 只使用指定的项，找不到记录警告
      */
     public fun resolveSubagentRegistry(definition: AgentDefinition): SubagentRegistry? {
         if (subagentRegistry == null) return null
@@ -135,7 +122,7 @@ public data class AgentWiring(
                     ?: log.warn("Runtime Subagent not found: $name")
             }
         }
-        return filtered
+        return if (filtered.all().isEmpty()) null else filtered
     }
 
     /**
@@ -148,11 +135,13 @@ public data class AgentWiring(
                 model = definition.provider.model,
                 apiKey = definition.provider.apiKey
             )
+
             "openai" -> OpenAiProvider(
                 baseUrl = definition.provider.baseUrl,
                 model = definition.provider.model,
                 apiKey = definition.provider.apiKey
             )
+
             else -> error("Unknown provider: ${definition.provider.name}")
         }
     }
@@ -162,7 +151,10 @@ public data class AgentWiring(
      * - definition.mcps 为空 → 返回 null
      * - toolsetRegistry 为 null → 使用空 ToolsetRegistry
      */
-    public fun resolveMcpRegistry(definition: AgentDefinition, toolsetRegistry: ToolsetRegistry?): McpRegistry? {
+    public fun resolveMcpRegistry(
+        definition: AgentDefinition,
+        toolsetRegistry: ToolsetRegistry?
+    ): McpRegistry? {
         if (definition.mcps.isNullOrEmpty()) return null
         val registry = McpRegistry(
             toolsetRegistry = toolsetRegistry ?: ToolsetRegistry(),
@@ -178,6 +170,7 @@ public data class AgentWiring(
                             command = listOf(t.command) + t.args,
                             workingDirectory = null
                         )
+
                         is AgentDefinition.Mcp.Transport.Http -> SseTransport(
                             endpoint = t.url,
                             httpHeaders = t.headers
