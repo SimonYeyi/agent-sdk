@@ -26,6 +26,7 @@ import io.github.yeyi.agent.toolset.Toolset
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
@@ -428,5 +429,25 @@ class AgentScopeTest {
         job.join()
         // in-flight run 被 shutdown 终止：flow 自然结束（不再产生事件），而非挂起等待 gate 或抛异常
         assertTrue(completed)
+    }
+
+    @Test
+    fun `spawnedAgent run forwards delegate events to collector`() = runTest {
+        // 正常收集路径：delegate emit 的事件必须原样转发给收集方。
+        // 当前实现从 launch 子协程 emit 违反 flow 不变式（"Emission from another coroutine"），
+        // 本测试守护该路径不再回归。
+        val fake = object : Agent {
+            override fun run(query: AgentQuery): Flow<AgentEvent> = flow {
+                emit(AgentEvent.Initial(query))
+                emit(AgentEvent.Final(AgentResult(ChatMessage.Assistant("done"), 1, emptyList(), null)))
+            }
+        }
+        val spawned = SpawnedAgent(fake)
+
+        val events = spawned.run(AgentQuery.text("ping")).toList()
+
+        assertEquals(2, events.size)
+        assertTrue(events[0] is AgentEvent.Initial)
+        assertTrue(events[1] is AgentEvent.Final)
     }
 }

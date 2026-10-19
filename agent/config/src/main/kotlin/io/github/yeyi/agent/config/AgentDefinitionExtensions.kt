@@ -13,9 +13,8 @@ import io.github.yeyi.agent.subagent.subagents
 import io.github.yeyi.agent.tool.lazy_loading.lazyTools
 import io.github.yeyi.agent.toolset.toolsets
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.launch
 
 /**
@@ -60,15 +59,14 @@ public class SpawnedAgent internal constructor(
     override fun run(query: AgentQuery): Flow<AgentEvent> {
         // 已关闭的 Agent 不可再运行——直接抛非法状态异常，而非返回 Failed 事件。
         check(!shutdownSignal.isCompleted) { "Agent is shut down" }
-        return flow {
-            coroutineScope {
-                // delegate 收集与关闭信号并发竞赛：谁先完成谁胜出。
-                val delegateJob = launch { delegate.run(query).collect { emit(it) } }
-                val signalJob = launch { shutdownSignal.await(); delegateJob.cancel() }
-                delegateJob.join(); signalJob.cancel()
-                // 无论 delegate 自然完成还是被 shutdown 终止，flow 均以正常收尾结束：
-                // 关闭信号触发时 delegate 被取消（停止收集、不再产生事件），flow 收集随之自然结束。
-            }
+        // channelFlow：delegate 在独立子协程中收集转发，send 可跨协程（flow 的 emit 违反不变式）。
+        return channelFlow {
+            // delegate 收集与关闭信号并发竞赛：谁先完成谁胜出。
+            val delegateJob = launch { delegate.run(query).collect { send(it) } }
+            val signalJob = launch { shutdownSignal.await(); delegateJob.cancel() }
+            delegateJob.join(); signalJob.cancel()
+            // 无论 delegate 自然完成还是被 shutdown 终止，flow 均以正常收尾结束：
+            // 关闭信号触发时 delegate 被取消（停止收集、不再产生事件），flow 收集随之自然结束。
         }
     }
 
