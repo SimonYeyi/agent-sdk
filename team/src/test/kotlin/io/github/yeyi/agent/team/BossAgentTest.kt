@@ -119,6 +119,31 @@ class BossAgentTest {
     // ===== Queue behavior =====
 
     @Test
+    fun `shutdown terminates queued run flows`() = runBlocking {
+        // run1 挂起在首个 LLM 调用时，run2 处于排队（未启动，无执行者关闭其 channel）。
+        // shutdown 必须兜底关闭所有 round channel，否则 run2 的收集方永久挂起。
+        val (boss, _) = createBossAgent(
+            provider = SlowFirstLlmProvider(
+                responses = listOf(
+                    ChatResponse(message = ChatMessage.Assistant("r1"), finishReason = FinishReason.Stop),
+                    ChatResponse(message = ChatMessage.Assistant("r2"), finishReason = FinishReason.Stop),
+                ),
+                firstCallDelayMs = 500
+            )
+        )
+        val job1 = launch { boss.run(AgentQuery.text("one")).toList() }
+        val job2 = launch { boss.run(AgentQuery.text("two")).toList() }
+        delay(50) // run1 已被调度并挂起在 LLM, run2 排队
+        boss.shutdown()
+        withTimeout(1000) {
+            job1.join()
+            job2.join()
+        }
+        assertTrue(job1.isCompleted)
+        assertTrue(job2.isCompleted)
+    }
+
+    @Test
     fun `multiple run() calls are queued and processed in order`() = runBlocking {
         // 多个 run() 调用入队，按顺序处理，都正常完成
         val provider = SlowFirstLlmProvider(

@@ -20,6 +20,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 
 // ===== Types =====
 
@@ -84,6 +85,11 @@ public class BossAgent internal constructor(
 
     // ===== 调度器 =====
     private val scheduler = RoundScheduler()
+
+    // ===== 关闭追踪 =====
+    // 所有已创建但尚未结束的 round——shutdown 兜底关闭其 channel，
+    // 覆盖排队未启动的轮次，防止收集方永久挂起（排队的 round 没有执行者关闭 channel）。
+    private val openRounds: MutableSet<UserRound> = ConcurrentHashMap.newKeySet()
 
     // lateinit: 由 [attach] 赋值, 后续 collect 统一从此字段读取.
     // 未初始化访问抛 UninitializedPropertyAccessException (消息固定但可读).
@@ -151,16 +157,31 @@ public class BossAgent internal constructor(
             System.currentTimeMillis(),
             Channel(Channel.UNLIMITED)
         )
+        openRounds += round
         scope.launch { scheduler.submitUserRound(round) }
-        return flow { for (e in round.channel) emit(e) }
+        return flow {
+            try {
+                for (e in round.channel) emit(e)
+            } finally {
+                // 收集结束即注销；shutdown 兜底关闭时 close 幂等，与此处并发安全。
+                openRounds -= round
+            }
+        }
     }
 
     /**
-     * 关闭 BossAgent — 取消 [scope], 停止所有 boss/pasture 的后台任务.
+     * 关闭 BossAgent — 取消 [scope], 停止所有 boss/pasture 的后台任务,
+     * 并关闭所有未结束 round 的 channel 终止进行中的 run flow.
      * 之后 boss LLM 不会再被新事件触发; pasture 的 running jobs 也会被取消.
      * 调用方负责在不再使用 boss 时调用本方法 (e.g., 在应用关闭时).
      */
     public override fun shutdown() {
+        // 兜底关闭所有未结束 round 的 channel（close 幂等）:
+        // scope 取消后正在执行的轮次由 runUserRound 的 finally 关闭,
+        // 这里补齐排队未启动的轮次, 否则其收集方会永久挂起.
+        openRounds.forEach { it.channel.close() }
+        openRounds.clear()
+
         scope.cancel()
     }
 
