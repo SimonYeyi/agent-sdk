@@ -29,6 +29,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
@@ -110,10 +111,9 @@ class BossAgentTest {
         assertTrue(boss is Shutdownable)
         boss.shutdown()
         boss.shutdown() // 幂等
-        // subsequent run returns Failed event
-        val events = boss.run(AgentQuery.text("hello")).toList()
-        assertEquals(1, events.size)
-        assertTrue(events[0] is AgentEvent.Failed)
+        // shutdown 后 run 抛 IllegalStateException
+        val e = assertFailsWith<IllegalStateException> { boss.run(AgentQuery.text("hello")) }
+        assertTrue("Agent is shut down" in (e.message ?: ""))
     }
 
     // ===== Queue behavior =====

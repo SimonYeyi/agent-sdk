@@ -2,7 +2,6 @@ package io.github.yeyi.agent.config
 
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentContext
-import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
@@ -23,11 +22,11 @@ import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.lazy_loading.LazyTool
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.Toolset
-import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -380,10 +379,8 @@ class AgentScopeTest {
         spawned.shutdown()
         spawned.shutdown() // 幂等，第二次无副作用
 
-        // shutdown 后 run 返回 Failed（终态语义，与 BossAgent 一致）
-        val events = (spawned as Agent).run(AgentQuery.text("ping")).toList()
-        assertEquals(1, events.size)
-        assertTrue(events.single() is AgentEvent.Failed)
+        // shutdown 后 run 抛 IllegalStateException（终态语义，与 BossAgent 一致）
+        assertFailsWith<IllegalStateException> { (spawned as Agent).run(AgentQuery.text("ping")) }
     }
 
     @Test

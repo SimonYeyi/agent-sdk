@@ -140,10 +140,8 @@ public class BossAgent internal constructor(
     // ========== Public API ==========
 
     override fun run(query: AgentQuery): Flow<AgentEvent> {
-        // scope 已取消 (shutdown 调用过) — run() 返回 Failed 事件.
-        if (!scope.isActive) {
-            return flow { emit(AgentEvent.Failed(IllegalStateException("Agent is shut down"))) }
-        }
+        // scope 已取消 (shutdown 调用过) — 已关闭的 Agent 不可再运行，直接抛非法状态异常。
+        check(scope.isActive) { "Agent is shut down" }
 
         val queryText = (query.parts.firstOrNull() as? ContentPart.Text)?.text
             ?: query.parts.joinToString(" ") { it.toString() }

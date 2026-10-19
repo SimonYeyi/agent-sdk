@@ -13,7 +13,6 @@ import io.github.yeyi.agent.subagent.subagents
 import io.github.yeyi.agent.tool.lazy_loading.lazyTools
 import io.github.yeyi.agent.toolset.toolsets
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -46,7 +45,7 @@ public fun AgentDefinition.spawn(scope: AgentScope): SpawnedAgent {
  * spawn 产物：实现 [Agent] 的委托包装，并实现 [Shutdownable] 提供整体关闭。
  *
  * [shutdown] 是终态操作：回收底层资源（MCP 子进程等）并标记已关闭，
- * 之后 [run] 返回 [AgentEvent.Failed]；如需继续使用必须重新 spawn。
+ * 之后调用 [run] 抛出 [IllegalStateException]；如需继续使用必须重新 spawn。
  */
 public class SpawnedAgent internal constructor(
     private val delegate: Agent,
@@ -55,9 +54,8 @@ public class SpawnedAgent internal constructor(
     private val closed = AtomicBoolean(false)
 
     override fun run(query: AgentQuery): Flow<AgentEvent> {
-        if (closed.get()) {
-            return flow { emit(AgentEvent.Failed(IllegalStateException("Agent is shut down"))) }
-        }
+        // 已关闭的 Agent 不可再运行——直接抛非法状态异常，而非返回 Failed 事件。
+        check(!closed.get()) { "Agent is shut down" }
         return delegate.run(query)
     }
 

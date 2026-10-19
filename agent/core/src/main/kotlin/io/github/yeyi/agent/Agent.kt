@@ -79,7 +79,7 @@ public interface Steerable {
  * 探测能力，而非无条件调用 [shutdown]。
  *
  * [shutdown] 是终态操作：停止 Agent 的后台活动并回收其持有的外部资源（如 MCP 子进程），
- * 之后调用 [Agent.run] 返回 [AgentEvent.Failed]（Agent 已关闭）；如需继续使用必须重新创建实例。
+ * 之后调用 [Agent.run] 抛出 [IllegalStateException]（Agent 已关闭）；如需继续使用必须重新创建实例。
  * 幂等：可重复调用，第二次无副作用。
  *
  * 适用场景：会话/应用结束时的资源回收；BossAgent 等带后台协程的 Agent 的整体终止。
