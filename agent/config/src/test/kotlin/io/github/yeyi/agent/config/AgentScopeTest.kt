@@ -9,9 +9,14 @@ import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.Steerable
 import io.github.yeyi.agent.Streamable
 import io.github.yeyi.agent.Shutdownable
+import io.github.yeyi.agent.ReActAgent
+import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ChatResponseEvent
+import io.github.yeyi.agent.llm.FinishReason
+import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Summary
@@ -28,6 +33,7 @@ import io.github.yeyi.agent.toolset.Toolset
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
@@ -412,21 +418,18 @@ class AgentScopeTest {
     fun `spawnedAgent shutdown terminates in-flight run flow`() = runTest {
         val started = CompletableDeferred<Unit>()
         val gate = CompletableDeferred<Unit>()
-        val fake = object : Agent {
-            override fun run(query: AgentQuery): Flow<AgentEvent> = flow {
-                started.complete(Unit)
-                gate.await()
-                emit(AgentEvent.Final(AgentResult(ChatMessage.Assistant("done"), 1, emptyList(), null)))
-            }
-        }
-        val spawned = SpawnedAgent(fake)
+        val delegate = agent {
+            llmProvider(GatedLlm(started, gate))
+            memory(InMemoryMemory())
+        } as ReActAgent
+        val spawned = SpawnedAgent(delegate)
 
         var completed = false
         val job = launch {
             spawned.run(AgentQuery.text("ping")).collect { }
             completed = true
         }
-        started.await() // 确认 delegate 已开始收集
+        started.await() // 确认 delegate 已挂起在 LLM 调用
         spawned.shutdown()
         job.join()
         // in-flight run 被 shutdown 终止：flow 自然结束（不再产生事件），而非挂起等待 gate 或抛异常
@@ -436,15 +439,13 @@ class AgentScopeTest {
     @Test
     fun `spawnedAgent run forwards delegate events to collector`() = runTest {
         // 正常收集路径：delegate emit 的事件必须原样转发给收集方。
-        // 当前实现从 launch 子协程 emit 违反 flow 不变式（"Emission from another coroutine"），
+        // 此前实现从 launch 子协程 emit 违反 flow 不变式（"Emission from another coroutine"），
         // 本测试守护该路径不再回归。
-        val fake = object : Agent {
-            override fun run(query: AgentQuery): Flow<AgentEvent> = flow {
-                emit(AgentEvent.Initial(query))
-                emit(AgentEvent.Final(AgentResult(ChatMessage.Assistant("done"), 1, emptyList(), null)))
-            }
-        }
-        val spawned = SpawnedAgent(fake)
+        val delegate = agent {
+            llmProvider(StubLlm)
+            memory(InMemoryMemory())
+        } as ReActAgent
+        val spawned = SpawnedAgent(delegate)
 
         val events = spawned.run(AgentQuery.text("ping")).toList()
 
@@ -461,5 +462,31 @@ class AgentScopeTest {
 
         assertTrue(spawned is Streamable)
         assertTrue(spawned is Steerable)
+    }
+
+    // ===== SpawnedAgent 测试桩 =====
+
+    /** 立即返回固定回复的 LLM。 */
+    private object StubLlm : LlmProvider {
+        override val name: String = "stub"
+        override suspend fun chat(request: ChatRequest): ChatResponse =
+            ChatResponse(message = ChatMessage.Assistant("done"), finishReason = FinishReason.Stop)
+
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flowOf()
+    }
+
+    /** 首次调用挂起在 gate 上，用于构造 in-flight run 的 LLM。 */
+    private class GatedLlm(
+        private val started: CompletableDeferred<Unit>,
+        private val gate: CompletableDeferred<Unit>
+    ) : LlmProvider {
+        override val name: String = "gated"
+        override suspend fun chat(request: ChatRequest): ChatResponse {
+            started.complete(Unit)
+            gate.await()
+            return ChatResponse(message = ChatMessage.Assistant("done"), finishReason = FinishReason.Stop)
+        }
+
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flowOf()
     }
 }
