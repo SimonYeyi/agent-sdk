@@ -165,11 +165,17 @@ public class AgentScope(
     public val lazyToolRegistry: LazyToolRegistry? = null,
     public val toolsetRegistry: ToolsetRegistry? = null,
     public val skillRegistry: SkillRegistry? = null,
-    public val subagentRegistry: SubagentRegistry? = null
+    public val subagentRegistry: SubagentRegistry? = null,
+    public val hook: AgentHook? = null,                    // null → 不挂 hook（默认空操作）
+    public val modalityAdapter: ModalityAdapter? = null    // null → 默认可见性策略
 ) {
     public fun resolver(): AgentResolver = AgentResolver(this)
 }
+```
 
+`hook` 与 `modalityAdapter` 是纯运行时注入项，随 `AgentScope` 传入、由 `spawn` 接线；**不进入 AgentDefinition 配置契约**（两者都是代码态对象，无法序列化声明）。
+
+```kotlin
 public class AgentResolver internal constructor(private val scope: AgentScope) {
     public fun resolve(definition: AgentDefinition): ResolveInfo
     public class ResolveInfo(
@@ -206,11 +212,15 @@ public fun AgentDefinition.spawn(scope: AgentScope): Agent {
         info.skillRegistry?.let { skills(it) }
         info.subagentRegistry?.let { subagents(it) }
         info.mcpRegistry?.let { mcps(it) }
+        scope.hook?.let { hook(it) }
+        scope.modalityAdapter?.let { modalityAdapter(it) }
     }
 }
 ```
 
 注意 `tools()` 是 `AgentBuilder` 的成员函数（拷贝式注册），空 registry 注入与不调用等效；`toolsets()`/`mcps()` 是 toolset 框架插件，只能安装一次。
+
+`scope.hook` / `scope.modalityAdapter` 在此接线到 AgentBuilder；二者为 null 时不调用对应 DSL，走 AgentBuilder 默认行为（默认 hook 空操作、默认可见性策略）。
 
 ### AgentRegistry（config 模块）
 

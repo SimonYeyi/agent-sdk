@@ -1,6 +1,15 @@
 package io.github.yeyi.agent.config
 
+import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.AgentHook
+import io.github.yeyi.agent.AgentResult
+import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ChatRequest
+import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.memory.Summary
+import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.skill.Skill
 import io.github.yeyi.agent.subagent.Subagent
 import io.github.yeyi.agent.tool.Tool
@@ -19,6 +28,31 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class AgentScopeTest {
+
+    private class NoopHook : AgentHook {
+        override suspend fun beforeMemoryCompress(context: AgentContext, summaries: List<Summary>) {}
+        override suspend fun afterMemoryCompress(context: AgentContext, summaries: List<Summary>) {}
+        override suspend fun beforeLlmCall(context: AgentContext, request: ChatRequest): ChatRequest = request
+        override suspend fun afterLlmResponse(context: AgentContext, response: ChatResponse) {}
+        override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? = null
+        override suspend fun afterToolCall(
+            context: AgentContext,
+            call: ToolCall,
+            result: ToolExecutionResult,
+            synthetic: Boolean,
+            durationMs: Long
+        ): ToolExecutionResult = result
+        override suspend fun onRunCompleted(context: AgentContext, result: AgentResult) {}
+        override suspend fun onRunFailed(context: AgentContext, cause: Throwable) {}
+    }
+
+    private fun createPassthroughModalityAdapter() = object : ModalityAdapter(null) {
+        override suspend fun resolve(
+            messages: List<ChatMessage>,
+            resolver: Resolver
+        ): List<ChatMessage> = messages.map { resolver.resolve(it, true) }
+    }
+
 
     private fun createTestDefinition(
         tools: List<String>? = null,
@@ -317,6 +351,20 @@ class AgentScopeTest {
         assertTrue(info.mcpRegistry != null)
 
         val agent = definition.spawn(scope)
+        assertNotNull(agent)
+    }
+
+    @Test
+    fun `spawn wires scope hook and modalityAdapter`() = runTest {
+        val scope = AgentScope(
+            memory = InMemoryMemory(),
+            hook = NoopHook(),
+            modalityAdapter = createPassthroughModalityAdapter()
+        )
+        val definition = createTestDefinition()
+
+        val agent = definition.spawn(scope)
+
         assertNotNull(agent)
     }
 }

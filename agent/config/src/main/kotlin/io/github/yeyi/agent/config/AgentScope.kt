@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.config
 
+import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.mcp.ClientInfo
 import io.github.yeyi.agent.mcp.Mcp
@@ -8,6 +9,7 @@ import io.github.yeyi.agent.mcp.McpRegistry
 import io.github.yeyi.agent.mcp.StdioTransport
 import io.github.yeyi.agent.mcp.SseTransport
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
 import io.github.yeyi.agent.providers.openai.OpenAiProvider
 import io.github.yeyi.agent.skill.SkillRegistry
@@ -17,7 +19,7 @@ import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 
 /**
- * Agent 运行时上下文，封装 memory 和各组件注册表。
+ * Agent 运行时上下文，封装 memory、各组件注册表及运行时注入项。
  *
  * @param memory 会话记忆（必需）
  * @param toolRegistry 工具注册表
@@ -25,6 +27,8 @@ import io.github.yeyi.agent.toolset.ToolsetRegistry
  * @param toolsetRegistry 工具集注册表
  * @param skillRegistry 技能注册表
  * @param subagentRegistry 子代理注册表
+ * @param hook 运行时观察/介入 hook，null 表示不挂（AgentBuilder 默认空操作）
+ * @param modalityAdapter 历史消息 media 可见性适配器，null 表示默认策略（取 memory 归档）
  */
 public class AgentScope(
     public val memory: Memory,
@@ -32,7 +36,9 @@ public class AgentScope(
     public val lazyToolRegistry: LazyToolRegistry? = null,
     public val toolsetRegistry: ToolsetRegistry? = null,
     public val skillRegistry: SkillRegistry? = null,
-    public val subagentRegistry: SubagentRegistry? = null
+    public val subagentRegistry: SubagentRegistry? = null,
+    public val hook: AgentHook? = null,
+    public val modalityAdapter: ModalityAdapter? = null
 ) {
     /**
      * 创建 AgentResolver 实例。
@@ -166,7 +172,7 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
         if (definition.mcps.isNullOrEmpty()) return null
         val registry = McpRegistry(
             toolsetRegistry = toolsetRegistry ?: ToolsetRegistry(),
-            clientInfo = ClientInfo("agent", definition.version.toString())
+            clientInfo = ClientInfo(definition.name, definition.version.toString())
         )
         definition.mcps.forEach { config ->
             val mcp = object : Mcp() {

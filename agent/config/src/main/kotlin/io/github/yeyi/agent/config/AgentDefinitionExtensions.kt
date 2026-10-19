@@ -28,5 +28,7 @@ public fun AgentDefinition.spawn(scope: AgentScope): Agent {
         resolveInfo.skillRegistry?.let { skills(it) }
         resolveInfo.subagentRegistry?.let { subagents(it) }
         resolveInfo.mcpRegistry?.let { mcps(it) }
+        scope.hook?.let { hook(it) }
+        scope.modalityAdapter?.let { modalityAdapter(it) }
     }
 }
