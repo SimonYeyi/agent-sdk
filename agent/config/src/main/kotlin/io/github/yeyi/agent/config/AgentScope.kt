@@ -71,7 +71,9 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
         return ResolveInfo(
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry,
-            toolsetRegistry = toolsetRegistry,
+            // 互斥在此层解决：声明 mcps 时普通 Toolset 已随 McpRegistry 的 toolset 槽位一并安装，
+            // 此处置 null，spawn 顺序调用 toolsets()/mcps() 时天然只走一路，避免插件二次安装冲突
+            toolsetRegistry = if (mcpRegistry != null) null else toolsetRegistry,
             skillRegistry = skillRegistry,
             subagentRegistry = subagentRegistry,
             llmProvider = llmProvider,
@@ -174,7 +176,8 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
                     when (val t = config.transport) {
                         is AgentDefinition.Mcp.Transport.Stdio -> StdioTransport(
                             command = listOf(t.command) + t.args,
-                            workingDirectory = null
+                            env = t.env,
+                            workingDirectory = t.workingDirectory
                         )
 
                         is AgentDefinition.Mcp.Transport.Http -> SseTransport(

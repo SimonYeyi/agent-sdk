@@ -14,6 +14,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -290,5 +291,32 @@ class AgentScopeTest {
         val info = scope.resolver().resolve(definition)
 
         assertTrue(info.mcpRegistry != null)
+    }
+
+    @Test
+    fun `toolsets with mcps share toolset slot and spawn does not conflict`() = runTest {
+        val toolsetRegistry = io.github.yeyi.agent.toolset.ToolsetRegistry().apply {
+            register(Toolset("ts1", "Toolset 1"))
+        }
+        val scope = AgentScope(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
+        val definition = createTestDefinition(
+            toolsets = listOf("ts1"),
+            mcps = listOf(
+                AgentDefinition.Mcp(
+                    name = "stdioMcp",
+                    description = "Stdio MCP",
+                    transport = AgentDefinition.Mcp.Transport.Stdio(command = "echo")
+                )
+            )
+        )
+
+        val info = scope.resolver().resolve(definition)
+
+        // mcps 非空时 toolset 槽位移交 McpRegistry，spawn 经 mcps() 统一安装，避免插件二次安装冲突
+        assertNull(info.toolsetRegistry)
+        assertTrue(info.mcpRegistry != null)
+
+        val agent = definition.spawn(scope)
+        assertNotNull(agent)
     }
 }
