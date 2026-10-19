@@ -483,6 +483,75 @@ class AgentScopeTest {
         assertEquals(0, llm.calls)
     }
 
+    @Test
+    fun `spawnedAgent runStream terminates in-flight stream flow`() = runTest {
+        // runStream 与 run 遵循同一终态契约：shutdown 终止进行中的流式 flow，收集自然结束。
+        val started = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val delegate = agent {
+            llmProvider(GatedLlm(started, gate))
+            memory(InMemoryMemory())
+        } as ReActAgent
+        val spawned = SpawnedAgent(delegate)
+
+        var completed = false
+        val job = launch {
+            spawned.runStream(AgentQuery.text("ping")).collect { }
+            completed = true
+        }
+        started.await() // 确认 delegate 已挂起在 LLM 调用
+        spawned.shutdown()
+        job.join()
+        assertTrue(completed)
+    }
+
+    @Test
+    fun `spawnedAgent runStream collected after shutdown does not start delegate`() = runTest {
+        // runStream 入口 check 通过后 shutdown、collect 前已关闭——delegate 不应再启动，零事件自然结束。
+        val llm = CountingLlm()
+        val delegate = agent {
+            llmProvider(llm)
+            memory(InMemoryMemory())
+        } as ReActAgent
+        val spawned = SpawnedAgent(delegate)
+
+        val flow = spawned.runStream(AgentQuery.text("ping"))
+        spawned.shutdown()
+        val events = flow.toList()
+
+        assertTrue(events.isEmpty())
+        assertEquals(0, llm.calls)
+    }
+
+    @Test
+    fun `spawnedAgent runStream and steer after shutdown throw`() = runTest {
+        // 已关闭的 Agent 调用 runStream/steer 直接抛 ISE（与 run 一致，而非透传 delegate）。
+        val delegate = agent {
+            llmProvider(StubLlm)
+            memory(InMemoryMemory())
+        } as ReActAgent
+        val spawned = SpawnedAgent(delegate)
+        spawned.shutdown()
+
+        assertFailsWith<IllegalStateException> { spawned.runStream(AgentQuery.text("ping")) }
+        assertFailsWith<IllegalStateException> { spawned.steer(AgentQuery.text("ping")) }
+    }
+
+    @Test
+    fun `spawnedAgent run without collect still occupies delegate slot`() = runTest {
+        // 与 ReActAgent "run 即占槽" 语义对齐：run() 返回后即使未收集，
+        // delegate 槽位已被占用——steer() 返回 true 而非误判空闲，
+        // 否则调用方按 KDoc 模式（steer()==false 触发 fallback run）会并发双 run。
+        val delegate = agent {
+            llmProvider(StubLlm)
+            memory(InMemoryMemory())
+        } as ReActAgent
+        val spawned = SpawnedAgent(delegate)
+
+        spawned.run(AgentQuery.text("ping")) // 不 collect
+        assertTrue(spawned.steer(AgentQuery.text("ping")))
+    }
+
     // ===== SpawnedAgent 测试桩 =====
 
     /** 立即返回固定回复的 LLM。 */
@@ -506,7 +575,11 @@ class AgentScopeTest {
             return ChatResponse(message = ChatMessage.Assistant("done"), finishReason = FinishReason.Stop)
         }
 
-        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flowOf()
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
+            started.complete(Unit)
+            gate.await()
+            emit(ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop))
+        }
     }
 
     /** 记录调用次数的 LLM，用于断言 delegate 是否被启动。 */

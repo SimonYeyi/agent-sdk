@@ -55,20 +55,29 @@ public fun AgentDefinition.spawn(scope: AgentScope): SpawnedAgent {
 public class SpawnedAgent internal constructor(
     private val delegate: ReActAgent,
     private val mcpRegistry: McpRegistry? = null
-) : Agent by delegate, Streamable by delegate, Steerable by delegate, Shutdownable {
+) : Agent, Streamable, Steerable, Shutdownable {
     // 关闭信号，兼作关闭状态：isCompleted 即"已关闭"，complete 原子且幂等。
     private val shutdownSignal = CompletableDeferred<Unit>()
 
-    override fun run(query: AgentQuery): Flow<AgentEvent> {
+    override fun run(query: AgentQuery): Flow<AgentEvent> = runDelegate { delegate.run(query) }
+
+    override fun runStream(query: AgentQuery): Flow<AgentEvent> =
+        runDelegate { delegate.runStream(query) }
+
+    private fun runDelegate(createDelegateFlow: () -> Flow<AgentEvent>): Flow<AgentEvent> {
         // 已关闭的 Agent 不可再运行——直接抛非法状态异常，而非返回 Failed 事件。
-        check(!shutdownSignal.isCompleted) { "Agent is shut down" }
+        checkShutdown()
+        // 入口即创建 delegate flow：delegate.run()/runStream() 内部的 acquireSteerInbox()
+        // 急切占据活跃 run 槽位，与 ReActAgent "run 即占槽" 语义对齐——run 返回后尚未收集的
+        // 间隙里 steer() 不得误判空闲（否则调用方会按 KDoc 模式触发并发 fallback run）。
+        val delegateFlow = createDelegateFlow()
         // channelFlow：delegate 在独立子协程中收集转发，send 可跨协程（flow 的 emit 违反不变式）。
         return channelFlow {
             // 守卫：shutdown 已在 collect 前发生——不再启动 delegate，flow 以零事件自然结束
             // （归"shutdown 终止进行中 run flow"协议，而非抛异常）。避免踩到已回收的 MCP 注册表。
-            if (shutdownSignal.isCompleted) return@channelFlow
+            runCatching { checkShutdown() }.getOrElse { return@channelFlow }
             // delegate 收集与关闭信号并发竞赛：谁先完成谁胜出。
-            val delegateJob = launch { delegate.run(query).collect { send(it) } }
+            val delegateJob = launch { delegateFlow.collect { send(it) } }
             val signalJob = launch { shutdownSignal.await(); delegateJob.cancel() }
             delegateJob.join(); signalJob.cancel()
             // 无论 delegate 自然完成还是被 shutdown 终止，flow 均以正常收尾结束：
@@ -76,9 +85,17 @@ public class SpawnedAgent internal constructor(
         }
     }
 
+    override fun steer(query: AgentQuery): Boolean {
+        // 已关闭的 Agent 不可再注入指令——直接抛 ISE，遵循统一终态契约。
+        checkShutdown()
+        return delegate.steer(query)
+    }
+
     /** 永久关闭 Agent 并回收资源（MCP 子进程等）。幂等，可重复调用。 */
     override fun shutdown() {
         if (!shutdownSignal.complete(Unit)) return
         mcpRegistry?.unregisterAll()
     }
+
+    private fun checkShutdown() = check(!shutdownSignal.isCompleted) { "Agent is shut down" }
 }
