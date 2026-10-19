@@ -6,6 +6,8 @@ import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
+import io.github.yeyi.agent.Steerable
+import io.github.yeyi.agent.Streamable
 import io.github.yeyi.agent.Shutdownable
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
@@ -449,5 +451,15 @@ class AgentScopeTest {
         assertEquals(2, events.size)
         assertTrue(events[0] is AgentEvent.Initial)
         assertTrue(events[1] is AgentEvent.Final)
+    }
+
+    @Test
+    fun `spawnedAgent exposes streamable and steerable when delegate does`() = runTest {
+        // spawn 产物应保留 delegate 的流式/在途指令能力，供调用方 `is Streamable` / `is Steerable` 探测。
+        // 当前实现只委托 Agent，能力被吞——本测试守护不回归。
+        val spawned = createTestDefinition().spawn(AgentScope(memory = InMemoryMemory()))
+
+        assertTrue(spawned is Streamable)
+        assertTrue(spawned is Steerable)
     }
 }

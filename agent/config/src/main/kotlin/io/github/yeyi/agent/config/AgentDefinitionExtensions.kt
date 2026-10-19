@@ -4,8 +4,11 @@ import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.Steerable
+import io.github.yeyi.agent.Streamable
 import io.github.yeyi.agent.Shutdownable
 import io.github.yeyi.agent.agent
+import kotlinx.coroutines.flow.emptyFlow
 import io.github.yeyi.agent.mcp.McpRegistry
 import io.github.yeyi.agent.mcp.mcps
 import io.github.yeyi.agent.skill.skills
@@ -52,7 +55,10 @@ public fun AgentDefinition.spawn(scope: AgentScope): SpawnedAgent {
 public class SpawnedAgent internal constructor(
     private val delegate: Agent,
     private val mcpRegistry: McpRegistry? = null
-) : Agent by delegate, Shutdownable {
+) : Agent by delegate,
+    Streamable by (delegate as? Streamable ?: NoStreamable),
+    Steerable by (delegate as? Steerable ?: NoSteerable),
+    Shutdownable {
     // 关闭信号，兼作关闭状态：isCompleted 即"已关闭"，complete 原子且幂等。
     private val shutdownSignal = CompletableDeferred<Unit>()
 
@@ -75,4 +81,13 @@ public class SpawnedAgent internal constructor(
         if (!shutdownSignal.complete(Unit)) return
         mcpRegistry?.unregisterAll()
     }
+}
+
+// delegate 不具备对应能力时委托到空实现，保证 SpawnedAgent 始终实现 Streamable/Steerable（探测不吞能力）。
+private object NoStreamable : Streamable {
+    override fun runStream(query: AgentQuery): Flow<AgentEvent> = emptyFlow()
+}
+
+private object NoSteerable : Steerable {
+    override fun steer(query: AgentQuery): Boolean = false
 }
