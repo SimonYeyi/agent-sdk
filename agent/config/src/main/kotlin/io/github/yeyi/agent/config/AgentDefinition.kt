@@ -57,7 +57,8 @@ public data class AgentDefinition(
             public data class Stdio(
                 val command: String,
                 val args: List<String> = emptyList(),
-                val env: Map<String, String> = emptyMap()
+                val env: Map<String, String> = emptyMap(),
+                val workingDirectory: String? = null
             ) : Transport
 
             @Serializable

@@ -46,9 +46,16 @@ import java.util.concurrent.TimeUnit
  * transport is no longer needed. Parent coroutine cancellation does NOT
  * automatically destroy the child process — [McpRegistry.unregisterAll] is
  * the canonical cleanup path.
+ *
+ * @param command 可执行命令及其参数
+ * @param env 追加到子进程环境变量（在继承的进程环境之上覆盖同名键）
+ * @param workingDirectory 子进程工作目录，null 表示继承当前进程
+ * @param requestTimeoutMillis 单次请求超时
+ * @param stderrHandler 子进程 stderr 行处理器
  */
 public class StdioTransport(
     private val command: List<String>,
+    private val env: Map<String, String> = emptyMap(),
     private val workingDirectory: String? = null,
     private val requestTimeoutMillis: Long = 30_000,
     private val stderrHandler: (String) -> Unit = {},
@@ -138,6 +145,7 @@ public class StdioTransport(
     private fun startProcess() {
         val builder = ProcessBuilder(command)
         workingDirectory?.let { builder.directory(java.io.File(it)) }
+        if (env.isNotEmpty()) builder.environment().putAll(env)
         builder.redirectErrorStream(false)
 
         val newProcess = builder.start()
