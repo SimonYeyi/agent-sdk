@@ -10,15 +10,19 @@
 
 ```
 Session 模块（agent/session）
-├── AgentReference     # Session 绑定的 Agent 投影
+├── AgentReference     # Session 绑定的 Agent 投影（仅 name + version 占位）
 └── Session            # 会话，包含 AgentReference
 
 config 模块（agent/config）
-├── AgentDefinition              # Agent 的完整声明
-├── AgentDefinitionExtensions    # spawn 扩展
-├── LoggingExtensions            # 日志 tag 封装
-└── AgentRegistry                # 管理 AgentDefinition 的注册与查找
+├── AgentDefinition              # Agent 的完整声明（可序列化）
+├── AgentScope                   # 运行时上下文：memory + 各注册表
+├── AgentResolver                # 从 AgentScope 按定义投影出 ResolveInfo
+├── AgentDefinitionExtensions    # spawn(scope) 组装入口
+├── AgentRegistry                # 管理 AgentDefinition 的注册与查找
+└── LoggingExtensions            # 日志 tag 封装
 ```
+
+Session 模块不依赖 config 模块（session 只依赖 core/hook）；恢复闭环由应用层胶水代码完成：`session.agent.name → AgentRegistry.getOrNull → AgentScope(session.memory, registries) → definition.spawn(scope)`。
 
 ## 依赖扩展
 
@@ -43,9 +47,9 @@ public class DefaultCapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : Ca
 }
 ```
 
-### agent/config/.../LoggingExtensions.kt
+配套新增 `isEmpty()`，供 `AgentResolver` 判断投影结果是否为空。
 
-新建文件：
+### agent/config/.../LoggingExtensions.kt
 
 ```kotlin
 package io.github.yeyi.agent.config
@@ -61,19 +65,19 @@ internal val log = LoggingTagged("config")
 
 ```kotlin
 @Serializable
-data class AgentReference(
+public data class AgentReference(
     val name: String,
     val version: Int = 0  // 占位，默认 0
 )
 ```
 
-Session 绑定的 Agent 投影，仅包含引用信息。
+Session 绑定的 Agent 投影，仅包含引用信息。恢复时按 `name` 从 `AgentRegistry` 查找定义；`version` 暂不参与校验。
 
 ### Session（Session 模块）
 
 ```kotlin
 @Serializable
-data class Session(
+public data class Session(
     val id: String,
     val accountId: String,
     val name: String,
@@ -90,17 +94,6 @@ data class Session(
 
 ### AgentDefinition（config 模块）
 
-config 模块的日志扩展：
-
-```kotlin
-// io.github.yeyi.agent.config.LoggingExtensions.kt
-package io.github.yeyi.agent.config
-
-import io.github.yeyi.agent.log.LoggingTagged
-
-internal val log = LoggingTagged("config")
-```
-
 ```kotlin
 @Serializable
 public data class AgentDefinition(
@@ -114,15 +107,24 @@ public data class AgentDefinition(
     val toolsets: List<String>? = null,
     val skills: List<String>? = null,
     val subagents: List<String>? = null,
-    val mcps: List<Mcp> = emptyList(),
+    val mcps: List<Mcp>? = null,
 ) {
+    @OptIn(ExperimentalSerializationApi::class)
     @Serializable
-    public data class Provider(
-        val name: String,        // "anthropic" | "openai"
-        val baseUrl: String,
-        val model: String,
-        val apiKey: String
-    )
+    @JsonClassDiscriminator("name")
+    public sealed interface Provider {
+        public val baseUrl: String
+        public val model: String
+        public val apiKey: String
+
+        @Serializable
+        @SerialName("openai")
+        public data class OpenAi(...) : Provider
+
+        @Serializable
+        @SerialName("anthropic")
+        public data class Anthropic(...) : Provider
+    }
 
     @Serializable
     public data class Mcp(
@@ -137,6 +139,7 @@ public data class AgentDefinition(
             public data class Stdio(
                 val command: String,
                 val args: List<String> = emptyList(),
+                val workingDirectory: String? = null,
                 val env: Map<String, String> = emptyMap()
             ) : Transport
 
@@ -149,156 +152,102 @@ public data class AgentDefinition(
         }
     }
 }
+```
 
-public fun AgentDefinition.spawn(
-    memory: Memory,
-    toolRegistry: ToolRegistry? = null,
-    lazyToolRegistry: LazyToolRegistry? = null,
-    toolsetRegistry: ToolsetRegistry? = null,
-    skillRegistry: SkillRegistry? = null,
-    subagentRegistry: SubagentRegistry? = null
-): Agent {
-    // 1. 从各 registry 中过滤出声明的项
-    // null 表示使用 registry 中全部项，emptyList() 表示不使用任何项
-    val filteredToolRegistry = ToolRegistry()
-    val filteredLazyToolRegistry = LazyToolRegistry()
-    if (tools == null) {
-        filteredToolRegistry.register(toolRegistry?.all() ?: emptyList())
-        filteredLazyToolRegistry.register(lazyToolRegistry?.all() ?: emptyList())
-    } else {
-        tools.forEach { name ->
-            lazyToolRegistry?.getOrNull(name)?.let {
-                filteredLazyToolRegistry.register(it)
-            } ?: toolRegistry?.getOrNull(name)?.let {
-                filteredToolRegistry.register(it)
-            } ?: log.warn("Runtime Tool not found: $name")
-        }
-    }
+Provider 采用 sealed interface + `@JsonClassDiscriminator("name")`，`when` 分支编译期穷尽，无需 `else -> error`。
 
-    val filteredToolsetRegistry = ToolsetRegistry()
-    if (toolsets == null) {
-        filteredToolsetRegistry.register(toolsetRegistry?.all() ?: emptyList())
-    } else {
-        toolsets.forEach { name ->
-            toolsetRegistry?.getOrNull(name)?.let { filteredToolsetRegistry.register(it) }
-                ?: log.warn("Runtime Toolset not found: $name")
-        }
-    }
+### AgentScope / AgentResolver（config 模块）
 
-    val filteredSkillRegistry = SkillRegistry()
-    if (skills == null) {
-        filteredSkillRegistry.register(skillRegistry?.all() ?: emptyList())
-    } else {
-        skills.forEach { name ->
-            skillRegistry?.getOrNull(name)?.let { filteredSkillRegistry.register(it) }
-                ?: log.warn("Runtime Skill not found: $name")
-        }
-    }
+```kotlin
+public class AgentScope(
+    public val memory: Memory,
+    public val toolRegistry: ToolRegistry? = null,
+    public val lazyToolRegistry: LazyToolRegistry? = null,
+    public val toolsetRegistry: ToolsetRegistry? = null,
+    public val skillRegistry: SkillRegistry? = null,
+    public val subagentRegistry: SubagentRegistry? = null
+) {
+    public fun resolver(): AgentResolver = AgentResolver(this)
+}
 
-    val filteredSubagentRegistry = SubagentRegistry()
-    if (subagents == null) {
-        filteredSubagentRegistry.register(subagentRegistry?.all() ?: emptyList())
-    } else {
-        subagents.forEach { name ->
-            subagentRegistry?.getOrNull(name)?.let { filteredSubagentRegistry.register(it) }
-                ?: log.warn("Runtime Subagent not found: $name")
-        }
-    }
-
-    // 2. 创建 MCP Registry 并注册声明的 MCP
-    val mcpRegistry = McpRegistry(
-        toolsetRegistry = filteredToolsetRegistry,
-        clientInfo = ClientInfo("agent", version.toString())
+public class AgentResolver internal constructor(private val scope: AgentScope) {
+    public fun resolve(definition: AgentDefinition): ResolveInfo
+    public class ResolveInfo(
+        public val toolRegistry: ToolRegistry?,
+        public val lazyToolRegistry: LazyToolRegistry?,
+        public val toolsetRegistry: ToolsetRegistry?,
+        public val skillRegistry: SkillRegistry?,
+        public val subagentRegistry: SubagentRegistry?,
+        public val llmProvider: LlmProvider,
+        public val mcpRegistry: McpRegistry?
     )
-    mcps.forEach { mcpConfig ->
-        val mcp = createMcp(mcpConfig)
-        mcpRegistry.register(mcp)
-    }
+}
+```
 
-    // 3. 构建 LLM Provider
-    val llmProvider = createLlmProvider(provider)
+`resolve` 一次性按序投影：
+- `tools == null` → 全部注入；`[]` → 空结果（`ToolRegistry` 仍返回非 null，与 null 等效，spawn 侧 `tools()` 为拷贝式成员函数，空注入无害）；`["a"]` → 只注入 a
+- `toolsets/skills/subagents` 同理，但空结果返回 null（spawn 侧跳过插件安装）
+- 能力缺失只 `log.warn` 降级，不中断构建
+- tools 按名查找时优先 `lazyToolRegistry`（自动识别 lazy tool），未命中再查 `toolRegistry`
 
-    // 4. 构建 Agent
-    // 注意：只有 registry 非 null 时才安装对应插件
-    // 原因：如果传入空 registry，插件会用空快照初始化，之后动态注入也感知不到
-    // 使用 ?.let 语法确保 null 时不安装插件，支持未来运行时动态注册
+### spawn（AgentDefinitionExtensions.kt）
+
+```kotlin
+public fun AgentDefinition.spawn(scope: AgentScope): Agent {
+    val info = scope.resolver().resolve(this@spawn)
     return agent {
         persona(Persona(persona))
-        llmProvider(llmProvider)
-        memory(memory, maxMemoryRounds)
+        llmProvider(info.llmProvider)
+        memory(scope.memory, maxMemoryRounds)
         maxIterations(maxIterations)
-        toolRegistry?.let { tools(filteredToolRegistry) }
-        lazyToolRegistry?.let { lazyTools(filteredLazyToolRegistry) }
-        toolsetRegistry?.let { toolsets(filteredToolsetRegistry) }
-        skillRegistry?.let { skills(filteredSkillRegistry) }
-        subagentRegistry?.let { subagents(filteredSubagentRegistry) }
+        info.toolRegistry?.let { tools(it) }
+        info.lazyToolRegistry?.let { lazyTools(it) }
+        info.toolsetRegistry?.let { toolsets(it) }
+        info.skillRegistry?.let { skills(it) }
+        info.subagentRegistry?.let { subagents(it) }
+        info.mcpRegistry?.let { mcps(it) }
     }
 }
+```
 
-private fun createLlmProvider(provider: Provider): LlmProvider {
-    return when (provider.name) {
-        "anthropic" -> AnthropicProvider(
-            baseUrl = provider.baseUrl,
-            model = provider.model,
-            apiKey = provider.apiKey
-        )
-        "openai" -> OpenAiProvider(
-            baseUrl = provider.baseUrl,
-            model = provider.model,
-            apiKey = provider.apiKey
-        )
-        else -> error("Unknown provider: ${provider.name}")
-    }
-}
-
-private fun createMcp(config: AgentDefinition.Mcp): Mcp {
-    return object : Mcp() {
-        override val name: String = config.name
-        override val description: String = config.description
-        override val client: McpClient = McpClient(
-            when (val transport = config.transport) {
-                is AgentDefinition.Mcp.Transport.Stdio -> StdioTransport(
-                    command = listOf(transport.command) + transport.args,
-                    workingDirectory = null
-                )
-                is AgentDefinition.Mcp.Transport.Http -> SseTransport(
-                    endpoint = transport.url,
-                    httpHeaders = transport.headers
-                )
-            }
-        )
-    }
-}
+注意 `tools()` 是 `AgentBuilder` 的成员函数（拷贝式注册），空 registry 注入与不调用等效；`toolsets()`/`mcps()` 是 toolset 框架插件，只能安装一次。
 
 ### AgentRegistry（config 模块）
 
 ```kotlin
 public class AgentRegistry {
     public fun register(definition: AgentDefinition)
-    public fun find(name: String): AgentDefinition?
+    public fun getOrNull(name: String): AgentDefinition?
 }
 ```
 
-管理 AgentDefinition 的注册与查找。`find` 返回可空，查不到时返回 null。
+`register` 同名重复注册抛异常；`getOrNull` 查不到返回 null。**纯内存存储，不落盘**——这是 apiKey 不泄露的关键前提之一。
 
-## TOML 配置示例
+## 配置语义
+
+- 字段不写 → `null` → 使用 registry 中全部项
+- 字段写 `= []` → 不使用任何项（tools 投影结果为空 registry，与 null 等效）
+- 字段写 `= ["xxx"]` → 只使用指定的项
+
+例如：
+```toml
+tools = []          # 不使用任何 tool
+tools = ["getWeather"]  # 只使用 getWeather
+# 不写 tools 字段 → 使用 registry 中全部 tool
+```
+
+**恢复一致性提示**：`null` 语义（跟随运行时全部）意味着恢复时能力集合 = 恢复时刻注册表内容。若创建与恢复之间注册表有增删，恢复出的 agent 会漂移。要严格保证恢复一致，定义中应显式枚举（非 null）能力列表。
+
+## 已知限制
+
+- **toolsets 与 mcps 的互斥已在 resolver 层解决**：`mcps()` 内部通过 toolset 框架安装（插件只能装一次）。`AgentResolver.resolve()` 在声明 mcps 时复用 toolsetRegistry 构造 `McpRegistry`（普通 Toolset 已 register 进去）并把 `ResolveInfo.toolsetRegistry` 置 null，spawn 按序调用 `toolsets()`/`mcps()` 天然只走一路，二者可安全同时声明。
+- **TOML 配置解析器尚未实现**：下方示例仅作格式规划，当前配置通过构造 `AgentDefinition` 对象注入，未提供 TOML/JSON 文件解析入口。
+- **apiKey 随配置序列化**：见下方安全边界。
+
+## TOML 配置示例（规划，解析器待实现）
 
 ```toml
 # MCP 模板定义（顶层）
-# description 必填，会被模型识别用于选择合适的 MCP 工具
-[mcp.filesystem]
-description = "提供文件系统操作能力，包括读取、写入、列出目录等"
-transport = "stdio"
-command = "npx"
-args = ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
-
-[mcp.httpMcp]
-description = "远程 HTTP MCP 服务"
-transport = "http"
-url = "https://mcp.example.com"
-headers = { Authorization = "Bearer xxx" }
-
-# Agent 定义
 [agent.smartHome]
 persona = "你是智能家居助手..."
 maxIterations = 20
@@ -317,112 +266,60 @@ subagents = ["helpSubagent"]
 mcps = ["filesystem", "httpMcp"]
 ```
 
-**配置说明：**
-- 字段不写 → `null` → 使用 registry 中全部项
-- 字段写 `= []` → `emptyList()` → 不使用任何项
-- 字段写 `= ["xxx"]` → 只使用指定的项
-
-例如：
-```toml
-tools = []          # 不使用任何 tool
-tools = ["getWeather"]  # 只使用 getWeather
-# 不写 tools 字段 → 使用 registry 中全部 tool
-```
-
-### 配置解析流程
-
-```
-1. 解析 [mcp.xxx] 顶层定义 → Map<String, Mcp>
-   - transport = "stdio" → Mcp.Transport.Stdio(command, args, env)
-   - transport = "http"  → Mcp.Transport.Http(url, headers)
-2. 解析 [agent.xxx] 配置块
-3. agent.mcps = ["filesystem", "httpMcp"] → 引用顶层 MCP 模板
-4. 解析时将引用替换为完整 Mcp 对象
-5. 最终得到完整 AgentDefinition
-```
-
-**伪代码示例：**
-
-```kotlin
-fun parseAgentDefinition(toml: Toml): AgentDefinition {
-    val mcpTemplates = toml.getTables("mcp").associate { table ->
-        table.name!! to parseMcp(table)
-    }
-
-    val agentToml = toml.getTable("agent.smartHome")
-    val mcpRefs = agentToml.getList<String>("mcps") ?: emptyList()
-    val mcps = mcpRefs.map { ref ->
-        mcpTemplates[ref] ?: error("MCP template not found: $ref")
-    }
-
-    return AgentDefinition(
-        ...
-        mcps = mcps
-    )
-}
-```
-
 ## 创建会话流程
 
-```
-1. 应用层：确定要创建的 Agent 类型（如 "smartHome"）
-2. AgentRegistry.getOrNull("smartHome") → AgentDefinition
-3. 创建 Session，传入 AgentReference(name = "smartHome")
-4. 调用 definition.spawn(memory, registries) 构建 Agent
-```
-
 ```kotlin
-// 示例
-val definition = agentRegistry.find("smartHome") ?: error("Agent not found")
+val definition = agentRegistry.getOrNull("smartHome") ?: error("Agent not found")
 val session = sessionManager.create(
     accountId = "user1",
     sessionName = "我的智能家居",
     agent = AgentReference(name = "smartHome")
 )
-val agent = definition.spawn(
-    session.memory,
-    toolRegistry,
-    lazyToolRegistry,
-    toolsetRegistry,
-    skillRegistry,
-    subagentRegistry
+val scope = AgentScope(
+    memory = session.memory,
+    toolRegistry = toolRegistry,
+    lazyToolRegistry = lazyToolRegistry,
+    toolsetRegistry = toolsetRegistry,
+    skillRegistry = skillRegistry,
+    subagentRegistry = subagentRegistry
 )
+val agent = definition.spawn(scope)
 ```
 
 ## 恢复会话流程
 
-```
-1. SessionManager.get(accountId, sessionId) → Session
-2. Session.agent.name → "smartHome"
-3. AgentRegistry.getOrNull("smartHome") → AgentDefinition
-4. 调用 definition.spawn(session.memory, registries) 构建 Agent
+```kotlin
+val session = sessionManager.get("user1", "session-id")
+val definition = agentRegistry.getOrNull(session.agent.name) ?: error("Agent not found")
+val scope = AgentScope(
+    memory = session.memory,
+    toolRegistry = toolRegistry,
+    // ... 同上
+)
+val agent = definition.spawn(scope)
 ```
 
-```kotlin
-// 示例
-val session = sessionManager.get("user1", "session-id")
-val definition = agentRegistry.find(session.agent.name) ?: error("Agent not found")
-val agent = definition.spawn(
-    session.memory,
-    toolRegistry,
-    lazyToolRegistry,
-    toolsetRegistry,
-    skillRegistry,
-    subagentRegistry
-)
-```
+## 安全边界（apiKey）
+
+- **现状**：`Provider.apiKey` 必填且随 `AgentDefinition` 序列化。`AgentRegistry` 纯内存、session 只存 `AgentReference`，因此默认路径下 apiKey 不会落盘。
+- **责任约定**：`AgentDefinition` 属于敏感配置。任何持久化 AgentDefinition 的介质（配置文件、注册表落盘、日志）必须视为凭证存储，由持有方负责保护；不应序列化到非受控介质。
+- **可选演进**：将 `Provider.apiKey` 改为可空，`AgentScope` 增加 `apiKeyResolver` 兜底，null 时由运行时注入，均缺失则抛明确异常。兼顾"配置自包含"与"凭证不落盘"两种模式。
 
 ## 设计原则
 
-1. **模块解耦**：Session 模块与 config 模块独立，不相互依赖
+1. **模块解耦**：Session 模块与 config 模块独立，恢复闭环由应用层胶水组装
 2. **投影引用**：Session 只持有 AgentReference，不持有完整声明
 3. **扁平化配置**：tools/skills/subagents/toolsets/mcps 各管各的，无 capabilities 命名空间
-4. **工具推断**：tools 列表中的 name 优先从 lazyToolRegistry 查找（自动识别为 lazy tool），未找到则从 toolRegistry 查找
-5. **版本预留**：AgentReference.version 和 AgentDefinition.version 占位，默认 0，暂不涉及版本概念
+4. **工具推断**：tools 列表中的 name 优先从 lazyToolRegistry 查找，未找到则从 toolRegistry 查找
+5. **版本预留**：AgentReference.version 和 AgentDefinition.version 占位，默认 0，暂不参与恢复校验
 6. **Registry 外置**：Registry 是运行时 pool，spawn 时注入，AgentDefinition 只存 name 列表
-7. **MCP 内置**：MCP 通过 toolset 机制处理，配置声明在 mcps 字段
-8. **配置自包含**：AgentDefinition 包含构建 Agent 所需的完整配置（含 apiKey），由配置文件管理安全性
+7. **MCP 内置**：MCP 通过 toolset 机制处理，配置声明在 mcps 字段（含完整 transport 配置，可复用 toolset 槽位混入普通 Toolset）
+8. **配置自包含**：AgentDefinition 包含构建 Agent 所需的完整配置（含 apiKey），安全性由配置持有方负责（见安全边界）
+9. **缺失降级**：按名投影找不到的能力只 warn 不中断，保证降级可用
 
 ## 待清理
 
-- [x] `SessionExtensions.kt` 中的 `AgentBuilder.memory(session: Session)` extension 已多余，应删除。现有流程通过 `AgentDefinition.spawn(session.memory, registries)` 构建 Agent，不再需要此 extension。
+- [x] `SessionExtensions.kt` 中的 `AgentBuilder.memory(session: Session)` extension 已删除，现有流程通过 `AgentDefinition.spawn(scope)` 构建 Agent
+- [x] toolsets + mcps 同时声明的插件冲突已修复（互斥在 `AgentResolver.resolve()` 中解决）
+- [ ] TOML/JSON 配置解析器（当前仅支持对象构造）
+- [ ] demo（DemoAgentFactory）仍使用旧 `agent {}` DSL，未迁移到 config 路径
