@@ -26,6 +26,8 @@ dependencies {
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.kotlinx.coroutines.test)
     testImplementation(libs.junit)
+    // 集成测试：session 恢复闭环（test 依赖反向，不污染生产依赖方向）
+    testImplementation(project(":agent:session"))
 }
 
 tasks.test {
