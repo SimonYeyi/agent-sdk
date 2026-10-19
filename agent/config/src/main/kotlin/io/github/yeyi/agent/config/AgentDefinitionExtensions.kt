@@ -64,6 +64,9 @@ public class SpawnedAgent internal constructor(
         check(!shutdownSignal.isCompleted) { "Agent is shut down" }
         // channelFlow：delegate 在独立子协程中收集转发，send 可跨协程（flow 的 emit 违反不变式）。
         return channelFlow {
+            // 守卫：shutdown 已在 collect 前发生——不再启动 delegate，flow 以零事件自然结束
+            // （归"shutdown 终止进行中 run flow"协议，而非抛异常）。避免踩到已回收的 MCP 注册表。
+            if (shutdownSignal.isCompleted) return@channelFlow
             // delegate 收集与关闭信号并发竞赛：谁先完成谁胜出。
             val delegateJob = launch { delegate.run(query).collect { send(it) } }
             val signalJob = launch { shutdownSignal.await(); delegateJob.cancel() }

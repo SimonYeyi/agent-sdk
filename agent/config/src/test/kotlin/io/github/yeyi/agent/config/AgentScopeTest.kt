@@ -464,6 +464,25 @@ class AgentScopeTest {
         assertTrue(spawned is Steerable)
     }
 
+    @Test
+    fun `spawnedAgent run collected after shutdown does not start delegate`() = runTest {
+        // run() 在 shutdown 前调用，但 collect 在 shutdown 后——此时 delegate 不应再启动：
+        // flow 以零事件自然结束，而非启动一轮 LLM 调用踩到已回收的 MCP 注册表。
+        val llm = CountingLlm()
+        val delegate = agent {
+            llmProvider(llm)
+            memory(InMemoryMemory())
+        } as ReActAgent
+        val spawned = SpawnedAgent(delegate)
+
+        val flow = spawned.run(AgentQuery.text("ping"))
+        spawned.shutdown()
+        val events = flow.toList()
+
+        assertTrue(events.isEmpty())
+        assertEquals(0, llm.calls)
+    }
+
     // ===== SpawnedAgent 测试桩 =====
 
     /** 立即返回固定回复的 LLM。 */
@@ -484,6 +503,19 @@ class AgentScopeTest {
         override suspend fun chat(request: ChatRequest): ChatResponse {
             started.complete(Unit)
             gate.await()
+            return ChatResponse(message = ChatMessage.Assistant("done"), finishReason = FinishReason.Stop)
+        }
+
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flowOf()
+    }
+
+    /** 记录调用次数的 LLM，用于断言 delegate 是否被启动。 */
+    private class CountingLlm : LlmProvider {
+        var calls = 0
+            private set
+        override val name: String = "counting"
+        override suspend fun chat(request: ChatRequest): ChatResponse {
+            calls++
             return ChatResponse(message = ChatMessage.Assistant("done"), finishReason = FinishReason.Stop)
         }
 
