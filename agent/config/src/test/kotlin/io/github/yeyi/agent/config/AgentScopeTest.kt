@@ -1,8 +1,12 @@
 package io.github.yeyi.agent.config
 
+import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentHook
+import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
+import io.github.yeyi.agent.Shutdownable
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
@@ -19,6 +23,7 @@ import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.lazy_loading.LazyTool
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.Toolset
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import org.junit.Test
@@ -366,5 +371,35 @@ class AgentScopeTest {
         val agent = definition.spawn(scope)
 
         assertNotNull(agent)
+    }
+
+    @Test
+    fun `spawnedAgent is shutdownable and shutdown is terminal and idempotent`() = runTest {
+        val spawned: Shutdownable = createTestDefinition().spawn(AgentScope(memory = InMemoryMemory()))
+
+        spawned.shutdown()
+        spawned.shutdown() // 幂等，第二次无副作用
+
+        // shutdown 后 run 返回 Failed（终态语义，与 BossAgent 一致）
+        val events = (spawned as Agent).run(AgentQuery.text("ping")).toList()
+        assertEquals(1, events.size)
+        assertTrue(events.single() is AgentEvent.Failed)
+    }
+
+    @Test
+    fun `spawnedAgent shutdown releases mcp registry`() = runTest {
+        val definition = createTestDefinition(
+            mcps = listOf(
+                AgentDefinition.Mcp(
+                    name = "stdioMcp",
+                    description = "Stdio MCP",
+                    transport = AgentDefinition.Mcp.Transport.Stdio(command = "echo")
+                )
+            )
+        )
+        val spawned = definition.spawn(AgentScope(memory = InMemoryMemory()))
+
+        spawned.shutdown()
+        spawned.shutdown() // 幂等
     }
 }

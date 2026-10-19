@@ -71,3 +71,20 @@ public interface Steerable {
      */
     public fun steer(query: AgentQuery): Boolean
 }
+
+/**
+ * 整体关闭能力。
+ *
+ * 仅实现本接口的 Agent 才可被 [shutdown] 永久关闭——调用方应通过 `agent is Shutdownable`
+ * 探测能力，而非无条件调用 [shutdown]。
+ *
+ * [shutdown] 是终态操作：停止 Agent 的后台活动并回收其持有的外部资源（如 MCP 子进程），
+ * 之后调用 [Agent.run] 返回 [AgentEvent.Failed]（Agent 已关闭）；如需继续使用必须重新创建实例。
+ * 幂等：可重复调用，第二次无副作用。
+ *
+ * 适用场景：会话/应用结束时的资源回收；BossAgent 等带后台协程的 Agent 的整体终止。
+ */
+public interface Shutdownable {
+    /** 永久关闭 Agent 并回收资源。幂等，可重复调用。 */
+    public fun shutdown()
+}

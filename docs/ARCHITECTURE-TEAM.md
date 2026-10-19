@@ -142,7 +142,7 @@ BossAgent 通过 `tasksState` Flow 推送实时任务看板状态，调用方订
 | 方法 | 类型 | 说明 |
 |------|------|------|
 | `report` | `Flow<AgentEvent>` | Hot SharedFlow，Worker 完成触发的续轮事件流，与 `run()` 互补 |
-| `shutdown()` | `suspend` | 取消 `scope`，停止所有 boss/pasture 的后台任务 |
+| `shutdown()` | `Shutdownable` | 实现 core 的 `Shutdownable` 能力接口；永久关闭 Boss，取消 `scope`，停止所有 boss/pasture 的后台任务。幂等，可重复调用 |
 | `activeTasks` | `List<TaskState>` | 只读属性，当前所有非终态任务快照 |
 
 ## 4. BulletinBoard

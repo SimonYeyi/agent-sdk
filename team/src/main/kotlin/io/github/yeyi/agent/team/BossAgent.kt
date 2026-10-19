@@ -3,6 +3,7 @@ package io.github.yeyi.agent.team
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
+import io.github.yeyi.agent.Shutdownable
 import io.github.yeyi.agent.llm.ContentPart
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -77,7 +78,7 @@ public class BossAgent internal constructor(
     private val innerAgent: Agent,
     private val beastReportMarker: String,
     private val scope: CoroutineScope,
-) : Agent {
+) : Agent, Shutdownable {
     // ===== 任务追踪 =====
     private val tracker = TaskTracker()
 
@@ -161,7 +162,7 @@ public class BossAgent internal constructor(
      * 之后 boss LLM 不会再被新事件触发; pasture 的 running jobs 也会被取消.
      * 调用方负责在不再使用 boss 时调用本方法 (e.g., 在应用关闭时).
      */
-    public fun shutdown() {
+    public override fun shutdown() {
         scope.cancel()
     }
 

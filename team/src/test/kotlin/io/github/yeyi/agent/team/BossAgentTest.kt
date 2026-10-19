@@ -5,6 +5,7 @@ package io.github.yeyi.agent.team
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
+import io.github.yeyi.agent.Shutdownable
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.ChatMessage
@@ -106,7 +107,9 @@ class BossAgentTest {
         val (boss, _) = createBossAgent()
         // createBossAgent 已同步等到订阅就绪 (attach 用 onSubscription + CompletableDeferred 等自己的 collector 注册),
         // 直接 shutdown 即可, 无需额外 delay.
+        assertTrue(boss is Shutdownable)
         boss.shutdown()
+        boss.shutdown() // 幂等
         // subsequent run returns Failed event
         val events = boss.run(AgentQuery.text("hello")).toList()
         assertEquals(1, events.size)
