@@ -2,6 +2,7 @@ package io.github.yeyi.agent.config
 
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
@@ -22,6 +23,10 @@ import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.lazy_loading.LazyTool
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.Toolset
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import org.junit.Test
@@ -398,5 +403,30 @@ class AgentScopeTest {
 
         spawned.shutdown()
         spawned.shutdown() // 幂等
+    }
+
+    @Test
+    fun `spawnedAgent shutdown terminates in-flight run flow`() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val fake = object : Agent {
+            override fun run(query: AgentQuery): Flow<AgentEvent> = flow {
+                started.complete(Unit)
+                gate.await()
+                emit(AgentEvent.Final(AgentResult(ChatMessage.Assistant("done"), 1, emptyList(), null)))
+            }
+        }
+        val spawned = SpawnedAgent(fake)
+
+        var completed = false
+        val job = launch {
+            spawned.run(AgentQuery.text("ping")).collect { }
+            completed = true
+        }
+        started.await() // 确认 delegate 已开始收集
+        spawned.shutdown()
+        job.join()
+        // in-flight run 被 shutdown 终止：flow 自然结束（不再产生事件），而非挂起等待 gate 或抛异常
+        assertTrue(completed)
     }
 }

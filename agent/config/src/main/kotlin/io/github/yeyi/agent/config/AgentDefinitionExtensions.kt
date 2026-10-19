@@ -12,8 +12,11 @@ import io.github.yeyi.agent.skill.skills
 import io.github.yeyi.agent.subagent.subagents
 import io.github.yeyi.agent.tool.lazy_loading.lazyTools
 import io.github.yeyi.agent.toolset.toolsets
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
-import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.launch
 
 /**
  * 从 AgentDefinition 和 AgentScope 构建 Agent 实例。
@@ -44,24 +47,34 @@ public fun AgentDefinition.spawn(scope: AgentScope): SpawnedAgent {
 /**
  * spawn 产物：实现 [Agent] 的委托包装，并实现 [Shutdownable] 提供整体关闭。
  *
- * [shutdown] 是终态操作：回收底层资源（MCP 子进程等）并标记已关闭，
+ * [shutdown] 是终态操作：回收底层资源（MCP 子进程等）、终止进行中的 [run] flow（收集自然结束）并标记已关闭，
  * 之后调用 [run] 抛出 [IllegalStateException]；如需继续使用必须重新 spawn。
  */
 public class SpawnedAgent internal constructor(
     private val delegate: Agent,
     private val mcpRegistry: McpRegistry? = null
 ) : Agent by delegate, Shutdownable {
-    private val closed = AtomicBoolean(false)
+    // 关闭信号，兼作关闭状态：isCompleted 即"已关闭"，complete 原子且幂等。
+    private val shutdownSignal = CompletableDeferred<Unit>()
 
     override fun run(query: AgentQuery): Flow<AgentEvent> {
         // 已关闭的 Agent 不可再运行——直接抛非法状态异常，而非返回 Failed 事件。
-        check(!closed.get()) { "Agent is shut down" }
-        return delegate.run(query)
+        check(!shutdownSignal.isCompleted) { "Agent is shut down" }
+        return flow {
+            coroutineScope {
+                // delegate 收集与关闭信号并发竞赛：谁先完成谁胜出。
+                val delegateJob = launch { delegate.run(query).collect { emit(it) } }
+                val signalJob = launch { shutdownSignal.await(); delegateJob.cancel() }
+                delegateJob.join(); signalJob.cancel()
+                // 无论 delegate 自然完成还是被 shutdown 终止，flow 均以正常收尾结束：
+                // 关闭信号触发时 delegate 被取消（停止收集、不再产生事件），flow 收集随之自然结束。
+            }
+        }
     }
 
     /** 永久关闭 Agent 并回收资源（MCP 子进程等）。幂等，可重复调用。 */
     override fun shutdown() {
-        if (!closed.compareAndSet(false, true)) return
+        if (!shutdownSignal.complete(Unit)) return
         mcpRegistry?.unregisterAll()
     }
 }

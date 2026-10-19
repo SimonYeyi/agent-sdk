@@ -78,11 +78,12 @@ public interface Steerable {
  * 仅实现本接口的 Agent 才可被 [shutdown] 永久关闭——调用方应通过 `agent is Shutdownable`
  * 探测能力，而非无条件调用 [shutdown]。
  *
- * [shutdown] 是终态操作：停止 Agent 的后台活动并回收其持有的外部资源（如 MCP 子进程），
+ * [shutdown] 是终态操作：停止 Agent 的后台活动、终止进行中的 [Agent.run] flow 并回收其持有的
+ * 外部资源（如 MCP 子进程）。终止协议统一：进行中的 [Agent.run] flow 收集自然结束、不再产生事件；
  * 之后调用 [Agent.run] 抛出 [IllegalStateException]（Agent 已关闭）；如需继续使用必须重新创建实例。
  * 幂等：可重复调用，第二次无副作用。
  *
- * 适用场景：会话/应用结束时的资源回收；BossAgent 等带后台协程的 Agent 的整体终止。
+ * 适用场景：会话/应用结束时的资源回收，以及任何带后台协程或外部资源的 Agent 的整体终止。
  */
 public interface Shutdownable {
     /** 永久关闭 Agent 并回收资源。幂等，可重复调用。 */
