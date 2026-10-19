@@ -159,14 +159,9 @@ public class BossAgent internal constructor(
         )
         openRounds += round
         scope.launch { scheduler.submitUserRound(round) }
-        return flow {
-            try {
-                for (e in round.channel) emit(e)
-            } finally {
-                // 收集结束即注销；shutdown 兜底关闭时 close 幂等，与此处并发安全。
-                openRounds -= round
-            }
-        }
+        // 注销不在此处做：调用方可能 run 后不 collect（flow 惰性），
+        // 由 runUserRound 完成时注销，未跑到的轮次由 shutdown 兜底 clear。
+        return flow { for (e in round.channel) emit(e) }
     }
 
     /**
@@ -228,6 +223,8 @@ public class BossAgent internal constructor(
             }
         } finally {
             userRound.channel.close()
+            // 轮次完成即注销，无人收集的 round 不滞留 openRounds
+            openRounds -= userRound
             scheduler.roundFinished()
         }
     }
