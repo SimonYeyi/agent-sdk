@@ -358,9 +358,8 @@ public class BossAgent internal constructor(
      */
     private class ShutdownHelper {
         private val userRounds: MutableSet<UserRound> = ConcurrentHashMap.newKeySet()
-
-        fun record(round: UserRound) { userRounds += round }
-        fun remove(round: UserRound) { userRounds -= round }
+        fun record(round: UserRound) = run { userRounds += round }
+        fun remove(round: UserRound) = run { userRounds -= round }
         fun closeAll() {
             userRounds.forEach { it.channel.close() }
             userRounds.clear()
