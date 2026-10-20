@@ -180,7 +180,7 @@ public class BossAgent internal constructor(
         // 一次 publish_task 调用可以属于当前 round 的多次调用之一.
         // publish 只发生在 user round 进行中 (LLM 调用), 此时 currentRound 必已赋值.
         val round = scheduler.currentRound
-        tracker.register(event, round.id, round.createdAt)
+        tracker.track(event, round.id, round.createdAt)
     }
 
     private suspend fun handleTaskUpdate(update: TaskUpdate) {
@@ -247,7 +247,7 @@ public class BossAgent internal constructor(
 
         val activeTasks: List<TaskState> get() = tasks.values.toList()
 
-        suspend fun register(event: TaskAssignments, roundId: String, createdAt: Long) {
+        suspend fun track(event: TaskAssignments, roundId: String, createdAt: Long) {
             lock.withLock {
                 for (task in event.tasks) {
                     tasks[task.taskId] = TaskState(
