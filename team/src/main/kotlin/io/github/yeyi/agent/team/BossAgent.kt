@@ -86,10 +86,8 @@ public class BossAgent internal constructor(
     // ===== 调度器 =====
     private val scheduler = RoundScheduler()
 
-    // ===== 关闭追踪 =====
-    // 所有已创建但尚未结束的 round——shutdown 兜底关闭其 channel，
-    // 覆盖排队未启动的轮次，防止收集方永久挂起（排队的 round 没有执行者关闭 channel）。
-    private val openRounds: MutableSet<UserRound> = ConcurrentHashMap.newKeySet()
+    // ===== 关闭辅助 =====
+    private val shutdownHelper = ShutdownHelper()
 
     // lateinit: 由 [attach] 赋值, 后续 collect 统一从此字段读取.
     // 未初始化访问抛 UninitializedPropertyAccessException (消息固定但可读).
@@ -151,17 +149,17 @@ public class BossAgent internal constructor(
 
         val queryText = (query.parts.firstOrNull() as? ContentPart.Text)?.text
             ?: query.parts.joinToString(" ") { it.toString() }
-        val round = UserRound(
+        val userRound = UserRound(
             UUID.randomUUID().toString(),
             queryText,
             System.currentTimeMillis(),
             Channel(Channel.UNLIMITED)
         )
-        openRounds += round
-        scope.launch { scheduler.submitUserRound(round) }
+        shutdownHelper.record(userRound)
+        scope.launch { scheduler.submitUserRound(userRound) }
         // 注销不在此处做：调用方可能 run 后不 collect（flow 惰性），
         // 由 runUserRound 完成时注销，未跑到的轮次由 shutdown 兜底 clear。
-        return flow { for (e in round.channel) emit(e) }
+        return flow { for (e in userRound.channel) emit(e) }
     }
 
     /**
@@ -171,12 +169,7 @@ public class BossAgent internal constructor(
      * 调用方负责在不再使用 boss 时调用本方法 (e.g., 在应用关闭时).
      */
     public override fun shutdown() {
-        // 兜底关闭所有未结束 round 的 channel（close 幂等）:
-        // scope 取消后正在执行的轮次由 runUserRound 的 finally 关闭,
-        // 这里补齐排队未启动的轮次, 否则其收集方会永久挂起.
-        openRounds.forEach { it.channel.close() }
-        openRounds.clear()
-
+        shutdownHelper.closeAll()
         scope.cancel()
     }
 
@@ -223,8 +216,8 @@ public class BossAgent internal constructor(
             }
         } finally {
             userRound.channel.close()
-            // 轮次完成即注销，无人收集的 round 不滞留 openRounds
-            openRounds -= userRound
+            // 轮次完成即移除，无人收集的 round 不滞留登记表
+            shutdownHelper.remove(userRound)
             scheduler.roundFinished()
         }
     }
@@ -351,6 +344,26 @@ public class BossAgent internal constructor(
                     state.value = BossState.WAITING
                 }
             }
+        }
+    }
+
+    // ========== 内部类: 关闭辅助域 ==========
+
+    /**
+     * 关闭辅助 — 登记所有已创建但尚未结束的 round，为 [shutdown] 兜底关闭服务.
+     *
+     * 正常流程中轮次完成时由 [runUserRound] 的 finally 关闭自身 channel 并注销;
+     * 但排队未启动的轮次没有执行者关闭 channel, 若不兜底其收集方会永久挂起.
+     * 因此 shutdown 时统一关闭登记表中所有未结束 round 的 channel（close 幂等）.
+     */
+    private class ShutdownHelper {
+        private val userRounds: MutableSet<UserRound> = ConcurrentHashMap.newKeySet()
+
+        fun record(round: UserRound) { userRounds += round }
+        fun remove(round: UserRound) { userRounds -= round }
+        fun closeAll() {
+            userRounds.forEach { it.channel.close() }
+            userRounds.clear()
         }
     }
 }
