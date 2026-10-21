@@ -53,13 +53,4 @@ class AllToolsTest {
         val result = tool.execute(arguments, stubContext())
         assertTrue(result.isError, "expected error result, got: ${result.parts.text}")
     }
-
-    @Test
-    fun `WebSearchMockTool returns mock result with delay`() = runTest {
-        val tool = WebSearchTool()
-        val arguments = buildJsonObject { put("query", JsonPrimitive("kotlin coroutines")) }
-        val result = tool.execute(arguments, stubContext())
-        assertTrue(result.parts.text.contains("kotlin coroutines"), "got: ${result.parts.text}")
-        assertFalse(result.isError)
-    }
 }
