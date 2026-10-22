@@ -9,6 +9,7 @@ import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.demo.team.smartCockpit.CockpitAgent
 import io.github.yeyi.agent.demo.team.ui.ChatMessageUi
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.session.AgentReference
 import io.github.yeyi.agent.session.Conversation
@@ -16,6 +17,7 @@ import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.session.SessionManager
 import io.github.yeyi.agent.team.BossAgent
 import io.github.yeyi.agent.team.TasksState
+import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -38,7 +40,8 @@ class DemoViewModel(
     private val _boss = MutableStateFlow<BossAgent?>(null)
     val boss: StateFlow<BossAgent?> = _boss.asStateFlow()
 
-    private val toolCallNames = mutableMapOf<String, String>()
+    /** toolCall.id -> 对应"执行中"气泡在 _messages 中的下标，工具结果到达时原位替换。 */
+    private val pendingToolBubbles = mutableMapOf<String, Int>()
     private var tasksStatesJob: Job? = null
     private var reportJob: Job? = null
 
@@ -76,9 +79,9 @@ class DemoViewModel(
     private fun restoreConversation(session: Session) {
         viewModelScope.launch {
             val history = session.conversation.history(Conversation.PAGE_ALL)
-            _messages.value = history.mapNotNull { entry ->
-                entry.message.toChatMessageUi()
-            }
+            // 运行时工具调用最终只保留结果气泡（"执行中"气泡被结果替换），
+            // memory 持久化的 ToolResult 即最终结果，恢复渲染与运行时一致。
+            _messages.value = history.map { entry -> entry.message.toChatMessageUi() }
         }
     }
 
@@ -104,15 +107,8 @@ class DemoViewModel(
         reportJob = viewModelScope.launch {
             agent.report.collect { event ->
                 when (event) {
-                    is AgentEvent.ToolCallStart -> {
-                        toolCallNames[event.toolCall.id] = event.toolCall.name
-                        appendMessage("tool", "调用工具: ${event.toolCall.name}", toolName = event.toolCall.name)
-                    }
-                    is AgentEvent.ToolCallEnd -> {
-                        val toolName = toolCallNames.remove(event.toolCall.id) ?: "unknown"
-                        val content = event.result.parts.text.takeIf { it.isNotEmpty() } ?: "完成"
-                        appendMessage("tool", "[$toolName] $content", toolName = toolName)
-                    }
+                    is AgentEvent.ToolCallStart -> handleToolCallStart(event.toolCall)
+                    is AgentEvent.ToolCallEnd -> handleToolCallEnd(event.toolCall, event.result)
                     is AgentEvent.ToolCallExplanation -> {
                         val text = event.text ?: ""
                         if (text.isNotEmpty()) {
@@ -160,15 +156,8 @@ class DemoViewModel(
         viewModelScope.launch {
             agent.run(AgentQuery.text(text)).collect { event ->
                 when (event) {
-                    is AgentEvent.ToolCallStart -> {
-                        toolCallNames[event.toolCall.id] = event.toolCall.name
-                        appendMessage("tool", "调用工具: ${event.toolCall.name}", toolName = event.toolCall.name)
-                    }
-                    is AgentEvent.ToolCallEnd -> {
-                        val toolName = toolCallNames.remove(event.toolCall.id) ?: "unknown"
-                        val content = event.result.parts.text.takeIf { it.isNotEmpty() } ?: "完成"
-                        appendMessage("tool", "[$toolName] $content", toolName = toolName)
-                    }
+                    is AgentEvent.ToolCallStart -> handleToolCallStart(event.toolCall)
+                    is AgentEvent.ToolCallEnd -> handleToolCallEnd(event.toolCall, event.result)
                     is AgentEvent.ToolCallExplanation -> {
                         val text = event.text ?: ""
                         if (text.isNotEmpty()) {
@@ -199,6 +188,32 @@ class DemoViewModel(
         }
     }
 
+    /**
+     * 工具开始：追加"调用工具: xxx"气泡并记录下标，等待 [handleToolCallEnd] 原位替换。
+     */
+    private fun handleToolCallStart(toolCall: ToolCall) {
+        val name = toolCall.name
+        pendingToolBubbles[toolCall.id] = _messages.value.size
+        _messages.value = _messages.value + ChatMessageUi("tool", "调用工具: $name")
+    }
+
+    /**
+     * 工具结果到达：把 [handleToolCallStart] 记录的"调用工具"气泡原位替换为执行结果，
+     * 以工具名为气泡标签、结果为内容，明确结果来源工具；
+     * 找不到对应气泡（异常路径）时直接追加，保证结果不丢失。
+     */
+    private fun handleToolCallEnd(toolCall: ToolCall, result: ToolExecutionResult) {
+        val name = toolCall.name
+        val content = result.parts.text.takeIf { it.isNotEmpty() } ?: "完成"
+        val replacement = ChatMessageUi("tool", content, toolName = name)
+        val index = pendingToolBubbles.remove(toolCall.id)
+        if (index != null && index < _messages.value.size) {
+            _messages.value = _messages.value.toMutableList().also { it[index] = replacement }
+        } else {
+            _messages.value = _messages.value + replacement
+        }
+    }
+
     private fun appendMessage(role: String, content: String, isLoading: Boolean = false, toolName: String? = null) {
         _messages.value = _messages.value + ChatMessageUi(role, content, isLoading, toolName)
     }
@@ -220,5 +235,11 @@ private fun ChatMessage.toChatMessageUi(): ChatMessageUi = when (this) {
     is ChatMessage.User -> ChatMessageUi("user", parts.text)
     is ChatMessage.Assistant -> ChatMessageUi("assistant", content ?: "")
     is ChatMessage.System -> ChatMessageUi("assistant", content)
-    is ChatMessage.ToolResult -> ChatMessageUi("tool", parts.text, toolName = toolName)
+    // 工具调用在运行时最终只保留结果气泡（以工具名为标签、结果为内容），
+    // 恢复渲染格式与运行时替换后的结果一致。
+    is ChatMessage.ToolResult -> ChatMessageUi(
+        "tool",
+        parts.text.takeIf { it.isNotEmpty() } ?: "完成",
+        toolName = toolName,
+    )
 }

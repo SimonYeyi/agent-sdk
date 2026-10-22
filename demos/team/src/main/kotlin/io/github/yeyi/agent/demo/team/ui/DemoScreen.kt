@@ -223,7 +223,7 @@ fun ChatBubble(message: ChatMessageUi) {
                 Text(
                     text = when {
                         isUser -> "用户"
-                        isTool -> "工具"
+                        isTool -> "工具：${message.toolName}"
                         else -> "助手"
                     },
                     style = MaterialTheme.typography.labelSmall,
