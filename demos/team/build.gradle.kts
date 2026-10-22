@@ -54,6 +54,7 @@ android {
 
 dependencies {
     implementation(project(":agent:core"))
+    implementation(project(":agent:session"))
     implementation(project(":team"))
     implementation(project(":agent:toolset"))
     implementation(project(":agent:skill"))
