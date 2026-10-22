@@ -3,12 +3,14 @@ package io.github.yeyi.agent
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.log.log
+import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.ReadOnlyMemory
 import io.github.yeyi.agent.memory.RepairedMemory
@@ -98,7 +100,7 @@ public class ReActAgent internal constructor(
             emit(AgentEvent.Initial(query))
 
             memory.attachHook(MemoryCompressProxyHook(hook, emit), buildContext(0))
-            modalityAdapter.archive(ChatMessage.User(query.parts)).addToMemory(memory)
+            modalityAdapter.archive(ChatMessage.User(query.parts)).addToMemory(memory, label = query.label)
 
             while (iterations < maxIterations) {
                 loopOnce(++iterations, toolCalls, llmCall, emit)?.let { return }
@@ -244,8 +246,9 @@ public class ReActAgent internal constructor(
 
     private suspend fun consumeSteering(steerInbox: SteerInbox) {
         steerInbox.drain().forEach { query ->
+            // steer 注入的指令默认标 "steering"；调用方显式带 label 时优先采用
             modalityAdapter.archive(ChatMessage.User(query.parts))
-                .addToMemory(memory, tags = setOf("steering"))
+                .addToMemory(memory, label = query.label ?: "steering")
         }
     }
 
@@ -265,7 +268,7 @@ public class ReActAgent internal constructor(
     }
 
     private suspend fun buildRequest(): ChatRequest {
-        val messages = modalityAdapter.resolve(memory.history().map { it.message })
+        val messages = modalityAdapter.resolve(memory.history().map { labelPrefixed(it) })
         return ChatRequest(
             messages = buildList {
                 add(ChatMessage.System(persona.toString()))
@@ -273,6 +276,20 @@ public class ReActAgent internal constructor(
             },
             tools = toolRegistry.all().map(Tool::toDefinition)
         )
+    }
+
+    /** 带 label 的上行消息（User / System）拼 `"label: content"` 前缀给模型感知来源，
+     *  持久化 content 保持原样。下行消息不会带 label，原样返回。 */
+    private fun labelPrefixed(entry: MemoryEntry): ChatMessage {
+        val label = entry.label ?: return entry.message
+        return when (val message = entry.message) {
+            // User 是 parts 列表，只给首个 Text 块拼，媒体块不被污染
+            is ChatMessage.User -> message.copy(parts = message.parts.mapIndexed { i, part ->
+                if (i == 0 && part is ContentPart.Text) ContentPart.Text("$label: ${part.text}") else part
+            })
+            is ChatMessage.System -> message.copy(content = "$label: ${message.content}")
+            else -> message
+        }
     }
 
     private fun buildContext(currentIteration: Int) = AgentContext(

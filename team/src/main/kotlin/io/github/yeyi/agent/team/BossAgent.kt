@@ -77,9 +77,14 @@ public data class TasksState(
 
 public class BossAgent internal constructor(
     private val innerAgent: Agent,
-    private val beastReportMarker: String,
     private val scope: CoroutineScope,
 ) : Agent, Shutdownable {
+    public companion object {
+        /** 系统报告标签 — 任务完成汇报以 `AgentQuery.text(result, label = REPORT_LABEL)` 注入 innerAgent，
+         *  随记忆条目持久化，UI 可据此渲染"系统"气泡，模型侧通过 `report: content` 前缀感知。 */
+        public const val REPORT_LABEL: String = "report"
+    }
+
     // ===== 任务追踪 =====
     private val tracker = TaskTracker()
 
@@ -200,11 +205,7 @@ public class BossAgent internal constructor(
      */
     private suspend fun handleCancellation(e: Cancellation) {
         if (tracker.isTracked(e.taskId)) return
-        val notice = buildString {
-            append("$beastReportMarker\n")
-            append("Task ${e.taskId} has already finished and cannot be cancelled.")
-        }
-        scheduler.submitResult(notice)
+        scheduler.submitResult("Task ${e.taskId} has already finished and cannot be cancelled.")
     }
 
     // ========== 内部: 跑轮次 ==========
@@ -223,7 +224,7 @@ public class BossAgent internal constructor(
     }
 
     private suspend fun runResultRound(result: String) {
-        innerAgent.run(AgentQuery.text(result)).collect { e ->
+        innerAgent.run(AgentQuery.text(result, label = REPORT_LABEL)).collect { e ->
             (report as MutableSharedFlow).emit(e)
         }
         scheduler.roundFinished()
@@ -274,7 +275,6 @@ public class BossAgent internal constructor(
 
             // 整轮终态: 格式化 + 归档删除, 单锁内完成
             return buildString {
-                append("$beastReportMarker\n")
                 for (t in roundTasks) {
                     append("- ${t.taskId}: ${t.events.last()}\n")
                 }

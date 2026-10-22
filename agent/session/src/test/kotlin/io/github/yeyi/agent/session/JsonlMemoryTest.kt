@@ -174,13 +174,13 @@ class JsonlMemoryTest {
     }
 
     @Test
-    fun `metadata tags and createAt survive serialization round trip`() = runTest {
+    fun `metadata label and createAt survive serialization round trip`() = runTest {
         val created = Instant.parse("2026-09-17T10:00:00Z")
         memory.add(
             MemoryEntry(
                 message = ChatMessage.User(listOf(ContentPart.Text("hello"))),
                 createAt = created,
-                tags = setOf("steering"),
+                label = "steering",
             )
         )
 
@@ -189,7 +189,7 @@ class JsonlMemoryTest {
 
         assertEquals(1, history.size)
         assertEquals(created, history[0].createAt)
-        assertEquals(setOf("steering"), history[0].tags)
+        assertEquals("steering", history[0].label)
         assertEquals("hello", (history[0].message as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
     }
 }

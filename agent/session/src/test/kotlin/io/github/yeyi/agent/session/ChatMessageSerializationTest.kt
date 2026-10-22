@@ -46,7 +46,7 @@ class ChatMessageSerializationTest {
             MemoryEntry(
                 ChatMessage.User(listOf(ContentPart.Text("u"))),
                 createAt = created,
-                tags = setOf("steering"),
+                label = "steering",
             ),
             MemoryEntry(ChatMessage.Assistant(content = "a")),
             MemoryEntry(
@@ -60,7 +60,7 @@ class ChatMessageSerializationTest {
         assertEquals("sys", (decoded[0].message as ChatMessage.System).content)
         assertEquals("u", (decoded[1].message as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
         assertEquals(created, decoded[1].createAt)
-        assertEquals(setOf("steering"), decoded[1].tags)
+        assertEquals("steering", decoded[1].label)
         assertEquals("a", (decoded[2].message as ChatMessage.Assistant).content)
         assertEquals("tc", (decoded[3].message as ChatMessage.ToolResult).toolCallId)
         assertEquals("echo", (decoded[3].message as ChatMessage.ToolResult).toolName)

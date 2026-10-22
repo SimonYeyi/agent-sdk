@@ -11,6 +11,7 @@ import io.github.yeyi.agent.demo.team.ui.ChatMessageUi
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.text
+import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.session.AgentReference
 import io.github.yeyi.agent.session.Conversation
 import io.github.yeyi.agent.session.Session
@@ -81,7 +82,7 @@ class DemoViewModel(
             val history = session.conversation.history(Conversation.PAGE_ALL)
             // 运行时工具调用最终只保留结果气泡（"执行中"气泡被结果替换），
             // memory 持久化的 ToolResult 即最终结果，恢复渲染与运行时一致。
-            _messages.value = history.mapNotNull { entry -> entry.message.toChatMessageUi() }
+            _messages.value = history.mapNotNull { entry -> entry.toChatMessageUi() }
         }
     }
 
@@ -119,7 +120,9 @@ class DemoViewModel(
                         // Skip, handled by Final
                     }
                     is AgentEvent.Initial -> {
-                        // Skip, user input already shown
+                        // 带 label 的 query（BossAgent 任务系统报告）渲染为"系统"气泡；
+                        // 普通用户消息已由输入框展示，跳过。
+                        event.query.label?.let { appendMessage("system", event.query.parts.text) }
                     }
                     is AgentEvent.Final -> {
                         val result = event.result as? AgentResult
@@ -234,17 +237,23 @@ class DemoViewModel(
 }
 
 /**
- * 消息恢复渲染；助手消息 content 为空（纯工具轮等）时不渲染气泡，避免空气泡。
+ * 消息恢复渲染；带 report label 的 User 消息是 BossAgent 任务系统报告，渲染为"系统"气泡；
+ * 助手消息 content 为空（纯工具轮等）时不渲染气泡，避免空气泡。
  */
-private fun ChatMessage.toChatMessageUi(): ChatMessageUi? = when (this) {
-    is ChatMessage.User -> ChatMessageUi("user", parts.text)
-    is ChatMessage.Assistant -> content?.takeIf { it.isNotBlank() }?.let { ChatMessageUi("assistant", it) }
-    is ChatMessage.System -> ChatMessageUi("assistant", content)
+private fun MemoryEntry.toChatMessageUi(): ChatMessageUi? = when (val msg = message) {
+    is ChatMessage.User -> if (label == BossAgent.REPORT_LABEL) {
+        ChatMessageUi("system", msg.parts.text)
+    } else {
+        ChatMessageUi("user", msg.parts.text)
+    }
+    is ChatMessage.Assistant -> msg.content?.takeIf { it.isNotBlank() }
+        ?.let { ChatMessageUi("assistant", it) }
+    is ChatMessage.System -> ChatMessageUi("assistant", msg.content)
     // 工具调用在运行时最终只保留结果气泡（以工具名为标签、结果为内容），
     // 恢复渲染格式与运行时替换后的结果一致。
     is ChatMessage.ToolResult -> ChatMessageUi(
         "tool",
-        parts.text.takeIf { it.isNotEmpty() } ?: "完成",
-        toolName = toolName,
+        msg.parts.text.takeIf { it.isNotEmpty() } ?: "完成",
+        toolName = msg.toolName,
     )
 }

@@ -197,10 +197,12 @@ data class ChatMessageUi(
 fun ChatBubble(message: ChatMessageUi) {
     val isUser = message.role == "user"
     val isTool = message.role == "tool"
+    val isSystem = message.role == "system"
     val alignment = if (isUser) Alignment.TopEnd else Alignment.TopStart
     val backgroundColor = when {
         isUser -> MaterialTheme.colorScheme.primaryContainer
         isTool -> MaterialTheme.colorScheme.tertiaryContainer
+        isSystem -> MaterialTheme.colorScheme.surfaceVariant
         else -> MaterialTheme.colorScheme.secondaryContainer
     }
 
@@ -224,6 +226,7 @@ fun ChatBubble(message: ChatMessageUi) {
                     text = when {
                         isUser -> "用户"
                         isTool -> "工具：${message.toolName}"
+                        isSystem -> "系统"
                         else -> "助手"
                     },
                     style = MaterialTheme.typography.labelSmall,

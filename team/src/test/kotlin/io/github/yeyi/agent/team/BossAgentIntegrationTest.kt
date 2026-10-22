@@ -116,7 +116,7 @@ class BossAgentIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent, "[系统汇报]", scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
 
         // 用 launch(UNDISPATCHED) 同步挂上 boss.report collector,无需 delay 屏障.
@@ -219,7 +219,7 @@ class BossAgentIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent, "[系统汇报]", scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
 
         val report = mutableListOf<AgentEvent>()
@@ -266,7 +266,7 @@ class BossAgentIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent, "[系统汇报]", scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
 
         val events = boss.run(AgentQuery.text("帮我跑 echo")).toList()

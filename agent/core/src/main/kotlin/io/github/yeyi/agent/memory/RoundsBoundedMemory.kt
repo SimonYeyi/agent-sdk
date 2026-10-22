@@ -58,13 +58,13 @@ internal class RoundsBoundedMemory(
         val container = SummaryContainer(summaries)
         return MemoryEntry(
             message = ChatMessage.System(Json.encodeToString(container)),
-            tags = setOf(SUMMARY_TAG),
+            label = SUMMARY_LABEL,
         )
     }
 
     private fun getSummaries(history: List<MemoryEntry>): List<Summary> {
         return history
-            .filter { SUMMARY_TAG in it.tags }
+            .filter { it.label == SUMMARY_LABEL }
             .firstNotNullOfOrNull { entry ->
                 (entry.message as ChatMessage.System)
                     .let { Json.decodeFromString<SummaryContainer>(it.content).summaries }
@@ -185,7 +185,7 @@ internal class RoundsBoundedMemory(
     ): Set<Int> {
         return history.indices.toMutableSet().also {
             it.removeAll(retainedIndices.toSet())
-            it.removeAll { index -> SUMMARY_TAG in history[index].tags }
+            it.removeAll { index -> history[index].label == SUMMARY_LABEL }
         }
     }
 
@@ -256,7 +256,7 @@ internal class RoundsBoundedMemory(
 }
 
 /** 摘要条目统一打上的 tag，便于记忆层/UI 识别摘要来源。 */
-private const val SUMMARY_TAG: String = "summary"
+private const val SUMMARY_LABEL: String = "summary"
 
 @Serializable
 public data class Summary(val content: String)

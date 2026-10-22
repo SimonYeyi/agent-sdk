@@ -56,7 +56,7 @@ class BossAgentTest {
             memory(InMemoryMemory(), 20)
             maxIterations(1) // single-turn agent
         }
-        val boss = BossAgent(innerAgent, "[系统汇报]", scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
         return boss to bb
     }

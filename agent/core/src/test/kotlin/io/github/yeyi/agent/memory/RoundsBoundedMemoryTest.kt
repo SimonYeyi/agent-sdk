@@ -241,7 +241,7 @@ class RoundsBoundedMemoryTest {
                 MemoryEntry(
                     message = ChatMessage.User(listOf(ContentPart.Text("u$i"))),
                     createAt = base.plusSeconds(i.toLong()),
-                    tags = setOf("steering"),
+                    label = "steering",
                 )
             )
             memory.add(MemoryEntry(ChatMessage.Assistant(content = "a$i")))
@@ -249,15 +249,15 @@ class RoundsBoundedMemoryTest {
 
         val history = memory.history()
 
-        // 摘要条目带 summary tag
+        // 摘要条目带 summary label
         val summary = history.first()
-        assertTrue("summary" in summary.tags, "summary entry should carry 'summary' tag")
+        assertEquals("summary", summary.label, "summary entry should carry 'summary' label")
 
         // 保留窗口内的 User 条目元数据跨 rebuild 存活
         val retained = history.drop(1)
         val retainedUser = retained.first { it.message is ChatMessage.User }
         assertEquals("u3", (retainedUser.message as ChatMessage.User).contentOrFirstText())
-        assertEquals(setOf("steering"), retainedUser.tags)
+        assertEquals("steering", retainedUser.label)
         assertEquals(base.plusSeconds(3), retainedUser.createAt)
     }
 

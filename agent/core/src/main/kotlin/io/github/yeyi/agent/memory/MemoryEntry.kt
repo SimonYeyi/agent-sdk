@@ -21,26 +21,28 @@ import java.time.Instant
  *
  * @param message 纯 LLM 线格式消息
  * @param createAt 消息被记忆的时间（默认取创建时刻）
- * @param tags 辅助 tag（如 `"summary"`、`"steering"` 等），随条目持久化并在压缩重建时保留
+ * @param label 消息来源标签（单值，如 `"report"`、`"summary"`、`"steering"`）：
+ *   随条目持久化并在压缩重建时保留；UI 可据此分类渲染，
+ *   构建请求时对带 label 的 User 消息拼 `"label: content"` 前缀使模型可见。
  */
 @Serializable
 public data class MemoryEntry(
     public val message: ChatMessage,
     @Serializable(with = InstantEpochMillisSerializer::class)
     public val createAt: Instant = Instant.now(),
-    public val tags: Set<String> = emptySet(),
+    public val label: String? = null,
 )
 
 /**
  * 便捷扩展：把消息加入记忆。
  *
- * 等价于 `memory.add(MemoryEntry(message, tags))`，用于避免各处手写 [MemoryEntry] 构造。
+ * 等价于 `memory.add(MemoryEntry(message, label))`，用于避免各处手写 [MemoryEntry] 构造。
  *
  * @param memory 目标记忆
- * @param tags 随条目携带的辅助 tag（如 `"steering"`），见 [MemoryEntry.tags]
+ * @param label 随条目携带的消息来源标签（如 `"steering"`），见 [MemoryEntry.label]
  */
-internal suspend fun ChatMessage.addToMemory(memory: Memory, tags: Set<String> = emptySet()) {
-    memory.add(MemoryEntry(this, tags = tags))
+internal suspend fun ChatMessage.addToMemory(memory: Memory, label: String? = null) {
+    memory.add(MemoryEntry(this, label = label))
 }
 
 /**

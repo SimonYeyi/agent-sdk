@@ -134,7 +134,7 @@ class BossAgentDagIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent, "[系统汇报]", scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
 
         return boss to bb
@@ -153,7 +153,7 @@ class BossAgentDagIntegrationTest {
             io.github.yeyi.agent.memory.InMemoryMemory().let { memory(it, 20) }
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent, "[系统汇报]", scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
         return boss to bb
     }
@@ -434,7 +434,7 @@ class BossAgentDagIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent, "[系统汇报]", scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
 
         val report = mutableListOf<AgentEvent>()
@@ -457,8 +457,8 @@ class BossAgentDagIntegrationTest {
 
         assertTrue(recordedInputs.isNotEmpty(), "should have recorded at least one LLM input")
         val summaryInput = recordedInputs.lastOrNull()
-        assertTrue(summaryInput?.contains("[系统汇报]") == true,
-            "LLM input should contain '[系统汇报]' summary, got: $summaryInput")
+        assertTrue(summaryInput?.startsWith("report: ") == true,
+            "LLM input should start with 'report: ' label prefix, got: $summaryInput")
     }
 
     @Test
@@ -615,7 +615,7 @@ class BossAgentDagIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent, "[系统汇报]", scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
 
         val report = mutableListOf<AgentEvent>()

@@ -17,11 +17,6 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 
 public class BossAgentBuilder internal constructor() {
-    private companion object {
-        /** 系统汇报标记 — 任务完成后由 worker 汇报结果时使用，放在用户消息格式中 */
-        const val SYSTEM_REPORT_MARKER: String = "[系统汇报]"
-    }
-
     private var bossPersona0: Persona? = null
     private var memory0: Memory? = null
     private var maxRounds0: Int = 20
@@ -45,9 +40,9 @@ public class BossAgentBuilder internal constructor() {
         When you call publish_task or cancel_task, you MUST write a short present-continuous
         transition message (e.g. "正在为您派发/取消任务，请稍等") IN THE SAME message as the tool call(s).
 
-        **About $SYSTEM_REPORT_MARKER**: When you see "$SYSTEM_REPORT_MARKER" at the beginning of a user message,
-        it is NOT a real user input — it is a system report from a worker about finished task results.
-        Treat it as an internal status update, not as if the user said something.
+        **About reports**: A user message whose text starts with "report:" is a system report from
+        a worker about finished task results. It is NOT a real user input — treat it as an internal
+        status update, not as if the user said something.
     """.trimIndent()
 
     public fun persona(persona: Persona) {
@@ -189,7 +184,7 @@ public class BossAgentBuilder internal constructor() {
             toolRegistry0?.let { tools(it.all()) }
         }
 
-        return BossAgent(innerAgent, SYSTEM_REPORT_MARKER, scope)
+        return BossAgent(innerAgent, scope)
     }
 
     private fun buildPersona(): Persona {
