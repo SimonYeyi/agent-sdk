@@ -81,7 +81,7 @@ class DemoViewModel(
             val history = session.conversation.history(Conversation.PAGE_ALL)
             // 运行时工具调用最终只保留结果气泡（"执行中"气泡被结果替换），
             // memory 持久化的 ToolResult 即最终结果，恢复渲染与运行时一致。
-            _messages.value = history.map { entry -> entry.message.toChatMessageUi() }
+            _messages.value = history.mapNotNull { entry -> entry.message.toChatMessageUi() }
         }
     }
 
@@ -123,8 +123,9 @@ class DemoViewModel(
                     }
                     is AgentEvent.Final -> {
                         val result = event.result as? AgentResult
-                        val content = result?.message?.displayText() ?: ""
-                        appendMessage("assistant", content)
+                        // content 为空（纯工具轮等）不渲染助手气泡，避免空气泡
+                        result?.message?.content?.takeIf { it.isNotBlank() }
+                            ?.let { appendMessage("assistant", it) }
                         _isLoading.value = false
                     }
                     is AgentEvent.Failed -> {
@@ -172,8 +173,9 @@ class DemoViewModel(
                     }
                     is AgentEvent.Final -> {
                         val result = event.result as? AgentResult
-                        val content = result?.message?.displayText() ?: ""
-                        appendMessage("assistant", content)
+                        // content 为空（纯工具轮等）不渲染助手气泡，避免空气泡
+                        result?.message?.content?.takeIf { it.isNotBlank() }
+                            ?.let { appendMessage("assistant", it) }
                         _isLoading.value = false
                     }
                     is AgentEvent.Failed -> {
@@ -232,19 +234,11 @@ class DemoViewModel(
 }
 
 /**
- * 助手消息渲染文本 = content + 工具名称列表。
- * 纯工具轮（content 为空、只有 toolCalls）时也能展示调用了哪些工具，避免空气泡。
+ * 消息恢复渲染；助手消息 content 为空（纯工具轮等）时不渲染气泡，避免空气泡。
  */
-private fun ChatMessage.Assistant.displayText(): String = buildList {
-    content?.takeIf { it.isNotEmpty() }?.let { add(it) }
-    if (toolCalls.isNotEmpty()) {
-        add("工具: " + toolCalls.joinToString(", ") { it.name })
-    }
-}.joinToString("\n")
-
-private fun ChatMessage.toChatMessageUi(): ChatMessageUi = when (this) {
+private fun ChatMessage.toChatMessageUi(): ChatMessageUi? = when (this) {
     is ChatMessage.User -> ChatMessageUi("user", parts.text)
-    is ChatMessage.Assistant -> ChatMessageUi("assistant", displayText())
+    is ChatMessage.Assistant -> content?.takeIf { it.isNotBlank() }?.let { ChatMessageUi("assistant", it) }
     is ChatMessage.System -> ChatMessageUi("assistant", content)
     // 工具调用在运行时最终只保留结果气泡（以工具名为标签、结果为内容），
     // 恢复渲染格式与运行时替换后的结果一致。
