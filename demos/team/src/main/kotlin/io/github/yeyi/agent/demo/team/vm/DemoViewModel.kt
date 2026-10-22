@@ -123,7 +123,7 @@ class DemoViewModel(
                     }
                     is AgentEvent.Final -> {
                         val result = event.result as? AgentResult
-                        val content = result?.message?.content ?: ""
+                        val content = result?.message?.displayText() ?: ""
                         appendMessage("assistant", content)
                         _isLoading.value = false
                     }
@@ -172,7 +172,7 @@ class DemoViewModel(
                     }
                     is AgentEvent.Final -> {
                         val result = event.result as? AgentResult
-                        val content = result?.message?.content ?: ""
+                        val content = result?.message?.displayText() ?: ""
                         appendMessage("assistant", content)
                         _isLoading.value = false
                     }
@@ -231,9 +231,20 @@ class DemoViewModel(
     }
 }
 
+/**
+ * 助手消息渲染文本 = content + 工具名称列表。
+ * 纯工具轮（content 为空、只有 toolCalls）时也能展示调用了哪些工具，避免空气泡。
+ */
+private fun ChatMessage.Assistant.displayText(): String = buildList {
+    content?.takeIf { it.isNotEmpty() }?.let { add(it) }
+    if (toolCalls.isNotEmpty()) {
+        add("工具: " + toolCalls.joinToString(", ") { it.name })
+    }
+}.joinToString("\n")
+
 private fun ChatMessage.toChatMessageUi(): ChatMessageUi = when (this) {
     is ChatMessage.User -> ChatMessageUi("user", parts.text)
-    is ChatMessage.Assistant -> ChatMessageUi("assistant", content ?: "")
+    is ChatMessage.Assistant -> ChatMessageUi("assistant", displayText())
     is ChatMessage.System -> ChatMessageUi("assistant", content)
     // 工具调用在运行时最终只保留结果气泡（以工具名为标签、结果为内容），
     // 恢复渲染格式与运行时替换后的结果一致。
