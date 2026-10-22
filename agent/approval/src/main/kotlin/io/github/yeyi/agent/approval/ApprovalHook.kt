@@ -47,7 +47,7 @@ public class ApprovalHook(
             return HookResult.Continue
         }
 
-        return when (val decision = approver.approval(ApprovalContext(targetTool.name, target.arguments))) {
+        return when (val decision = approver.approve(ApprovalContext(targetTool.name, target.arguments))) {
             is ApprovalDecision.Approved -> HookResult.Continue
             is ApprovalDecision.Denied -> HookResult.Refuse(decision.reason ?: "工具审批被拒绝")
         }

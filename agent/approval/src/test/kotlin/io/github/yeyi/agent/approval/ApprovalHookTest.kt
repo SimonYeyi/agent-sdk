@@ -61,7 +61,7 @@ class ApprovalHookTest {
     @Test
     fun `should continue when tool does not require approval`() = runTest {
         val approver = object : Approver {
-            override suspend fun approval(context: ApprovalContext): ApprovalDecision {
+            override suspend fun approve(context: ApprovalContext): ApprovalDecision {
                 throw RuntimeException("approver should not be called")
             }
         }
@@ -78,7 +78,7 @@ class ApprovalHookTest {
     fun `should call approver when tool requires approval`() = runTest {
         var called = false
         val approver = object : Approver {
-            override suspend fun approval(context: ApprovalContext): ApprovalDecision {
+            override suspend fun approve(context: ApprovalContext): ApprovalDecision {
                 called = true
                 assertEquals("dangerous_tool", context.toolName)
                 return ApprovalDecision.Approved
@@ -96,7 +96,7 @@ class ApprovalHookTest {
     @Test
     fun `should return Continue when approver approves`() = runTest {
         val approver = object : Approver {
-            override suspend fun approval(context: ApprovalContext): ApprovalDecision =
+            override suspend fun approve(context: ApprovalContext): ApprovalDecision =
                 ApprovalDecision.Approved
         }
         val hook = ApprovalHook(approver)
@@ -111,7 +111,7 @@ class ApprovalHookTest {
     @Test
     fun `should return Refuse when approver denies`() = runTest {
         val approver = object : Approver {
-            override suspend fun approval(context: ApprovalContext): ApprovalDecision =
+            override suspend fun approve(context: ApprovalContext): ApprovalDecision =
                 ApprovalDecision.Denied("user rejected")
         }
         val hook = ApprovalHook(approver)
@@ -127,7 +127,7 @@ class ApprovalHookTest {
     @Test
     fun `should return Refuse with default message when approver denies without reason`() = runTest {
         val approver = object : Approver {
-            override suspend fun approval(context: ApprovalContext): ApprovalDecision =
+            override suspend fun approve(context: ApprovalContext): ApprovalDecision =
                 ApprovalDecision.Denied(null)
         }
         val hook = ApprovalHook(approver)
@@ -145,7 +145,7 @@ class ApprovalHookTest {
         // Tool name in event is "dangerous_tool", matching the Approvable tool
         var capturedToolName: String? = null
         val approver = object : Approver {
-            override suspend fun approval(context: ApprovalContext): ApprovalDecision {
+            override suspend fun approve(context: ApprovalContext): ApprovalDecision {
                 capturedToolName = context.toolName
                 return ApprovalDecision.Approved
             }
@@ -176,7 +176,7 @@ class ApprovalHookTest {
         }
 
         val approver = object : Approver {
-            override suspend fun approval(context: ApprovalContext): ApprovalDecision {
+            override suspend fun approve(context: ApprovalContext): ApprovalDecision {
                 throw RuntimeException("approver should not be called for safe arguments")
             }
         }
@@ -206,7 +206,7 @@ class ApprovalHookTest {
 
         var called = false
         val approver = object : Approver {
-            override suspend fun approval(context: ApprovalContext): ApprovalDecision {
+            override suspend fun approve(context: ApprovalContext): ApprovalDecision {
                 called = true
                 return ApprovalDecision.Approved
             }
@@ -274,7 +274,7 @@ class ApprovalHookTest {
         val delegate = FakeDelegateTool("delegate", innerApprovableTool)
         var captured: ApprovalContext? = null
         val approver = object : Approver {
-            override suspend fun approval(context: ApprovalContext): ApprovalDecision {
+            override suspend fun approve(context: ApprovalContext): ApprovalDecision {
                 captured = context
                 return ApprovalDecision.Approved
             }
@@ -301,7 +301,7 @@ class ApprovalHookTest {
     fun `should pass through delegate when target tool is not Approvable`() = runTest {
         val delegate = FakeDelegateTool("delegate", innerNormalTool)
         val approver = object : Approver {
-            override suspend fun approval(context: ApprovalContext): ApprovalDecision {
+            override suspend fun approve(context: ApprovalContext): ApprovalDecision {
                 throw RuntimeException("approver should not be called for non-Approvable target")
             }
         }
@@ -323,7 +323,7 @@ class ApprovalHookTest {
     fun `should refuse via delegate when approver denies target tool`() = runTest {
         val delegate = FakeDelegateTool("delegate", innerApprovableTool)
         val approver = object : Approver {
-            override suspend fun approval(context: ApprovalContext): ApprovalDecision =
+            override suspend fun approve(context: ApprovalContext): ApprovalDecision =
                 ApprovalDecision.Denied("denied inner")
         }
         val hook = ApprovalHook(approver)
@@ -346,7 +346,7 @@ class ApprovalHookTest {
         // 无法解析（缺 arguments 字段）→ 抛异常，由上层全局捕获，不触发 approver
         val delegate = FakeDelegateTool("delegate", innerApprovableTool)
         val approver = object : Approver {
-            override suspend fun approval(context: ApprovalContext): ApprovalDecision {
+            override suspend fun approve(context: ApprovalContext): ApprovalDecision {
                 throw RuntimeException("approver should not be called when delegate unresolvable")
             }
         }
