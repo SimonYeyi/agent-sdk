@@ -100,7 +100,7 @@ public class ReActAgent internal constructor(
             emit(AgentEvent.Initial(query))
 
             memory.attachHook(MemoryCompressProxyHook(hook, emit), buildContext(0))
-            modalityAdapter.archive(ChatMessage.User(query.parts)).addToMemory(memory, label = query.label)
+            modalityAdapter.archive(ChatMessage.User(query.parts)).addToMemory(memory, query.label)
 
             while (iterations < maxIterations) {
                 loopOnce(++iterations, toolCalls, llmCall, emit)?.let { return }
@@ -139,19 +139,45 @@ public class ReActAgent internal constructor(
         val response = llmCallWithContextOverflowHandle(finalRequest, llmCall)
         hook.safeInvoke { afterLlmResponse(context, response) }
 
-        response.message.addToMemory(memory)
-
         if (response.message.toolCalls.isEmpty()) {
-            // 正常收敛：模型无工具调用，直接进入终局
             return finalize(response, iterations, toolCalls, context, emit)
         }
 
-        val allAsync =
-            response.message.toolCalls.all { call -> toolRegistry.getOrNull(call.name) is AsyncTool }
+        val allAsync = response.message.toolCalls
+            .all { call -> toolRegistry.getOrNull(call.name) is AsyncTool }
+
+        if (allAsync) {
+            // allAsync 短路轮：把 response.message 拆成两条——
+            // callTools 只消费 toolCalls（content 置空，写入声明消息 + 工具结果），
+            // finalize 只消费 content（toolCalls 置空，写入终结过渡语）。
+            // 避免同一 Assistant 消息被重复写入记忆，且声明消息先于工具结果、
+            // 过渡语收尾，恢复渲染与运行时一致，续轮请求角色顺序合法。
+            callTools(
+                response.copy(message = response.message.copy(content = null)),
+                toolCalls, true, context, emit
+            )
+            return finalize(
+                response.copy(message = response.message.copy(toolCalls = emptyList())),
+                iterations, toolCalls, context, emit
+            )
+        } else {
+            callTools(response, toolCalls, false, context, emit)
+            return null
+        }
+    }
+
+    private suspend fun callTools(
+        response: ChatResponse,
+        toolCalls: MutableList<AgentResult.ToolCallRecord>,
+        allAsync: Boolean,
+        context: AgentContext,
+        emit: suspend (AgentEvent) -> Unit,
+    ) {
+        response.message.addToMemory(memory)
 
         emit(
             AgentEvent.ToolCallExplanation(
-                text = response.message.content?.takeIf { it != "" && !allAsync },
+                text = response.message.content?.takeIf { it != "" },
                 toolCalls = response.message.toolCalls,
                 allAsync = allAsync,
             )
@@ -190,15 +216,6 @@ public class ReActAgent internal constructor(
 
             emit(AgentEvent.ToolCallEnd(call, final))
         }
-
-        // 短路判断：本轮所有工具调用均为 AsyncTool 才进入终局——异步工具的结果
-        // 由外部异步通道送达，本轮无可同步等待的下一步，不再触发下一轮推理；
-        // 混调普通工具说明模型仍需同步结果，继续下一轮。
-        // 短路时 AgentResult.message 即当前 response.message —— content 是模型首次响应
-        // 同步输出的过渡语文本，UI 照常渲染 Final，无需感知新事件类型。
-        if (allAsync) return finalize(response, iterations, toolCalls, context, emit)
-
-        return null
     }
 
     /**
@@ -213,6 +230,7 @@ public class ReActAgent internal constructor(
         context: AgentContext,
         emit: suspend (AgentEvent) -> Unit,
     ): AgentResult? {
+        response.message.addToMemory(memory)
         // 终局：Final 抢占 + 终局。与 steer() 锁下互斥。
         steerInbox.lock.lock()
         if (!steerInbox.isEmpty()) {
@@ -287,6 +305,7 @@ public class ReActAgent internal constructor(
             is ChatMessage.User -> message.copy(parts = message.parts.mapIndexed { i, part ->
                 if (i == 0 && part is ContentPart.Text) ContentPart.Text("$label: ${part.text}") else part
             })
+
             is ChatMessage.System -> message.copy(content = "$label: ${message.content}")
             else -> message
         }

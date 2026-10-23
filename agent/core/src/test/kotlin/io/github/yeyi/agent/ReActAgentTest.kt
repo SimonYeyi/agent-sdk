@@ -34,6 +34,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -629,8 +630,21 @@ class ReActAgentTest {
 
         // Final 内容即模型首次同步输出的过渡语
         assertEquals("正在派发,请稍等", events.filterIsInstance<AgentEvent.Final>().single().result.message.content)
-        // 工具结果已写入 memory,供后续异步唤醒轮次引用
-        assertEquals(1, mem.history().map { it.message }.filterIsInstance<ChatMessage.ToolResult>().size)
+        // 记忆顺序与运行时事件流对齐（拆分方案）：
+        // User(query) → Assistant(声明, content=null) → ToolResult → Assistant(过渡语, toolCalls=空)
+        // 会话恢复按此顺序渲染即为「工具气泡 → 过渡语气泡」，与运行时一致，且无重复写入。
+        val memMessages = mem.history().map { it.message }
+        assertEquals(4, memMessages.size, "query + 声明 + 工具结果 + 过渡语，共 4 条")
+        assertTrue(memMessages[1] is ChatMessage.Assistant, "第 2 条为工具声明消息")
+        val declaration = memMessages[1] as ChatMessage.Assistant
+        assertNull(declaration.content, "声明消息不带过渡语文本，过渡语由 Final 消息承载")
+        assertEquals(listOf(toolCall), declaration.toolCalls)
+        assertTrue(memMessages[2] is ChatMessage.ToolResult, "第 3 条为工具结果")
+        assertEquals("c1", (memMessages[2] as ChatMessage.ToolResult).toolCallId)
+        assertTrue(memMessages[3] is ChatMessage.Assistant, "第 4 条为终结过渡语")
+        val farewell = memMessages[3] as ChatMessage.Assistant
+        assertEquals("正在派发,请稍等", farewell.content)
+        assertTrue(farewell.toolCalls.isEmpty(), "过渡语消息不携带 toolCalls，避免重复写入")
     }
 
     @Test
