@@ -18,6 +18,7 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.readLineStrict
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 
@@ -95,7 +96,7 @@ public class AnthropicProvider(
         return mapAnthropicToCore(parsed)
     }
 
-    override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
+    override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = channelFlow {
         val anthropicReq = mapToAnthropic(model, request, thinking).copy(stream = true)
         try {
             httpClient.preparePost("$baseUrl/v1/messages") {
@@ -121,7 +122,7 @@ public class AnthropicProvider(
                     // matching the prior byte-by-byte parser's behavior.
                     emit("")
                 }
-                decodeAnthropicSse(lineFlow).collect { emit(it) }
+                decodeAnthropicSse(lineFlow).collect { send(it) }
             }
         } catch (t: Throwable) {
             if (t is kotlinx.coroutines.CancellationException) throw t

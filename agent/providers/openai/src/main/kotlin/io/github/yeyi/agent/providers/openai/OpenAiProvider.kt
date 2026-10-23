@@ -18,6 +18,7 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.readLineStrict
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 
@@ -108,7 +109,7 @@ public class OpenAiProvider(
         return mapFromOpenAi(parsed)
     }
 
-    override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
+    override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = channelFlow {
         val openAiReq = mapToOpenAi(
             model,
             request,
@@ -134,7 +135,7 @@ public class OpenAiProvider(
                         emit(line)
                     }
                 }
-                decodeOpenAiSseLines(lineFlow).collect { emit(it) }
+                decodeOpenAiSseLines(lineFlow).collect { send(it) }
             }
         } catch (t: Throwable) {
             if (t is kotlinx.coroutines.CancellationException) throw t
