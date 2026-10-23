@@ -36,7 +36,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -76,11 +79,18 @@ fun CockpitS2sScreen(
 
     val listState = rememberLazyListState()
 
-    // Auto-scroll when messages or pending text changes
+    // Auto-scroll when messages or pending text changes.
+    // 首次挂载（session 恢复）直接跳到底部，无动画；之后实时消息用动画滚动。
+    var initScrolled by remember { mutableStateOf(false) }
     LaunchedEffect(state.messages.size, state.pendingUser, state.pendingAssistant) {
         if (state.messages.isNotEmpty() || state.pendingUser.isNotEmpty() || state.pendingAssistant.isNotEmpty()) {
             val lastIndex = (state.messages.size - 1).coerceAtLeast(0)
-            listState.animateScrollToItem(lastIndex)
+            if (!initScrolled) {
+                listState.scrollToItem(lastIndex)
+                initScrolled = true
+            } else {
+                listState.animateScrollToItem(lastIndex)
+            }
         }
     }
 

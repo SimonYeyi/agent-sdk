@@ -33,7 +33,11 @@ import androidx.compose.material3.rememberDrawerState
 import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -124,8 +128,15 @@ fun DemoScreen(
 
             // Chat messages
                 val listState = rememberLazyListState()
+                // 首次挂载（session 恢复）直接跳到底部，无动画；
+                // 之后消息实时追加时用动画滚动到最新。
+                var initScrolled by remember { mutableStateOf(false) }
                 LaunchedEffect(messages.size) {
-                    if (messages.isNotEmpty()) {
+                    if (messages.isEmpty()) return@LaunchedEffect
+                    if (!initScrolled) {
+                        listState.scrollToItem(messages.size - 1)
+                        initScrolled = true
+                    } else {
                         listState.animateScrollToItem(messages.size - 1)
                     }
                 }
