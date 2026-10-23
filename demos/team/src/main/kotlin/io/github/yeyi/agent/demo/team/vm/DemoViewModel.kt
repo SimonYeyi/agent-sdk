@@ -8,6 +8,7 @@ import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.demo.team.smartCockpit.CockpitAgent
 import io.github.yeyi.agent.demo.team.ui.ChatMessageUi
+import io.github.yeyi.agent.demo.team.ui.PendingInput
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.text
@@ -21,6 +22,7 @@ import io.github.yeyi.agent.team.TasksState
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -57,6 +59,19 @@ class DemoViewModel(
 
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
+
+    /**
+     * 发送后待确认的指令队列：指令不立即渲染为用户气泡，先在此排队等待
+     * 对应 [AgentEvent.Initial] 确认，避免 BossAgent 报告轮次进行中指令被
+     * 排队时，重启后记忆顺序（报告→指令）与运行时显示顺序颠倒。
+     * queued=true 的项显示在输入框上方的悬浮列表，提示"指令正在队列中"。
+     */
+    private val pendingQueue = PendingInputQueue()
+    private val _pendingInputs = MutableStateFlow<List<PendingInput>>(emptyList())
+    val pendingInputs: StateFlow<List<PendingInput>> = _pendingInputs.asStateFlow()
+
+    /** 指令发出后等待 Initial 确认的超时窗口：超时未确认即转入排队悬浮列表。 */
+    private val PENDING_CONFIRM_TIMEOUT_MS = 200L
 
     init {
         viewModelScope.launch {
@@ -153,7 +168,11 @@ class DemoViewModel(
 
         val agent = _boss.value ?: return
 
-        appendMessage("user", text)
+        // 不立即渲染用户气泡：BossAgent 可能正处于任务报告轮次，指令进入
+        // scheduler 队列待报告完成后才执行；立即显示会导致运行时顺序
+        // （指令→报告）与重启后记忆恢复顺序（报告→指令）颠倒。
+        // 指令先入待确认队列，收到对应 Initial 事件后再落为用户气泡。
+        addPendingInput(text)
         _inputText.value = ""
         _isLoading.value = true
 
@@ -172,7 +191,11 @@ class DemoViewModel(
                         // Text deltas are handled by Final, skip here
                     }
                     is AgentEvent.Initial -> {
-                        // User input already shown, skip
+                        // 指令开始执行：从待确认队列移除并落为用户气泡（带 label 的
+                        // Initial 属于报告轮次，走 report 流渲染系统气泡，不在此处理）。
+                        if (event.query.label == null) {
+                            confirmPendingInput(text)
+                        }
                     }
                     is AgentEvent.Final -> {
                         val result = event.result as? AgentResult
@@ -182,6 +205,8 @@ class DemoViewModel(
                         _isLoading.value = false
                     }
                     is AgentEvent.Failed -> {
+                        // 兜底：失败也把指令落为用户气泡，避免悬浮队列滞留
+                        confirmPendingInput(text)
                         appendMessage("assistant", "错误: ${event.cause.message}")
                         _isLoading.value = false
                     }
@@ -191,6 +216,36 @@ class DemoViewModel(
                 }
             }
         }
+    }
+
+    /**
+     * 指令入队待确认：先标记未排队；200ms 内未收到对应 [AgentEvent.Initial]
+     * 则转为排队中，UI 在输入框上方展示悬浮列表提示指令正在等待执行。
+     */
+    private fun addPendingInput(text: String) {
+        val index = pendingQueue.add(text)
+        refreshPendingInputs()
+        viewModelScope.launch {
+            delay(PENDING_CONFIRM_TIMEOUT_MS)
+            pendingQueue.markQueued(index)
+            refreshPendingInputs()
+        }
+    }
+
+    /**
+     * 指令确认：Agent 开始执行该指令（收到对应 Initial 事件），
+     * 从待确认队列移除并渲染为用户气泡；悬浮队列清空后 UI 自动关闭。
+     */
+    private fun confirmPendingInput(text: String) {
+        if (pendingQueue.confirm(text)) {
+            appendMessage("user", text)
+        }
+        refreshPendingInputs()
+    }
+
+    /** 将队列状态机快照同步到 UI 状态流。 */
+    private fun refreshPendingInputs() {
+        _pendingInputs.value = pendingQueue.snapshot()
     }
 
     /**

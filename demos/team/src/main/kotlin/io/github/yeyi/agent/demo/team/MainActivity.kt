@@ -41,6 +41,7 @@ class MainActivity : ComponentActivity() {
                     val boss by viewModel.boss.collectAsState()
                     val taskGroups by viewModel.taskGroups.collectAsState()
                     val messages by viewModel.messages.collectAsState()
+                    val pendingInputs by viewModel.pendingInputs.collectAsState()
                     val inputText by viewModel.inputText.collectAsState()
 
                     var voiceMode by remember { mutableStateOf(false) }
@@ -51,6 +52,7 @@ class MainActivity : ComponentActivity() {
                     DemoScreen(
                         taskGroups = taskGroups,
                         messages = messages,
+                        pendingInputs = pendingInputs,
                         inputText = inputText,
                         onInputChange = viewModel::onInputChange,
                         onSend = viewModel::onSend,

@@ -51,6 +51,7 @@ import kotlinx.coroutines.launch
 fun DemoScreen(
     taskGroups: List<TasksState>,
     messages: List<ChatMessageUi>,
+    pendingInputs: List<PendingInput>,
     inputText: String,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
@@ -149,6 +150,37 @@ fun DemoScreen(
                     }
                 }
 
+                // Pending queue indicator anchored above the input field.
+                // 指令发出后 BossAgent 正在执行报告轮次时会先排队，未收到 Initial
+                // 前展示于此；确认（Initial 到达）后移除，队列清空自动关闭。
+                val queuedInputs = pendingInputs.filter { it.queued }
+                if (queuedInputs.isNotEmpty()) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant
+                        )
+                    ) {
+                        Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                            Text(
+                                text = "指令排队中",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            queuedInputs.forEach { item ->
+                                Text(
+                                    text = "• ${item.text}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
                 // Input area
                 Row(
                     modifier = Modifier
@@ -191,6 +223,16 @@ data class ChatMessageUi(
     val content: String,
     val isLoading: Boolean = false,
     val toolName: String? = null
+)
+
+/**
+ * 发送后待确认的指令：queued=false 为 200ms 超时窗口内的等待确认态（不展示），
+ * queued=true 表示已转入排队态，展示在输入框上方的悬浮列表中提示等待执行；
+ * 收到对应 Initial 事件（Agent 开始执行）后移除并落为用户气泡。
+ */
+data class PendingInput(
+    val text: String,
+    val queued: Boolean
 )
 
 @Composable
