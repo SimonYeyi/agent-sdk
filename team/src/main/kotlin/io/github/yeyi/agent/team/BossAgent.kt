@@ -4,6 +4,7 @@ import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.Shutdownable
+import io.github.yeyi.agent.Streamable
 import io.github.yeyi.agent.llm.ContentPart
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -212,9 +213,15 @@ public class BossAgent internal constructor(
 
     private suspend fun runUserRound(userRound: UserRound) {
         try {
-            innerAgent.run(AgentQuery.text(userRound.input)).collect { e ->
-                userRound.channel.send(e)
+            // 用户轮使用流式运行：innerAgent 支持 Streamable 时逐字输出，
+            // 降低用户感知延迟；不支持时回退冷 flow。
+            val query = AgentQuery.text(userRound.input)
+            val flow = if (innerAgent is Streamable) {
+                (innerAgent as Streamable).runStream(query)
+            } else {
+                innerAgent.run(query)
             }
+            flow.collect { e -> userRound.channel.send(e) }
         } finally {
             userRound.channel.close()
             // 轮次完成即移除，无人收集的 round 不滞留登记表

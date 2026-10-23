@@ -60,6 +60,9 @@ class DemoViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    /** 流式草稿气泡下标：TextDelta 逐字累积于此，ToolCallExplanation 段收尾、Final 总收尾、Failed 兜底清除。 */
+    private var streamingAssistantIndex: Int? = null
+
     /**
      * 发送后待确认的指令队列：指令不立即渲染为用户气泡，先在此排队等待
      * 对应 [AgentEvent.Initial] 确认，避免 BossAgent 报告轮次进行中指令被
@@ -177,19 +180,27 @@ class DemoViewModel(
         _isLoading.value = true
 
         viewModelScope.launch {
+            // 本轮是否发生过工具调用：决定 Final 收尾方式——
+            // 纯文本轮草稿原位收尾（无闪动），含工具轮移除草稿并把完整文本
+            // 追加到工具气泡之后，保证与记忆恢复顺序一致。
+            var sawToolCall = false
             agent.run(AgentQuery.text(text)).collect { event ->
                 when (event) {
-                    is AgentEvent.ToolCallStart -> handleToolCallStart(event.toolCall)
+                    is AgentEvent.ToolCallStart -> {
+                        sawToolCall = true
+                        handleToolCallStart(event.toolCall)
+                    }
                     is AgentEvent.ToolCallEnd -> handleToolCallEnd(event.toolCall, event.result)
                     is AgentEvent.ToolCallExplanation -> {
-                        val text = event.text ?: ""
-                        if (text.isNotEmpty()) {
-                            appendMessage("assistant", "💬 $text")
-                        }
+                        // 与 Final 一样是流式结束信号：用事件携带的权威完整文本替换草稿，
+                        // 防止增量缺失/乱序造成草稿不完整；随后重置下标，下一段（工具轮
+                        // 之后）从列表末尾新起草稿，保证段间气泡顺序与记忆恢复顺序一致。
+                        // text == null 表示 allAsync 短路（声明与过渡语分离），过渡语由
+                        // Final 统一收尾，草稿保持活跃，避免重复渲染。
+                        event.text?.let { replaceStreamingText(it) }
+                        if (event.text != null) streamingAssistantIndex = null
                     }
-                    is AgentEvent.TextDelta -> {
-                        // Text deltas are handled by Final, skip here
-                    }
+                    is AgentEvent.TextDelta -> appendStreamingText(event.text)
                     is AgentEvent.Initial -> {
                         // 指令开始执行：从待确认队列移除并落为用户气泡（带 label 的
                         // Initial 属于报告轮次，走 report 流渲染系统气泡，不在此处理）。
@@ -197,15 +208,13 @@ class DemoViewModel(
                             confirmPendingInput(text)
                         }
                     }
-                    is AgentEvent.Final -> {
-                        val result = event.result as? AgentResult
-                        // content 为空（纯工具轮等）不渲染助手气泡，避免空气泡
-                        result?.message?.content?.takeIf { it.isNotBlank() }
-                            ?.let { appendMessage("assistant", it) }
-                        _isLoading.value = false
-                    }
+                    is AgentEvent.Final -> finishStreamingText(
+                        finalContent = (event.result as? AgentResult)?.message?.content,
+                        sawToolCall = sawToolCall,
+                    )
                     is AgentEvent.Failed -> {
                         // 兜底：失败也把指令落为用户气泡，避免悬浮队列滞留
+                        clearStreamingDraft()
                         confirmPendingInput(text)
                         appendMessage("assistant", "错误: ${event.cause.message}")
                         _isLoading.value = false
@@ -215,6 +224,73 @@ class DemoViewModel(
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * 流式文本累积：追加到草稿气泡（列表最后一条），无草稿时新建。
+     * 工具气泡会追加在草稿之后，因此含工具轮中草稿并不总是最后一条。
+     */
+    private fun appendStreamingText(delta: String) {
+        val index = streamingAssistantIndex
+        val base = index?.let { _messages.value.getOrNull(it)?.content } ?: ""
+        val text = base + delta
+        if (index != null && index < _messages.value.size) {
+            _messages.value = _messages.value.toMutableList().also { it[index] = it[index].copy(content = text) }
+        } else {
+            streamingAssistantIndex = _messages.value.size
+            _messages.value = _messages.value + ChatMessageUi("assistant", text)
+        }
+    }
+
+    /**
+     * 流式段收尾：用 [AgentEvent.ToolCallExplanation] 携带的权威完整文本替换草稿，
+     * 使该段最终文本与增量流严格一致；之后重置下标，下一段（工具轮之后）从列表
+     * 末尾新起草稿，保证段间气泡顺序与记忆恢复顺序一致。
+     * 草稿缺失（增量未到达）时按完整文本新建气泡兜底。
+     */
+    private fun replaceStreamingText(text: String) {
+        val index = streamingAssistantIndex
+        if (index != null && index < _messages.value.size) {
+            _messages.value = _messages.value.toMutableList().also { it[index] = it[index].copy(content = text) }
+        } else if (text.isNotEmpty()) {
+            streamingAssistantIndex = _messages.value.size
+            _messages.value = _messages.value + ChatMessageUi("assistant", text)
+        }
+    }
+
+    /**
+     * Final 收尾流式草稿：
+     * - 纯文本轮：草稿原位更新为完整文本，避免气泡闪动；
+     * - 含工具调用轮：移除草稿，完整文本追加到工具气泡之后，
+     *   最终顺序（工具结果 → 过渡语）与记忆恢复顺序一致。
+     */
+    private fun finishStreamingText(finalContent: String?, sawToolCall: Boolean) {
+        val index = streamingAssistantIndex
+        val finalText = finalContent?.takeIf { it.isNotBlank() }
+        if (index != null && index < _messages.value.size) {
+            if (sawToolCall) {
+                _messages.value = _messages.value.toMutableList().also { it.removeAt(index) }
+                finalText?.let { appendMessage("assistant", it) }
+            } else {
+                _messages.value = _messages.value.toMutableList().also {
+                    it[index] = it[index].copy(content = finalText ?: it[index].content)
+                }
+            }
+            streamingAssistantIndex = null
+        } else if (finalText != null) {
+            appendMessage("assistant", finalText)
+        }
+        _isLoading.value = false
+    }
+
+    /** 清除流式草稿气泡（失败路径，避免残留未完成的半截文本）。 */
+    private fun clearStreamingDraft() {
+        streamingAssistantIndex?.let { idx ->
+            if (idx < _messages.value.size) {
+                _messages.value = _messages.value.toMutableList().also { it.removeAt(idx) }
+            }
+            streamingAssistantIndex = null
         }
     }
 

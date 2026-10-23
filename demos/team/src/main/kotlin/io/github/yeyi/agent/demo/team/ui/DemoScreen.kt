@@ -130,8 +130,11 @@ fun DemoScreen(
                 val listState = rememberLazyListState()
                 // 首次挂载（session 恢复）直接跳到底部，无动画；
                 // 之后消息实时追加时用动画滚动到最新。
+                // 流式输出原位更新消息 content（纯文本轮为最后一条，工具轮时草稿
+                // 位于工具气泡之前），size 与最后一条 content 均无法覆盖全部变化，
+                // 因此直接以整个列表为触发键：历史消息从不变化，任何变化即滚动跟随。
                 var initScrolled by remember { mutableStateOf(false) }
-                LaunchedEffect(messages.size) {
+                LaunchedEffect(messages) {
                     if (messages.isEmpty()) return@LaunchedEffect
                     if (!initScrolled) {
                         listState.scrollToItem(messages.size - 1)
@@ -266,6 +269,9 @@ fun ChatBubble(message: ChatMessageUi) {
         contentAlignment = alignment
     ) {
         Surface(
+            // 助手气泡（含流式草稿）撑满横屏宽度，避免流式文本增长时宽度跳变；
+            // 用户/工具气泡保持按内容伸缩。
+            modifier = if (message.role == "assistant") Modifier.fillMaxWidth() else Modifier,
             color = backgroundColor,
             shape = RoundedCornerShape(
                 topStart = 16.dp,
