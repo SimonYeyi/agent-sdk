@@ -22,6 +22,7 @@ import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -83,8 +84,22 @@ class BossAgentTest {
             return responses[i]
         }
 
-        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> =
-            kotlinx.coroutines.flow.flow { /* not used by innerAgent.run() */ }
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
+            val i = index++
+            check(i < responses.size) {
+                "SlowFirstLlmProvider: chatStream() called ${i + 1} times, but only ${responses.size} responses scripted"
+            }
+            // 首次调用在流内挂起：Boss 用户轮以 runStream 驱动，保持"首个 LLM 调用在途"
+            // 的语义（第一个 run 占用槽位，后续 run 排队），与 chat() 的 delay 行为对齐。
+            if (i == 0) delay(firstCallDelayMs)
+            val response = responses[i]
+            response.message.content?.takeIf { it.isNotEmpty() }
+                ?.let { emit(ChatResponseEvent.ContentDelta(it)) }
+            response.message.toolCalls.forEach { call ->
+                emit(ChatResponseEvent.ToolCallDelta(call.id, call.name, call.arguments.toString()))
+            }
+            emit(ChatResponseEvent.Done(response.usage, response.finishReason))
+        }
     }
 
     @Test

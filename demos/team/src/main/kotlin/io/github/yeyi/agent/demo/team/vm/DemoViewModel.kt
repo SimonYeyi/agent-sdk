@@ -135,7 +135,8 @@ class DemoViewModel(
                         }
                     }
                     is AgentEvent.TextDelta -> {
-                        // Skip, handled by Final
+                        // 报告轮次非流式运行，不会出现 TextDelta；过渡语由
+                        // ToolCallExplanation 以完整文本承载，无需增量累积。
                     }
                     is AgentEvent.Initial -> {
                         // 带 label 的 query（BossAgent 任务系统报告）渲染为"系统"气泡；
@@ -180,26 +181,16 @@ class DemoViewModel(
         _isLoading.value = true
 
         viewModelScope.launch {
-            // 本轮是否发生过工具调用：决定 Final 收尾方式——
-            // 纯文本轮草稿原位收尾（无闪动），含工具轮移除草稿并把完整文本
-            // 追加到工具气泡之后，保证与记忆恢复顺序一致。
-            var sawToolCall = false
             agent.run(AgentQuery.text(text)).collect { event ->
                 when (event) {
-                    is AgentEvent.ToolCallStart -> {
-                        sawToolCall = true
-                        handleToolCallStart(event.toolCall)
-                    }
+                    is AgentEvent.ToolCallStart -> handleToolCallStart(event.toolCall)
                     is AgentEvent.ToolCallEnd -> handleToolCallEnd(event.toolCall, event.result)
-                    is AgentEvent.ToolCallExplanation -> {
-                        // 与 Final 一样是流式结束信号：用事件携带的权威完整文本替换草稿，
-                        // 防止增量缺失/乱序造成草稿不完整；随后重置下标，下一段（工具轮
-                        // 之后）从列表末尾新起草稿，保证段间气泡顺序与记忆恢复顺序一致。
-                        // text == null 表示 allAsync 短路（声明与过渡语分离），过渡语由
-                        // Final 统一收尾，草稿保持活跃，避免重复渲染。
-                        event.text?.let { replaceStreamingText(it) }
-                        if (event.text != null) streamingAssistantIndex = null
-                    }
+                    // ToolCallExplanation 与 Final 统一走 finishStreamingSegment：
+                    // 两者都是携带权威完整文本的流式段结束信号，收尾骨架完全一致。
+                    // Final 的完整文本必然对应刚流式累积完成的草稿（纯文本轮草稿在
+                    // 列表末尾原位收尾；allAsync 短路轮为 content=null 空响应，过渡语
+                    // 已由 ToolCallExplanation 原位收尾，不归位不渲染），无需归位动作。
+                    is AgentEvent.ToolCallExplanation -> finishStreamingSegment(event.text)
                     is AgentEvent.TextDelta -> appendStreamingText(event.text)
                     is AgentEvent.Initial -> {
                         // 指令开始执行：从待确认队列移除并落为用户气泡（带 label 的
@@ -208,10 +199,12 @@ class DemoViewModel(
                             confirmPendingInput(text)
                         }
                     }
-                    is AgentEvent.Final -> finishStreamingText(
-                        finalContent = (event.result as? AgentResult)?.message?.content,
-                        sawToolCall = sawToolCall,
-                    )
+                    is AgentEvent.Final -> {
+                        finishStreamingSegment((event.result as? AgentResult)?.message?.content)
+                        // 轮次收尾：loading 归位是 Final/Failed 独有的轮次副作用，
+                        // 与流式气泡归位正交，放在事件分支而非流式收尾方法内。
+                        _isLoading.value = false
+                    }
                     is AgentEvent.Failed -> {
                         // 兜底：失败也把指令落为用户气泡，避免悬浮队列滞留
                         clearStreamingDraft()
@@ -244,44 +237,26 @@ class DemoViewModel(
     }
 
     /**
-     * 流式段收尾：用 [AgentEvent.ToolCallExplanation] 携带的权威完整文本替换草稿，
-     * 使该段最终文本与增量流严格一致；之后重置下标，下一段（工具轮之后）从列表
-     * 末尾新起草稿，保证段间气泡顺序与记忆恢复顺序一致。
-     * 草稿缺失（增量未到达）时按完整文本新建气泡兜底。
+     * 流式段统一收尾：ToolCallExplanation 与 Final 都是携带权威完整文本的流式段结束信号，
+     * 收尾骨架完全一致：
+     * - 草稿存在时原位替换为权威完整文本。Final 的完整文本必然对应刚流式累积完成的
+     *   草稿（纯文本轮草稿在列表末尾原位收尾；allAsync 短路轮为 content=null 空响应时
+     *   保留草稿现状——过渡语已由 ToolCallExplanation 原位收尾，不归位不渲染），
+     *   因此无需任何"移除草稿+追加末尾"的归位动作。
+     * - 草稿缺失（非流式路径或增量未到达）时按完整文本新建气泡兜底。
+     * - 收尾后重置草稿下标，下一段从列表末尾新起草稿，保证段间气泡顺序与记忆写入顺序一致。
      */
-    private fun replaceStreamingText(text: String) {
+    private fun finishStreamingSegment(authoritativeText: String?) {
         val index = streamingAssistantIndex
+        val finalText = authoritativeText?.takeIf { it.isNotBlank() }
         if (index != null && index < _messages.value.size) {
-            _messages.value = _messages.value.toMutableList().also { it[index] = it[index].copy(content = text) }
-        } else if (text.isNotEmpty()) {
-            streamingAssistantIndex = _messages.value.size
-            _messages.value = _messages.value + ChatMessageUi("assistant", text)
-        }
-    }
-
-    /**
-     * Final 收尾流式草稿：
-     * - 纯文本轮：草稿原位更新为完整文本，避免气泡闪动；
-     * - 含工具调用轮：移除草稿，完整文本追加到工具气泡之后，
-     *   最终顺序（工具结果 → 过渡语）与记忆恢复顺序一致。
-     */
-    private fun finishStreamingText(finalContent: String?, sawToolCall: Boolean) {
-        val index = streamingAssistantIndex
-        val finalText = finalContent?.takeIf { it.isNotBlank() }
-        if (index != null && index < _messages.value.size) {
-            if (sawToolCall) {
-                _messages.value = _messages.value.toMutableList().also { it.removeAt(index) }
-                finalText?.let { appendMessage("assistant", it) }
-            } else {
-                _messages.value = _messages.value.toMutableList().also {
-                    it[index] = it[index].copy(content = finalText ?: it[index].content)
-                }
+            _messages.value = _messages.value.toMutableList().also {
+                it[index] = it[index].copy(content = finalText ?: it[index].content)
             }
             streamingAssistantIndex = null
         } else if (finalText != null) {
             appendMessage("assistant", finalText)
         }
-        _isLoading.value = false
     }
 
     /** 清除流式草稿气泡（失败路径，避免残留未完成的半截文本）。 */

@@ -24,6 +24,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -159,6 +160,20 @@ class BossAgentDagIntegrationTest {
     }
 
     /**
+     * 把非流式响应解码为流式协议事件序列，供 chatStream 回退使用：
+     * BossAgent 用户轮以 runStream 驱动 innerAgent，会无条件走 chatStream；
+     * 自定义 LlmProvider 只需脚本化响应列表，chat/chatStream 共享同一响应计数器。
+     */
+    private fun ChatResponse.toStreamEvents(): Flow<ChatResponseEvent> = flow {
+        message.content?.takeIf { it.isNotEmpty() }
+            ?.let { emit(ChatResponseEvent.ContentDelta(it)) }
+        message.toolCalls.forEach { call ->
+            emit(ChatResponseEvent.ToolCallDelta(call.id, call.name, call.arguments.toString()))
+        }
+        emit(ChatResponseEvent.Done(usage, finishReason))
+    }
+
+    /**
      * Scripted LLM that records the text of each user-turn input (index-aligned
      * with the responses list) so tests can assert what the boss was told.
      */
@@ -168,7 +183,9 @@ class BossAgentDagIntegrationTest {
     ): LlmProvider = object : LlmProvider {
         override val name = "recording"
         private var index = 0
-        override suspend fun chat(request: ChatRequest): ChatResponse {
+
+        /** 记录用户轮输入并返回脚本化响应，chat/chatStream 共用同一计数器保持对齐。 */
+        private fun nextResponse(request: ChatRequest): ChatResponse {
             val lastUserMsg = request.messages.lastOrNull { it is ChatMessage.User }
             if (lastUserMsg != null) {
                 recordedInputs.add(
@@ -178,8 +195,10 @@ class BossAgentDagIntegrationTest {
             }
             return responses[index++]
         }
+
+        override suspend fun chat(request: ChatRequest): ChatResponse = nextResponse(request)
         override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> =
-            kotlinx.coroutines.flow.flow { error("not expected") }
+            nextResponse(request).toStreamEvents()
     }
 
     @Test
@@ -392,7 +411,7 @@ class BossAgentDagIntegrationTest {
                 BOSS_WAITING,
                 BOSS_CONTINUATION,
             )
-            override suspend fun chat(request: ChatRequest): ChatResponse {
+            private fun nextResponse(request: ChatRequest): ChatResponse {
                 if (index > 0) {
                     val lastUserMsg = request.messages.lastOrNull { it is ChatMessage.User }
                     if (lastUserMsg != null) {
@@ -401,10 +420,10 @@ class BossAgentDagIntegrationTest {
                 }
                 return responses[index++]
             }
+            override suspend fun chat(request: ChatRequest): ChatResponse = nextResponse(request)
             override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> =
-                kotlinx.coroutines.flow.flow { error("not expected") }
+                nextResponse(request).toStreamEvents()
         }
-
         val caps: Map<String, List<NamedCapability>> = mapOf(
             "tool" to listOf(NamedCapability("echo", "Echo."))
         )
@@ -550,7 +569,8 @@ class BossAgentDagIntegrationTest {
         val cancellingLlm = object : LlmProvider {
             override val name = "cancelling"
             private var index = 0
-            override suspend fun chat(request: ChatRequest): ChatResponse {
+
+            private fun nextResponse(request: ChatRequest): ChatResponse {
                 val lastUserMsg = request.messages.lastOrNull { it is ChatMessage.User }
                 if (lastUserMsg != null) {
                     recordedInputs.add(
@@ -582,8 +602,10 @@ class BossAgentDagIntegrationTest {
                     else -> BOSS_CONTINUATION
                 }
             }
+
+            override suspend fun chat(request: ChatRequest): ChatResponse = nextResponse(request)
             override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> =
-                kotlinx.coroutines.flow.flow { error("not expected") }
+                nextResponse(request).toStreamEvents()
         }
 
         val caps: Map<String, List<NamedCapability>> = mapOf(

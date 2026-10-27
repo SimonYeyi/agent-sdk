@@ -67,14 +67,6 @@ public class ReActAgent internal constructor(
     }
 
     /**
-     * eager 占据活跃 run 槽位：调用即建信箱，杜绝 "run 返回但未收集" 间隙里
-     * steer() 误判空闲导致并发双 run。已有活跃 run 时抛并发异常。
-     */
-    private fun acquireSteerInbox() {
-        if (!steerInbox.create()) error("Concurrent run not supported: another run is active")
-    }
-
-    /**
      * [SteerInbox.lock] 序列化 [SteerInbox.add] 与终局 isEmpty 裁决+终态发射+关门，堵死
      * "add 返回 true 但消息困死 buffer 无人消费"的窗口。
      *
@@ -139,31 +131,24 @@ public class ReActAgent internal constructor(
         val response = llmCallWithContextOverflowHandle(finalRequest, llmCall)
         hook.safeInvoke { afterLlmResponse(context, response) }
 
+        response.message.addToMemory(memory)
+
         if (response.message.toolCalls.isEmpty()) {
             return finalize(response, iterations, toolCalls, context, emit)
         }
 
-        val allAsync = response.message.toolCalls
+        val allToolAsync = response.message.toolCalls
             .all { call -> toolRegistry.getOrNull(call.name) is AsyncTool }
 
-        if (allAsync) {
-            // allAsync 短路轮：把 response.message 拆成两条——
-            // callTools 只消费 toolCalls（content 置空，写入声明消息 + 工具结果），
-            // finalize 只消费 content（toolCalls 置空，写入终结过渡语）。
-            // 避免同一 Assistant 消息被重复写入记忆，且声明消息先于工具结果、
-            // 过渡语收尾，恢复渲染与运行时一致，续轮请求角色顺序合法。
-            callTools(
-                response.copy(message = response.message.copy(content = null)),
-                toolCalls, true, context, emit
-            )
-            return finalize(
-                response.copy(message = response.message.copy(toolCalls = emptyList())),
-                iterations, toolCalls, context, emit
-            )
-        } else {
-            callTools(response, toolCalls, false, context, emit)
-            return null
+        callTools(response, toolCalls, allToolAsync, context, emit)
+
+        if (allToolAsync) {
+            val emptyResponse = ChatResponse(ChatMessage.Assistant(), null, FinishReason.Stop)
+            emptyResponse.message.addToMemory(memory)
+            return finalize(emptyResponse, iterations, toolCalls, context, emit)
         }
+
+        return null
     }
 
     private suspend fun callTools(
@@ -173,8 +158,6 @@ public class ReActAgent internal constructor(
         context: AgentContext,
         emit: suspend (AgentEvent) -> Unit,
     ) {
-        response.message.addToMemory(memory)
-
         emit(
             AgentEvent.ToolCallExplanation(
                 text = response.message.content?.takeIf { it != "" },
@@ -230,7 +213,6 @@ public class ReActAgent internal constructor(
         context: AgentContext,
         emit: suspend (AgentEvent) -> Unit,
     ): AgentResult? {
-        response.message.addToMemory(memory)
         // 终局：Final 抢占 + 终局。与 steer() 锁下互斥。
         steerInbox.lock.lock()
         if (!steerInbox.isEmpty()) {
@@ -260,6 +242,14 @@ public class ReActAgent internal constructor(
             steerInbox.lock.unlock()
         }
         return result
+    }
+
+    /**
+     * eager 占据活跃 run 槽位：调用即建信箱，杜绝 "run 返回但未收集" 间隙里
+     * steer() 误判空闲导致并发双 run。已有活跃 run 时抛并发异常。
+     */
+    private fun acquireSteerInbox() {
+        if (!steerInbox.create()) error("Concurrent run not supported: another run is active")
     }
 
     private suspend fun consumeSteering(steerInbox: SteerInbox) {

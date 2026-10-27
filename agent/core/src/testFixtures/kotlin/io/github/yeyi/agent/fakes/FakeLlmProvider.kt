@@ -26,10 +26,31 @@ class FakeLlmProvider(
 
     override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> {
         recordedRequests += request
-        check(streamIndex < streamScripts.size) {
-            "FakeLlmProvider: chatStream() called ${streamIndex + 1} times, but only ${streamScripts.size} scripts available"
+        if (streamIndex < streamScripts.size) {
+            val script = streamScripts[streamIndex++]
+            return flow { for (e in script) emit(e) }
         }
-        val script = streamScripts[streamIndex++]
-        return flow { for (e in script) emit(e) }
+        // 未配置流式脚本（或脚本已耗尽）时回退到非流式脚本：按流式协议解码
+        // ChatResponse。BossAgent 用户轮以 runStream 驱动 innerAgent，会无条件
+        // 走 chatStream；大量不关心流式细节的测试只脚本化 nonStreamResponses，
+        // 回退后 chat/chatStream 共享同一响应计数器，保持脚本消费顺序对齐。
+        check(nonStreamIndex < nonStreamResponses.size) {
+            "FakeLlmProvider: chatStream() called ${nonStreamIndex + 1} times, but only ${nonStreamResponses.size} responses scripted and no stream scripts"
+        }
+        val response = nonStreamResponses[nonStreamIndex++]
+        return flow {
+            response.message.content?.takeIf { it.isNotEmpty() }
+                ?.let { emit(ChatResponseEvent.ContentDelta(it)) }
+            response.message.toolCalls.forEach { call ->
+                emit(
+                    ChatResponseEvent.ToolCallDelta(
+                        id = call.id,
+                        name = call.name,
+                        argumentsDelta = call.arguments.toString(),
+                    )
+                )
+            }
+            emit(ChatResponseEvent.Done(usage = response.usage, finishReason = response.finishReason))
+        }
     }
 }

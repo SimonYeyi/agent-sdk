@@ -34,8 +34,8 @@ public sealed interface AgentEvent {
      * @param toolCalls 即将执行的工具调用列表
      * @param allAsync 本轮工具调用是否全部为异步派发型能力（[io.github.yeyi.agent.tool.AsyncTool]）。
      * 为 true 时 ReAct 将在工具执行后直接进入终局协议（emit [Final]），不再触发下一轮推理，
-     * 此时 [Final] 携带的即本轮同步输出的过渡语文本。消费者应优先用本字段判断，而非
-     * 通过 `toolCalls.any { it.name == ... }` 隐式探测具体工具
+     * 且 [Final] 为模拟模型空返回的空响应（message.content 为 null，前端据此不渲染气泡）。
+     * 过渡语文本随工具声明消息写入记忆，并经 [TextDelta] 与本事件 [text] 送达。
      */
     public data class ToolCallExplanation(
         public val text: String?,

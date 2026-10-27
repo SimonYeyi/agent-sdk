@@ -25,11 +25,19 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
 
     private val runEvents = MutableSharedFlow<DelegationReply>(extraBufferCapacity = 64)
 
+    /** 最近一次 [AgentEvent.ToolCallExplanation] 的说明文本：allAsync 短路轮 Final 为空响应
+     *  （content=null），回执文本回退到该说明，保持旧行为（过渡语作为回执）。 */
+    private var latestExplanation: String? = null
+
     override val replies: Flow<DelegationReply> = merge(
         runEvents,
         boss.report.mapNotNull { event ->
             when (event) {
-                is AgentEvent.Final -> Success(event.result.message.content ?: "")
+                is AgentEvent.ToolCallExplanation -> {
+                    latestExplanation = event.text
+                    null
+                }
+                is AgentEvent.Final -> Success(event.result.message.content ?: latestExplanation ?: "")
                 is AgentEvent.Failed -> Failure(event.cause.message ?: event.cause.toString())
                 else -> null
             }
@@ -41,7 +49,7 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
         boss.run(AgentQuery.text(task)).collect { event ->
             when (event) {
                 // 本轮工具调用全部为异步派发型（publish/cancel）时,ReAct 短路直接进入终局,
-                // Final 携带的即过渡语而非对话回执——用事件字段判断,不绑定具体工具名。
+                // Final 为空响应（content=null）不再携带回执——用事件字段判断,不绑定具体工具名。
                 is AgentEvent.ToolCallExplanation if (event.allAsync) -> delegated = true
 
                 is AgentEvent.Final if (delegated.not()) ->

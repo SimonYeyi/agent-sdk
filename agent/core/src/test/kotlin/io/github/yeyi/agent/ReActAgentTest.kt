@@ -628,23 +628,27 @@ class ReActAgentTest {
         assertTrue(tail[2] is AgentEvent.ToolCallEnd)
         assertTrue(tail[3] is AgentEvent.Final)
 
-        // Final 内容即模型首次同步输出的过渡语
-        assertEquals("正在派发,请稍等", events.filterIsInstance<AgentEvent.Final>().single().result.message.content)
-        // 记忆顺序与运行时事件流对齐（拆分方案）：
-        // User(query) → Assistant(声明, content=null) → ToolResult → Assistant(过渡语, toolCalls=空)
-        // 会话恢复按此顺序渲染即为「工具气泡 → 过渡语气泡」，与运行时一致，且无重复写入。
+        // allAsync 短路轮：Final 为模拟模型空返回的空响应（content=null），
+        // 前端识别 content 为 null 的 Final 不渲染，避免过渡语归位造成 UI 跳动。
+        assertNull(
+            events.filterIsInstance<AgentEvent.Final>().single().result.message.content,
+            "allAsync 短路轮的 Final 必须为空响应，过渡语不再由 Final 携带"
+        )
+        // 记忆顺序与运行时事件流对齐：
+        // User(query) → Assistant(过渡语 + toolCalls) → ToolResult → Assistant(空响应终结)
+        // 过渡语随声明消息一次性写入（无重复），空响应终结消息渲染时被前端跳过。
         val memMessages = mem.history().map { it.message }
-        assertEquals(4, memMessages.size, "query + 声明 + 工具结果 + 过渡语，共 4 条")
-        assertTrue(memMessages[1] is ChatMessage.Assistant, "第 2 条为工具声明消息")
+        assertEquals(4, memMessages.size, "query + 声明(含过渡语) + 工具结果 + 空响应终结，共 4 条")
+        assertTrue(memMessages[1] is ChatMessage.Assistant, "第 2 条为工具声明消息（携带过渡语）")
         val declaration = memMessages[1] as ChatMessage.Assistant
-        assertNull(declaration.content, "声明消息不带过渡语文本，过渡语由 Final 消息承载")
+        assertEquals("正在派发,请稍等", declaration.content, "过渡语随声明消息写入，Final 不再重复携带")
         assertEquals(listOf(toolCall), declaration.toolCalls)
         assertTrue(memMessages[2] is ChatMessage.ToolResult, "第 3 条为工具结果")
         assertEquals("c1", (memMessages[2] as ChatMessage.ToolResult).toolCallId)
-        assertTrue(memMessages[3] is ChatMessage.Assistant, "第 4 条为终结过渡语")
-        val farewell = memMessages[3] as ChatMessage.Assistant
-        assertEquals("正在派发,请稍等", farewell.content)
-        assertTrue(farewell.toolCalls.isEmpty(), "过渡语消息不携带 toolCalls，避免重复写入")
+        assertTrue(memMessages[3] is ChatMessage.Assistant, "第 4 条为空响应终结消息")
+        val terminator = memMessages[3] as ChatMessage.Assistant
+        assertNull(terminator.content, "终结消息模拟模型空返回，无文本")
+        assertTrue(terminator.toolCalls.isEmpty(), "终结消息不携带 toolCalls")
     }
 
     @Test
