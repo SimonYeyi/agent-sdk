@@ -2,7 +2,6 @@
 
 package io.github.yeyi.agent.team
 
-import io.github.yeyi.agent.Agent.Shutdownable
 import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
@@ -124,7 +123,6 @@ class BossAgentTest {
         val (boss, _) = createBossAgent()
         // createBossAgent 已同步等到订阅就绪 (attach 用 onSubscription + CompletableDeferred 等自己的 collector 注册),
         // 直接 shutdown 即可, 无需额外 delay.
-        assertTrue(boss is Shutdownable)
         boss.shutdown()
         boss.shutdown() // 幂等
         // shutdown 后 run 抛 IllegalStateException
