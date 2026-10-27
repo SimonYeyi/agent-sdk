@@ -1,11 +1,11 @@
-package io.github.yeyi.agent.demo.team.s2s
+package io.github.yeyi.agent.demo.realtime.s2s
 
 import io.github.yeyi.agent.Persona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.awaitResult
-import io.github.yeyi.agent.demo.team.LlmProviderFactory
-import io.github.yeyi.agent.demo.team.log
+import io.github.yeyi.agent.demo.realtime.LlmProviderFactory
+import io.github.yeyi.agent.demo.realtime.log
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.memory.InMemoryMemory

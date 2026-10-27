@@ -1,4 +1,4 @@
-package io.github.yeyi.agent.demo.team
+package io.github.yeyi.agent.demo.realtime
 
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider

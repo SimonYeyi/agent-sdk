@@ -1,4 +1,4 @@
-package io.github.yeyi.agent.demo.team.s2s
+package io.github.yeyi.agent.demo.realtime.s2s
 
 import io.github.yeyi.agent.realtime.Tool
 import kotlinx.serialization.json.JsonElement

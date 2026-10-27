@@ -1,4 +1,4 @@
-package io.github.yeyi.agent.demo.team.s2s
+package io.github.yeyi.agent.demo.realtime.s2s
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -46,7 +46,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import io.github.yeyi.agent.demo.team.ui.TaskDashboard
+import io.github.yeyi.agent.demo.realtime.ui.TaskDashboard
 import io.github.yeyi.agent.team.BossAgent
 import kotlinx.coroutines.launch
 

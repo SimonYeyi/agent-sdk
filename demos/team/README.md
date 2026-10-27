@@ -1,7 +1,9 @@
 # :demos:team
 
-Android 端实时语音(S2S)Agent Demo,在 `:demos:agent` 文本对话基础上叠加
-`:realtime` 模块的语音输入输出与 `:team` 模块的多 Agent 编排能力。
+Android 端多 Agent 文本对话 Demo。以 BossAgent 为前台 Agent，围绕任务看板与
+文本聊天交互，`:team` 模块提供多 Agent 编排能力（智能座舱场景）。
+
+实时语音双工(S2S)能力已独立为 `:demos:realtime`。
 
 ## 配置
 

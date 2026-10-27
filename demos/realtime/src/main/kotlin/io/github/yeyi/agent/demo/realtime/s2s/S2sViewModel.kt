@@ -1,9 +1,9 @@
-package io.github.yeyi.agent.demo.team.s2s
+package io.github.yeyi.agent.demo.realtime.s2s
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import io.github.yeyi.agent.demo.team.log
+import io.github.yeyi.agent.demo.realtime.log
 import io.github.yeyi.agent.realtime.DelegationReply
 import io.github.yeyi.agent.realtime.RealtimeAppliance
 import io.github.yeyi.agent.realtime.RealtimeEvent

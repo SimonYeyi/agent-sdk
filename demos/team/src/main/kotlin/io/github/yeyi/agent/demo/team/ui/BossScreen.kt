@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.demo.team.ui
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -53,11 +52,11 @@ import io.github.yeyi.agent.team.TasksState
 import kotlinx.coroutines.launch
 
 /**
- * Main demo screen with task dashboard drawer and chat interface.
+ * Main boss screen with task dashboard drawer and chat interface.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun DemoScreen(
+fun BossScreen(
     taskGroups: List<TasksState>,
     messages: List<ChatMessageUi>,
     pendingInputs: List<PendingInput>,
@@ -65,42 +64,25 @@ fun DemoScreen(
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
     scenarioName: String,
-    voiceMode: Boolean = false,
-    onVoiceToggle: () -> Unit = {},
-    s2sContent: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
 
-    BackHandler(enabled = drawerState.isOpen && !voiceMode) {
+    BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
-    }
-
-    LaunchedEffect(voiceMode) {
-        if (voiceMode && drawerState.isOpen) {
-            drawerState.close()
-        }
     }
 
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = !voiceMode,
         drawerContent = {
-            // 外层 ModalDrawerSheet 始终渲染,保持 drawerContent width 稳定,
-            // 避免 voiceMode 切换时 AnchoredDraggableState 的 anchor 重算导致 drawer 错位。
             ModalDrawerSheet(modifier = Modifier.width(300.dp)) {
-                if (!voiceMode) {
-                    TaskDashboard(taskGroups = taskGroups)
-                }
+                TaskDashboard(taskGroups = taskGroups)
             }
         }
     ) {
         Box(modifier = modifier.fillMaxSize()) {
-        if (voiceMode && s2sContent != null) {
-            s2sContent()
-        } else {
             // Full screen chat interface
             Column(
                 modifier = Modifier
@@ -121,13 +103,6 @@ fun DemoScreen(
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        text = "🎙",
-                        style = MaterialTheme.typography.titleLarge,
-                        modifier = Modifier
-                            .clickable { onVoiceToggle() }
-                            .padding(end = 8.dp)
                     )
                 }
 
@@ -275,8 +250,6 @@ fun DemoScreen(
                     }
                 }
             }
-        }
-
         }
     }
 }

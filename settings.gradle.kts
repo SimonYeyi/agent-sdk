@@ -25,6 +25,7 @@ rootProject.name = "agent-sdk"
 
 include(":demos:agent")
 include(":demos:team")
+include(":demos:realtime")
 
 include(":agent:core")
 include(":agent:capability")
