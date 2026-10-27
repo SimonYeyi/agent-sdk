@@ -240,7 +240,7 @@ public class BossAgent internal constructor(
      * 消除原实现"跨两段锁"的理论缝隙 (快照删除与按 roundId 过滤不一致).
      * 整轮终态返回格式化 result 供调度器唤醒续轮; 非终态返回 null.
      */
-    private inner class TaskTracker {
+    private class TaskTracker {
         private val lock = Mutex()
         private val tasks: MutableMap<String, TaskState> = mutableMapOf()
         val states: MutableSharedFlow<TasksState> = MutableSharedFlow(
@@ -274,11 +274,16 @@ public class BossAgent internal constructor(
 
             roundTasks.forEach { tasks.remove(it.taskId) }
 
-            // 整轮终态: 格式化 + 归档删除, 单锁内完成
-            return buildString {
-                for (t in roundTasks) {
-                    append("- ${t.taskId}: ${t.events.last()}\n")
+            // 整轮终态: 格式化 + 归档删除, 单锁内完成。
+            // 渲染模板区分成功/失败: 成功只回传最终回复文本, 失败回传错误原因,
+            // 不再向模型倾倒整个终态事件文本。
+            return roundTasks.joinToString("\n") { t ->
+                val result = when (val terminal = t.events.last()) {
+                    is AgentEvent.Final -> terminal.result.message.content ?: "Unknown result"
+                    is AgentEvent.Failed -> terminal.cause.toString()
+                    else -> error("Unexpected terminal event: $terminal")
                 }
+                "- ${t.taskId}: $result"
             }
         }
 
