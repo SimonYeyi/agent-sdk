@@ -77,7 +77,7 @@ public data class TasksState(
 // ===== BossAgent =====
 
 public class BossAgent internal constructor(
-    private val innerAgent: Agent,
+    private val innerAgent: Streamable,
     private val scope: CoroutineScope,
 ) : Agent, Shutdownable {
     public companion object {
@@ -213,15 +213,9 @@ public class BossAgent internal constructor(
 
     private suspend fun runUserRound(userRound: UserRound) {
         try {
-            // 用户轮使用流式运行：innerAgent 支持 Streamable 时逐字输出，
-            // 降低用户感知延迟；不支持时回退冷 flow。
-            val query = AgentQuery.text(userRound.input)
-            val flow = if (innerAgent is Streamable) {
-                (innerAgent as Streamable).runStream(query)
-            } else {
-                innerAgent.run(query)
-            }
-            flow.collect { e -> userRound.channel.send(e) }
+            // 用户轮使用流式运行：逐字输出，降低用户感知延迟
+            innerAgent.runStream(AgentQuery.text(userRound.input))
+                .collect { e -> userRound.channel.send(e) }
         } finally {
             userRound.channel.close()
             // 轮次完成即移除，无人收集的 round 不滞留登记表
@@ -231,7 +225,9 @@ public class BossAgent internal constructor(
     }
 
     private suspend fun runResultRound(result: String) {
-        innerAgent.run(AgentQuery.text(result, label = REPORT_LABEL)).collect { e ->
+        // 报告轮次同样流式运行：任务报告逐字输出，降低送达感知延迟。
+        // 流式增量经 report SharedFlow 送达 UI，最终由 Final 权威完整文本兜底。
+        innerAgent.runStream(AgentQuery.text(result, label = REPORT_LABEL)).collect { e ->
             (report as MutableSharedFlow).emit(e)
         }
         scheduler.roundFinished()

@@ -2,6 +2,7 @@ package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.Streamable
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.mcp.McpRegistry
@@ -184,7 +185,7 @@ public class BossAgentBuilder internal constructor() {
             toolRegistry0?.let { tools(it.all()) }
         }
 
-        return BossAgent(innerAgent, scope)
+        return BossAgent(innerAgent as Streamable, scope)
     }
 
     private fun buildPersona(): Persona {

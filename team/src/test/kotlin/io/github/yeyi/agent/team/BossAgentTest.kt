@@ -6,6 +6,7 @@ import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.Shutdownable
+import io.github.yeyi.agent.Streamable
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.ChatMessage
@@ -57,7 +58,7 @@ class BossAgentTest {
             memory(InMemoryMemory(), 20)
             maxIterations(1) // single-turn agent
         }
-        val boss = BossAgent(innerAgent, scope)
+        val boss = BossAgent(innerAgent as Streamable, scope)
         runBlocking { boss.attach(bb) }
         return boss to bb
     }
