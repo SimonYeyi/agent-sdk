@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-class DemoViewModel(
+class BossViewModel(
     private val sessionManager: SessionManager
 ) : ViewModel() {
 
@@ -318,7 +318,7 @@ class DemoViewModel(
     class Factory(private val sessionManager: SessionManager) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return DemoViewModel(sessionManager) as T
+            return BossViewModel(sessionManager) as T
         }
     }
 }

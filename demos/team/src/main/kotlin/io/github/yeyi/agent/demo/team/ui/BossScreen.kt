@@ -248,6 +248,11 @@ fun BossScreen(
                     ) {
                         Text("发送")
                     }
+                    PressToTalkButton(
+                        onInputChange = onInputChange,
+                        onSend = onSend,
+                        modifier = Modifier.padding(start = 8.dp)
+                    )
                 }
             }
         }

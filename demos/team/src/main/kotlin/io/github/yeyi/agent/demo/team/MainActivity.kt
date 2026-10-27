@@ -13,7 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.yeyi.agent.demo.team.ui.BossScreen
-import io.github.yeyi.agent.demo.team.vm.DemoViewModel
+import io.github.yeyi.agent.demo.team.vm.BossViewModel
 import io.github.yeyi.agent.session.SessionManager
 
 class MainActivity : ComponentActivity() {
@@ -30,8 +30,8 @@ class MainActivity : ComponentActivity() {
                     // 会话持久化根目录：filesDir/agent/sessions/{accountId}/{sessionId}/
                     val sessionManager = remember { SessionManager(context.filesDir) }
 
-                    val viewModel: DemoViewModel = viewModel(
-                        factory = DemoViewModel.Factory(sessionManager)
+                    val viewModel: BossViewModel = viewModel(
+                        factory = BossViewModel.Factory(sessionManager)
                     )
 
                     val taskGroups by viewModel.taskGroups.collectAsState()

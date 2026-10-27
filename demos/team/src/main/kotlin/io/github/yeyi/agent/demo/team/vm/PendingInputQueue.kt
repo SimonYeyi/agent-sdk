@@ -11,7 +11,7 @@ import io.github.yeyi.agent.demo.team.ui.PendingInput
  * 排队态（UI 在输入框上方展示悬浮列表提示"正在队列中"），收到 Initial 后确认出队
  * 并渲染为用户气泡，保证显示顺序与记忆顺序一致。
  *
- * 三个状态转换均为幂等操作，供 [DemoViewModel] 在协程时序中安全调用：
+ * 三个状态转换均为幂等操作，供 [BossViewModel] 在协程时序中安全调用：
  * [add] 入队 → 超时后 [markQueued] 转排队态 → [confirm] 出队。
  */
 class PendingInputQueue {
