@@ -3,8 +3,6 @@ package io.github.yeyi.agent.team
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
-import io.github.yeyi.agent.Shutdownable
-import io.github.yeyi.agent.Streamable
 import io.github.yeyi.agent.llm.ContentPart
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -77,9 +75,9 @@ public data class TasksState(
 // ===== BossAgent =====
 
 public class BossAgent internal constructor(
-    private val innerAgent: Streamable,
+    private val innerAgent: Agent.Streamable,
     private val scope: CoroutineScope,
-) : Agent, Shutdownable {
+) : Agent, Agent.Shutdownable {
     public companion object {
         /** 系统报告标签 — 任务完成汇报以 `AgentQuery.text(result, label = REPORT_LABEL)` 注入 innerAgent，
          *  随记忆条目持久化，UI 可据此渲染"系统"气泡，模型侧通过 `report: content` 前缀感知。 */

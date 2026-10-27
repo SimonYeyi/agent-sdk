@@ -1,8 +1,8 @@
 package io.github.yeyi.agent.team
 
+import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
-import io.github.yeyi.agent.Streamable
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse

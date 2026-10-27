@@ -1,8 +1,8 @@
 package io.github.yeyi.agent.team
 
+import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.Persona
-import io.github.yeyi.agent.Streamable
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.mcp.McpRegistry

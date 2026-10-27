@@ -3,9 +3,9 @@ package io.github.yeyi.agent.demo.agent.vm
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
-import io.github.yeyi.agent.Streamable
 import io.github.yeyi.agent.demo.agent.demo.DemoAgentFactory
 import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.ChatMessage

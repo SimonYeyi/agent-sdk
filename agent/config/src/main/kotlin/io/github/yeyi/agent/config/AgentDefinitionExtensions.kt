@@ -1,12 +1,12 @@
 package io.github.yeyi.agent.config
 
 import io.github.yeyi.agent.Agent
+import io.github.yeyi.agent.Agent.Shutdownable
+import io.github.yeyi.agent.Agent.Steerable
+import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.Persona
-import io.github.yeyi.agent.Steerable
-import io.github.yeyi.agent.Streamable
-import io.github.yeyi.agent.Shutdownable
 import io.github.yeyi.agent.ReActAgent
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.mcp.McpRegistry

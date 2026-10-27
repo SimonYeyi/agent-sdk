@@ -43,7 +43,7 @@ public class ReActAgent internal constructor(
     private val maxRounds: Int,
     private val maxIterations: Int,
     private val hook: AgentHook = NoOpAgentHook,
-) : Agent, Streamable, Steerable {
+) : Agent, Agent.Streamable, Agent.Steerable {
     private val memory = RoundsBoundedMemory(RepairedMemory(memory), maxRounds, llmProvider)
     private val steerInbox = SteerInbox()
 
