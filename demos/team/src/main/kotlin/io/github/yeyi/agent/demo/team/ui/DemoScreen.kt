@@ -152,12 +152,19 @@ fun DemoScreen(
                     }
                 }
 
-                // chaser: 内容变化时,仅在 autoScroll(底部状态)下把视图追到底部。
-                // offset 用 Int.MAX_VALUE 会 clamp 到最大滚动位,即最后一项底边贴住
-                // 视口底、不能再上划——这正是"完全贴底"。滚动时长与消息尺寸无关,
-                // 撑满竖屏的流式草稿增量也能被完整追上。被 delta 重启 cancel 是常态。
+                // chaser: 内容变化时把视图追到底部。
+                // - 新增用户消息必须无条件拉到底：用户消息经 pendingQueue 延迟确认，
+                //   落地前可能处于 autoScroll=false（用户上滑查看历史），但新消息
+                //   必须可见，不能落在视口外。
+                // - 其余内容变化（流式草稿、工具气泡等）仅在 autoScroll（底部状态）
+                //   下追底；offset 用 Int.MAX_VALUE 会 clamp 到最大滚动位，即最后
+                //   一项底边贴住视口底、不能再上划——这正是"完全贴底"。滚动时长与
+                //   消息尺寸无关，撑满竖屏的流式草稿增量也能被完整追上。
+                //   被 delta 重启 cancel 是常态。
                 LaunchedEffect(messages) {
-                    if (autoScroll && messages.isNotEmpty()) {
+                    if (messages.isEmpty()) return@LaunchedEffect
+                    val lastIsUser = messages.lastOrNull()?.role == "user"
+                    if (autoScroll || lastIsUser) {
                         listState.scrollToItem(messages.size - 1, Int.MAX_VALUE)
                     }
                 }
