@@ -280,7 +280,11 @@ fun BossScreen(
                             fieldValue = TextFieldValue(newText, selection = TextRange(anchor + text.length))
                             onInputChange(newText)
                         },
-                        onSend = onSend,
+                        onSend = {
+                            // 语音定稿发送与点击发送按钮行为一致：先收起键盘/移除焦点
+                            focusManager.clearFocus()
+                            onSend()
+                        },
                         onVoicePress = {
                             voicePressText = fieldValue.text
                             voiceAnchor = fieldValue.selection.end
