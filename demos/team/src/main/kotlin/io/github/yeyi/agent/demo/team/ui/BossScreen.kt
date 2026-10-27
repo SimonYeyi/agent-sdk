@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalFocusManager
@@ -45,8 +46,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import io.github.yeyi.agent.team.TasksState
 import kotlinx.coroutines.launch
@@ -69,6 +72,23 @@ fun BossScreen(
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val focusManager = LocalFocusManager.current
+
+    // 输入框以 TextFieldValue 承载文本 + 光标位置：语音回填只更新文本值，光标不会
+    // 自动移动，因此语音回调时重建 TextFieldValue 并把光标移到插入文本末尾；
+    // 普通打字由 onValueChange 带回最新光标位置，自动跟随。
+    var fieldValue by rememberSaveable(stateSaver = TextFieldValue.Saver) {
+        mutableStateOf(TextFieldValue(inputText))
+    }
+    // 语音插入锚点：按下时记录当时的输入框文本与光标位置，interim 期间以这份
+    // 固定基准合成（ASR 文本插入到光标之后），避免整段覆盖输入框已有内容。
+    var voicePressText by remember { mutableStateOf("") }
+    var voiceAnchor by remember { mutableStateOf(0) }
+    // ViewModel 侧文本变化（发送后清空等）同步回输入框，光标随之归位到末尾
+    LaunchedEffect(inputText) {
+        if (fieldValue.text != inputText) {
+            fieldValue = fieldValue.copy(text = inputText, selection = TextRange(inputText.length))
+        }
+    }
 
     BackHandler(enabled = drawerState.isOpen) {
         scope.launch { drawerState.close() }
@@ -227,8 +247,11 @@ fun BossScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     OutlinedTextField(
-                        value = inputText,
-                        onValueChange = onInputChange,
+                        value = fieldValue,
+                        onValueChange = { newValue ->
+                            fieldValue = newValue
+                            onInputChange(newValue.text)
+                        },
                         modifier = Modifier.weight(1f),
                         placeholder = { Text("输入指令...") },
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
@@ -249,8 +272,19 @@ fun BossScreen(
                         Text("发送")
                     }
                     PressToTalkButton(
-                        onInputChange = onInputChange,
+                        onInputChange = { text ->
+                            // 语音回填（interim/final）：ASR 文本插入到按下时的光标锚点之后，
+                            // 保留输入框已有内容，光标跟随到插入文本末尾
+                            val anchor = voiceAnchor.coerceIn(0, voicePressText.length)
+                            val newText = voicePressText.take(anchor) + text + voicePressText.drop(anchor)
+                            fieldValue = TextFieldValue(newText, selection = TextRange(anchor + text.length))
+                            onInputChange(newText)
+                        },
                         onSend = onSend,
+                        onVoicePress = {
+                            voicePressText = fieldValue.text
+                            voiceAnchor = fieldValue.selection.end
+                        },
                         modifier = Modifier.padding(start = 8.dp)
                     )
                 }

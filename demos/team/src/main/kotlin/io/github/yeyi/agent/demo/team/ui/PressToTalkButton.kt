@@ -45,12 +45,16 @@ import io.ktor.client.plugins.websocket.WebSockets
  *
  * 按下时自动检查并申请 RECORD_AUDIO 运行时权限，未授权则提示先授权。
  * 依赖火山 ASR 凭证（local.properties 中 VOLC_API_KEY=appid:token）。
+ *
+ * [onVoicePress] 在录音正式开始前回调一次，供调用方记录语音插入锚点
+ * （如输入框当前光标位置），用于把 ASR 文本追加到锚点之后而非覆盖整段。
  */
 @Composable
 fun PressToTalkButton(
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onVoicePress: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -59,6 +63,7 @@ fun PressToTalkButton(
     // 回调经 rememberUpdatedState 取最新值，避免引擎闭包捕获过期回调。
     val currentOnInputChange by rememberUpdatedState(onInputChange)
     val currentOnSend by rememberUpdatedState(onSend)
+    val currentOnVoicePress by rememberUpdatedState(onVoicePress)
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -139,6 +144,8 @@ fun PressToTalkButton(
                             return@detectTapGestures
                         }
                         listening = true
+                        // 录音正式开始前通知调用方记录插入锚点（输入框光标位置）
+                        currentOnVoicePress?.invoke()
                         engine.start()
                         val released = tryAwaitRelease()
                         if (released) {
