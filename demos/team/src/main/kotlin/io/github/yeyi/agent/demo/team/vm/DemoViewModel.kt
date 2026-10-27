@@ -122,42 +122,56 @@ class DemoViewModel(
             }
         }
 
-        // Collect report events
+        // Collect report events — 与 run 流共用同一事件处理方法：
+        // 报告轮次非流式运行（无 TextDelta），统一处理自动走"无草稿新建气泡"路径。
         reportJob = viewModelScope.launch {
-            agent.report.collect { event ->
-                when (event) {
-                    is AgentEvent.ToolCallStart -> handleToolCallStart(event.toolCall)
-                    is AgentEvent.ToolCallEnd -> handleToolCallEnd(event.toolCall, event.result)
-                    is AgentEvent.ToolCallExplanation -> {
-                        val text = event.text ?: ""
-                        if (text.isNotEmpty()) {
-                            appendMessage("assistant", "💬 $text")
-                        }
-                    }
-                    is AgentEvent.TextDelta -> {
-                        // 报告轮次非流式运行，不会出现 TextDelta；过渡语由
-                        // ToolCallExplanation 以完整文本承载，无需增量累积。
-                    }
-                    is AgentEvent.Initial -> {
-                        // 带 label 的 query（BossAgent 任务系统报告）渲染为"系统"气泡；
-                        // 普通用户消息已由输入框展示，跳过。
-                        event.query.label?.let { appendMessage("system", event.query.parts.text) }
-                    }
-                    is AgentEvent.Final -> {
-                        val result = event.result as? AgentResult
-                        // content 为空（纯工具轮等）不渲染助手气泡，避免空气泡
-                        result?.message?.content?.takeIf { it.isNotBlank() }
-                            ?.let { appendMessage("assistant", it) }
-                        _isLoading.value = false
-                    }
-                    is AgentEvent.Failed -> {
-                        appendMessage("assistant", "错误: ${event.cause.message}")
-                        _isLoading.value = false
-                    }
-                    else -> {
-                        // Other events ignored in main chat
-                    }
+            agent.report.collect { event -> handleAgentEvent(event, pendingText = null) }
+        }
+    }
+
+    /**
+     * 统一事件处理：report 流（非流式）与 run 流（流式）共用同一处理方法。
+     *
+     * 事件序列上非流式是流式的子集（无 [AgentEvent.TextDelta]），因此统一处理天然兼容两种路径：
+     * - 流式路径（run 流）：TextDelta 累积草稿，ToolCallExplanation/Final 原位收尾；
+     * - 非流式路径（report 流，无 TextDelta）：草稿恒为 null，ToolCallExplanation/Final
+     *   自动走"草稿缺失→按完整文本新建气泡"兜底，等价于直接追加消息。
+     * 两流由 BossAgent 调度器互斥（同一时刻仅一轮 RUNNING），共享草稿下标无交错风险。
+     *
+     * @param pendingText 待确认指令文本（run 流传入以落用户气泡）；report 流传 null。
+     */
+    private fun handleAgentEvent(event: AgentEvent, pendingText: String?) {
+        when (event) {
+            is AgentEvent.ToolCallStart -> handleToolCallStart(event.toolCall)
+            is AgentEvent.ToolCallEnd -> handleToolCallEnd(event.toolCall, event.result)
+            // ToolCallExplanation 与 Final 统一走 finishStreamingSegment：
+            // 两者都是携带权威完整文本的流式段结束信号，收尾骨架完全一致。
+            is AgentEvent.ToolCallExplanation -> finishStreamingSegment(event.text)
+            is AgentEvent.TextDelta -> appendStreamingText(event.text)
+            is AgentEvent.Initial -> {
+                // label == null：用户指令开始执行，从待确认队列移除并落为用户气泡；
+                // 带 label（BossAgent 任务系统报告）渲染为"系统"气泡。
+                if (event.query.label == null) {
+                    pendingText?.let { confirmPendingInput(it) }
+                } else {
+                    appendMessage("system", event.query.parts.text)
                 }
+            }
+            is AgentEvent.Final -> {
+                finishStreamingSegment((event.result as? AgentResult)?.message?.content)
+                // 轮次收尾：loading 归位是 Final/Failed 独有的轮次副作用，
+                // 与流式气泡归位正交，放在事件分支而非流式收尾方法内。
+                _isLoading.value = false
+            }
+            is AgentEvent.Failed -> {
+                // 兜底：失败也把指令落为用户气泡，避免悬浮队列滞留
+                clearStreamingDraft()
+                pendingText?.let { confirmPendingInput(it) }
+                appendMessage("assistant", "错误: ${event.cause.message}")
+                _isLoading.value = false
+            }
+            else -> {
+                // 其他事件（MemoryCompressing 等）不渲染
             }
         }
     }
@@ -182,40 +196,7 @@ class DemoViewModel(
 
         viewModelScope.launch {
             agent.run(AgentQuery.text(text)).collect { event ->
-                when (event) {
-                    is AgentEvent.ToolCallStart -> handleToolCallStart(event.toolCall)
-                    is AgentEvent.ToolCallEnd -> handleToolCallEnd(event.toolCall, event.result)
-                    // ToolCallExplanation 与 Final 统一走 finishStreamingSegment：
-                    // 两者都是携带权威完整文本的流式段结束信号，收尾骨架完全一致。
-                    // Final 的完整文本必然对应刚流式累积完成的草稿（纯文本轮草稿在
-                    // 列表末尾原位收尾；allAsync 短路轮为 content=null 空响应，过渡语
-                    // 已由 ToolCallExplanation 原位收尾，不归位不渲染），无需归位动作。
-                    is AgentEvent.ToolCallExplanation -> finishStreamingSegment(event.text)
-                    is AgentEvent.TextDelta -> appendStreamingText(event.text)
-                    is AgentEvent.Initial -> {
-                        // 指令开始执行：从待确认队列移除并落为用户气泡（带 label 的
-                        // Initial 属于报告轮次，走 report 流渲染系统气泡，不在此处理）。
-                        if (event.query.label == null) {
-                            confirmPendingInput(text)
-                        }
-                    }
-                    is AgentEvent.Final -> {
-                        finishStreamingSegment((event.result as? AgentResult)?.message?.content)
-                        // 轮次收尾：loading 归位是 Final/Failed 独有的轮次副作用，
-                        // 与流式气泡归位正交，放在事件分支而非流式收尾方法内。
-                        _isLoading.value = false
-                    }
-                    is AgentEvent.Failed -> {
-                        // 兜底：失败也把指令落为用户气泡，避免悬浮队列滞留
-                        clearStreamingDraft()
-                        confirmPendingInput(text)
-                        appendMessage("assistant", "错误: ${event.cause.message}")
-                        _isLoading.value = false
-                    }
-                    else -> {
-                        // Other events ignored
-                    }
-                }
+                handleAgentEvent(event, pendingText = text)
             }
         }
     }
