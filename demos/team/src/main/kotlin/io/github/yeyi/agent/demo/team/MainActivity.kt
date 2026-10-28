@@ -46,6 +46,7 @@ class MainActivity : ComponentActivity() {
                         inputText = inputText,
                         onInputChange = viewModel::onInputChange,
                         onSend = viewModel::onSend,
+                        onReset = viewModel::resetSession,
                         scenarioName = "智能座舱",
                     )
                 }

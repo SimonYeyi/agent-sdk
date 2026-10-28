@@ -15,6 +15,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Menu
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -66,6 +67,7 @@ fun BossScreen(
     inputText: String,
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
+    onReset: () -> Unit,
     scenarioName: String,
     modifier: Modifier = Modifier
 ) {
@@ -124,6 +126,10 @@ fun BossScreen(
                         color = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.weight(1f)
                     )
+                    // 重置会话：重建 session 进入全新会话（清空记忆与任务状态）
+                    IconButton(onClick = onReset) {
+                        Icon(Icons.Default.Refresh, contentDescription = "重置会话")
+                    }
                 }
 
             // Chat messages

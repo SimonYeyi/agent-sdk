@@ -180,6 +180,41 @@ class BossViewModel(
         _inputText.value = text
     }
 
+    /**
+     * 重置会话：关闭当前 Agent（终止进行中的 run 流并回收资源），删除旧会话
+     * 持久化记录并重建同名新会话（记忆从空开始），清空全部 UI 状态后重新绑定
+     * 事件收集，进入全新会话。
+     */
+    fun resetSession() {
+        viewModelScope.launch {
+            _boss.value?.shutdown()
+            _boss.value = null
+
+            // 清理全部 UI 状态，进入全新会话
+            pendingToolBubbles.clear()
+            pendingQueue.clear()
+            refreshPendingInputs()
+            streamingAssistantIndex = null
+            _messages.value = emptyList()
+            _taskGroups.value = emptyList()
+            _inputText.value = ""
+            _isLoading.value = false
+
+            // 删除旧会话持久化记录并重建同 id 新会话，记忆从空开始
+            val newSession = withContext(Dispatchers.IO) {
+                sessionManager.getOrCreate(
+                    ACCOUNT_ID, SESSION_NAME, AgentReference(CockpitAgent.NAME), SESSION_ID
+                ).let { sessionManager.delete(it) }
+                sessionManager.create(
+                    ACCOUNT_ID, SESSION_NAME, AgentReference(CockpitAgent.NAME), SESSION_ID
+                )
+            }
+            val agent = CockpitAgent.create(newSession.memory)
+            _boss.value = agent
+            wireCollectors(agent)
+        }
+    }
+
     fun onSend() {
         val text = _inputText.value.trim()
         if (text.isEmpty()) return

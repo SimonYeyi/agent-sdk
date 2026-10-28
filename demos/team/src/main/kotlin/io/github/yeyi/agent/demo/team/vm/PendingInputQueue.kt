@@ -44,4 +44,9 @@ class PendingInputQueue {
 
     /** 当前队列快照（供 UI 状态流消费）。 */
     fun snapshot(): List<PendingInput> = items.toList()
+
+    /** 清空队列（重置会话时调用，丢弃所有待确认指令）。 */
+    fun clear() {
+        items.clear()
+    }
 }
