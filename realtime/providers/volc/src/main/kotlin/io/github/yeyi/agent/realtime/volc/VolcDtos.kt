@@ -79,10 +79,19 @@ internal data class VolcExtensionDialog(
 
 @Serializable
 internal data class VolcConversationItem(
+    val id: String? = null,
     val type: String,
+    val status: String? = null,
     val role: String? = null,
-    val content: JsonElement? = null,
+    val content: List<VolcContentPart>? = null,
     @SerialName("call_id") val callId: String? = null,
     val name: String? = null,
     val arguments: String? = null,
+)
+
+/** conversation.item 的 content 数组元素：仅 UI 渲染关心的 input_text 文本段。 */
+@Serializable
+internal data class VolcContentPart(
+    val type: String? = null,
+    val text: String? = null,
 )

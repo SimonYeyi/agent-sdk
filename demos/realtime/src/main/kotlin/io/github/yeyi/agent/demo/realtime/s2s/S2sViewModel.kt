@@ -6,8 +6,11 @@ import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.demo.realtime.log
 import io.github.yeyi.agent.realtime.RealtimeAppliance
 import io.github.yeyi.agent.realtime.RealtimeEvent
+import io.github.yeyi.agent.realtime.RealtimeSession
 import io.github.yeyi.agent.realtime.SessionConfig
+import io.github.yeyi.agent.realtime.audio.android.AndroidMicrophoneAdapter
 import io.github.yeyi.agent.realtime.audio.android.AndroidSpeakerAdapter
+import io.github.yeyi.agent.realtime.volc.VolcRealtimeAdapter
 import io.github.yeyi.agent.realtime.volc.VolcRealtimeAppliance
 import io.github.yeyi.agent.team.BossAgent
 import io.github.yeyi.agent.team.TasksState
@@ -27,6 +30,8 @@ class S2sViewModel(
     private val applicationContext: android.content.Context,
     private val apiKey: String,
     private val boss: BossAgent,
+    /** S2S 协议侧 dialog id：session.create 携带同一 id 接续历史对话。 */
+    private val sessionId: String,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(UiState())
@@ -53,7 +58,7 @@ class S2sViewModel(
 
         val client = HttpClient(CIO) { install(WebSockets) }
         httpClient = client
-        /*bridge = RealtimeAppliance(
+        bridge = RealtimeAppliance(
             session = RealtimeSession(client, VolcRealtimeAdapter()),
             sessionConfig = SessionConfig(
                 apiKey = apiKey,
@@ -62,12 +67,13 @@ class S2sViewModel(
                 instructions = "你是一个车载语音助手. 用自然、口语化的中文回答用户",
                 voice = "zh_female_vv_jupiter_bigtts",
                 tools = listOf(MusicControlTool()),
+                sessionId = sessionId,
             ),
             microphone = AndroidMicrophoneAdapter(),
             speaker = AndroidSpeakerAdapter(),
             delegation = delegation,
-        )*/
-        bridge = VolcRealtimeAppliance(
+        )
+        /*bridge = VolcRealtimeAppliance(
             context = applicationContext,
             sessionConfig = SessionConfig(
                 apiKey = apiKey,
@@ -76,11 +82,14 @@ class S2sViewModel(
                 instructions = "你是一个车载语音助手. 用自然、口语化的中文回答用户",
                 voice = "zh_female_vv_jupiter_bigtts",
                 tools = listOf(MusicControlTool()),
+                // 携带持久化的 dialog id 接续历史对话：服务端按该 id 恢复最近 20 轮上下文
+                sessionId = sessionId,
             ),
             speaker = AndroidSpeakerAdapter(),
             delegation = delegation
-        )
-        _state.value = UiState(connected = true)
+        )*/
+        // 保留恢复的初始历史消息，仅切换连接状态
+        _state.value = _state.value.copy(connected = true)
         _taskGroups.value = emptyList()
         bridgeJob = viewModelScope.launch { bridge?.start() }
         sessionCollectJob = launchCollectSessionEvents()
@@ -116,15 +125,9 @@ class S2sViewModel(
             log.info("event: $event")
             when (event) {
                 is RealtimeEvent.UserTranscriptStarted -> {
-
+                    // 新一轮用户语音开始：先提交上一轮未完成的助手气泡
                     if (_state.value.pendingAssistant.isNotBlank()) {
-                        _state.value = _state.value.copy(
-                            messages = _state.value.messages + UiMessage(
-                                "assistant",
-                                _state.value.pendingAssistant.trim()
-                            ),
-                            pendingAssistant = "",
-                        )
+                        submitAssistant(_state.value.pendingAssistant)
                     }
                 }
 
@@ -133,13 +136,7 @@ class S2sViewModel(
                 }
 
                 is RealtimeEvent.UserTranscriptCompleted -> {
-                    val text = event.text.ifBlank { _state.value.pendingUser }
-                    if (text.isNotBlank()) {
-                        _state.value = _state.value.copy(
-                            messages = _state.value.messages + UiMessage("user", text),
-                            pendingUser = "",
-                        )
-                    }
+                    submitUser(event.text.ifBlank { _state.value.pendingUser })
                 }
 
                 is RealtimeEvent.AssistantTextDelta -> {
@@ -149,14 +146,8 @@ class S2sViewModel(
                 }
 
                 is RealtimeEvent.AssistantTextDone -> {
-                    // 用 event.text 替换之前的累加预览（服务器给的最终权威文本），
-                    // 提交到 messages + 清空 pendingAssistant
-                    val finalText = event.text
-                    _state.value = _state.value.copy(
-                        pendingAssistant = finalText,
-                        messages = _state.value.messages + UiMessage("assistant", finalText),
-                    )
-                    _state.value = _state.value.copy(pendingAssistant = "")
+                    // 用 event.text 替换之前的累加预览（服务器给的最终权威文本）
+                    submitAssistant(event.text)
                 }
 
                 is RealtimeEvent.AssistantAudioStarted -> {
@@ -168,14 +159,18 @@ class S2sViewModel(
                 is RealtimeEvent.ResponseDone -> {
                     // 兜底：若 TextDone 未触发（协议差异），用累加的 pendingAssistant 提交
                     if (_state.value.pendingAssistant.isNotBlank()) {
-                        _state.value = _state.value.copy(
-                            messages = _state.value.messages + UiMessage(
-                                "assistant",
-                                _state.value.pendingAssistant.trim()
-                            ),
-                            pendingAssistant = "",
-                        )
+                        submitAssistant(_state.value.pendingAssistant)
                     }
+                }
+
+                is RealtimeEvent.ConversationHistoryRetrieved -> {
+                    // 服务端权威历史（最近 20 轮）：仅渲染 user/assistant 对话文本，
+                    // 工具调用等非对话条目不参与 UI 气泡
+                    val history = event.items
+                        .filter { it.role == "user" || it.role == "assistant" }
+                        .map { UiMessage(it.role!!, it.text ?: "") }
+                        .filter { it.content.isNotBlank() }
+                    _state.value = _state.value.copy(messages = history)
                 }
 
                 is RealtimeEvent.Disconnected -> {
@@ -196,6 +191,26 @@ class S2sViewModel(
                 else -> Unit
             }
         }
+    }
+
+    /** 提交一条用户气泡。 */
+    private fun submitUser(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isBlank()) return
+        _state.value = _state.value.copy(
+            messages = _state.value.messages + UiMessage("user", trimmed),
+            pendingUser = "",
+        )
+    }
+
+    /** 提交一条助手气泡。 */
+    private fun submitAssistant(text: String) {
+        val trimmed = text.trim()
+        if (trimmed.isBlank()) return
+        _state.value = _state.value.copy(
+            messages = _state.value.messages + UiMessage("assistant", trimmed),
+            pendingAssistant = "",
+        )
     }
 
     private fun launchCollectTaskGroups(): Job = viewModelScope.launch {
@@ -221,10 +236,16 @@ class S2sViewModel(
         private val applicationContext: android.content.Context,
         private val apiKey: String,
         private val boss: BossAgent,
+        private val sessionId: String,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            return S2sViewModel(applicationContext, apiKey, boss) as T
+            return S2sViewModel(
+                applicationContext = applicationContext,
+                apiKey = apiKey,
+                boss = boss,
+                sessionId = sessionId,
+            ) as T
         }
     }
 }

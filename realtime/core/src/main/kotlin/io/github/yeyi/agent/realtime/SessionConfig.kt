@@ -11,6 +11,11 @@ public data class SessionConfig(
     val voice: String,
     val tools: List<Tool> = emptyList(),
     val turnDetection: TurnDetection = TurnDetection.ServerVad(),
+    /**
+     * S2S 会话 id（对应协议侧 dialog id）：null 表示新建会话（provider 生成新 id）；
+     * 传入已建立的 id 用于接续历史对话，服务端按该 id 恢复上下文。
+     */
+    val sessionId: String? = null,
 )
 
 /**

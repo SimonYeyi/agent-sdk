@@ -13,7 +13,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonObjectBuilder
-import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import java.util.Base64
@@ -78,6 +77,10 @@ public class VolcRealtimeAdapter(encoding: AudioFormat.Encoding? = null) : Realt
 
     override fun cancelResponseFrame(): ProtocolFrame {
         return responseCancelFrame()
+    }
+
+    override fun retrieveConversationHistoryFrame(): ProtocolFrame {
+        return conversationItemRetrieveFrame(emptyList())
     }
 
     override suspend fun handleIncomingFrame(frame: ProtocolFrame): List<ProtocolFrame> {
@@ -289,8 +292,9 @@ public class VolcRealtimeAdapter(encoding: AudioFormat.Encoding? = null) : Realt
 
         "response.function_call_arguments.done" -> emptyList()
 
+        "conversation.item.retrieved" -> conversationHistoryRetrieved(evt)
+
         "conversation.item.added",
-        "conversation.item.retrieved",
         "conversation.item.updated",
         "conversation.item.deleted" -> emptyList()
 
@@ -303,6 +307,25 @@ public class VolcRealtimeAdapter(encoding: AudioFormat.Encoding? = null) : Realt
         )
 
         else -> emptyList()
+    }
+
+    private fun conversationHistoryRetrieved(evt: VolcEvent): List<RealtimeEvent> {
+        val itemsElement = evt.items ?: return emptyList()
+        val items = try {
+            json.decodeFromString(
+                kotlinx.serialization.builtins.ListSerializer(VolcConversationItem.serializer()),
+                itemsElement.toString(),
+            )
+        } catch (t: Throwable) {
+            return emptyList()
+        }
+        return listOf(RealtimeEvent.ConversationHistoryRetrieved(items.map {
+            val text = it.content
+                ?.filter { it.type == "input_text" }
+                ?.mapNotNull { it.text }
+                ?.joinToString("\n")
+            RealtimeEvent.ConversationItem(id = it.id, role = it.role, text = text)
+        }))
     }
 
     private suspend fun handleFunctionCall(evt: VolcEvent): List<ProtocolFrame> {
@@ -334,12 +357,7 @@ public class VolcRealtimeAdapter(encoding: AudioFormat.Encoding? = null) : Realt
                     type = "message",
                     role = "tool",
                     callId = callId,
-                    content = buildJsonArray {
-                        add(buildJsonObject {
-                            put("type", "input_text")
-                            put("text", output)
-                        })
-                    },
+                    content = listOf(VolcContentPart("input_text", output)),
                 )
             ),
         )
@@ -349,7 +367,7 @@ public class VolcRealtimeAdapter(encoding: AudioFormat.Encoding? = null) : Realt
 
     private fun volcSessionConfig(config: SessionConfig): VolcSessionConfig =
         VolcSessionConfig(
-            id = UUID.randomUUID().toString(),
+            id = config.sessionId ?: UUID.randomUUID().toString(),
             model = config.model,
             instructions = config.instructions,
             audio = VolcAudioConfig(

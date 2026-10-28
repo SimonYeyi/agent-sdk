@@ -19,6 +19,14 @@ public interface RealtimeAdapter {
     public fun commitSpeechTextFrame(text: String): List<ProtocolFrame>
     public fun cancelResponseFrame(): ProtocolFrame
 
+    /**
+     * 构造检索历史上下文的请求帧。
+     *
+     * 不带对话 id（items 为空数组）时，服务端返回最近 20 轮完整上下文，
+     * 下行结果映射为 [RealtimeEvent.ConversationHistoryRetrieved]。
+     */
+    public fun retrieveConversationHistoryFrame(): ProtocolFrame
+
     public suspend fun handleIncomingFrame(frame: ProtocolFrame): List<ProtocolFrame>
 }
 

@@ -72,6 +72,9 @@ private class DefaultRealtimeSession(
         startReadLoop()
 
         waitConnected()
+
+        // 会话建立后自动检索最近 20 轮完整上下文，供 UI 恢复初始历史气泡
+        sendFrame(adapter.retrieveConversationHistoryFrame())
     }
 
     override fun close() {

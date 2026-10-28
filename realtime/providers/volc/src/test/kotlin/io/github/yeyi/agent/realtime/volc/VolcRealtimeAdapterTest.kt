@@ -77,6 +77,29 @@ class VolcRealtimeAdapterTest {
     }
 
     @Test
+    fun `createSessionFrame carries provided sessionId for history continuation`() {
+        val adapter = newAdapter()
+        val config = makeConfig().copy(sessionId = "dialog-123")
+        val frame = adapter.createSessionFrame(config)
+        val session = frame.payload["session"] as JsonObject
+        assertEquals("dialog-123", (session["id"] as JsonPrimitive).content)
+    }
+
+    @Test
+    fun `createSessionFrame generates new sessionId when not provided`() {
+        val adapter = newAdapter()
+        val config = makeConfig()
+        val frame = adapter.createSessionFrame(config)
+        val session = frame.payload["session"] as JsonObject
+        val id = (session["id"] as JsonPrimitive).content
+        assertTrue(id.isNotBlank())
+        // 两次连接生成不同 id，保证每次新会话互不接续
+        val second = adapter.createSessionFrame(makeConfig())
+        val secondId = (second.payload["session"] as JsonObject)["id"] as JsonPrimitive
+        assertTrue(id != secondId.content)
+    }
+
+    @Test
     fun `sendAudioFrame encodes pcm as base64`() {
         val adapter = newAdapter()
         val pcm = byteArrayOf(0x01, 0x02, 0x03, 0x04)
@@ -100,6 +123,17 @@ class VolcRealtimeAdapterTest {
         val adapter = newAdapter()
         val frame = adapter.cancelResponseFrame()
         assertEquals("response.cancel", (frame.payload["type"] as JsonPrimitive).content)
+    }
+
+    @Test
+    fun `retrieveConversationHistoryFrame sends empty items for full history`() {
+        val adapter = newAdapter()
+        val frame = adapter.retrieveConversationHistoryFrame()
+        val payload = frame.payload
+
+        assertEquals("conversation.item.retrieve", (payload["type"] as JsonPrimitive).content)
+        val items = payload["items"]
+        assertTrue(items is kotlinx.serialization.json.JsonArray && items.isEmpty())
     }
 
     @Test
@@ -278,6 +312,46 @@ class VolcRealtimeAdapterTest {
         val errorEvent = collected[0] as RealtimeEvent.Error
         assertEquals("ERR_001", errorEvent.code)
         assertEquals("bad request", errorEvent.message)
+    }
+
+    @Test
+    fun `conversation_item_retrieved emits ConversationHistoryRetrieved with extracted text`() = runTest {
+        val adapter = newAdapter()
+        val collected = mutableListOf<RealtimeEvent>()
+        val job = launch { adapter.events.toList(collected) }
+        runCurrent()
+        adapter.handleIncomingFrame(buildIncomingFrame("""
+            {
+                "type": "conversation.item.retrieved",
+                "items": [
+                    {
+                        "id": "item_001",
+                        "type": "message",
+                        "status": "completed",
+                        "role": "user",
+                        "content": [{"type": "input_text", "text": "你好"}]
+                    },
+                    {
+                        "id": "item_002",
+                        "type": "message",
+                        "status": "completed",
+                        "role": "assistant",
+                        "content": [{"type": "input_text", "text": "你好，有什么可以帮你？"}]
+                    }
+                ]
+            }
+        """))
+        runCurrent()
+        job.cancel()
+
+        assertEquals(1, collected.size)
+        val history = collected[0] as RealtimeEvent.ConversationHistoryRetrieved
+        assertEquals(2, history.items.size)
+        assertEquals("item_001", history.items[0].id)
+        assertEquals("user", history.items[0].role)
+        assertEquals("你好", history.items[0].text)
+        assertEquals("assistant", history.items[1].role)
+        assertEquals("你好，有什么可以帮你？", history.items[1].text)
     }
 
     // === 工具调用测试 ===

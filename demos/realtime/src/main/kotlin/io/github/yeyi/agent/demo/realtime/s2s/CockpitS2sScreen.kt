@@ -55,13 +55,19 @@ import kotlinx.coroutines.launch
 fun CockpitS2sScreen(
     apiKey: String,
     boss: BossAgent,
+    sessionId: String,
     onBack: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
 
     val viewModel: S2sViewModel = viewModel(
-        factory = S2sViewModel.Factory(context.applicationContext, apiKey, boss)
+        factory = S2sViewModel.Factory(
+            applicationContext = context.applicationContext,
+            apiKey = apiKey,
+            boss = boss,
+            sessionId = sessionId,
+        )
     )
     val state by viewModel.state.collectAsState()
     val taskGroups by viewModel.taskGroups.collectAsState()

@@ -15,6 +15,21 @@ public sealed interface RealtimeEvent {
     public object ResponseDone : RealtimeEvent
     public object ResponseCanceled : RealtimeEvent
 
+    /**
+     * 会话建立后检索到的历史上下文条目列表。
+     *
+     * 协议侧 [RealtimeAdapter.retrieveConversationHistoryFrame] 不带对话 id 时，服务端返回最近
+     * 20 轮完整上下文；adapter 负责把协议条目收敛为 UI 渲染所需的角色与文本。
+     */
+    public data class ConversationHistoryRetrieved(val items: List<ConversationItem>) : RealtimeEvent
+
+    /** 单条历史上下文条目：仅暴露角色与正文（由 adapter 从协议 content 中提取）。 */
+    public data class ConversationItem(
+        val id: String? = null,
+        val role: String? = null,
+        val text: String? = null,
+    )
+
     public data class Connected(val sessionId: String) : RealtimeEvent
     public data class Disconnected(val reason: String?) : RealtimeEvent
     public data class Error(val code: String, val message: String, val isFatal: Boolean) : RealtimeEvent

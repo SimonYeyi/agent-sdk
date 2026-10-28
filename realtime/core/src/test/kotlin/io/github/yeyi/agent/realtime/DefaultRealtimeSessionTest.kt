@@ -137,6 +137,9 @@ class DefaultRealtimeSessionTest {
 
         override fun cancelResponseFrame(): ProtocolFrame = buildFrame("response.cancel") { }
 
+        override fun retrieveConversationHistoryFrame(): ProtocolFrame =
+            buildFrame("conversation.item.retrieve") { }
+
         override fun commitSpeechTextFrame(text: String): List<ProtocolFrame> {
             return listOf(buildFrame("speech_text_buffer.commit") { put("text", text) })
         }

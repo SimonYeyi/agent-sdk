@@ -34,10 +34,13 @@ class MainActivity : ComponentActivity() {
                         factory = RealtimeViewModel.Factory(sessionManager)
                     )
                     val boss by viewModel.boss.collectAsState()
-                    if (boss != null) {
+                    val session by viewModel.session.collectAsState()
+                    if (boss != null && session != null) {
                         CockpitS2sScreen(
                             apiKey = BuildConfig.VOLC_API_KEY,
                             boss = boss!!,
+                            // session.id 即 S2S 协议侧 dialog id：重启后携带同一 id 接续历史对话
+                            sessionId = session!!.id,
                             onBack = { finish() },
                         )
                     }
