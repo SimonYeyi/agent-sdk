@@ -49,7 +49,9 @@ private class DefaultRealtimeSession(
     private var scope: CoroutineScope? = null
     private val json = Json { ignoreUnknownKeys = true }
     private val writeLock = Mutex()
-    private val eventEmitter = MutableSharedFlow<RealtimeEvent>()
+    // 缓冲让 emit 不被慢订阅者阻塞：下游 speaker 播放慢时反压不会传导回
+    // injectAndRespond / 读循环。缓冲满时仍按 SUSPEND 挂起，不丢事件。
+    private val eventEmitter = MutableSharedFlow<RealtimeEvent>(extraBufferCapacity = 64)
 
     override val inputAudioFormat: AudioFormat = adapter.inputAudioFormat
     override val outputAudioFormat: AudioFormat = adapter.outputAudioFormat
