@@ -39,12 +39,7 @@ object CockpitAgent {
     private fun definition(): AgentDefinition = AgentDefinition(
         name = NAME,
         version = 1,
-        instructions = """
-            [回复风格约束]
-                直接给出结论或操作结果，一般不超过两句话，避免冗长的解释、客套和重复。example: 
-                - 已经为您打开所有车窗
-                - 已经为您打开空调，温度26度
-        """.trimIndent(),
+        instructions = "回复简洁",
         provider = providerFromBuildConfig(),
         maxIterations = 40,
         maxMemoryRounds = 40,

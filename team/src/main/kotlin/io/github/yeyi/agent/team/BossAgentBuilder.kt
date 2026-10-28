@@ -49,7 +49,7 @@ public class BossAgentBuilder internal constructor() {
     public fun persona(persona: Persona) {
         require(persona.role.isBlank()) {
             "Persona.role is reserved by the BossAgent framework — must be blank. " +
-                    "Use personality / domain / constraints / extra to customize agent persona."
+                    "Use personality / knowledge / instructions / extra to customize agent persona."
         }
         bossPersona0 = persona
     }

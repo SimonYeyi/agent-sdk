@@ -9,7 +9,7 @@ import io.github.yeyi.agent.config.AgentScope
  *
  * BossAgent 的角色由框架收敛（[BossAgentBuilder] 保留 [Persona.role]），因此 [AgentDefinition.persona]
  * 在 boss 场景不被消费，必须留空；外部增强请配置 [AgentDefinition.instructions]，
- * 经 [Persona.extra] 段落写入 system prompt。
+ * 经 [Persona.instructions] 写入 system prompt。
  *
  * @param scope 运行时上下文
  * @return BossAgent 实例
@@ -24,7 +24,7 @@ public fun AgentDefinition.spawnBoss(scope: AgentScope): BossAgent {
         memory(scope.memory, maxMemoryRounds)
         llmProvider(resolveInfo.llmProvider)
         maxIterations(maxIterations)
-        persona(Persona("").apply { instructions?.let { extra(it) } })
+        persona(Persona("").apply { instructions?.let { instructions(it) } })
         resolveInfo.toolRegistry?.let { tools(it) }
         resolveInfo.lazyToolRegistry?.let { lazyTools(it) }
         resolveInfo.toolsetRegistry?.let { toolsets(it) }
