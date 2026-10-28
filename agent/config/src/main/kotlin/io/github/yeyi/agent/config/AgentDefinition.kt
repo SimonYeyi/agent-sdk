@@ -9,7 +9,14 @@ import kotlinx.serialization.json.JsonClassDiscriminator
 public data class AgentDefinition(
     val name: String,
     val version: Int = 0,
-    val persona: String,
+    /** 角色描述，注入 [io.github.yeyi.agent.Persona.role]。 */
+    val persona: String? = null,
+    /**
+     * 附加行为指令/风格约束（如输出简明扼要），注入 [io.github.yeyi.agent.Persona.extra]。
+     * 与 [persona] 分离：persona 回答「你是谁」，instructions 回答「你怎么做」。
+     * 对 BossAgent 有效（角色由框架收敛，仅消费本字段）；空或 null 表示不附加。
+     */
+    val instructions: String? = null,
     val provider: Provider,
     val maxIterations: Int = 20,
     val maxMemoryRounds: Int = 20,

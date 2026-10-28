@@ -32,14 +32,19 @@ object CockpitAgent {
     /**
      * 配置驱动定义：能力按名称声明，运行时由 [AgentScope.resolver] 从 scope 注册表投影。
      *
-     * 注意：persona 暂置空 —— 现版 [spawnBoss] 以 `Persona(persona)` 注入 persona，会把文本放进
-     * Persona.role 字段，而 BossAgentBuilder 要求 role 必须 blank，非空 persona 会抛异常。
-     * 等 team 模块修复后恢复 persona 文案即可。
+     * persona 在 boss 场景由框架收敛（角色固定为团队老板），必须留空；
+     * 行为风格约束经 [AgentDefinition.instructions] 配置，由 [io.github.yeyi.agent.team.spawnBoss]
+     * 以 extra 段落写入 system prompt。
      */
     private fun definition(): AgentDefinition = AgentDefinition(
         name = NAME,
         version = 1,
-        persona = "",
+        instructions = """
+            [回复风格约束]
+                直接给出结论或操作结果，一般不超过两句话，避免冗长的解释、客套和重复。example: 
+                - 已经为您打开所有车窗
+                - 已经为您打开空调，温度26度
+        """.trimIndent(),
         provider = providerFromBuildConfig(),
         maxIterations = 40,
         maxMemoryRounds = 40,

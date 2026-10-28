@@ -29,7 +29,7 @@ import kotlinx.coroutines.launch
 public fun AgentDefinition.spawn(scope: AgentScope): SpawnedAgent {
     val resolveInfo = scope.resolver().resolve(this@spawn)
     val delegate = agent {
-        persona(Persona(persona))
+        persona(Persona(persona ?: "").apply { instructions?.let { extra(it) } })
         llmProvider(resolveInfo.llmProvider)
         memory(scope.memory, maxMemoryRounds)
         maxIterations(maxIterations)

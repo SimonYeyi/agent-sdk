@@ -37,6 +37,7 @@ class AgentDefinitionTest {
             name = "smartHome",
             version = 1,
             persona = "智能家居助手",
+            instructions = "回答要简明扼要",
             provider = AgentDefinition.Provider.OpenAi(
                 baseUrl = "https://api.openai.com",
                 model = "gpt-4",
@@ -66,6 +67,7 @@ class AgentDefinitionTest {
         assertEquals("smartHome", decoded.name)
         assertEquals(1, decoded.version)
         assertEquals("智能家居助手", decoded.persona)
+        assertEquals("回答要简明扼要", decoded.instructions)
         assertTrue(decoded.provider is AgentDefinition.Provider.OpenAi)
         assertEquals(30, decoded.maxIterations)
         assertEquals(listOf("getWeather", "controlTV"), decoded.tools)

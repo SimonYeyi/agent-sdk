@@ -32,14 +32,12 @@ object CockpitAgent {
     /**
      * 配置驱动定义：能力按名称声明，运行时由 [AgentScope.resolver] 从 scope 注册表投影。
      *
-     * 注意：persona 暂置空 —— 现版 [spawnBoss] 以 `Persona(persona)` 注入 persona，会把文本放进
-     * Persona.role 字段，而 BossAgentBuilder 要求 role 必须 blank，非空 persona 会抛异常。
-     * 等 team 模块修复后恢复 persona 文案即可。
+     * persona 在 boss 场景由框架收敛（角色固定为团队老板），必须留空；
+     * 行为风格约束可经 [AgentDefinition.instructions] 配置。
      */
     private fun definition(): AgentDefinition = AgentDefinition(
         name = NAME,
         version = 1,
-        persona = "",
         provider = providerFromBuildConfig(),
         maxIterations = 40,
         maxMemoryRounds = 40,
