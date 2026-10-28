@@ -167,7 +167,7 @@ class BossViewModel(
                 // 兜底：失败也把指令落为用户气泡，避免悬浮队列滞留
                 clearStreamingDraft()
                 pendingText?.let { confirmPendingInput(it) }
-                appendMessage("assistant", "错误: ${event.cause.message}")
+                appendMessage("error", event.cause.message ?: event.cause.toString())
                 _isLoading.value = false
             }
             else -> {
@@ -333,8 +333,12 @@ private fun MemoryEntry.toChatMessageUi(): ChatMessageUi? = when (val msg = mess
     } else {
         ChatMessageUi("user", msg.parts.text)
     }
-    is ChatMessage.Assistant -> msg.content?.takeIf { it.isNotBlank() }
-        ?.let { ChatMessageUi("assistant", it) }
+    is ChatMessage.Assistant -> when (label) {
+        // 带 "error" label 的助手消息是运行失败写入的记忆，渲染为错误气泡，
+        // 与运行时 Failed 事件的气泡样式一致。
+        "error" -> msg.content?.takeIf { it.isNotBlank() }?.let { ChatMessageUi("error", it) }
+        else -> msg.content?.takeIf { it.isNotBlank() }?.let { ChatMessageUi("assistant", it) }
+    }
     is ChatMessage.System -> ChatMessageUi("assistant", msg.content)
     // 工具调用在运行时最终只保留结果气泡（以工具名为标签、结果为内容），
     // 恢复渲染格式与运行时替换后的结果一致。

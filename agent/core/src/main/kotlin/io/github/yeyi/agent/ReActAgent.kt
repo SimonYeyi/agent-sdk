@@ -106,6 +106,9 @@ public class ReActAgent internal constructor(
                 }
                 throw cause
             }
+            // 错误伪装成 Assistant 消息写入记忆：错误发生在助手侧执行链路，模型第二轮
+            // 看到的是「我上一轮输出了错误」，可据此重试/澄清；UI 按 "error" label 渲染错误气泡。
+            ChatMessage.Assistant(cause.message ?: cause.toString()).addToMemory(memory, "error")
             // 失败路径携带原始 Throwable,不再包成 AgentException —— 让上层自由判型。
             hook.safeInvoke { onRunFailed(buildContext(iterations), cause) }
             emit(AgentEvent.Failed(cause))

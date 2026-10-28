@@ -319,11 +319,13 @@ fun ChatBubble(message: ChatMessageUi) {
     val isUser = message.role == "user"
     val isTool = message.role == "tool"
     val isSystem = message.role == "system"
+    val isError = message.role == "error"
     val alignment = if (isUser) Alignment.TopEnd else Alignment.TopStart
     val backgroundColor = when {
         isUser -> MaterialTheme.colorScheme.primaryContainer
         isTool -> MaterialTheme.colorScheme.tertiaryContainer
         isSystem -> MaterialTheme.colorScheme.surfaceVariant
+        isError -> MaterialTheme.colorScheme.errorContainer
         else -> MaterialTheme.colorScheme.secondaryContainer
     }
 

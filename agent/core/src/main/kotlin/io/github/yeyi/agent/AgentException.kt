@@ -18,7 +18,7 @@ public sealed class AgentException(message: String, cause: Throwable? = null) :
 
     /** LLM 调用失败（网络错误、API 错误、超时等）。 */
     public class LlmError(cause: Throwable) :
-        AgentException("LLM call failed: ${cause.message}", cause)
+        AgentException("LLM call failed: ${cause.message ?: cause.toString()}", cause)
 
     /** LLM 返回了无法解析的响应格式。 */
     public class InvalidResponse(public val reason: String) :
