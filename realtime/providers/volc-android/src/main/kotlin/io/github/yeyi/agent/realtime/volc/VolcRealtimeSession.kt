@@ -14,13 +14,17 @@ import io.github.yeyi.agent.realtime.audio.AudioFormat
 import io.github.yeyi.agent.realtime.audio.MicrophoneAdapter
 import io.github.yeyi.agent.realtime.audio.SpeakerAdapter
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.filter
+import kotlinx.coroutines.flow.filterIsInstance
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
@@ -32,6 +36,7 @@ private class VolcRealtimeSession(private val context: Context) : RealtimeSessio
     private var engine: SpeechEngine? = null
     private var scope: CoroutineScope? = null
     private val json = Json { ignoreUnknownKeys = true }
+
     // 缓冲让 emit 不被慢订阅者阻塞：下游 speaker 播放慢时反压不会传导回
     // injectAndRespond / 读循环。缓冲满时仍按 SUSPEND 挂起，不丢事件。
     private val eventEmitter = MutableSharedFlow<RealtimeEvent>(extraBufferCapacity = 64)
@@ -66,6 +71,13 @@ private class VolcRealtimeSession(private val context: Context) : RealtimeSessio
         check(startRet == SpeechEngineDefines.ERR_NO_ERROR) {
             "sendDirective(START_ENGINE) failed: $startRet"
         }
+
+        scope!!.async(start = CoroutineStart.UNDISPATCHED) {
+            adapter.events.filterIsInstance<RealtimeEvent.Connected>().first()
+        }.await()
+
+        // 检索最近 20 轮完整上下文，供 UI 恢复初始历史气泡。
+        sendUplinkFrame(adapter.retrieveConversationHistoryFrame())
     }
 
     override fun close() {
