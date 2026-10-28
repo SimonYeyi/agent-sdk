@@ -58,15 +58,8 @@ private class DefaultRealtimeAppliance(
         if (scope != null) return
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         try {
-            val instructions = delegationProcessor
-                ?.appendInstructions(sessionConfig.instructions)
-                ?: sessionConfig.instructions
-            session.connect(sessionConfig.copy(instructions = instructions))
-            speaker.start(session.outputAudioFormat)
-            microphone.start(session.inputAudioFormat)
-            scope?.launch {
-                microphone.capture().collect { pcm -> session.sendAudio(pcm) }
-            }
+            // 订阅必须先于 connect 挂载：session 事件流是不可回放的广播流，
+            // Connected 等早期生命周期事件在 connect 内部已发射完毕，晚订阅必然丢失。
             scope?.launch {
                 session.events.collect { event ->
                     val finalEvent = when {
@@ -76,6 +69,15 @@ private class DefaultRealtimeAppliance(
                     speaker.observed(finalEvent)
                     (events as MutableSharedFlow).emit(finalEvent)
                 }
+            }
+            val instructions = delegationProcessor
+                ?.appendInstructions(sessionConfig.instructions)
+                ?: sessionConfig.instructions
+            session.connect(sessionConfig.copy(instructions = instructions))
+            speaker.start(session.outputAudioFormat)
+            microphone.start(session.inputAudioFormat)
+            scope?.launch {
+                microphone.capture().collect { pcm -> session.sendAudio(pcm) }
             }
             delegationProcessor?.start()
         } catch (e: Throwable) {

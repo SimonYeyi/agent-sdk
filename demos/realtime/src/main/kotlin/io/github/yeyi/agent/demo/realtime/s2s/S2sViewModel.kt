@@ -91,9 +91,11 @@ class S2sViewModel(
         // 保留恢复的初始历史消息，仅切换连接状态
         _state.value = _state.value.copy(connected = true)
         _taskGroups.value = emptyList()
-        bridgeJob = viewModelScope.launch { bridge?.start() }
+        // 订阅必须先于 bridge.start()：appliance 事件流是不可回放的广播流，
+        // Connected 等早期事件在连接建立阶段已发射完毕，晚订阅必然丢失。
         sessionCollectJob = launchCollectSessionEvents()
         taskGroupsCollectJob = launchCollectTaskGroups()
+        bridgeJob = viewModelScope.launch { bridge?.start() }
     }
 
     private fun closeBridge() {
