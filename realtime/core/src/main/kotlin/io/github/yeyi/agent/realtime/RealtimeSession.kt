@@ -35,6 +35,12 @@ public interface RealtimeSession : AutoCloseable {
     public suspend fun connect(config: SessionConfig)
     public override fun close()
 
+    /**
+     * 检索服务端保存的对话上下文。结果以 [RealtimeEvent.ConversationHistoryRetrieved]
+     * 事件形式回流到 [events]。
+     */
+    public suspend fun retrieveConversations()
+
     public suspend fun sendAudio(pcm: ByteArray)
     public suspend fun commitAudio()
     public suspend fun cancelResponse()
@@ -74,9 +80,6 @@ private class DefaultRealtimeSession(
         startReadLoop()
 
         waitConnected()
-
-        // 会话建立后自动检索最近 20 轮完整上下文，供 UI 恢复初始历史气泡
-        sendFrame(adapter.retrieveConversationHistoryFrame())
     }
 
     override fun close() {
@@ -84,6 +87,10 @@ private class DefaultRealtimeSession(
         ws = null
         scope?.cancel()
         scope = null
+    }
+
+    override suspend fun retrieveConversations() {
+        sendFrame(adapter.retrieveConversationHistoryFrame())
     }
 
     override suspend fun sendAudio(pcm: ByteArray) {

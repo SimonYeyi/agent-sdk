@@ -74,6 +74,11 @@ private class DefaultRealtimeAppliance(
                 ?.appendInstructions(sessionConfig.instructions)
                 ?: sessionConfig.instructions
             session.connect(sessionConfig.copy(instructions = instructions))
+            // sessionId 非空 = 接续已有对话，服务端保有上下文，检索回来供 UI 恢复
+            // 初始历史气泡。放在 mic 启动之前，避免历史回流覆盖已到达的用户气泡。
+            if (sessionConfig.sessionId != null) {
+                session.retrieveConversations()
+            }
             speaker.start(session.outputAudioFormat)
             microphone.start(session.inputAudioFormat)
             scope?.launch {

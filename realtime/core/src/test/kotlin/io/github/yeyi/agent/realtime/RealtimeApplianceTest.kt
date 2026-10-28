@@ -68,6 +68,7 @@ class RealtimeApplianceTest {
         var connectCount = 0
         var closeCount = 0
         var connectInstructions: String? = null
+        var retrieveHistoryCount = 0
         override val events: Flow<RealtimeEvent>
             get() = eventsChannel.receiveAsFlow().onStart { subscribedSignal.trySend(Unit) }
         override val inputAudioFormat: AudioFormat = inputFormat
@@ -75,6 +76,9 @@ class RealtimeApplianceTest {
         override suspend fun connect(config: SessionConfig) {
             connectCount++
             connectInstructions = config.instructions
+        }
+        override suspend fun retrieveConversations() {
+            retrieveHistoryCount++
         }
         override fun close() {
             closeCount++
@@ -315,6 +319,42 @@ class RealtimeApplianceTest {
         assertEquals(pcm1.toList(), first.toList())
         assertEquals(pcm2.toList(), second.toList())
         assertEquals(2, session.sentAudio.size)
+    }
+
+    @Test
+    fun `start retrieves conversation history when sessionId is present`() = runTest {
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
+
+        val appliance = RealtimeAppliance(
+            session = session,
+            sessionConfig = makeSessionConfig().copy(sessionId = "sess_1"),
+            microphone = FakeMicrophone(),
+            speaker = FakeSpeaker(),
+            delegation = null,
+        )
+
+        appliance.start()
+        appliance.close()
+
+        assertEquals(1, session.retrieveHistoryCount)
+    }
+
+    @Test
+    fun `start skips conversation history when sessionId is absent`() = runTest {
+        val session = FakeSession(fakeInputFormat, fakeOutputFormat)
+
+        val appliance = RealtimeAppliance(
+            session = session,
+            sessionConfig = makeSessionConfig().copy(sessionId = null),
+            microphone = FakeMicrophone(),
+            speaker = FakeSpeaker(),
+            delegation = null,
+        )
+
+        appliance.start()
+        appliance.close()
+
+        assertEquals(0, session.retrieveHistoryCount)
     }
 
     @Test

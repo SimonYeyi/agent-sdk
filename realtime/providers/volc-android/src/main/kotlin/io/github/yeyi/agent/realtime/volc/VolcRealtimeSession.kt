@@ -75,9 +75,6 @@ private class VolcRealtimeSession(private val context: Context) : RealtimeSessio
         scope!!.async(start = CoroutineStart.UNDISPATCHED) {
             adapter.events.filterIsInstance<RealtimeEvent.Connected>().first()
         }.await()
-
-        // 检索最近 20 轮完整上下文，供 UI 恢复初始历史气泡。
-        sendUplinkFrame(adapter.retrieveConversationHistoryFrame())
     }
 
     override fun close() {
@@ -85,6 +82,10 @@ private class VolcRealtimeSession(private val context: Context) : RealtimeSessio
         engine = null
         scope?.cancel()
         scope = null
+    }
+
+    override suspend fun retrieveConversations() {
+        sendUplinkFrame(adapter.retrieveConversationHistoryFrame())
     }
 
     override suspend fun sendAudio(pcm: ByteArray) {
