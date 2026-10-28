@@ -25,19 +25,11 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
 
     private val runEvents = MutableSharedFlow<DelegationReply>(extraBufferCapacity = 64)
 
-    /** 最近一次 [AgentEvent.ToolCallExplanation] 的说明文本：allAsync 短路轮 Final 为空响应
-     *  （content=null），回执文本回退到该说明，保持旧行为（过渡语作为回执）。 */
-    private var latestExplanation: String? = null
-
     override val replies: Flow<DelegationReply> = merge(
         runEvents,
         boss.report.mapNotNull { event ->
             when (event) {
-                is AgentEvent.ToolCallExplanation -> {
-                    latestExplanation = event.text
-                    null
-                }
-                is AgentEvent.Final -> Success(event.result.message.content ?: latestExplanation ?: "")
+                is AgentEvent.Final -> event.result.message.content?.let { Success(it) }
                 is AgentEvent.Failed -> Failure(event.cause.message ?: event.cause.toString())
                 else -> null
             }
