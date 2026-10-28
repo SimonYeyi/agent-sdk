@@ -137,6 +137,13 @@ public class ReActAgent internal constructor(
         response.message.addToMemory(memory)
 
         if (response.message.toolCalls.isEmpty()) {
+            // 正常终结契约：非短路路径的 Final 必须携带非空正文。LLM 既无工具调用又无正文
+            // 属于异常输出，直接 fail-fast；content 为 null 的 Final 事件在整个库中仅由
+            // 下方 allAsync 短路路径构造，外部消费者见到 null 即可断定来自异步工具终结。
+            // 这是内部不变式而非调用方参数问题，故用 check 抛 IllegalStateException。
+            check(response.message.content.isNullOrBlank().not()) {
+                "Final event must carry non-blank content: LLM returned a response with neither tool calls nor content."
+            }
             return finalize(response, iterations, toolCalls, context, emit)
         }
 
