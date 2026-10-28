@@ -3,7 +3,6 @@ package io.github.yeyi.agent.demo.realtime
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -35,11 +34,11 @@ class MainActivity : ComponentActivity() {
                         factory = RealtimeViewModel.Factory(sessionManager)
                     )
                     val boss by viewModel.boss.collectAsState()
-                    val sharedBoss = boss
-                    if (sharedBoss != null) {
+                    if (boss != null) {
                         CockpitS2sScreen(
                             apiKey = BuildConfig.VOLC_API_KEY,
-                            boss = sharedBoss,
+                            boss = boss!!,
+                            onBack = { finish() },
                         )
                     }
                 }

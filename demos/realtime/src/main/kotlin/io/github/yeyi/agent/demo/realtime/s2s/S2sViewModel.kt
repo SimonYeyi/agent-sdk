@@ -18,7 +18,10 @@ import io.github.yeyi.agent.team.TasksState
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.websocket.WebSockets
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -103,7 +106,13 @@ class S2sViewModel(
 
         _taskGroups.value = emptyList()
         _state.value = UiState(connected = false)
-        viewModelScope.launch { b?.close() }
+        if (b != null) {
+            // 终端清理不得依赖 viewModelScope：androidx 在 ViewModel.clear() 中先取消
+            // viewModelScope 再回调 onCleared，onCleared 路径下 launch 会成为空操作。
+            // 独立 scope 保证 SpeechEngine/AudioTrack 等资源无论以何种方式销毁 Activity
+            // （返回键、最近任务滑动、系统回收）都能被释放；bridge 已置 null 保证幂等。
+            CoroutineScope(SupervisorJob() + Dispatchers.Default).launch { b.close() }
+        }
     }
 
     private fun launchCollectSessionEvents(): Job = viewModelScope.launch {
