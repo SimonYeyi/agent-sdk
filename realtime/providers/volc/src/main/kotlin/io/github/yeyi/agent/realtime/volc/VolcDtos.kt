@@ -80,7 +80,7 @@ internal data class VolcExtensionDialog(
 @Serializable
 internal data class VolcConversationItem(
     val id: String? = null,
-    val type: String,
+    val type: String? = null,
     val status: String? = null,
     val role: String? = null,
     val content: List<VolcContentPart>? = null,

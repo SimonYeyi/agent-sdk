@@ -118,6 +118,12 @@ internal class DelegationProcessor(
                     return event.copy(text = event.text.removePrefix(DELEGATION_MARKER))
                 }
 
+                is RealtimeEvent.ConversationHistoryRetrieved -> {
+                    val items = event.items
+                        .map { it.copy(text = it.text?.removePrefix(DELEGATION_MARKER)) }
+                    return event.copy(items = items.toList())
+                }
+
                 else -> Unit
             }
             return event
