@@ -45,6 +45,16 @@ public interface RealtimeSession : AutoCloseable {
     public suspend fun commitAudio()
     public suspend fun cancelResponse()
     public suspend fun injectAndRespond(text: String)
+
+    public companion object {
+        public operator fun invoke(
+            client: HttpClient,
+            adapter: RealtimeAdapter,
+        ): RealtimeSession = DefaultRealtimeSession(
+            client = client,
+            adapter = adapter,
+        )
+    }
 }
 
 private class DefaultRealtimeSession(
@@ -142,8 +152,4 @@ private class DefaultRealtimeSession(
             }
         }.filterIsInstance<RealtimeEvent.Connected>().first()
     }
-}
-
-public fun RealtimeSession(client: HttpClient, adapter: RealtimeAdapter): RealtimeSession {
-    return DefaultRealtimeSession(client, adapter)
 }

@@ -19,6 +19,22 @@ public interface RealtimeAppliance {
     public val events: Flow<RealtimeEvent>
     public suspend fun start()
     public suspend fun close()
+
+    public companion object {
+        public operator fun invoke(
+            session: RealtimeSession,
+            sessionConfig: SessionConfig,
+            microphone: MicrophoneAdapter,
+            speaker: SpeakerAdapter,
+            delegation: RealtimeDelegation? = null,
+        ): RealtimeAppliance = DefaultRealtimeAppliance(
+            session = session,
+            sessionConfig = sessionConfig,
+            microphone = microphone,
+            speaker = speaker,
+            delegation = delegation,
+        )
+    }
 }
 
 private class DefaultRealtimeAppliance(
@@ -99,17 +115,3 @@ private class DefaultRealtimeAppliance(
         scope = null
     }
 }
-
-public fun RealtimeAppliance(
-    session: RealtimeSession,
-    sessionConfig: SessionConfig,
-    microphone: MicrophoneAdapter,
-    speaker: SpeakerAdapter,
-    delegation: RealtimeDelegation? = null,
-): RealtimeAppliance = DefaultRealtimeAppliance(
-    session = session,
-    sessionConfig = sessionConfig,
-    microphone = microphone,
-    speaker = speaker,
-    delegation = delegation,
-)

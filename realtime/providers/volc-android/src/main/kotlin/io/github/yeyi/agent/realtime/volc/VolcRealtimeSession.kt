@@ -226,19 +226,21 @@ private class VolcRealtimeSession(private val context: Context) : RealtimeSessio
     }
 }
 
-public fun VolcRealtimeAppliance(
-    context: Context,
-    sessionConfig: SessionConfig,
-    speaker: SpeakerAdapter,
-    delegation: RealtimeDelegation? = null,
-): RealtimeAppliance =
-    RealtimeAppliance(
-        VolcRealtimeSession(context.applicationContext),
-        sessionConfig,
-        MockMicrophone(),
-        speaker,
-        delegation
-    )
+public object VolcRealtimeAppliance {
+    public operator fun invoke(
+        context: Context,
+        sessionConfig: SessionConfig,
+        speaker: SpeakerAdapter,
+        delegation: RealtimeDelegation? = null,
+    ): RealtimeAppliance =
+        RealtimeAppliance(
+            VolcRealtimeSession(context.applicationContext),
+            sessionConfig,
+            MockMicrophone(),
+            speaker,
+            delegation
+        )
+}
 
 private class MockMicrophone : MicrophoneAdapter {
     override suspend fun start(format: AudioFormat) {
