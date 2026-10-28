@@ -4,14 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.demo.realtime.log
-import io.github.yeyi.agent.realtime.DelegationReply
 import io.github.yeyi.agent.realtime.RealtimeAppliance
 import io.github.yeyi.agent.realtime.RealtimeEvent
-import io.github.yeyi.agent.realtime.RealtimeSession
 import io.github.yeyi.agent.realtime.SessionConfig
-import io.github.yeyi.agent.realtime.audio.android.AndroidMicrophoneAdapter
 import io.github.yeyi.agent.realtime.audio.android.AndroidSpeakerAdapter
-import io.github.yeyi.agent.realtime.volc.VolcRealtimeAdapter
 import io.github.yeyi.agent.realtime.volc.VolcRealtimeAppliance
 import io.github.yeyi.agent.team.BossAgent
 import io.github.yeyi.agent.team.TasksState
@@ -91,7 +87,7 @@ class S2sViewModel(
         taskGroupsCollectJob = launchCollectTaskGroups()
     }
 
-    fun closeBridge() {
+    private fun closeBridge() {
         bridgeJob?.cancel()
         bridgeJob = null
         sessionCollectJob?.cancel()
@@ -104,8 +100,8 @@ class S2sViewModel(
         httpClient?.close()
         httpClient = null
 
-        _taskGroups.value = emptyList()
-        _state.value = UiState(connected = false)
+        // 静默释放资源：closeBridge 只由 onCleared 兜底调用（Activity 销毁自动触发），
+        // 屏面即将销毁，改动 UI 状态只会造成无意义的闪烁，因此不触碰 _state/_taskGroups。
         if (b != null) {
             // 终端清理不得依赖 viewModelScope：androidx 在 ViewModel.clear() 中先取消
             // viewModelScope 再回调 onCleared，onCleared 路径下 launch 会成为空操作。

@@ -72,7 +72,7 @@ fun CockpitS2sScreen(
         if (drawerState.isOpen) {
             scope.launch { drawerState.close() }
         } else {
-            viewModel.closeBridge()
+            // 仅转发退出意图（宿主 finish），资源释放由 VM.onCleared 兜底
             onBack()
         }
     }
@@ -94,10 +94,9 @@ fun CockpitS2sScreen(
         }
     }
 
-    // Exit when requested
+    // Exit when requested（资源释放由 VM.onCleared 兜底，此处仅交由宿主 finish）
     LaunchedEffect(state.shouldExit) {
         if (state.shouldExit) {
-            viewModel.closeBridge()
             onBack()
         }
     }
@@ -109,7 +108,6 @@ fun CockpitS2sScreen(
         if (granted) {
             viewModel.startBridge()
         } else {
-            viewModel.closeBridge()
             onBack()
         }
     }
