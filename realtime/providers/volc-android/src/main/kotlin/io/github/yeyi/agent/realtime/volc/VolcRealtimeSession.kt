@@ -32,18 +32,14 @@ private class VolcRealtimeSession(private val context: Context) : RealtimeSessio
     private var engine: SpeechEngine? = null
     private var scope: CoroutineScope? = null
     private val json = Json { ignoreUnknownKeys = true }
-
     private val eventEmitter = MutableSharedFlow<RealtimeEvent>()
 
-    override val inputAudioFormat: AudioFormat get() = adapter.inputAudioFormat
-
+    override val inputAudioFormat: AudioFormat = adapter.inputAudioFormat
     override val outputAudioFormat: AudioFormat = OUTPUT_AUDIO_FORMAT
-
-    override val events: Flow<RealtimeEvent>
-        get() = merge(
-            eventEmitter,
-            adapter.events.filter { it !is RealtimeEvent.Disconnected }
-        )
+    override val events: Flow<RealtimeEvent> = merge(
+        eventEmitter,
+        adapter.events.filter { it !is RealtimeEvent.Disconnected }
+    )
 
     override suspend fun connect(config: SessionConfig) {
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

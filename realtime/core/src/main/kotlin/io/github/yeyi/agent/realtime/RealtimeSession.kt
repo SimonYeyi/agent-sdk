@@ -51,13 +51,12 @@ private class DefaultRealtimeSession(
     private val writeLock = Mutex()
     private val eventEmitter = MutableSharedFlow<RealtimeEvent>()
 
-    override val inputAudioFormat: AudioFormat get() = adapter.inputAudioFormat
-    override val outputAudioFormat: AudioFormat get() = adapter.outputAudioFormat
-    override val events: Flow<RealtimeEvent>
-        get() = merge(
-            eventEmitter,
-            adapter.events.filter { it !is RealtimeEvent.Disconnected }
-        )
+    override val inputAudioFormat: AudioFormat = adapter.inputAudioFormat
+    override val outputAudioFormat: AudioFormat = adapter.outputAudioFormat
+    override val events: Flow<RealtimeEvent> = merge(
+        eventEmitter,
+        adapter.events.filter { it !is RealtimeEvent.Disconnected }
+    )
 
     override suspend fun connect(config: SessionConfig) {
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
