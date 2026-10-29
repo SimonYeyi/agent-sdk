@@ -7,6 +7,7 @@ import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.mcp.McpRegistry
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.subagent.SubagentRegistry
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -19,10 +20,11 @@ import kotlinx.coroutines.runBlocking
 
 public class BossAgentBuilder internal constructor() {
     private var bossPersona0: Persona? = null
+    private var llmProvider0: LlmProvider? = null
     private var memory0: Memory? = null
     private var maxRounds0: Int = 20
-    private var llmProvider0: LlmProvider? = null
     private var maxIterations0: Int = 20
+    private var modalityAdapter0: ModalityAdapter? = null
     private var hook0: AgentHook? = null
 
     private var toolRegistry0: ToolRegistry? = null
@@ -54,20 +56,24 @@ public class BossAgentBuilder internal constructor() {
         bossPersona0 = persona
     }
 
-    public fun hook(value: AgentHook) {
-        hook0 = value
+    public fun llmProvider(value: LlmProvider) {
+        llmProvider0 = value
     }
 
     public fun memory(memory: Memory, maxRounds: Int) {
         memory0 = memory; maxRounds0 = maxRounds
     }
 
-    public fun llmProvider(value: LlmProvider) {
-        llmProvider0 = value
-    }
-
     public fun maxIterations(value: Int) {
         maxIterations0 = value
+    }
+
+    public fun modalityAdapter(adapter: ModalityAdapter) {
+        modalityAdapter0 = adapter
+    }
+
+    public fun hook(value: AgentHook) {
+        hook0 = value
     }
 
     /**
@@ -179,6 +185,7 @@ public class BossAgentBuilder internal constructor() {
             llmProvider(llmProvider)
             memory(memory, maxRounds0)
             maxIterations(maxIterations0)
+            modalityAdapter0?.let { modalityAdapter(it) }
             hook0?.let { hook(it) }
             tool(publishTask)
             tool(cancelTask)

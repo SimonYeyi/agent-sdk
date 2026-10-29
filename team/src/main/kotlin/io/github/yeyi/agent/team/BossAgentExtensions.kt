@@ -21,10 +21,12 @@ public fun AgentDefinition.spawnBoss(scope: AgentScope): BossAgent {
     }
     val resolveInfo = scope.resolver().resolve(this@spawnBoss)
     return bossAgent {
-        memory(scope.memory, maxMemoryRounds)
-        llmProvider(resolveInfo.llmProvider)
-        maxIterations(maxIterations)
         persona(Persona("").apply { instructions?.let { instructions(it) } })
+        llmProvider(resolveInfo.llmProvider)
+        memory(scope.memory, maxMemoryRounds)
+        maxIterations(maxIterations)
+        scope.hook?.let { hook(it) }
+        scope.modalityAdapter?.let { modalityAdapter(it) }
         resolveInfo.toolRegistry?.let { tools(it) }
         resolveInfo.lazyToolRegistry?.let { lazyTools(it) }
         resolveInfo.toolsetRegistry?.let { toolsets(it) }
