@@ -134,6 +134,32 @@ class ToolsetRegistryTest {
     }
 
     @Test
+    fun `unregister removes a single entry by name`() {
+        val r = ToolsetRegistry()
+        r.register(listOf(Toolset("a", "d"), Toolset("b", "d")))
+        r.unregister("a")
+        assertEquals(listOf("b"), r.all().map { it.name })
+        assertFailsWith<NoSuchElementException> { r.get("a") }
+    }
+
+    @Test
+    fun `unregister unknown name is a no-op`() {
+        val r = ToolsetRegistry()
+        r.register(listOf(Toolset("a", "d"), Toolset("b", "d")))
+        r.unregister("zzz")
+        assertEquals(setOf("a", "b"), r.all().map { it.name }.toSet())
+    }
+
+    @Test
+    fun `registry can be re-registered after unregister`() {
+        val r = ToolsetRegistry()
+        r.register(Toolset("old", "d"))
+        r.unregister("old")
+        r.register(Toolset("new", "d"))
+        assertEquals(listOf("new"), r.all().map { it.name })
+    }
+
+    @Test
     fun `unregisterAll clears the registry`() {
         val r = ToolsetRegistry()
         r.register(listOf(Toolset("a", "d"), Toolset("b", "d")))

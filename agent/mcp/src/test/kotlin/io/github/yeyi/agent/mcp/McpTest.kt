@@ -35,6 +35,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
 
@@ -333,6 +335,75 @@ class McpTest {
 
         assertEquals(setOf("a", "b"), closed.toSet())
         assertEquals(0, registry.all().size)
+    }
+
+    // ---------- mergeInto / shared storage ----------
+
+    @Test
+    fun `mergeInto moves storage to the target registry keeping entries`() {
+        val registry = McpRegistry(ClientInfo("", ""))
+        val mcp = fakeMcp(name = "calc", description = "calc-desc")
+        registry.register(mcp)
+
+        val shared = io.github.yeyi.agent.toolset.ToolsetRegistry()
+        registry.mergeInto(shared)
+
+        assertSame(mcp, shared.get("calc"))
+        // mergeInto 后 register 直接作用于共享本体
+        val late = fakeMcp(name = "news")
+        registry.register(late)
+        assertSame(late, shared.get("news"))
+    }
+
+    @Test
+    fun `mergeInto same registry twice is a no-op`() {
+        val registry = McpRegistry(ClientInfo("", ""))
+        registry.register(fakeMcp(name = "calc"))
+
+        val shared = io.github.yeyi.agent.toolset.ToolsetRegistry()
+        registry.mergeInto(shared)
+        // 第二次自并自若无恒等守卫会撞重名 require
+        registry.mergeInto(shared)
+
+        assertEquals(1, shared.all().size)
+    }
+
+    @Test
+    fun `unregisterAll removes Mcp entries from shared registry but keeps plain toolsets`() {
+        val registry = McpRegistry(ClientInfo("", ""))
+        registry.register(fakeMcp(name = "calc"))
+
+        val shared = io.github.yeyi.agent.toolset.ToolsetRegistry().apply {
+            register(io.github.yeyi.agent.toolset.Toolset("weather", "weather-desc"))
+        }
+        registry.mergeInto(shared)
+
+        kotlinx.coroutines.runBlocking { registry.unregisterAll().join() }
+
+        assertNull(shared.getOrNull("calc"), "Mcp entry must be removed from the shared registry")
+        assertNotNull(shared.getOrNull("weather"), "plain Toolset must survive unregisterAll")
+        assertEquals(0, registry.all().size)
+    }
+
+    @Test
+    fun `register after mcps DSL is visible via the shared registry`() = runTest {
+        val llm = StubLlm()
+        val registry = McpRegistry(ClientInfo("", "")).apply {
+            register(fakeMcp(name = "calc", description = "calc-desc"))
+        }
+        val builder = AgentBuilder().apply {
+            llmProvider(llm)
+            mcps(registry)
+        }
+        // DSL 之后 register 动态传播到共享本体(共享语义)
+        val late = fakeMcp(name = "news", description = "news-desc")
+        registry.register(late)
+
+        builder.build().run(AgentQuery.text("hi")).toList()
+
+        val loadToolset = llm.recorded.single().tools.single { it.name == "load_toolset" }
+        assertTrue("calc" in loadToolset.description)
+        assertTrue("news" in loadToolset.description, "post-DSL register should be visible: ${loadToolset.description}")
     }
 
     // ---------- mcps DSL ----------

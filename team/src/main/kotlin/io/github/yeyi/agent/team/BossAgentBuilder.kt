@@ -120,11 +120,12 @@ public class BossAgentBuilder internal constructor() {
         val llm = requireNotNull(llmProvider0) { "llmProvider must be set" }
         val mem = requireNotNull(memory0) { "memory must be set" }
 
-        // MCP 服务作为 Toolset 特例并入 worker 通道。此后 BeastAssembler 的
-        // 能力清单与派发均自动包含 MCP 服务。
+        // MCP 服务作为 Toolset 特例并入 worker 通道,并接管 McpRegistry 存储。
+        // 此后 BeastAssembler 的能力清单与派发均自动包含 MCP 服务;
+        // unregisterAll 时按名移除,共享注册表无残留。
         mcpRegistry0?.let { mcp ->
             val target = toolsetRegistry0 ?: ToolsetRegistry().also { toolsetRegistry0 = it }
-            target.register(mcp.all())
+            mcp.mergeInto(target)
         }
 
         val bulletinBoard = BulletinBoard()

@@ -31,6 +31,9 @@ public interface CapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : Capab
     /** 是否为空（无任何注册）。 */
     public fun isEmpty(): Boolean
 
+    /** 按名称移除单个注册,不存在时 no-op。 */
+    public fun unregister(name: String)
+
     /** 清除所有注册。 */
     public fun unregisterAll()
 }
@@ -67,6 +70,10 @@ public class DefaultCapabilityRegistry<C : Capability<T, Ctx>, T : Any, Ctx : Ca
     override fun all(): List<C> = capabilities.values.toList()
 
     override fun isEmpty(): Boolean = capabilities.isEmpty()
+
+    override fun unregister(name: String) {
+        capabilities.remove(name)
+    }
 
     override fun unregisterAll(): Unit = capabilities.clear()
 }

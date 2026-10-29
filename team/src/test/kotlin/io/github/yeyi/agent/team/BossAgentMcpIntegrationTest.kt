@@ -164,6 +164,13 @@ private val BOSS_CONTINUATION: ChatResponse = ChatResponse(
     finishReason = FinishReason.Stop,
 )
 
+/** worker 兜底形态(Ox): 无工具直接 LLM 回答。 */
+private val OX_FINAL: ChatResponse = ChatResponse(
+    message = ChatMessage.Assistant(content = "ox fallback", toolCalls = emptyList()),
+    usage = null,
+    finishReason = FinishReason.Stop,
+)
+
 /**
  * mcps() 接通集成测试 — MCP 服务经 [BossAgentBuilder.mcps] 并入 worker 的
  * toolset 通道: boss 能力清单可见、worker 经 Selection.Toolset 派发执行远端
@@ -275,6 +282,63 @@ class BossAgentMcpIntegrationTest {
         assertTrue("weather" in publishTask.description, "toolset 'weather' should be visible: ${publishTask.description}")
 
         boss.shutdown()
+    }
+
+    @Test
+    fun `manual unregisterAll while boss alive prevents MCP reactivation`() = runBlocking {
+        // boss 存活期间手动 unregisterAll: toolsetRegistry0 里的 Mcp 按名移除,
+        // 再派发 calc selection 落空 → assembleHorse 抛 ISE → Ox 兜底,不触达死连接。
+        val transport = RecordingTransport()
+        val mcpRegistry = McpRegistry(ClientInfo("team-test", "1.0")).apply {
+            register(calcMcp(transport))
+        }
+
+        val llm = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                BOSS_PUBLISH_TOOLSET,   // 1. boss 用户轮: publish_task (calc 可用)
+                WORKER_CALL_ADD,        // 2. worker(Horse): 调 MCP 远端 add
+                WORKER_FINAL,           // 3. worker: Final
+                BOSS_CONTINUATION,      // 4. boss 续轮: Final
+                BOSS_PUBLISH_TOOLSET,   // 5. boss 第二用户轮: 仍选 calc (capability 描述静态)
+                OX_FINAL,               // 6. worker(Ox 兜底): 无工具直接回答 → TaskUpdate Final
+                BOSS_CONTINUATION,      // 7. boss 续轮: 汇总 Final
+            )
+        )
+
+        val boss = bossAgent {
+            llmProvider(llm)
+            memory(io.github.yeyi.agent.memory.InMemoryMemory(), 20)
+            maxIterations(5)
+            mcps(mcpRegistry)
+        }
+
+        val report = mutableListOf<AgentEvent>()
+        val contJob = launch(start = CoroutineStart.UNDISPATCHED) {
+            boss.report.collect { report += it }
+        }
+
+        // 第一轮: MCP 正常执行
+        boss.run(AgentQuery.text("帮我算加法")).toList()
+        withTimeout(5000) {
+            while (transport.calledTools.isEmpty()) delay(50)
+        }
+        withTimeout(5000) {
+            while (report.none { it is AgentEvent.Final }) delay(50)
+        }
+
+        // 宿主存活期间手动注销 — 共享 toolsetRegistry0 的 calc 条目同步移除
+        mcpRegistry.unregisterAll().join()
+
+        // 第二轮: 再派发 calc → 已移除 → Ox 兜底,不再触达 MCP 连接
+        boss.run(AgentQuery.text("再算一次")).toList()
+        withTimeout(5000) {
+            while (report.count { it is AgentEvent.Final } < 2) delay(50)
+        }
+
+        assertEquals(listOf("add"), transport.calledTools, "no further MCP calls after manual unregisterAll")
+
+        boss.shutdown()
+        contJob.cancel()
     }
 
     private fun stubTool(name: String) = object : io.github.yeyi.agent.tool.Tool {

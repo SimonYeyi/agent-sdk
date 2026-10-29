@@ -10,12 +10,15 @@ import io.github.yeyi.agent.AgentBuilder
  * `load_toolset` + `member_tool_delegate`,所有 Toolset 挂在同一个注册表下。
  *
  * Toolset 重名时抛 [IllegalArgumentException]（注册表层 fail-fast）。
+ *
+ * @return 最终收敛的共享 toolset 注册表 — 供 mcps() 等需要跟踪条目归宿的 DSL 使用。
  */
-public fun AgentBuilder.toolsets(registry: ToolsetRegistry) {
+public fun AgentBuilder.toolsets(registry: ToolsetRegistry): ToolsetRegistry {
     val existing = findPlugin(Toolset.CAPABILITY_TYPE) as? ToolsetPlugin
     if (existing == null) {
         plugin(ToolsetPlugin(registry))
     } else {
         existing.registry.register(registry.all())
     }
+    return existing?.registry ?: registry
 }

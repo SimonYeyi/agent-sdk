@@ -198,7 +198,7 @@ class LocalTransportTest {
         val (_, _, registry) = createRegistry()
 
         val ex = kotlin.test.assertFailsWith<NoSuchElementException> {
-            registry.toolsetRegistry.get("non-existent")
+            registry.get("non-existent")
         }
         assertTrue(ex.message?.contains("non-existent") == true)
     }

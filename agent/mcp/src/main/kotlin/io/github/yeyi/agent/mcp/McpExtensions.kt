@@ -1,15 +1,16 @@
 package io.github.yeyi.agent.mcp
 
 import io.github.yeyi.agent.AgentBuilder
+import io.github.yeyi.agent.toolset.ToolsetRegistry
 import io.github.yeyi.agent.toolset.toolsets
 
 /**
  * 将 MCP 服务注册表挂载到 Agent Builder。
  *
- * 与 [io.github.yeyi.agent.toolset.toolsets] **可共存** —— 本 DSL 内部把
- * [McpRegistry] 持有的 toolset 注册表并入共享的 toolset 插件,两个 DSL 谁先谁后
- * 都只会安装一份 `load_toolset` + `member_tool_delegate`,普通 Toolset 与 MCP
- * 服务同时挂在其下。
+ * 与 [io.github.yeyi.agent.toolset.toolsets] **可共存** —— 本 DSL 把 [McpRegistry]
+ * 的存储并入共享的 toolset 插件并接管存储,两个 DSL 谁先谁后都只会安装一份
+ * `load_toolset` + `member_tool_delegate`,普通 Toolset 与 MCP 服务同挂其下。
+ * 并入后的注册/注销动态反映到已构建的 Agent。
  *
  * 示例:
  * ```kotlin
@@ -25,7 +26,9 @@ import io.github.yeyi.agent.toolset.toolsets
  * ```
  */
 public fun AgentBuilder.mcps(registry: McpRegistry) {
-    toolsets(registry.toolsetRegistry)
+    // 空 registry 只是借壳: toolsets() 返回真正收敛的共享本体(无插件时空壳成为共享,
+    // 已有共享时空壳被丢弃),真正的并入由 mergeInto 完成。
+    registry.mergeInto(toolsets(ToolsetRegistry()))
 }
 
 /**
