@@ -13,7 +13,7 @@ package io.github.yeyi.agent
  *
  * 渲染格式（[toString] 按上述顺序拼接为 system prompt 多段文本）：
  * - [role]：直接输出
- * - 其余部分均以 label 作为标签名包裹：`<label>\n<text>\n</label>`
+ * - 其余部分均以 label 作为标签名包裹：`<label>\n<content>\n</label>`
  * - [personality]：内置 label `personality`
  * - [knowledge]：内置 label `knowledge`，每项渲染为 `<item>...</item>`
  * - [capabilities]：内置 label `capabilities`，每项渲染为 `<item>...</item>`
@@ -39,25 +39,25 @@ public class Persona(public val role: String) {
     private val extras: MutableList<Pair<String?, String>> = mutableListOf()
 
     /** 设置性格/回复风格描述，渲染为 `<personality>` 标签。多次调用后者覆盖前者。 */
-    public fun personality(text: String): Persona = apply { this.personality = text }
+    public fun personality(content: String): Persona = apply { this.personality = content }
 
     /** 添加单条长期知识/背景记忆，渲染为 `<knowledge>` 标签下的一项。多次调用累加。 */
-    public fun knowledge(text: String): Persona = apply { knowledge.add(text) }
+    public fun knowledge(content: String): Persona = apply { knowledge.add(content) }
 
     /** 添加单条能力/技能描述，渲染为 `<capabilities>` 标签下的一项。多次调用累加。 */
-    public fun capabilities(text: String): Persona = apply { capabilities.add(text) }
+    public fun capabilities(content: String): Persona = apply { capabilities.add(content) }
 
     /** 添加单条行为要求，渲染为 `<instructions>` 标签下的一项。多次调用累加。 */
-    public fun instructions(text: String): Persona = apply { instructions.add(text) }
+    public fun instructions(content: String): Persona = apply { instructions.add(content) }
 
     /**
      * 添加附加文本段落。
      *
-     * @param text 段落内容
-     * @param label 可选标签；有值时以 label 作为标签名包裹内容，为 null 时直接输出 text
+     * @param content 段落内容
+     * @param label 可选标签；有值时以 label 作为标签名包裹内容，为 null 时直接输出 content
      */
-    public fun extra(text: String, label: String? = null): Persona =
-        apply { extras.add(label to text) }
+    public fun extra(content: String, label: String? = null): Persona =
+        apply { extras.add(label to content) }
 
     override fun toString(): String {
         val sections = mutableListOf<String>()
@@ -72,13 +72,14 @@ public class Persona(public val role: String) {
         if (instructions.isNotEmpty()) {
             sections += section("instructions", items(instructions))
         }
-        extras.forEach { (label, text) ->
-            sections += if (!label.isNullOrBlank()) section(label, text) else text
+        extras.forEach { (label, content) ->
+            sections += if (!label.isNullOrBlank()) section(label, content) else content
         }
         return sections.joinToString("\n\n")
     }
 
-    private fun section(label: String, text: String): String = "<$label>\n$text\n</$label>"
+    private fun section(label: String, content: String): String = "<$label>\n$content\n</$label>"
 
-    private fun items(texts: List<String>): String = texts.joinToString("\n") { "<item>$it</item>" }
+    private fun items(contents: List<String>): String =
+        contents.joinToString("\n") { "<item>$it</item>" }
 }
