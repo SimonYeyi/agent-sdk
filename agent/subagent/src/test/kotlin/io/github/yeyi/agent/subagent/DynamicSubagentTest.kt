@@ -152,6 +152,13 @@ class DynamicSubagentTest {
     }
 
     @Test
+    fun `tool description carries the trigger condition`() {
+        val description = DynamicSubagentTool().description
+        assertTrue(description.contains("dynamic_subagent"), description)
+        assertTrue(description.contains("互不依赖"), description)
+    }
+
+    @Test
     fun `execute rejects empty role`() = runTest {
         val tool = DynamicSubagentTool()
         val ctx = toolCtx(stubAgentContext(StubLlmProvider()))

@@ -2,6 +2,8 @@ package io.github.yeyi.agent.subagent
 
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.AgentPlugin
+import io.github.yeyi.agent.AgentPluginContext
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
@@ -17,14 +19,28 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.jsonObject
 
+/**
+ * 动态子代理插件 —— 注册 `dynamic_subagent` 工具。
+ *
+ * 触发条件写在工具描述里：工具描述是模型决定是否调用该工具的直接依据，
+ * 放进 system prompt 反而多一层间接。
+ */
+private class DynamicSubagentPlugin : AgentPlugin<Unit> {
+    private val tool = DynamicSubagentTool()
+    override val id: String = tool.name
+
+    override fun configure(block: Unit.() -> Unit) {}
+
+    override fun install(context: AgentPluginContext) {
+        context.registerTool(tool)
+    }
+}
+
 internal class DynamicSubagentTool : Tool {
     override val name: String = "dynamic_subagent"
 
-    override val description: String = """
-        |并发派发一组独立子代理；每个 subagent 由 role / context / task / tools 四元组描述，互不影响。
-        |适用于需要并行执行多个独立任务的场景（如多角度分析、批量处理、对比实验）。
-        |不要用于子代理间通信、子代理间相互依赖、或需要完整主 Agent 上下文的场景。
-    """.trimMargin()
+    override val description: String =
+        "当需要同时推进多个互不依赖的子任务时（如多角度分析、批量处理、对比实验），MUST 调用 dynamic_subagent 工具。而不是使用多个 function calling 直接发起工具调用，因为它们将会被串行处理。"
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """
@@ -53,7 +69,7 @@ internal class DynamicSubagentTool : Tool {
                   "tools": {
                     "type": "array",
                     "items": { "type": "string" },
-                    "description": "可选：从主 agent 工具中挑选子集（需排除 dynamic_subagent / load_subagent 等 subagent 相关工具，防递归）。缺省 = 继承过滤后的全部主工具；传 [] = 无工具。"
+                    "description": "可选：从当前可用的工具中挑选子集（需排除 dynamic_subagent / load_subagent 等 subagent 相关工具，防递归）。缺省 = 继承过滤后的全部主工具；传 [] = 无工具。"
                   }
                 },
                 "required": ["role", "task"],
@@ -115,10 +131,7 @@ internal class DynamicSubagentTool : Tool {
                 description = "dynamic ${args.task}",
                 instruction = args.role,
                 tools = tools,
-            ).run(
-                SubagentTask(args.task, args.context),
-                SubagentContext(agentContext)
-            )
+            ).run(SubagentTask(args.task, args.context), SubagentContext(agentContext))
             ToolExecutionResult.success(result)
         } catch (e: Exception) {
             log.warn("dynamic subagent execute failed: task=${args.task}", e)
@@ -148,6 +161,6 @@ public fun AgentBuilder.subagents(
     dynamic: Boolean,
     registry: SubagentRegistry? = null
 ) {
-    if (dynamic) tool(DynamicSubagentTool())
+    if (dynamic) plugin(DynamicSubagentPlugin())
     if (registry != null) subagents(registry)
 }
