@@ -35,7 +35,6 @@ public fun AgentDefinition.spawn(scope: AgentScope): SpawnedAgent {
         maxIterations(maxIterations)
         resolveInfo.toolRegistry?.let { tools(it) }
         resolveInfo.lazyToolRegistry?.let { lazyTools(it) }
-        // toolsets 与 mcps 的互斥已在 AgentResolver.resolve() 中处理：mcps 非空时 toolsetRegistry 置 null，此处调用天然互斥
         resolveInfo.toolsetRegistry?.let { toolsets(it) }
         resolveInfo.skillRegistry?.let { skills(it) }
         resolveInfo.subagentRegistry?.let { subagents(it) }

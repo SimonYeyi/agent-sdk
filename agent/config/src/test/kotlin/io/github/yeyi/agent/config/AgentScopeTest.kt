@@ -344,7 +344,7 @@ class AgentScopeTest {
     }
 
     @Test
-    fun `toolsets with mcps share toolset slot and spawn does not conflict`() = runTest {
+    fun `toolsets with mcps both resolve and spawn merges without conflict`() = runTest {
         val toolsetRegistry = io.github.yeyi.agent.toolset.ToolsetRegistry().apply {
             register(Toolset("ts1", "Toolset 1"))
         }
@@ -362,9 +362,9 @@ class AgentScopeTest {
 
         val info = scope.resolver().resolve(definition)
 
-        // mcps 非空时 toolset 槽位移交 McpRegistry，spawn 经 mcps() 统一安装，避免插件二次安装冲突
-        assertNull(info.toolsetRegistry)
-        assertTrue(info.mcpRegistry != null)
+        // mcps 与 toolsets 同时非空：两者都解析，spawn 经共享插件自动合并，不再互斥
+        assertNotNull(info.toolsetRegistry)
+        assertNotNull(info.mcpRegistry)
 
         val agent = definition.spawn(scope)
         assertNotNull(agent)

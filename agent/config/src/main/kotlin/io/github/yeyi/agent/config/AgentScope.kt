@@ -73,13 +73,11 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
         val skillRegistry = resolveSkills(definition)
         val subagentRegistry = resolveSubagents(definition)
         val llmProvider = resolveProvider(definition)
-        val mcpRegistry = resolveMcps(definition, toolsetRegistry)
+        val mcpRegistry = resolveMcps(definition)
         return ResolveInfo(
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry,
-            // 互斥在此层解决：声明 mcps 时普通 Toolset 已随 McpRegistry 的 toolset 槽位一并安装，
-            // 此处置 null，spawn 顺序调用 toolsets()/mcps() 时天然只走一路，避免插件二次安装冲突
-            toolsetRegistry = if (mcpRegistry != null) null else toolsetRegistry,
+            toolsetRegistry = toolsetRegistry,
             skillRegistry = skillRegistry,
             subagentRegistry = subagentRegistry,
             llmProvider = llmProvider,
@@ -165,13 +163,9 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
         }
     }
 
-    private fun resolveMcps(
-        definition: AgentDefinition,
-        toolsetRegistry: ToolsetRegistry?
-    ): McpRegistry? {
+    private fun resolveMcps(definition: AgentDefinition): McpRegistry? {
         if (definition.mcps.isNullOrEmpty()) return null
         val registry = McpRegistry(
-            toolsetRegistry = toolsetRegistry ?: ToolsetRegistry(),
             clientInfo = ClientInfo(definition.name, definition.version.toString())
         )
         definition.mcps.forEach { config ->
