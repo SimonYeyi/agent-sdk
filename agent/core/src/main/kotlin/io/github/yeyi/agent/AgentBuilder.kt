@@ -26,22 +26,16 @@ import io.github.yeyi.agent.tool.ToolRegistry
  * [plugin] for the plugin extension point). The core builder only deals with persona, tools, memory, hook, and the LLM provider.
  */
 public class AgentBuilder {
-    private var maxIterations: Int = 20
     private var persona: Persona = Persona("You are a helpful assistant.")
     private var llmProvider: LlmProvider? = null
     private var memory: Memory = InMemoryMemory()
     private var maxRounds: Int = 20
+    private var maxIterations: Int = 20
     private var modalityAdapter: ModalityAdapter? = null
-    private var toolRegistry = ToolRegistry()
-
     private var hook: AgentHook = NoOpAgentHook
-    private val plugins = mutableMapOf<String, AgentPlugin<*>>()
 
-    /** 设置最大迭代次数（LLM 调用次数），默认 20。 */
-    public fun maxIterations(iterations: Int) {
-        require(iterations > 0) { "maxIterations must be positive" }
-        maxIterations = iterations
-    }
+    private var toolRegistry = ToolRegistry()
+    private val plugins = mutableMapOf<String, AgentPlugin<*>>()
 
     /** 设置 Agent 人设。 */
     public fun persona(persona: Persona) {
@@ -64,6 +58,24 @@ public class AgentBuilder {
         this.maxRounds = maxRounds
     }
 
+    /** 设置最大迭代次数（LLM 调用次数），默认 20。 */
+    public fun maxIterations(iterations: Int) {
+        require(iterations > 0) { "maxIterations must be positive" }
+        maxIterations = iterations
+    }
+
+    /** 设置多模态适配器。用于自定义模型对于历史消息中 media 的可见性 */
+    public fun modalityAdapter(adapter: ModalityAdapter) {
+        this.modalityAdapter = adapter
+    }
+
+    /**
+     * @param hook 挂单个 hook，或挂一个已组合好的 hook 树。
+     */
+    public fun hook(hook: AgentHook) {
+        this.hook = hook
+    }
+
     /** 注册单个工具。 */
     public fun tool(tool: Tool) {
         toolRegistry.register(tool)
@@ -78,18 +90,6 @@ public class AgentBuilder {
     public fun tools(registry: ToolRegistry) {
         registry.register(toolRegistry.all())
         toolRegistry = registry
-    }
-
-    /** 设置多模态适配器。用于自定义模型对于历史消息中 media 的可见性 */
-    public fun modalityAdapter(adapter: ModalityAdapter) {
-        this.modalityAdapter = adapter
-    }
-
-    /**
-     * @param hook 挂单个 hook，或挂一个已组合好的 hook 树。
-     */
-    public fun hook(hook: AgentHook) {
-        this.hook = hook
     }
 
     /**
@@ -160,12 +160,12 @@ public class AgentBuilder {
         return ReActAgent(
             persona = persona,
             llmProvider = provider,
-            toolRegistry = toolRegistry,
             memory = memory,
-            modalityAdapter = modalityAdapter,
             maxRounds = maxRounds,
             maxIterations = maxIterations,
+            modalityAdapter = modalityAdapter,
             hook = hook,
+            toolRegistry = toolRegistry,
         )
     }
 }
