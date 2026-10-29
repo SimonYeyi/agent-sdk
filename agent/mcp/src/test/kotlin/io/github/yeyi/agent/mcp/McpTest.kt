@@ -292,7 +292,15 @@ class McpTest {
     fun `register iterable registers multiple Mcps`() {
         val registry = McpRegistry(ClientInfo("", ""))
         registry.register(listOf(fakeMcp(name = "a"), fakeMcp(name = "b")))
-        assertEquals(setOf("a", "b"), registry.toolsetRegistry.all().map { it.name }.toSet())
+        assertEquals(setOf("a", "b"), registry.all().map { it.name }.toSet())
+    }
+
+    @Test
+    fun `all returns registered Mcps in registration order`() {
+        val registry = McpRegistry(ClientInfo("", ""))
+        registry.register(fakeMcp(name = "a"))
+        registry.register(fakeMcp(name = "b"))
+        assertEquals(listOf("a", "b"), registry.all().map { it.name })
     }
 
     @Test
@@ -324,7 +332,7 @@ class McpTest {
         kotlinx.coroutines.runBlocking { registry.unregisterAll().join() }
 
         assertEquals(setOf("a", "b"), closed.toSet())
-        assertEquals(0, registry.toolsetRegistry.all().size)
+        assertEquals(0, registry.all().size)
     }
 
     // ---------- mcps DSL ----------
