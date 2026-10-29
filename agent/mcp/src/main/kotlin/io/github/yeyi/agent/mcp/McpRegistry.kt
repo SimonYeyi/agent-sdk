@@ -35,7 +35,7 @@ public class McpRegistry(private val clientInfo: ClientInfo) {
         mcps.forEach(::register)
     }
 
-    /** 关闭所有 MCP 连接,然后清空注册表。返回关闭协程的 [Job],调用方可 `join()` 等待。 */
+    /** 关闭所有 MCP 连接,然后清空注册表。返回关闭协程的 [Job],调用方可 `join()` 等待。若共享 registry 是外部 ToolsetRegistry,其中已并入的 Mcp 条目不随 `unregisterAll()` 移除,但 shutdown 后 `run()` 抛 ISE,残留引用无害。 */
     @OptIn(DelicateCoroutinesApi::class)
     public fun unregisterAll(): Job {
         // 先快照 Mcp 列表,再清空注册表;否则协程跑起来时 all() 已空。

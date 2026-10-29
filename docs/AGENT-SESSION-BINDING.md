@@ -250,7 +250,7 @@ tools = ["getWeather"]  # 只使用 getWeather
 
 ## 已知限制
 
-- **toolsets 与 mcps 的互斥已在 resolver 层解决**：`mcps()` 内部通过 toolset 框架安装（插件只能装一次）。`AgentResolver.resolve()` 在声明 mcps 时复用 toolsetRegistry 构造 `McpRegistry`（普通 Toolset 已 register 进去）并把 `ResolveInfo.toolsetRegistry` 置 null，spawn 按序调用 `toolsets()`/`mcps()` 天然只走一路，二者可安全同时声明。
+- **toolsets 与 mcps 自动合并**：二者不再互斥。`mcps()` 退化为 `toolsets(registry.toolsetRegistry)` 薄包装；`toolsets()` 优先 findPlugin 已装共享 toolset 插件，有则把新 registry 并入，无则安装新插件。二者可同时声明并合并到同一份共享插件。
 - **TOML 配置解析器尚未实现**：下方示例仅作格式规划，当前配置通过构造 `AgentDefinition` 对象注入，未提供 TOML/JSON 文件解析入口。
 - **apiKey 随配置序列化**：见下方安全边界。
 
@@ -330,6 +330,6 @@ val agent = definition.spawn(scope)
 ## 待清理
 
 - [x] `SessionExtensions.kt` 中的 `AgentBuilder.memory(session: Session)` extension 已删除，现有流程通过 `AgentDefinition.spawn(scope)` 构建 Agent
-- [x] toolsets + mcps 同时声明的插件冲突已修复（互斥在 `AgentResolver.resolve()` 中解决）
+- [x] toolsets + mcps 同时声明已支持自动合并（`mcps()` 退化为 `toolsets(registry.toolsetRegistry)` 薄包装，二者并入同一共享 toolset 插件）
 - [ ] TOML/JSON 配置解析器（当前仅支持对象构造）
 - [ ] demo（DemoAgentFactory）仍使用旧 `agent {}` DSL，未迁移到 config 路径

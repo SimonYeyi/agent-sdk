@@ -447,14 +447,14 @@ McpTransport (三种传输层)
 ### 15.4 注册与使用
 
 ```kotlin
-val mcpRegistry = McpRegistry(ToolsetRegistry(), ClientInfo("my-agent", "1.0")).apply {
+val mcpRegistry = McpRegistry(ClientInfo("my-agent", "1.0")).apply {
     register(LiveScoreMcp(httpClient))
     register(CalculatorMcp())
 }
 val agent = agent { llmProvider(...); mcps(mcpRegistry) }
 ```
 
-`McpRegistry` 复用 Toolset 框架，`mcps()` DSL 与 `toolsets()` DSL 互斥（共享 `load_toolset` / `sub_tool_delegate` 槽位）。
+`McpRegistry` 复用 Toolset 框架，`mcps()` DSL 与 `toolsets()` DSL 可同时调用并自动合并到同一份共享 toolset 插件。
 
 ## 16. Session 与持久化 (agent:session)
 

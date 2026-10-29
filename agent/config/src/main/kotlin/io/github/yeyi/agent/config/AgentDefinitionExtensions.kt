@@ -90,7 +90,7 @@ public class SpawnedAgent internal constructor(
         return delegate.steer(query)
     }
 
-    /** 永久关闭 Agent 并回收资源（MCP 子进程等）。幂等，可重复调用。 */
+    /** 永久关闭 Agent 并回收资源（MCP 子进程等）。幂等，可重复调用。`unregisterAll` 关闭 MCP 连接但不移除并入外部 registry 的 Mcp 条目;shutdown 后 `run()` 抛 ISE,残留无害。 */
     override fun shutdown() {
         if (!shutdownSignal.complete(Unit)) return
         mcpRegistry?.unregisterAll()
