@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.demo.realtime.smartCockpit
 
+import io.github.yeyi.agent.demo.realtime.tool.ContextFreeTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -10,14 +11,13 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /** 独立工具：获取时间 */
-class GetTimeTool : Tool {
+class GetTimeTool : ContextFreeTool {
     override val name = "get_time"
     override val description = "获取当前时间"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
-        return ToolExecutionResult.success("当前时间: ${java.time.LocalDateTime.now()}")
-    }
+    override suspend fun execute(arguments: JsonElement): ToolExecutionResult =
+        ToolExecutionResult.success("当前时间: ${java.time.LocalDateTime.now()}")
 }
 
 /** 独立工具：获取日期 */
