@@ -35,7 +35,7 @@ public class AgentBuilder {
     private var toolRegistry = ToolRegistry()
 
     private var hook: AgentHook = NoOpAgentHook
-    private val plugins = mutableMapOf<String, (AgentPluginContext) -> Unit>()
+    private val plugins = mutableMapOf<String, AgentPlugin<*>>()
 
     /** 设置最大迭代次数（LLM 调用次数），默认 20。 */
     public fun maxIterations(iterations: Int) {
@@ -108,7 +108,7 @@ public class AgentBuilder {
      * plugin(MyPlugin(config))
      * ```
      *
-     * 所有插件在 [build] 时统一执行，确保 builder 配置完整。
+     * configure 在 `plugin()` 注册时立即执行；install 统一在 [build] 时执行。
      *
      * @throws AgentPlugin.InstallException if a plugin with the same id is already installed.
      */
@@ -118,15 +118,12 @@ public class AgentBuilder {
                 "Plugin with id '${plugin.id}' is already installed. Only one plugin of each type is allowed.",
             )
         }
-        plugins[plugin.id] = { context ->
-            try {
-                plugin.configure(configure)
-                plugin.install(context)
-            } catch (e: Throwable) {
-                throw AgentPlugin.InstallException("Plugin '${plugin.id}' installation failed", e)
-            }
-        }
+        plugin.configure(configure)
+        plugins[plugin.id] = plugin
     }
+
+    /** 按 id 反查已注册插件（泛型能力，不感知具体插件）。 */
+    public fun findPlugin(id: String): AgentPlugin<*>? = plugins[id]
 
     private fun installPlugins() {
         val pluginContext = object : AgentPluginContext {
@@ -135,7 +132,13 @@ public class AgentBuilder {
                 persona.extra(content, label)
             }
         }
-        plugins.values.forEach { it(pluginContext) }
+        plugins.values.forEach { p ->
+            try {
+                p.install(pluginContext)
+            } catch (e: Throwable) {
+                throw AgentPlugin.InstallException("Plugin '${p.id}' installation failed", e)
+            }
+        }
     }
 
     /**

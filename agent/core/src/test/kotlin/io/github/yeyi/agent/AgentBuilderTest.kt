@@ -132,4 +132,36 @@ class AgentBuilderTest {
         val r = a.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("ok", r.message.content)
     }
+
+    @Test
+    fun `findPlugin returns registered plugin by id`() {
+        val testPlugin = object : AgentPlugin<Unit> {
+            override val id = "test"
+            override fun configure(block: Unit.() -> Unit) {}
+            override fun install(context: AgentPluginContext) {}
+        }
+
+        val b = AgentBuilder().apply { plugin(testPlugin) }
+
+        kotlin.test.assertSame(testPlugin, b.findPlugin("test"))
+    }
+
+    @Test
+    fun `findPlugin returns null for unknown id`() {
+        val b = AgentBuilder()
+        kotlin.test.assertNull(b.findPlugin("nope"))
+    }
+
+    @Test
+    fun `configure runs at plugin registration time not build time`() {
+        var configured = false
+        val testPlugin = object : AgentPlugin<Unit> {
+            override val id = "test"
+            override fun configure(block: Unit.() -> Unit) { configured = true }
+            override fun install(context: AgentPluginContext) {}
+        }
+
+        val b = AgentBuilder().apply { plugin(testPlugin) }
+        kotlin.test.assertTrue(configured, "configure should have run inside plugin()")
+    }
 }
