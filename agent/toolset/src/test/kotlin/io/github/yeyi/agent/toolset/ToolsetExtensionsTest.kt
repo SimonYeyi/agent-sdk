@@ -128,55 +128,6 @@ class ToolsetExtensionsTest {
         assertEquals(setOf("load_toolset", "member_tool_delegate"), names)
     }
 
-    // ---------- OneToOne mode ----------
-
-    @Test
-    fun `OneToOne mode registers toolset_ prefix tools for each toolset`() = runTest {
-        val llm = RecordingLlm()
-        val b = AgentBuilder().apply { llmProvider(llm) }
-        b.toolsets(
-            registryWith("weather" to "d1", "news" to "d2"),
-            enableDelegateAdaptMode = false,
-        )
-        b.build().run(AgentQuery.text("hi")).toList()
-        val names = llm.recorded.single().tools.map { it.name }.toSet()
-        assertTrue("toolset_weather" in names, "expected toolset_weather in $names")
-        assertTrue("toolset_news" in names, "expected toolset_news in $names")
-    }
-
-    @Test
-    fun `OneToOne mode does NOT register load_toolset`() = runTest {
-        val llm = RecordingLlm()
-        val b = AgentBuilder().apply { llmProvider(llm) }
-        b.toolsets(registryWith("weather" to "d"), enableDelegateAdaptMode = false)
-        b.build().run(AgentQuery.text("hi")).toList()
-        val names = llm.recorded.single().tools.map { it.name }
-        assertFalse("load_toolset" in names, "OneToOne mode must not register load_toolset, got: $names")
-    }
-
-    @Test
-    fun `OneToOne mode still registers member_tool_delegate`() = runTest {
-        val llm = RecordingLlm()
-        val b = AgentBuilder().apply { llmProvider(llm) }
-        b.toolsets(registryWith("weather" to "d"), enableDelegateAdaptMode = false)
-        b.build().run(AgentQuery.text("hi")).toList()
-        val names = llm.recorded.single().tools.map { it.name }
-        assertTrue("member_tool_delegate" in names, "member_tool_delegate must be registered in both modes, got: $names")
-    }
-
-    @Test
-    fun `OneToOne mode toolset_ tool description matches the toolset description`() = runTest {
-        val llm = RecordingLlm()
-        val b = AgentBuilder().apply { llmProvider(llm) }
-        b.toolsets(
-            registryWith("weather" to "weather-desc"),
-            enableDelegateAdaptMode = false,
-        )
-        b.build().run(AgentQuery.text("hi")).toList()
-        val tool = llm.recorded.single().tools.single { it.name == "toolset_weather" }
-        assertEquals("weather-desc", tool.description)
-    }
-
     // ---------- Misc ----------
 
     @Test
@@ -189,24 +140,27 @@ class ToolsetExtensionsTest {
     }
 
     @Test
-    fun `toolsets DSL called twice throws InstallException with guidance`() {
-        val r1 = ToolsetRegistry()
-        val r2 = ToolsetRegistry()
-        val ex = assertFailsWith<io.github.yeyi.agent.AgentPlugin.InstallException> {
-            AgentBuilder().apply {
-                llmProvider(RecordingLlm())
-                toolsets(r1)
-                toolsets(r2)
-            }.build()
+    fun `toolsets called twice merges into one shared plugin`() = runTest {
+        val llm = RecordingLlm()
+        val b = AgentBuilder().apply { llmProvider(llm) }
+        b.toolsets(registryWith("weather" to "d1"))
+        b.toolsets(registryWith("news" to "d2"))
+        b.build().run(AgentQuery.text("hi")).toList()
+
+        val names = llm.recorded.single().tools.map { it.name }
+        assertEquals(1, names.count { it == "load_toolset" }, "expected exactly one load_toolset, got: $names")
+        assertEquals(1, names.count { it == "member_tool_delegate" }, "expected exactly one member_tool_delegate, got: $names")
+        val loadToolset = llm.recorded.single().tools.single { it.name == "load_toolset" }
+        assertTrue("weather" in loadToolset.description, "merged toolset 'weather' should be visible: ${loadToolset.description}")
+        assertTrue("news" in loadToolset.description, "merged toolset 'news' should be visible: ${loadToolset.description}")
+    }
+
+    @Test
+    fun `toolsets called twice with duplicate toolset name throws IllegalArgumentException`() = runTest {
+        val b = AgentBuilder().apply { llmProvider(RecordingLlm()) }
+        b.toolsets(registryWith("weather" to "d1"))
+        assertFailsWith<IllegalArgumentException> {
+            b.toolsets(registryWith("weather" to "d2"))
         }
-        val msg = ex.message ?: ""
-        assertTrue(
-            "toolset" in msg && "configured more than once" in msg,
-            "message should explain DSL was invoked multiple times: $msg",
-        )
-        assertTrue(
-            ex.cause == null,
-            "cause should be null since detection happens by plugin id: ${ex.cause?.javaClass?.name}",
-        )
     }
 }
