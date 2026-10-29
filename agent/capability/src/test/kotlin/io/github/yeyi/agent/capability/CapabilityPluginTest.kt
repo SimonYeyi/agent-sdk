@@ -43,7 +43,7 @@ class CapabilityPluginTest {
             _tools.add(tool)
         }
 
-        override fun appendPersona(label: String, content: String) {
+        override fun appendInstructions(content: String) {
             // not used in tests
         }
     }

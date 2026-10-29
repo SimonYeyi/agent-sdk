@@ -68,12 +68,12 @@ class AgentBuilderTest {
     }
 
     @Test
-    fun `plugin can append persona`() = runTest {
+    fun `plugin can append instructions`() = runTest {
         val testPlugin = object : AgentPlugin<Unit> {
             override val id = "test"
             override fun configure(block: Unit.() -> Unit) {}
             override fun install(context: AgentPluginContext) {
-                context.appendPersona("test-plugin", "you are a helpful assistant")
+                context.appendInstructions("you are a helpful assistant")
             }
         }
 
@@ -100,7 +100,7 @@ class AgentBuilderTest {
             }
             override fun install(context: AgentPluginContext) {
                 configuredValue = cfg.value
-                context.appendPersona("test-plugin", "value=${cfg.value}")
+                context.appendInstructions("value=${cfg.value}")
             }
         }
 
@@ -120,7 +120,7 @@ class AgentBuilderTest {
             override val id = "test"
             override fun configure(block: Unit.() -> Unit) {}
             override fun install(context: AgentPluginContext) {
-                context.appendPersona("test-plugin", "no config needed")
+                context.appendInstructions("no config needed")
             }
         }
 

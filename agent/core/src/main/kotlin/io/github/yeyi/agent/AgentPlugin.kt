@@ -22,7 +22,7 @@ import io.github.yeyi.agent.tool.Tool
  * }
  * ```
  *
- * 插件只能通过 [context][AgentPluginContext] 添加工具或追加 persona 内容，
+ * 插件只能通过 [context][AgentPluginContext] 添加工具或追加指令说明，
  * 无法访问或修改 Agent 的其他配置。
  *
  * @param C 配置类型
@@ -41,7 +41,7 @@ public interface AgentPlugin<C : Any> {
      * 将插件安装到 [AgentPluginContext]。
      *
      * 插件只能通过 [AgentPluginContext.registerTool] 注册工具，
-     * 或通过 [AgentPluginContext.appendPersona] 追加 persona 内容。
+     * 或通过 [AgentPluginContext.appendInstructions] 追加指令说明。
      */
     public fun install(context: AgentPluginContext)
 
@@ -55,7 +55,7 @@ public interface AgentPlugin<C : Any> {
 /**
  * 插件上下文 — 插件只能通过此接口操作 Agent。
  *
- * 只暴露 [registerTool] 和 [appendPersona] 两个方法，防止插件覆盖 Agent 核心配置。
+ * 只暴露 [registerTool] 和 [appendInstructions] 两个方法，防止插件覆盖 Agent 核心配置。
  */
 public interface AgentPluginContext {
     /**
@@ -64,10 +64,9 @@ public interface AgentPluginContext {
     public fun registerTool(tool: Tool)
 
     /**
-     * 向 [Persona] 追加额外提示词。
+     * 追加一条指令说明，写入 [Persona] 的能力区域。
      *
-     * @param label 标签，渲染为 `label: content`
-     * @param content 追加的内容
+     * @param content 追加的指令说明
      */
-    public fun appendPersona(label: String, content: String)
+    public fun appendInstructions(content: String)
 }

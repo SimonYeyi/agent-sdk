@@ -31,7 +31,7 @@ class SchemaLazyPluginTest {
             override fun registerTool(tool: Tool) {
                 installedTools = installedTools + tool
             }
-            override fun appendPersona(label: String, content: String) {}
+            override fun appendInstructions(content: String) {}
         }
 
         val plugin = SchemaLazyPlugin(registry, toolCaller)
@@ -56,7 +56,7 @@ class SchemaLazyPluginTest {
             override fun registerTool(tool: Tool) {
                 installedTools = installedTools + tool
             }
-            override fun appendPersona(label: String, content: String) {}
+            override fun appendInstructions(content: String) {}
         }
 
         val plugin = SchemaLazyPlugin(registry, toolCaller)
