@@ -13,11 +13,12 @@ import kotlinx.coroutines.launch
  * 框架的发现与代理调用能力。本类对外只暴露类型收窄的 [register] / [unregisterAll],
  * MCP 实现细节封装在模块内 —— 调用方不感知 toolset。
  *
- * `register` 时把 [clientInfo] 注入到每个 [Mcp] 实例的 [McpClient];
- * `unregisterAll` 时关闭所有 MCP 连接,然后清空注册表。
- *
  * 与 `toolsets()` DSL 可共存: [mcps][io.github.yeyi.agent.mcp.mcps] 内部把本注册表
  * 并入共享的 toolset 插件,自动合并。
+ *
+ * `register` 时把 [clientInfo] 注入到每个 [Mcp] 实例的 [McpClient];
+ * `unregisterAll` 时关闭所有 MCP 连接,然后清空注册表。
+
  *
  * @param clientInfo 注入到每个 MCP 客户端的 [ClientInfo]。
  */

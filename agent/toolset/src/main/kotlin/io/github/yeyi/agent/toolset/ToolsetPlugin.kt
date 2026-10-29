@@ -11,9 +11,8 @@ import io.github.yeyi.agent.tool.Tool
  *
  * [registry] 为 internal val —— 供本模块的合并逻辑把后续注册表内容并入共享插件。
  */
-internal class ToolsetPlugin(
-    internal val registry: ToolsetRegistry,
-) : CapabilityPlugin<Toolset, Unit, ToolsetContext>(registry, enableDelegateAdaptMode = true) {
+internal class ToolsetPlugin(internal val registry: ToolsetRegistry) :
+    CapabilityPlugin<Toolset, Unit, ToolsetContext>(registry, enableDelegateAdaptMode = true) {
 
     override fun contextFactory(): ToolsetContextFactory = ToolsetContextFactory()
 

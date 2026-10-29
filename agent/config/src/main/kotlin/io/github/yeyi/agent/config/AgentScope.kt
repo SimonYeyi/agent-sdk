@@ -165,9 +165,7 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
 
     private fun resolveMcps(definition: AgentDefinition): McpRegistry? {
         if (definition.mcps.isNullOrEmpty()) return null
-        val registry = McpRegistry(
-            clientInfo = ClientInfo(definition.name, definition.version.toString())
-        )
+        val registry = McpRegistry(ClientInfo(definition.name, definition.version.toString()))
         definition.mcps.forEach { config ->
             val mcp = object : Mcp() {
                 override val name: String = config.name

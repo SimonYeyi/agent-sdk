@@ -21,7 +21,6 @@ import io.github.yeyi.agent.toolset.toolsets
  * val agent = agent {
  *     llmProvider(OpenAiProvider(...))
  *     mcps(mcpRegistry)
- *     toolsets(myToolsetRegistry)   // 可选,自动合并
  * }
  * ```
  */
