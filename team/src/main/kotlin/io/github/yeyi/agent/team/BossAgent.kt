@@ -77,6 +77,7 @@ public data class TasksState(
 public class BossAgent internal constructor(
     private val innerAgent: Agent.Streamable,
     private val scope: CoroutineScope,
+    private val onShutdown: () -> Unit = {},
 ) : Agent, Agent.Shutdownable {
     public companion object {
         /** 系统报告标签 — 任务完成汇报以 `AgentQuery.text(result, label = REPORT_LABEL)` 注入 innerAgent，
@@ -170,11 +171,13 @@ public class BossAgent internal constructor(
      * 关闭 BossAgent — 取消 [scope], 停止所有 boss/pasture 的后台任务,
      * 并关闭所有未结束 round 的 channel 终止进行中的 run flow.
      * 之后 boss LLM 不会再被新事件触发; pasture 的 running jobs 也会被取消.
+     * 最后触发 [onShutdown] 钩子 (由构造方注入, 用于关闭外部资源如 MCP 连接).
      * 调用方负责在不再使用 boss 时调用本方法 (e.g., 在应用关闭时).
      */
     public override fun shutdown() {
         shutdownHelper.closeAll()
         scope.cancel()
+        onShutdown()
     }
 
     // ========== 内部: 任务事件处理 ==========

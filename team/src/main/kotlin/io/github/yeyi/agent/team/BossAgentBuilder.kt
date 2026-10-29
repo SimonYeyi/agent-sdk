@@ -32,6 +32,7 @@ public class BossAgentBuilder internal constructor() {
     private var toolsetRegistry0: ToolsetRegistry? = null
     private var skillRegistry0: SkillRegistry? = null
     private var subagentRegistry0: SubagentRegistry? = null
+    private var mcpRegistry0: McpRegistry? = null
 
     private val baseRole: String = """
         You are the boss of a team. You can:
@@ -107,13 +108,24 @@ public class BossAgentBuilder internal constructor() {
         subagentRegistry0 = registry
     }
 
+    /**
+     * 注册 MCP 服务 — 内容并入 worker 的 toolset 通道, boss LLM 不直接可见.
+     * 生命周期由 [BossAgent.shutdown] 经 [BossAgent.onShutdown] 钩子关闭 MCP 连接.
+     */
     public fun mcps(registry: McpRegistry) {
-        @Suppress("UNUSED_PARAMETER") registry
+        mcpRegistry0 = registry
     }
 
     public fun build(): BossAgent {
         val llm = requireNotNull(llmProvider0) { "llmProvider must be set" }
         val mem = requireNotNull(memory0) { "memory must be set" }
+
+        // MCP 服务作为 Toolset 特例并入 worker 通道。此后 BeastAssembler 的
+        // 能力清单与派发均自动包含 MCP 服务。
+        mcpRegistry0?.let { mcp ->
+            val target = toolsetRegistry0 ?: ToolsetRegistry().also { toolsetRegistry0 = it }
+            target.register(mcp.all())
+        }
 
         val bulletinBoard = BulletinBoard()
         val bossScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -192,7 +204,7 @@ public class BossAgentBuilder internal constructor() {
             toolRegistry0?.let { tools(it.all()) }
         }
 
-        return BossAgent(innerAgent as Streamable, scope)
+        return BossAgent(innerAgent as Streamable, scope) { mcpRegistry0?.unregisterAll() }
     }
 
     private fun buildPersona(): Persona {
