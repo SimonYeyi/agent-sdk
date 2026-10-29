@@ -104,6 +104,9 @@ internal class Pasture(
         var shouldFailFromUpstream = false
         val toDispatch = dagLock.withLock {
             val node = dag[taskId] ?: return
+            // 只推进仍在等待的节点: 多个上游几乎同时完成时, cascade 会并发地对同一节点
+            // 调用本方法, 不加这道闸会重复 dispatch —— 同一个任务跑两遍。
+            if (node.status != Status.PENDING) return
             val upstream = node.assignment.dependsOn.mapNotNull { dag[it] }
             when {
                 // 上游有失败/取消, 直接标 FAILED, emit TaskUpdate
@@ -179,7 +182,11 @@ internal class Pasture(
 
         dagLock.withLock {
             val n = dag[taskId] ?: return@withLock
-            dag[taskId] = n.also { it.job = job; it.status = Status.RUNNING }
+            n.job = job
+            // 只做单向推进: 已终态的节点不得被翻回 RUNNING。
+            // job 可能在本次写入前就跑完并写了 DONE, 无条件写 RUNNING 会把终态抹掉,
+            // 下游 cascade 永远等不到上游 DONE, 整轮卡死。
+            if (n.status == Status.PENDING || n.status == Status.READY) n.status = Status.RUNNING
         }
 
         job.invokeOnCompletion { scope.launch { cascade(taskId) } }
@@ -189,21 +196,29 @@ internal class Pasture(
      * 处理 task 终态: 标 Status, emit TaskUpdate 给 BossAgent.
      */
     private suspend fun handleTerminal(taskId: String, throwable: Throwable? = null) {
-        val newStatus = when (throwable) {
-            null -> Status.DONE
-            is CancellationException -> Status.CANCELED
-            else -> Status.FAILED
-        }
-
         val event = dagLock.withLock {
             val node = dag[taskId] ?: return
             if (node.status == Status.DONE || node.status == Status.FAILED || node.status == Status.CANCELED) return
+            val final = node.result
+            // beast 流结束却没有任何终态事件时不能只改状态不发事件:
+            // boss 的 tracker 靠 TaskUpdate 判定终态, 丢了事件整轮就永远等不到收束。
+            val newStatus = when {
+                throwable is CancellationException -> Status.CANCELED
+                throwable != null -> Status.FAILED
+                final != null -> Status.DONE
+                else -> Status.FAILED
+            }
             dag[taskId] = node.also {
                 it.status = newStatus
-                if (throwable != null) it.error = throwable
+                it.error = throwable
             }
-            if (throwable == null) node.result!!
-            else AgentEvent.Failed(throwable)
+            when {
+                throwable != null -> AgentEvent.Failed(throwable)
+                final != null -> final
+                else -> AgentEvent.Failed(
+                    IllegalStateException("task $taskId ended without a terminal event")
+                )
+            }
         }
         bulletinBoard.progressEvent(TaskUpdate(taskId, event))
     }

@@ -368,7 +368,7 @@ class BossAgentDagIntegrationTest {
 
     @Test
     fun `diamond DAG — four tasks all complete`() = runBlocking {
-        val (boss, _) = buildBossAndPasture(
+        val (boss, bb) = buildBossAndPasture(
             beastResponses = listOf(BEAST_FINAL, BEAST_FINAL, BEAST_FINAL, BEAST_FINAL),
             bossResponses = listOf(
                 publishTaskArgs(listOf(
@@ -386,18 +386,53 @@ class BossAgentDagIntegrationTest {
         val contJob = launch(start = CoroutineStart.UNDISPATCHED) {
             boss.report.collect { report.add(it) }
         }
+        val terminalUpdates = mutableListOf<TaskUpdate>()
+        val updatesJob = launch(start = CoroutineStart.UNDISPATCHED) {
+            bb.progressEvents.collect { e ->
+                if (e is TaskUpdate &&
+                    (e.event is AgentEvent.Final || e.event is AgentEvent.Failed)
+                ) {
+                    terminalUpdates.add(e)
+                }
+            }
+        }
+        val assignments = mutableListOf<TaskAssignments>()
+        val assignmentsJob = launch(start = CoroutineStart.UNDISPATCHED) {
+            bb.events.collect { e -> if (e is TaskAssignments) assignments.add(e) }
+        }
 
         boss.run(AgentQuery.text("跑 diamond DAG")).toList()
 
-        withTimeout(5000) {
-            while (report.isEmpty()) delay(50)
-        }
-        delay(500) // wait for boss to settle
+        // 等真实信号: 四个任务各自到达终态。只等 "report 非空" 会把
+        // "某个分支没被调度 / 提前失败" 也当成通过。
+        withTimeout(10000) { while (terminalUpdates.size < 4) delay(50) }
+        withTimeout(10000) { while (report.isEmpty()) delay(50) }
 
+        updatesJob.cancel()
+        assignmentsJob.cancel()
         contJob.cancel()
         boss.shutdown()
 
-        assertTrue(report.isNotEmpty(), "no report")
+        assertEquals(4, terminalUpdates.size, "each task must emit exactly one terminal update")
+        assertTrue(
+            terminalUpdates.all { it.event is AgentEvent.Final },
+            "all four tasks must succeed, got: " +
+                terminalUpdates.map {
+                    val cause = (it.event as? AgentEvent.Failed)?.cause
+                    "${it.taskId}=${it.event::class.simpleName}${cause?.let { c -> "($c)" } ?: ""}"
+                },
+        )
+
+        // ref → UUID 的转换在 PublishTaskTool 内部完成, 用 task 文本反查 taskId,
+        // 再断言终态顺序符合 DAG 拓扑: a 先于 b/c, b/c 都先于 d。
+        val byRef = assignments.single().tasks.associate { it.task to it.taskId }
+        val order = terminalUpdates.map { it.taskId }
+        fun pos(ref: String): Int = order.indexOf(byRef[ref])
+        assertTrue(pos("task a") >= 0, "task a must have finished: $order")
+        assertTrue(pos("task b") > pos("task a"), "b must finish after a: $order")
+        assertTrue(pos("task c") > pos("task a"), "c must finish after a: $order")
+        assertTrue(pos("task d") > pos("task b") && pos("task d") > pos("task c"),
+            "d must finish after both b and c: $order")
         assertTrue(report.any { it is AgentEvent.Final }, "no Final in report")
     }
 
