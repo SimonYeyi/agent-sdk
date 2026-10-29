@@ -20,7 +20,7 @@ import kotlinx.coroutines.runBlocking
  * class MyMcp(httpConfigure: (HttpClientConfig<*>.() -> Unit)?) : Mcp {
  *     override val name = "my_service"
  *     override val description = "我的 MCP 服务，提供 xxx 能力"
- *     override val client = McpClient(SseTransport("https://...", httpConfigure = httpConfigure))
+ *     override val client = McpClient(HttpTransport("https://...", httpConfigure = httpConfigure))
  * }
  * ```
  */

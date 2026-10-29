@@ -14,7 +14,7 @@
 | 维度 | 现状 |
 |---|---|
 | 协议基线 | MCP 2025-06-18 |
-| 支持传输 | Stdio(子进程) + HTTP+SSE(legacy) |
+| 支持传输 | Stdio(子进程) + Streamable HTTP (POST + SSE) |
 | 暴露给 LLM 的工具 | `load_mcp_tools` (发现工具) + `call_mcp_tool` (调用工具) |
 | 注册方式 | `AgentBuilder.mcp(registry)` |
 | 多 server 支持 | `McpServerRegistry` |
@@ -57,7 +57,7 @@
                 ┌─────────────▼──────────────────────────┐
                 │      McpTransport (sealed)             │
                 │   ┌──────────────┐ ┌────────────────┐ │
-                │   │StdioTransport│ │SseTransport    │ │
+                │   │StdioTransport│ │HttpTransport   │ │
                 │   │  - 子进程     │ │ - Streamable   │ │
                 │   │  - 行分隔     │ │   HTTP(A2)     │ │
                 │   │  - drain     │ │ - SSE/JSON     │ │
@@ -79,7 +79,7 @@
 | ID | 严重度 | 问题 | 当前表现 |
 |---|---|---|---|
 | **A1** | 🔴 | 完全缺失 `initialize` 握手 | 直接调 `tools/list`/`tools/call`,任何规范 Server 会拒绝 |
-| **A2** | 🔴 | SseTransport 是 2024-11-05 旧版 HTTP+SSE | 缺 `MCP-Protocol-Version`/`Mcp-Session-Id` 头,不支持 Streamable HTTP |
+| **A2** | 🔴 | `SseTransport`（现 `HttpTransport`）旧实现是 2024-11-05 版 HTTP+SSE | 缺 `MCP-Protocol-Version`/`Mcp-Session-Id` 头,不支持 Streamable HTTP |
 | **A3** | 🟠 | 缺 `ping` | 无健康检查手段 |
 | **A4** | 🟠 | 缺 `notifications/cancelled` | 长任务无法取消,readLine 永久阻塞 |
 | **A5** | 🟠 | 缺 `notifications/tools/list_changed` 处理 | 缓存永久不更新 |
@@ -106,9 +106,9 @@
 | **C5** | 🟠 | `close()` 一次性 destroyForcibly,不符合三段式关闭 |
 | **C7** | 🟠 | SSE 解析不完整(无多行 `data:`、注释、id/event/retry) |
 | **C8** | 🟠 | 不处理 `application/json` 直接响应 |
-| **C9** | 🟡 | SseTransport 无超时 |
-| **C10** | 🟡 | 每个 SseTransport 自建 HttpClient |
-| **C11** | 🟡 | SseTransport 不处理 auth/redirect |
+| **C9** | 🟡 | HttpTransport 无超时 |
+| **C10** | 🟡 | 每个 HttpTransport 自建 HttpClient |
+| **C11** | 🟡 | HttpTransport 不处理 auth/redirect |
 
 ### 3.4 Server/Registry/Tool 集成层(🟠 D 类)
 
@@ -157,7 +157,7 @@
 - 缓存 `serverInfo` / `protocolVersion` / `capabilities` 到 GenericMcpServer 实例字段
 - 发送 `notifications/initialized` 通知(无 id,fire-and-forget)
 
-#### A2 — SseTransport 重写为 Streamable HTTP
+#### A2 — HttpTransport 重写为 Streamable HTTP
 **目标**:支持 MCP 2025-06-18 的 Streamable HTTP 传输。
 
 **实现要点**:
@@ -274,12 +274,12 @@ override suspend fun close() {
 **实现要点**:把 `ensureStarted` 内的 ProcessBuilder.start() 用 startMutex 保护,多协程并发首次调用只启动一次。
 
 #### A3 — ping
-**目标**:McpServer 接口加 `suspend fun ping(): Boolean`,GenericMcpServer 透传,StdioTransport/SseTransport 各自实现。
+**目标**:McpServer 接口加 `suspend fun ping(): Boolean`,GenericMcpServer 透传,StdioTransport/HttpTransport 各自实现。
 
-#### C9/C10 — SseTransport 超时 + 共享 client
+#### C9/C10 — HttpTransport 超时 + 共享 client
 **目标**:HttpClient 共享,加超时配置。
 
-**实现要点**:McpTransport 工厂 + 静态 `HttpClient(CIO) { install(HttpTimeout) { requestTimeoutMillis = 30_000 } }`,所有 SseTransport 实例引用同一 client。
+**实现要点**:McpTransport 工厂 + 静态 `HttpClient(CIO) { install(HttpTimeout) { requestTimeoutMillis = 30_000 } }`,所有 HttpTransport 实例引用同一 client。
 
 #### D5 — buildDescription lazy
 **目标**:`LoadMcpTool.description` 改 `by lazy`,后注册到 registry 的 server 也能反映。
@@ -296,7 +296,7 @@ override suspend fun close() {
 最低覆盖:
 - `JsonRpcRequest` 序列化往返
 - `StdioTransport` 进程启动/读/写/超时/cancel/drain
-- `SseTransport` 单 JSON 响应 / SSE 多 data / 注释行
+- `HttpTransport` 单 JSON 响应 / SSE 多 data / 注释行
 - `GenericMcpServer` 错误处理 / isError 透传
 - `CallMcpTool` 透传逻辑
 - `LoadMcpTool` 透传逻辑
@@ -335,6 +335,6 @@ override suspend fun close() {
 4. `feat(mcp): 实现 MCP initialize 握手` — A1
 5. `feat(mcp): 实现 listChanged 通知和 cancelled 通知` — D1+A5, A4
 6. `feat(mcp): 实现 ping 和 tools/list 分页` — A3, A6
-7. `feat(mcp): 重写 SseTransport 为 Streamable HTTP` — A2, C7+C8, C9/C10
+7. `feat(mcp): 重写 HttpTransport 为 Streamable HTTP` — A2, C7+C8, C9/C10
 8. `refactor(mcp): buildDescription 改 lazy,JsonRpcRequest 改用 kotlinx.serialization` — D5, B3
 9. `test(mcp): 添加单测覆盖关键路径`

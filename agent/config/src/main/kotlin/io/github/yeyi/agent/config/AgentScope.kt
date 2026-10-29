@@ -6,8 +6,8 @@ import io.github.yeyi.agent.mcp.ClientInfo
 import io.github.yeyi.agent.mcp.Mcp
 import io.github.yeyi.agent.mcp.McpClient
 import io.github.yeyi.agent.mcp.McpRegistry
+import io.github.yeyi.agent.mcp.HttpTransport
 import io.github.yeyi.agent.mcp.StdioTransport
-import io.github.yeyi.agent.mcp.SseTransport
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
@@ -178,7 +178,7 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
                             workingDirectory = t.workingDirectory
                         )
 
-                        is AgentDefinition.Mcp.Transport.Http -> SseTransport(
+                        is AgentDefinition.Mcp.Transport.Http -> HttpTransport(
                             endpoint = t.url,
                             httpHeaders = t.headers
                         )

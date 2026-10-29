@@ -10,7 +10,7 @@
 MCP 模块在协议合规性审计中发现两个问题：
 
 1. **Capabilities 未实现**: `InitializeParams.capabilities` 和 `InitializeResult.capabilities` 当前都是 `JsonObject(emptyMap())`，没有定义具体类型
-2. **Notifications 流程未实现**: `StdioTransport` 和 `SseTransport` 的 `notifications` 属性都返回 `emptyFlow()`
+2. **Notifications 流程未实现**: `StdioTransport` 和 `HttpTransport` 的 `notifications` 属性都返回 `emptyFlow()`
 
 本次修改旨在完整支持 MCP 2025-06-18 协议规范。
 
@@ -221,7 +221,7 @@ class StdioTransport : McpTransport {
 }
 ```
 
-### 3.4 SseTransport 实现
+### 3.4 HttpTransport 实现
 
 根据 MCP Streamable HTTP 协议：
 - **POST**: 发送请求，接收响应（可能是 JSON 或 SSE 流）
@@ -230,7 +230,7 @@ class StdioTransport : McpTransport {
 **当前 SSE 响应解析的问题**：POST 响应中的 SSE 流可能包含 progress 通知，这些通知有 `method` 字段但 id 与请求不匹配。需要将 progress 事件 emit 到 notifications flow。
 
 ```kotlin
-class SseTransport : McpTransport {
+class HttpTransport : McpTransport {
     private val _notifications = MutableSharedFlow<JsonRpcNotification<JsonElement>>(
         extraBufferCapacity = 64,
         onBufferOverflow = BufferOverflow.DROP_OLDEST
@@ -278,12 +278,12 @@ class SseTransport : McpTransport {
 }
 ```
 
-### 3.5 SseTransport GET 通知通道
+### 3.5 HttpTransport GET 通知通道
 
 当 sessionId 获取后，启动单独的 GET 连接监听 notifications：
 
 ```kotlin
-class SseTransport : McpTransport {
+class HttpTransport : McpTransport {
     private var notificationJob: Job? = null
     
     private fun startNotificationChannel(sessionId: String) {
@@ -355,7 +355,7 @@ public object McpMethods {
 | `McpServer.kt` | 新增 capabilities 数据类、notification params；修改 InitializeParams/InitializeResult 类型；新增 McpMethods 常量 |
 | `GenericMcpServer.kt` | 使用强类型 capabilities；订阅 notifications 处理 listChanged |
 | `StdioTransport.kt` | 实现 MutableSharedFlow；修改 send() 区分 response/notification |
-| `SseTransport.kt` | 实现 MutableSharedFlow；修改 SSE 解析以 emit progress 通知；实现 GET 通知通道 |
+| `HttpTransport.kt` | 实现 MutableSharedFlow；修改 SSE 解析以 emit progress 通知；实现 GET 通知通道 |
 | `McpTransport.kt` | 更新文档注释 |
 
 ---

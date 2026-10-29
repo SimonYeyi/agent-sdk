@@ -53,7 +53,7 @@ import kotlinx.serialization.json.jsonObject
  * @param httpConfigure 可选的 HttpClient 配置函数，会与内部默认配置合并。
  *   内部核心配置（JSON 序列化、超时）会被强制覆盖，其余插件会被保留。
  */
-public class SseTransport(
+public class HttpTransport(
     private val endpoint: String,
     private val httpHeaders: Map<String, String>? = null,
     private val enableNotifications: Boolean = false,

@@ -8,7 +8,7 @@ import kotlinx.serialization.json.JsonElement
  *
  * Different MCP servers may use different transport mechanisms:
  * - [StdioTransport]: For local subprocess servers (communicates via stdin/stdout)
- * - [SseTransport]: For remote servers using Streamable HTTP (MCP 2025-06-18)
+ * - [HttpTransport]: For remote servers using Streamable HTTP (MCP 2025-06-18)
  *
  * The JSON-RPC message types [JsonRpcRequest] / [JsonRpcResponse] /
  * [JsonRpcNotification] are declared in `McpServer.kt` alongside the rest

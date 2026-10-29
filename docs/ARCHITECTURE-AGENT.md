@@ -432,7 +432,7 @@ Mcp (抽象类，继承 Toolset)
         ▼
 McpTransport (三种传输层)
   ├─ StdioTransport — 子进程 stdin/stdout，行分隔 JSON，三级关闭流程
-  ├─ SseTransport — Streamable HTTP (POST + SSE GET)，会话亲和性
+  ├─ HttpTransport — Streamable HTTP (POST + SSE GET)，会话亲和性
   └─ LocalTransport — 进程内调用，无网络开销，适合测试
 ```
 
@@ -440,7 +440,7 @@ McpTransport (三种传输层)
 
 **StdioTransport**：启动子进程，stdin/stdout 通信，三级关闭流程（close stdin → wait 5s → SIGTERM → wait 2s → SIGKILL）。
 
-**SseTransport**：持久 GET 连接接收 SSE 通知，短生命周期 POST 请求发送 JSON-RPC，`Mcp-Session-Id` 头维护会话亲和性，SSE 自动重连。
+**HttpTransport**：持久 GET 连接接收 SSE 通知，短生命周期 POST 请求发送 JSON-RPC，`Mcp-Session-Id` 头维护会话亲和性，SSE 自动重连。
 
 **LocalTransport**：进程内直接将 JSON-RPC 请求委派给本地 `McpServer` 实现，无网络或子进程开销。
 

@@ -20,7 +20,7 @@ import kotlinx.serialization.serializer
  *
  * 本类实现了 [McpServer] 接口，作为 MCP 服务的客户端代理：将方法调用转换为
  * JSON-RPC 请求发给传输层，再将响应解析回结构化类型。传输层可以是
- * [StdioTransport]（本地子进程）、[SseTransport]（远程 HTTP）或
+ * [StdioTransport]（本地子进程）、[HttpTransport]（远程 HTTP）或
  * [LocalTransport]（进程内本地服务）。
  *
  * 首次使用时懒初始化，遵循 MCP 2025-06-18 生命周期：发送 `initialize` 请求，
