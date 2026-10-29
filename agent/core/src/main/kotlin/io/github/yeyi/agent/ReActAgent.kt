@@ -30,9 +30,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
+import java.util.concurrent.Semaphore
 import java.util.concurrent.atomic.AtomicReference
-import java.util.concurrent.locks.ReentrantLock
-import kotlin.concurrent.withLock
 
 public class ReActAgent internal constructor(
     private val persona: Persona,
@@ -71,12 +70,12 @@ public class ReActAgent internal constructor(
      * "add 返回 true 但消息困死 buffer 无人消费"的窗口。
      *
      * 完结束契约：返回 false ⟺ 无活跃 run ⟺ 终态事件(Final)已发射完毕。
-     * 终局持锁期间阻塞等待，正是语义正确的"等待裁决"——既不能 true
+     * 终局持闸期间阻塞等待，正是语义正确的"等待裁决"——既不能 true
      * （消息无人消费）也不能 false（Final 未发完，此时开新 run 会与旧 run 的事件混流）。
      *
-     * 纪律：锁内允许且仅允许 onRunCompleted 与 emit(Final) 两个已知挂起点，
-     * 严禁其他 suspend——持锁挂起会阻塞其他线程的 add，编译器不拦，只能靠约定。
-     * 死锁硬约束：collector / AgentHook 回调内严禁同步调用 steer()。
+     * 纪律：闸内允许且仅允许 onRunCompleted 与 emit(Final) 两个已知挂起点，
+     * 严禁其他 suspend——持闸挂起会阻塞其他线程的 add，编译器不拦，只能靠约定。
+     * 死锁硬约束：collector / AgentHook 回调内严禁同步调用 steer()（闸门不可重入）。
      */
     override fun steer(query: AgentQuery): Boolean = steerInbox.add(query)
 
@@ -223,10 +222,10 @@ public class ReActAgent internal constructor(
         context: AgentContext,
         emit: suspend (AgentEvent) -> Unit,
     ): AgentResult? {
-        // 终局：Final 抢占 + 终局。与 steer() 锁下互斥。
-        steerInbox.lock.lock()
+        // 终局：Final 抢占 + 终局。与 steer() 闸门下互斥。
+        steerInbox.gate.acquireUninterruptibly()
         if (!steerInbox.isEmpty()) {
-            steerInbox.lock.unlock()
+            steerInbox.gate.release()
             // 指令已注入 memory，抢占 Final，强制再跑一轮让 LLM 带着新指令重新作答
             consumeSteering(steerInbox)
             return null
@@ -240,16 +239,18 @@ public class ReActAgent internal constructor(
         hook.safeInvoke { onRunCompleted(context, result) }
         try {
             emit(AgentEvent.Final(result))
-            // 终局：终态发射 → 关门，全程持锁。
-            // unlock 之后 steer() 拿到的 false 才意味着"可安全开新 run"——
-            // 若把 emit(Final) 放锁外，缝隙里 steer()==false 触发的 fallback run
+            // 终局：终态发射 → 关门，全程持闸。
+            // 闸门释放之后 steer() 拿到的 false 才意味着"可安全开新 run"——
+            // 若把 emit(Final) 放闸外，缝隙里 steer()==false 触发的 fallback run
             // 会先发 Initial，旧 run 的 Final 后到，混流。
             // 先发射后关门：emit 抛异常时此处 destroy 不执行，由 loop 的 finally
             // 兜底清理——保证 false ⟹ Final 已发射的严格性（发射失败即失败路径，
             // 退化为 best-effort）。
             steerInbox.destroy()
         } finally {
-            steerInbox.lock.unlock()
+            // 闸门用 Semaphore: release 可由任意线程执行 —— emit 是挂起点,
+            // 协程恢复后可能换线程, 线程亲和锁在此 unlock 会抛 IllegalMonitorStateException。
+            steerInbox.gate.release()
         }
         return result
     }
@@ -394,22 +395,43 @@ public class ReActAgent internal constructor(
     private class SteerInbox {
         private val channelRef = AtomicReference<Channel<AgentQuery>?>(null)
 
-        val lock = ReentrantLock()
+        /**
+         * 终局闸门 —— 互斥"抢占 Final"与"投递 steering"两个动作.
+         *
+         * 用 [Semaphore] 而非 [java.util.concurrent.locks.ReentrantLock]: 终局窗口会跨越挂起点 ([emit] 是 suspend),
+         * 协程恢复后可能换线程; ReentrantLock 是线程亲和的, 换线程 unlock 会抛
+         * IllegalMonitorStateException —— 表现为 agent 在已发出 Final 之后又报 Failed。
+         * Semaphore 的 permit 与线程无关, release 可由任意线程执行。
+         *
+         * 代价: 不可重入 —— collector / AgentHook 回调内同步调用 steer() 会死锁
+         * (本就是硬约束, 见 [steer] 的 KDoc)。
+         */
+        val gate = Semaphore(1)
 
         fun create(): Boolean = channelRef.compareAndSet(null, Channel(Channel.UNLIMITED))
 
         fun destroy() = channelRef.getAndSet(null)?.close()
 
-        fun add(query: AgentQuery): Boolean = lock.withLock {
-            channelRef.get()?.trySend(query)?.isSuccess ?: false
+        fun add(query: AgentQuery): Boolean {
+            gate.acquireUninterruptibly()
+            try {
+                return channelRef.get()?.trySend(query)?.isSuccess ?: false
+            } finally {
+                gate.release()
+            }
         }
 
-        fun drain(): List<AgentQuery> = lock.withLock {
-            buildList {
-                while (true) {
-                    val query = channelRef.get()?.tryReceive()?.getOrNull() ?: return@buildList
-                    add(query)
+        fun drain(): List<AgentQuery> {
+            gate.acquireUninterruptibly()
+            try {
+                return buildList {
+                    while (true) {
+                        val query = channelRef.get()?.tryReceive()?.getOrNull() ?: return@buildList
+                        add(query)
+                    }
                 }
+            } finally {
+                gate.release()
             }
         }
 

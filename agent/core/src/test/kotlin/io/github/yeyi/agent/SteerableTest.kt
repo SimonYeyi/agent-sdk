@@ -16,15 +16,23 @@ import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonNull
+import java.util.Collections
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
+import kotlin.coroutines.CoroutineContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -67,6 +75,25 @@ class ControllableLlmProvider(
 }
 
 class SteerableTest {
+
+    /**
+     * 轮转线程调度器：每次 [dispatch] 换一个线程执行，用于确定性地制造
+     * "协程挂起后恢复线程发生变化"。
+     */
+    private class RotatingDispatcher(threadCount: Int = 3) : CoroutineDispatcher() {
+        private val executors = List(threadCount) { i ->
+            Executors.newSingleThreadExecutor { r -> Thread(r, "rotating-dispatcher-$i") }
+        }
+        private val next = AtomicInteger(0)
+
+        override fun dispatch(context: CoroutineContext, block: Runnable) {
+            executors[next.getAndIncrement() % executors.size].execute(block)
+        }
+
+        fun shutdown() {
+            executors.forEach { it.shutdownNow() }
+        }
+    }
 
     @Test
     fun `steer returns false when no run is active`() = runTest {
@@ -433,6 +460,56 @@ class SteerableTest {
             userTexts.any { it.contains("must be consumed") },
             "steer instruction must be consumed into memory, not dropped"
         )
+    }
+
+    /**
+     * 回归：终局窗口内 emit 挂起后若恢复线程变化，不得把 agent 打成 Failed。
+     *
+     * 旧实现用 ReentrantLock 保护终局窗口：emit 是挂起点，协程恢复后可能换线程，
+     * unlock 抛 IllegalMonitorStateException → agent 在已发出 Final 之后又发 Failed，
+     * 上层（DAG worker）看到的就是"任务莫名失败"。
+     *
+     * 构造方式：collector 只在收到 Final 时挂起，使 agent 的 emit 恢复必然落到
+     * 另一个线程（RotatingDispatcher 每次 dispatch 换一个线程）。
+     */
+    @Test
+    fun `final emission resumed on another thread does not fail the run`() = runBlocking {
+        val dispatcher = RotatingDispatcher()
+        try {
+            repeat(5) { iteration ->
+                val provider = FakeLlmProvider(
+                    nonStreamResponses = listOf(
+                        ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
+                    )
+                )
+                val agent = ReActAgent(
+                    persona = Persona(""),
+                    llmProvider = provider,
+                    toolRegistry = registryOf(),
+                    memory = InMemoryMemory(),
+                    modalityAdapter = DefaultModalityAdapter(null),
+                    maxRounds = 20,
+                    maxIterations = 5
+                )
+                val events = Collections.synchronizedList(mutableListOf<AgentEvent>())
+                withContext(dispatcher) {
+                    agent.run(AgentQuery.text("hi")).collect { e ->
+                        if (e is AgentEvent.Final) delay(10) // 挂起 → agent 的 emit 恢复时换线程
+                        events += e
+                    }
+                }
+                assertTrue(
+                    events.any { it is AgentEvent.Final },
+                    "iteration $iteration must end with Final: ${events.map { it::class.simpleName }}"
+                )
+                assertTrue(
+                    events.none { it is AgentEvent.Failed },
+                    "iteration $iteration must not fail: ${events.map { it::class.simpleName }}"
+                )
+            }
+        } finally {
+            dispatcher.shutdown()
+        }
     }
 
     /**
