@@ -12,7 +12,11 @@ import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
+import io.github.yeyi.agent.tool.ToolExecutionResult
+import io.github.yeyi.agent.tool.ToolParameters
+import io.github.yeyi.agent.toolset.Toolset
 import io.github.yeyi.agent.toolset.ToolsetContext
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 import io.github.yeyi.agent.toolset.toolsets
@@ -279,21 +283,21 @@ class McpTest {
         val info = ClientInfo("test-app", "9.9.9")
         val client = McpClient(FakeServerTransport())
         val mcp = fakeMcp(client = client)
-        val registry = McpRegistry(ToolsetRegistry(), info)
+        val registry = McpRegistry(info)
         registry.register(mcp)
         assertSame(info, client.clientInfo)
     }
 
     @Test
     fun `register iterable registers multiple Mcps`() {
-        val registry = McpRegistry(ToolsetRegistry(), ClientInfo("", ""))
+        val registry = McpRegistry(ClientInfo("", ""))
         registry.register(listOf(fakeMcp(name = "a"), fakeMcp(name = "b")))
         assertEquals(setOf("a", "b"), registry.toolsetRegistry.all().map { it.name }.toSet())
     }
 
     @Test
     fun `registering duplicate Mcp name throws IllegalArgumentException`() {
-        val registry = McpRegistry(ToolsetRegistry(), ClientInfo("", ""))
+        val registry = McpRegistry(ClientInfo("", ""))
         registry.register(fakeMcp(name = "dup"))
         assertFailsWith<IllegalArgumentException> {
             registry.register(fakeMcp(name = "dup"))
@@ -313,7 +317,7 @@ class McpTest {
                 override suspend fun close() { closed += name }
             })
         }
-        val registry = McpRegistry(ToolsetRegistry(), ClientInfo("", ""))
+        val registry = McpRegistry(ClientInfo("", ""))
         registry.register(makeMcp("a"))
         registry.register(makeMcp("b"))
 
@@ -328,7 +332,7 @@ class McpTest {
     @Test
     fun `mcps DSL installs load_toolset and member_tool_delegate on Agent`() = runTest {
         val llm = StubLlm()
-        val registry = McpRegistry(ToolsetRegistry(), ClientInfo("", "")).apply {
+        val registry = McpRegistry(ClientInfo("", "")).apply {
             register(fakeMcp(name = "calc", description = "calc-desc"))
         }
         AgentBuilder().apply {
@@ -344,7 +348,7 @@ class McpTest {
     @Test
     fun `mcps DSL load_toolset description lists registered Mcps by name and description`() = runTest {
         val llm = StubLlm()
-        val registry = McpRegistry(ToolsetRegistry(), ClientInfo("", "")).apply {
+        val registry = McpRegistry(ClientInfo("", "")).apply {
             register(fakeMcp(name = "calc", description = "calc-desc"))
             register(fakeMcp(name = "news", description = "news-desc"))
         }
@@ -361,41 +365,57 @@ class McpTest {
     }
 
     @Test
-    fun `mcps and toolsets together throw InstallException with mcps-specific guidance`() = runTest {
-        val mcpReg = McpRegistry(ToolsetRegistry(), ClientInfo("", ""))
-        val tsReg = ToolsetRegistry()
-
-        val ex = assertFailsWith<io.github.yeyi.agent.AgentPlugin.InstallException> {
-            AgentBuilder().apply {
-                llmProvider(StubLlm())
-                toolsets(tsReg)
-                mcps(mcpReg)
-            }.build()
+    fun `mcps and toolsets together merge into one shared toolset plugin`() = runTest {
+        val llm = StubLlm()
+        val mcpReg = McpRegistry(ClientInfo("", "")).apply {
+            register(fakeMcp(name = "calc", description = "calc-desc"))
         }
-        val msg = ex.message ?: ""
-        assertTrue("mcps" in msg, "message should mention mcps: $msg")
-        assertTrue(
-            "toolsets" in msg && "toolset framework" in msg,
-            "message should mention toolsets and the framework constraint: $msg",
-        )
+        val tsReg = ToolsetRegistry().apply {
+            register(Toolset("weather", "weather-desc").apply { add(stubTool("get_weather")) })
+        }
+
+        AgentBuilder().apply {
+            llmProvider(llm)
+            toolsets(tsReg)
+            mcps(mcpReg)
+        }.build().run(AgentQuery.text("hi")).toList()
+
+        val names = llm.recorded.single().tools.map { it.name }
+        assertEquals(1, names.count { it == "load_toolset" }, "expected exactly one load_toolset, got: $names")
+        assertEquals(1, names.count { it == "member_tool_delegate" }, "expected exactly one member_tool_delegate, got: $names")
+        val loadToolset = llm.recorded.single().tools.single { it.name == "load_toolset" }
+        assertTrue("calc" in loadToolset.description, "merged Mcp 'calc' should be visible: ${loadToolset.description}")
+        assertTrue("weather" in loadToolset.description, "merged toolset 'weather' should be visible: ${loadToolset.description}")
     }
 
     @Test
-    fun `mcps then toolsets throws InstallException pointing user to grep toolsets (reverse direction)`() = runTest {
-        val mcpReg = McpRegistry(ToolsetRegistry(), ClientInfo("", ""))
-        val tsReg = ToolsetRegistry()
-
-        val ex = assertFailsWith<io.github.yeyi.agent.AgentPlugin.InstallException> {
-            AgentBuilder().apply {
-                llmProvider(StubLlm())
-                mcps(mcpReg)
-                toolsets(tsReg)
-            }.build()
+    fun `mcps then toolsets merges in reverse order`() = runTest {
+        val llm = StubLlm()
+        val mcpReg = McpRegistry(ClientInfo("", "")).apply {
+            register(fakeMcp(name = "calc", description = "calc-desc"))
         }
-        val msg = ex.message ?: ""
-        assertTrue(
-            "toolset" in msg && "configured more than once" in msg,
-            "message should explain DSL was invoked multiple times: $msg",
-        )
+        val tsReg = ToolsetRegistry().apply {
+            register(Toolset("weather", "weather-desc").apply { add(stubTool("get_weather")) })
+        }
+
+        AgentBuilder().apply {
+            llmProvider(llm)
+            mcps(mcpReg)
+            toolsets(tsReg)
+        }.build().run(AgentQuery.text("hi")).toList()
+
+        val loadToolset = llm.recorded.single().tools.single { it.name == "load_toolset" }
+        assertTrue("calc" in loadToolset.description, "merged Mcp 'calc' should be visible: ${loadToolset.description}")
+        assertTrue("weather" in loadToolset.description, "merged toolset 'weather' should be visible: ${loadToolset.description}")
+    }
+
+    private fun stubTool(name: String): Tool = object : Tool {
+        override val name: String = name
+        override val description: String = "stub"
+        override val parametersSchema: ToolParameters = ToolParameters.Empty
+        override suspend fun execute(
+            arguments: kotlinx.serialization.json.JsonElement,
+            context: ToolExecutionContext,
+        ): ToolExecutionResult = ToolExecutionResult.success("ok")
     }
 }

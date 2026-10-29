@@ -10,7 +10,6 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.tool.ToolExecutionContext
-import io.github.yeyi.agent.toolset.ToolsetRegistry
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.flowOf
@@ -130,7 +129,7 @@ class LocalTransportTest {
             override val description: String = "Local demo server"
             override val client: McpClient = McpClient(LocalTransport(server))
         }
-        val registry = McpRegistry(ToolsetRegistry(), ClientInfo("test", "1.0")).apply { register(mcp) }
+        val registry = McpRegistry(ClientInfo("test", "1.0")).apply { register(mcp) }
         return Triple(server, mcp, registry)
     }
 
