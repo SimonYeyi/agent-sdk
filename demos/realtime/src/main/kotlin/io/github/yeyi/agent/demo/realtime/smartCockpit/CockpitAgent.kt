@@ -43,7 +43,7 @@ object CockpitAgent {
         provider = providerFromBuildConfig(),
         maxIterations = 40,
         maxMemoryRounds = 40,
-        tools = listOf("get_time", "get_date", "get_car_status", "get_energy"),
+        tools = listOf("control_music", "get_time", "get_date", "get_car_status", "get_energy"),
         toolsets = listOf("comfort_control", "cabin_environment", "driving_assist"),
         skills = listOf("driving_mode", "rest_mode", "movie_mode", "go_home"),
         subagents = listOf("media_expert", "navigation_expert"),
@@ -53,6 +53,7 @@ object CockpitAgent {
     private fun scope(memory: Memory): AgentScope = AgentScope(
         memory = memory,
         toolRegistry = ToolRegistry().apply {
+            register(MusicControlTool())
             register(GetTimeTool())
             register(GetDateTool())
         },

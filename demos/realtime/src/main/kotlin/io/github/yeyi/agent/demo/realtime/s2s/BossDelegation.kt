@@ -20,7 +20,7 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
     }*/
 
     override val capabilities: List<String> by lazy {
-        listOf("空调控制", "座椅控制", "车窗控制", "氛围灯控制", "导航", "驾驶辅助")
+        listOf("音乐控制", "空调控制", "座椅控制", "车窗控制", "氛围灯控制", "导航", "驾驶辅助")
     }
 
     private val runEvents = MutableSharedFlow<DelegationReply>(extraBufferCapacity = 64)

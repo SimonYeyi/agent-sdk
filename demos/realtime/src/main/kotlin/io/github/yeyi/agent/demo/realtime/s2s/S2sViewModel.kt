@@ -66,7 +66,7 @@ class S2sViewModel(
                 model = "1.2.6.0",
                 instructions = "你是一个车载语音助手. 用自然、口语化的中文回答用户",
                 voice = "zh_female_vv_jupiter_bigtts",
-                tools = listOf(MusicControlTool()),
+                tools = listOf(GetTimeTool()),
                 sessionId = sessionId,
             ),
             microphone = AndroidMicrophoneAdapter(),
@@ -81,7 +81,7 @@ class S2sViewModel(
                 model = "1.2.6.0",
                 instructions = "你是一个车载语音助手. 用自然、口语化的中文回答用户",
                 voice = "zh_female_vv_jupiter_bigtts",
-                tools = listOf(MusicControlTool()),
+                tools = listOf(GetTimeTool()),
                 // 携带持久化的 dialog id 接续历史对话：服务端按该 id 恢复最近 20 轮上下文
                 sessionId = sessionId,
             ),
