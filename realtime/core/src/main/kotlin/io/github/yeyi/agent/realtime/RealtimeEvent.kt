@@ -23,14 +23,14 @@ public sealed interface RealtimeEvent {
      */
     public data class ConversationHistoryRetrieved(val items: List<ConversationItem>) : RealtimeEvent
 
-    /** 单条历史上下文条目：仅暴露角色与正文（由 adapter 从协议 content 中提取）。 */
-    public data class ConversationItem(
-        val id: String? = null,
-        val role: String? = null,
-        val text: String? = null,
-    )
-
     public data class Connected(val sessionId: String) : RealtimeEvent
     public data class Disconnected(val reason: String?) : RealtimeEvent
     public data class Error(val code: String, val message: String, val isFatal: Boolean) : RealtimeEvent
 }
+
+/** 单条历史上下文条目：仅暴露角色与正文 */
+public data class ConversationItem(
+    val id: String? = null,
+    val role: String? = null,
+    val text: String? = null,
+)

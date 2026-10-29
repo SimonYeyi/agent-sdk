@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.realtime.volc
 
+import io.github.yeyi.agent.realtime.ConversationItem
 import io.github.yeyi.agent.realtime.ProtocolFrame
 import io.github.yeyi.agent.realtime.RealtimeAdapter
 import io.github.yeyi.agent.realtime.RealtimeEvent
@@ -324,7 +325,7 @@ public class VolcRealtimeAdapter(encoding: AudioFormat.Encoding? = null) : Realt
                 ?.filter { it.type == "input_text" }
                 ?.mapNotNull { it.text }
                 ?.joinToString("\n")
-            RealtimeEvent.ConversationItem(id = it.id, role = it.role, text = text)
+            ConversationItem(id = it.id, role = it.role, text = text)
         }))
     }
 
