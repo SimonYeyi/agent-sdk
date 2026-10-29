@@ -18,7 +18,6 @@ import kotlinx.coroutines.launch
  *
  * `register` 时把 [clientInfo] 注入到每个 [Mcp] 实例的 [McpClient];
  * `unregisterAll` 时关闭所有 MCP 连接,然后清空注册表。
-
  *
  * @param clientInfo 注入到每个 MCP 客户端的 [ClientInfo]。
  */

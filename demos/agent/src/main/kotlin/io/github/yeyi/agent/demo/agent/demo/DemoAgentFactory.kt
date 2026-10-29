@@ -31,7 +31,6 @@ import io.github.yeyi.agent.subagent.subagents
 import io.github.yeyi.agent.tool.lazy_loading.LazyTool
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.tool.lazy_loading.lazyTools
-import io.github.yeyi.agent.toolset.ToolsetRegistry
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logging
@@ -99,7 +98,6 @@ object DemoAgentFactory {
 
         val mcpRegistry =
             McpRegistry(
-                ToolsetRegistry(),
                 ClientInfo(BuildConfig.APPLICATION_ID, BuildConfig.VERSION_NAME)
             ).apply {
                 // Local MCP server
