@@ -92,7 +92,6 @@ class PastureTest {
             skillRegistry = skillReg,
             subagentRegistry = null,
             toolsetRegistry = toolsetReg,
-            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )
@@ -226,7 +225,6 @@ class PastureCancellationTest {
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
-            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )
@@ -290,7 +288,6 @@ class PastureCancellationTest {
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
-            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )

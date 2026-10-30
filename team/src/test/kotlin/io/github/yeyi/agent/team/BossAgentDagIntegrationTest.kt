@@ -119,7 +119,6 @@ class BossAgentDagIntegrationTest {
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
-            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )
@@ -277,7 +276,6 @@ class BossAgentDagIntegrationTest {
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
-            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )
@@ -332,7 +330,6 @@ class BossAgentDagIntegrationTest {
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
-            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )
@@ -473,7 +470,6 @@ class BossAgentDagIntegrationTest {
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
-            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )
@@ -657,7 +653,6 @@ class BossAgentDagIntegrationTest {
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
-            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )

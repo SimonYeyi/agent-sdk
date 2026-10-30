@@ -16,10 +16,12 @@ internal class BeastAssembler(
     private val toolsetRegistry: ToolsetRegistry?,
     private val skillRegistry: SkillRegistry?,
     private val subagentRegistry: SubagentRegistry?,
-    private val baseRole: String,
     private val maxIterations: Int,
     private val maxRounds: Int,
 ) {
+    private val basePersona: Persona
+        get() = Persona("你是一个牛马，需努力完成任务，不可弄虚作假").personality("寡言少语")
+
     suspend fun assemble(selection: Selection): Beast {
         return try {
             assembleHorse(selection)
@@ -29,7 +31,7 @@ internal class BeastAssembler(
     }
 
     private suspend fun assembleHorse(selection: Selection): Horse {
-        var instruction: String? = null
+        var instructions: String? = null
         var tools: List<Tool>? = null
 
         val notFoundError =
@@ -50,24 +52,21 @@ internal class BeastAssembler(
             is Selection.Skill -> {
                 val skill = skillRegistry?.all()?.firstOrNull { it.name == selection.name }
                     ?: notFoundError.invoke()
-                instruction = skill.load()
+                instructions = skill.load()
                 if (skill.standalone) tools = emptyList()
             }
 
             is Selection.Subagent -> {
                 val subagent = subagentRegistry?.all()?.firstOrNull { it.name == selection.name }
                     ?: notFoundError.invoke()
-                instruction = subagent.load()
+                instructions = subagent.load()
                 tools = subagent.tools
             }
         }
 
-        val persona = Persona(
-            buildString {
-                append(baseRole)
-                instruction?.let { append("\n\n").append(it) }
-            }
-        )
+        val persona = basePersona.apply {
+            instructions?.let { instructions(instructions) }
+        }
 
         // tools == null 表示无法预处理工具
         return Horse(
@@ -83,7 +82,7 @@ internal class BeastAssembler(
 
     private fun buildOx(): Ox = Ox(
         llmProvider = llmProvider,
-        persona = Persona(baseRole),
+        persona = basePersona,
         toolRegistry = toolRegistry.copy(),
         lazyToolRegistry = lazyToolRegistry,
         toolsetRegistry = toolsetRegistry,

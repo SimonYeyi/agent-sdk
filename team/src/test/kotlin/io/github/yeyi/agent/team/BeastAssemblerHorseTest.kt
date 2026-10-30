@@ -78,7 +78,6 @@ class BeastAssemblerHorseTest {
         toolsetRegistry = toolsetRegistry,
         skillRegistry = skillRegistry,
         subagentRegistry = subagentRegistry,
-        baseRole = "You are a worker.",
         maxIterations = 1,
         maxRounds = 5,
     )

@@ -138,7 +138,6 @@ public class BossAgentBuilder internal constructor() {
             toolsetRegistry = toolsetRegistry0,
             skillRegistry = skillRegistry0,
             subagentRegistry = subagentRegistry0,
-            baseRole = "You are a helpful worker. Complete the given task and return the result.",
             maxIterations = maxIterations0,
             maxRounds = maxRounds0,
         )

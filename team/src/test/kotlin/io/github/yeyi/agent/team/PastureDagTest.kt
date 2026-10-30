@@ -49,7 +49,6 @@ class PastureDagTest {
             toolsetRegistry = null,
             skillRegistry = null,
             subagentRegistry = null,
-            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )
@@ -230,7 +229,6 @@ class PastureDagTest {
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
-            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )
@@ -292,7 +290,6 @@ class PastureDagTest {
             skillRegistry = null,
             subagentRegistry = null,
             toolsetRegistry = null,
-            baseRole = "You are a helpful worker.",
             maxIterations = 1,
             maxRounds = 5,
         )
