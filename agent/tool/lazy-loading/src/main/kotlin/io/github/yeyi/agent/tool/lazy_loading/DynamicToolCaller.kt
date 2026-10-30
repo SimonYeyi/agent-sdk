@@ -23,8 +23,6 @@ internal class DynamicToolCaller(private val registry: LazyToolRegistry) : Tool,
 
     override val description: String = ""
 
-    override val loaderToolNames: Set<String> = setOf(SearchTool.NAME, "load_${LazyTool.CAPABILITY_TYPE}")
-
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """
         {

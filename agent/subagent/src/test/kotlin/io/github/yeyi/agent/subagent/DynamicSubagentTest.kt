@@ -14,8 +14,6 @@ import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
-import io.github.yeyi.agent.tool.DelegateTarget
-import io.github.yeyi.agent.tool.DelegateTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -38,6 +36,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -91,17 +90,6 @@ class DynamicSubagentTest {
             ToolExecutionResult.success("")
     }
 
-    private class StubDelegateTool(
-        override val name: String,
-        override val loaderToolNames: Set<String>,
-    ) : Tool, DelegateTool {
-        override val description: String = "stub delegate $name"
-        override val parametersSchema: ToolParameters = ToolParameters.Empty
-        override fun resolveTarget(arguments: JsonElement): DelegateTarget = error("not implemented")
-        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
-            ToolExecutionResult.success("")
-    }
-
     private fun toolCtx(ac: AgentContext): ToolExecutionContext =
         ToolExecutionContext(toolCallId = "tc-1", agentContext = ac)
 
@@ -127,7 +115,7 @@ class DynamicSubagentTest {
         assertNotNull(itemProps["role"])
         assertNotNull(itemProps["context"])
         assertNotNull(itemProps["task"])
-        assertNotNull(itemProps["tools"])
+        assertNull(itemProps["tools"], "tools 参数已移除：子代理恒定继承全部主工具")
         val itemRequired = (item["required"] as JsonArray).map { it.toString().trim('"') }.toSet()
         assertEquals(setOf("role", "task"), itemRequired)
     }
@@ -246,97 +234,45 @@ class DynamicSubagentTest {
     }
 
     @Test
-    fun `execute with tools=null inherits filtered main tools`() = runTest {
+    fun `execute inherits all filtered main tools`() = runTest {
         val keep = StubTool("read_file")
+        val keep2 = StubTool("write_file")
         val staticSubagent = StubTool("subagent_dispatch")
         val dynamicSelf = StubTool("dynamic_subagent")
         val llm = StubLlmProvider(listOf(chatResponse("ok")))
         val tool = DynamicSubagentTool()
-        val ctx = toolCtx(stubAgentContext(llm, tools = listOf(keep, staticSubagent, dynamicSelf)))
+        val ctx = toolCtx(stubAgentContext(llm, tools = listOf(keep, keep2, staticSubagent, dynamicSelf)))
         val args = buildJsonObject {
             put("subagents", buildJsonArray { add(agentJson(role = "p", task = "t")) })
-            // tools omitted → null
         }
         tool.execute(args, ctx)
         val visible = llm.chatRequests.single().tools.map { it.name }.toSet()
-        assertEquals(setOf("read_file"), visible)
+        assertEquals(setOf("read_file", "write_file"), visible, "subagent must inherit all main tools minus subagent ones")
     }
 
     @Test
-    fun `execute with tools list uses exactly those tools`() = runTest {
-        val a = StubTool("alpha")
-        val b = StubTool("beta")
-        val llm = StubLlmProvider(listOf(chatResponse("ok")))
-        val tool = DynamicSubagentTool()
-        val ctx = toolCtx(stubAgentContext(llm, tools = listOf(a, b)))
-        val args = buildJsonObject {
-            put("subagents", buildJsonArray {
-                add(buildJsonObject {
-                    put("role", "p")
-                    put("task", "t")
-                    put("tools", buildJsonArray { add(JsonPrimitive("alpha")); add(JsonPrimitive("nonexistent")) })
-                })
-            })
-        }
-        tool.execute(args, ctx)
-        val visible = llm.chatRequests.single().tools.map { it.name }.toSet()
-        assertEquals(setOf("alpha"), visible)  // "nonexistent" 静默忽略
-    }
-
-    @Test
-    fun `execute with empty tools list gives subagent no tools`() = runTest {
-        val llm = StubLlmProvider(listOf(chatResponse("ok")))
-        val tool = DynamicSubagentTool()
-        val ctx = toolCtx(stubAgentContext(llm, tools = listOf(StubTool("any"))))
-        val args = buildJsonObject {
-            put("subagents", buildJsonArray {
-                add(buildJsonObject {
-                    put("role", "p")
-                    put("task", "t")
-                    put("tools", buildJsonArray { })
-                })
-            })
-        }
-        tool.execute(args, ctx)
-        val visible = llm.chatRequests.single().tools
-        assertTrue(visible.isEmpty(), "tools=[] must give subagent zero tools")
-    }
-
-    @Test
-    fun `heterogeneous agents each get their own context tools`() = runTest {
+    fun `every agent in a batch gets the same full tool set`() = runTest {
         val llm = StubLlmProvider(listOf(chatResponse("ok-1"), chatResponse("ok-2"), chatResponse("ok-3")))
         val readOnly = StubTool("read_file")
         val writeFile = StubTool("write_file")
+        val loader = StubTool("load_skill")
         val tool = DynamicSubagentTool()
-        val ctx = toolCtx(stubAgentContext(llm, tools = listOf(readOnly, writeFile)))
+        val ctx = toolCtx(stubAgentContext(llm, tools = listOf(readOnly, writeFile, loader)))
         val args = buildJsonObject {
             put("subagents", buildJsonArray {
-                add(buildJsonObject {
-                    put("role", "code")
-                    put("task", "review A")
-                    put("tools", buildJsonArray { add(JsonPrimitive("read_file")) })
-                })
-                add(buildJsonObject {
-                    put("role", "writer")
-                    put("context", "needs to persist")
-                    put("task", "draft B")
-                    put("tools", buildJsonArray { add(JsonPrimitive("read_file")); add(JsonPrimitive("write_file")) })
-                })
-                add(buildJsonObject {
-                    put("role", "summarizer")
-                    put("task", "summarize C")
-                    // no tools → inherits filtered main tools
-                })
+                add(agentJson(role = "code", task = "review A"))
+                add(agentJson(role = "writer", context = "needs to persist", task = "draft B"))
+                add(agentJson(role = "summarizer", task = "summarize C"))
             })
         }
         val result = tool.execute(args, ctx)
         assertFalse(result.isError)
         assertEquals(3, llm.chatRequests.size)
+        val expected = setOf("read_file", "write_file", "load_skill")
         val requests = llm.chatRequests
-        assertEquals(setOf("read_file"), requests[0].tools.map { it.name }.toSet())
-        assertEquals(setOf("read_file", "write_file"), requests[1].tools.map { it.name }.toSet())
-        // summarizer inherits everything minus subagent-related → read_file + write_file
-        assertEquals(setOf("read_file", "write_file"), requests[2].tools.map { it.name }.toSet())
+        assertEquals(expected, requests[0].tools.map { it.name }.toSet())
+        assertEquals(expected, requests[1].tools.map { it.name }.toSet())
+        assertEquals(expected, requests[2].tools.map { it.name }.toSet())
         assertTrue(result.parts.text.contains("[1] review A"))
         assertTrue(result.parts.text.contains("[2] draft B"))
         assertTrue(result.parts.text.contains("[3] summarize C"))
@@ -389,89 +325,6 @@ class DynamicSubagentTest {
         }
         tool.execute(args, ctx)
         assertTrue(mainMemory.history().isEmpty(), "main agent memory must remain untouched")
-    }
-
-    // ---------- 动态子代理按名挑选工具：补齐 loader 的配套 delegate ----------
-
-    private suspend fun runWithSelectedTools(
-        mainTools: List<Tool>,
-        selected: List<String>,
-    ): Set<String> {
-        val llm = StubLlmProvider(listOf(chatResponse("ok")))
-        val tool = DynamicSubagentTool()
-        val ctx = toolCtx(stubAgentContext(llm, tools = mainTools))
-        val args = buildJsonObject {
-            put("subagents", buildJsonArray {
-                add(buildJsonObject {
-                    put("role", "p")
-                    put("task", "t")
-                    put("tools", buildJsonArray { selected.forEach { add(JsonPrimitive(it)) } })
-                })
-            })
-        }
-        tool.execute(args, ctx)
-        return llm.chatRequests.single().tools.map { it.name }.toSet()
-    }
-
-    @Test
-    fun `selected loader gets its paired delegate injected`() = runTest {
-        val searchTool = StubTool("search_tool")
-        val delegate = StubDelegateTool("dynamic_tool_caller", loaderToolNames = setOf("search_tool"))
-
-        val visible = runWithSelectedTools(listOf(searchTool, delegate), listOf("search_tool"))
-
-        assertEquals(setOf("search_tool", "dynamic_tool_caller"), visible)
-    }
-
-    @Test
-    fun `shared delegate is injected only once for multiple loaders`() = runTest {
-        val searchTool = StubTool("search_tool")
-        val loadLazyTool = StubTool("load_lazy_tool")
-        val delegate = StubDelegateTool("dynamic_tool_caller", loaderToolNames = setOf("search_tool", "load_lazy_tool"))
-
-        val visible = runWithSelectedTools(
-            listOf(searchTool, loadLazyTool, delegate),
-            listOf("search_tool", "load_lazy_tool"),
-        )
-
-        assertEquals(setOf("search_tool", "load_lazy_tool", "dynamic_tool_caller"), visible)
-    }
-
-    @Test
-    fun `loader without paired delegate is kept as-is`() = runTest {
-        val plain = StubTool("search_tool")
-
-        val visible = runWithSelectedTools(listOf(plain), listOf("search_tool"))
-
-        assertEquals(setOf("search_tool"), visible)
-    }
-
-    @Test
-    fun `plain selected tool is not paired with anything`() = runTest {
-        val plain = StubTool("read_file")
-
-        val visible = runWithSelectedTools(listOf(plain, StubTool("write_file")), listOf("read_file"))
-
-        assertEquals(setOf("read_file"), visible)
-    }
-
-    @Test
-    fun `duplicate selected loader does not duplicate tools`() = runTest {
-        val searchTool = StubTool("search_tool")
-        val delegate = StubDelegateTool("dynamic_tool_caller", loaderToolNames = setOf("search_tool"))
-
-        val visible = runWithSelectedTools(listOf(searchTool, delegate), listOf("search_tool", "search_tool"))
-
-        assertEquals(setOf("search_tool", "dynamic_tool_caller"), visible)
-    }
-
-    @Test
-    fun `names not present in main tools are ignored`() = runTest {
-        val plain = StubTool("read_file")
-
-        val visible = runWithSelectedTools(listOf(plain), listOf("read_file", "nonexistent"))
-
-        assertEquals(setOf("read_file"), visible)
     }
 
     @Test

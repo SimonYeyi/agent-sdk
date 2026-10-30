@@ -5,7 +5,6 @@ import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentPlugin
 import io.github.yeyi.agent.AgentPluginContext
 import io.github.yeyi.agent.llm.ContentPart
-import io.github.yeyi.agent.tool.DelegateTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -66,11 +65,6 @@ internal class DynamicSubagentTool : Tool {
                   "task": {
                     "type": "string",
                     "description": "子代理要执行的具体任务描述。"
-                  },
-                  "tools": {
-                    "type": "array",
-                    "items": { "type": "string" },
-                    "description": "可选：从当前可用的工具中挑选子集（需排除 dynamic_subagent / load_subagent 等 subagent 相关工具，防递归）。缺省 = 继承过滤后的全部主工具；传 [] = 无工具。"
                   }
                 },
                 "required": ["role", "task"],
@@ -99,13 +93,9 @@ internal class DynamicSubagentTool : Tool {
             if (a.role.isEmpty()) return ToolExecutionResult.error("subagents[$i].role is required")
             if (a.task.isEmpty()) return ToolExecutionResult.error("subagents[$i].task is required")
         }
-        val mainTools by lazy { context.agentContext.tools.associateBy { it.name } }
         val pairs = supervisorScope {
             subagents.mapIndexed { index, arg ->
-                async {
-                    val tools = arg.tools?.let { resolveTools(it, mainTools) }
-                    arg to runOne(index, arg, tools, context.agentContext)
-                }
+                async { arg to runOne(index, arg, context.agentContext) }
             }.awaitAll()
         }
         val hasError = pairs.any { it.second.isError }
@@ -123,7 +113,6 @@ internal class DynamicSubagentTool : Tool {
     private suspend fun runOne(
         index: Int,
         args: DynamicSubagentArgs,
-        tools: List<Tool>?,
         agentContext: AgentContext,
     ): ToolExecutionResult {
         return try {
@@ -131,7 +120,6 @@ internal class DynamicSubagentTool : Tool {
                 name = "dynamic_$index",
                 description = "dynamic ${args.task}",
                 instruction = args.role,
-                tools = tools,
             ).run(SubagentTask(args.task, args.context), SubagentContext(agentContext))
             ToolExecutionResult.success(result)
         } catch (e: Exception) {
@@ -140,36 +128,11 @@ internal class DynamicSubagentTool : Tool {
         }
     }
 
-    /**
-     * 解析 LLM 为子代理按名挑选的工具集，并补齐 loader 的配套 delegate。
-     *
-     * loader 工具（`search_tool` / `load_lazy_tool` / `load_toolset` 等）负责发现/激活目标，执行
-     * 落在配套的 [io.github.yeyi.agent.tool.DelegateTool]（`dynamic_tool_caller` / `member_tool_delegate`）。
-     * LLM 按名挑选时只会挑中 loader（delegate 描述为空不会被选中），若不同时补上 delegate，
-     * 子代理会陷入「查到工具却调不了」的死角 —— 配对关系声明在 delegate 的
-     * [io.github.yeyi.agent.tool.DelegateTool.loaderToolNames] 上，故按选中名反查。
-     *
-     * 例外：`load_skill` —— skill 是寄托于主 agent 的指令文本，可能引用任意主工具，
-     * 无法静态圈定依赖，选中它时直接放开全部主工具（subagent 类工具仍由
-     * [Subagent.run] 过滤防递归，不受影响）。
-     */
-    private fun resolveTools(names: List<String>, mainTools: Map<String, Tool>): List<Tool> {
-        val selected = names.mapNotNull { mainTools[it] }
-        if (selected.any { it.name == "load_skill" }) return mainTools.values.toList()
-        return selected
-            .flatMap { tool ->
-                val delegate = mainTools.values
-                    .firstOrNull { it is DelegateTool && tool.name in it.loaderToolNames }
-                listOfNotNull(tool, delegate)
-            }.distinct()
-    }
-
     @Serializable
     private data class DynamicSubagentArgs(
         val role: String,
         val context: String? = null,
         val task: String,
-        val tools: List<String>? = null,
     )
 }
 
@@ -177,7 +140,11 @@ internal class DynamicSubagentTool : Tool {
  * 将静态 Subagent 注册表与可选的动态 Subagent 工具注册到 Agent。
  *
  * 静态部分（[registry] 非 null）通过 [io.github.yeyi.agent.capability.CapabilityAdapter] 注入；动态部分（[dynamic] = true）注册
- * `dynamic_subagent` 工具，允许 LLM 在调用时按 role/context/task/tools 并发派生临时子代理。
+ * `dynamic_subagent` 工具，允许 LLM 在调用时按 role/context/task 并发派生临时子代理。
+ *
+ * 动态子代理恒定继承主代理的全部工具（subagent 类工具由 [Subagent.run] 过滤防递归），
+ * 不做按名挑选 —— 工具治理手段（`load_toolset` / `load_lazy_tool` / `load_skill` 等 loader）
+ * 背后藏着大量成员工具，且 skill 的依赖无法静态圈定，挑错即无法纠正。
  *
  * @param dynamic true 注册 `dynamic_subagent` 工具，false 不注册
  * @param registry 静态 Subagent 注册中心；为 null 时跳过静态注册（仅注册动态）

@@ -238,7 +238,6 @@ class ApprovalHookTest {
     ) : Tool, DelegateTool {
         override val description: String = "delegate"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
-        override val loaderToolNames: Set<String> = emptySet()
 
         override fun resolveTarget(arguments: JsonElement): DelegateTarget {
             val obj = arguments as? JsonObject
