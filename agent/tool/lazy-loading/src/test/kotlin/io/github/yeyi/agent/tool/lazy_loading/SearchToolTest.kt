@@ -16,9 +16,10 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -72,7 +73,7 @@ class SearchToolTest {
         val searchTool = SearchTool(registry)
 
         val result = searchTool.execute(
-            arguments = buildJsonObject { put("query", "我想查天气和地图") },
+            arguments = buildJsonObject { put("queries", buildJsonArray { add(JsonPrimitive("我想查天气和地图")) }) },
             context = createStubContext(llmProvider)
         )
 
@@ -84,7 +85,7 @@ class SearchToolTest {
     }
 
     @Test
-    fun `search_tool returns empty when LLM finds no match`() = runTest {
+    fun `search_tool returns no-tool message when LLM finds no match`() = runTest {
         val registry = LazyToolRegistry()
         registry.register(LazyTool(FixedTool("weather", "天气查询")))
 
@@ -92,13 +93,52 @@ class SearchToolTest {
         val searchTool = SearchTool(registry)
 
         val result = searchTool.execute(
-            arguments = buildJsonObject { put("query", "不相关的查询") },
+            arguments = buildJsonObject { put("queries", buildJsonArray { add(JsonPrimitive("不相关的查询")) }) },
             context = createStubContext(llmProvider)
         )
 
         assertEquals(false, result.isError)
         val text = result.parts.text
-        assertTrue(text.contains("查询到以下工具"), "should indicate search happened: $text")
+        assertTrue(text.contains("未找到"), "should indicate no tools found: $text")
+    }
+
+    @Test
+    fun `search_tool batches multiple queries into one LLM call`() = runTest {
+        val registry = LazyToolRegistry()
+        registry.register(LazyTool(FixedTool("weather", "天气查询")))
+        registry.register(LazyTool(FixedTool("news", "新闻查询")))
+        registry.register(LazyTool(FixedTool("map", "地图导航")))
+
+        var llmCalls = 0
+        var receivedMessage = ""
+        val llmProvider = object : LlmProvider {
+            override val name: String = "fake"
+            override suspend fun chat(request: ChatRequest): ChatResponse {
+                llmCalls++
+                receivedMessage = (request.messages.last() as ChatMessage.User).parts
+                    .filterIsInstance<ContentPart.Text>().joinToString { it.text }
+                return ChatResponse(
+                    message = ChatMessage.Assistant(content = """{"matched_tools": ["weather", "news"]}""", toolCalls = emptyList()),
+                    usage = null,
+                    finishReason = FinishReason.Stop,
+                )
+            }
+            override fun chatStream(request: ChatRequest) = error("not implemented")
+        }
+        val searchTool = SearchTool(registry)
+
+        val result = searchTool.execute(
+            arguments = buildJsonObject { put("queries", buildJsonArray { add(JsonPrimitive("查天气")); add(JsonPrimitive("搜新闻")) }) },
+            context = createStubContext(llmProvider)
+        )
+
+        assertEquals(false, result.isError)
+        assertEquals(1, llmCalls, "multiple queries should be searched in a single LLM call")
+        assertTrue(receivedMessage.contains("查天气"), "user message should include first query: $receivedMessage")
+        assertTrue(receivedMessage.contains("搜新闻"), "user message should include second query: $receivedMessage")
+        val text = result.parts.text
+        assertTrue(text.contains("weather"), "should contain weather: $text")
+        assertTrue(text.contains("news"), "should contain news: $text")
     }
 
     @Test
@@ -112,7 +152,7 @@ class SearchToolTest {
         var threw = false
         try {
             searchTool.execute(
-                arguments = buildJsonObject { put("query", "天气") },
+                arguments = buildJsonObject { put("queries", buildJsonArray { add(JsonPrimitive("天气")) }) },
                 context = createStubContext(llmProvider)
             )
         } catch (e: IllegalStateException) {
@@ -137,7 +177,7 @@ class SearchToolTest {
     }
 
     @Test
-    fun `search_tool throws on missing query`() = runTest {
+    fun `search_tool throws on missing queries`() = runTest {
         val registry = LazyToolRegistry()
         val llmProvider = fakeLlmProvider("{}")
         val searchTool = SearchTool(registry)
@@ -150,8 +190,8 @@ class SearchToolTest {
             )
         } catch (e: IllegalStateException) {
             threw = true
-            assertTrue(e.message!!.contains("Missing query"))
+            assertTrue(e.message!!.contains("Missing queries"))
         }
-        assertTrue(threw, "should throw IllegalStateException on missing query")
+        assertTrue(threw, "should throw IllegalStateException on missing queries")
     }
 }

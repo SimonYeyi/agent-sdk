@@ -192,22 +192,25 @@ internal class SearchTool(private val registry: LazyToolRegistry) : Tool {
         {
             "type": "object",
             "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "指代消解后的明确的、清晰的用户指令"
+                "queries": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "指代消解后的明确的、清晰的任务指令列表，可一次传入多个互不相关的查询，一次性搜索所有可用工具"
                 }
             },
-            "required": ["query"]
+            "required": ["queries"]
         }
         """.trimIndent()
     )
 
     override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         // TODO: Use model-based semantic search instead of keyword match
-        val query = arguments.jsonObject["query"]?.jsonPrimitive?.content ?: ""
-        val results = registry.all().filter {
-            it.description.contains(query, ignoreCase = true) ||
-                it.name.contains(query, ignoreCase = true)
+        val queries = arguments.jsonObject["queries"]?.jsonArray?.mapNotNull { it.jsonPrimitive.contentOrNull } ?: emptyList()
+        val results = registry.all().filter { lazyTool ->
+            queries.any {
+                lazyTool.description.contains(it, ignoreCase = true) ||
+                    lazyTool.name.contains(it, ignoreCase = true)
+            }
         }
         val definitions = results.joinToString("\n") { it.tool.toDefinition().toString() }
         val text = "search_tool 返回以下工具（通过 dynamic_tool_caller 调用）:\n$definitions"
@@ -258,7 +261,7 @@ agent {
 
 ### TOOL level
 
-1. LLM 调用 `search_tool`，传入 `{"query": "指代消解后的用户指令"}`
+1. LLM 调用 `search_tool`，传入 `{"queries": ["指代消解后的用户指令1", "指代消解后的用户指令2"]}`（可一次传多个查询，单次搜索返回全部相关工具）
 2. `SearchTool.execute()` 返回匹配的工具列表：
    ```
    search_tool 返回以下工具（通过 dynamic_tool_caller 调用）:
