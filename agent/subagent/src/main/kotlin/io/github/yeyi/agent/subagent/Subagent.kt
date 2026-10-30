@@ -42,10 +42,10 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
         val memory = memory ?: InMemoryMemory()
         val resolvedTools = (tools ?: context.agentContext.tools)
             .filter { !it.name.contains(CAPABILITY_TYPE) }
-        val instruction = load() + "\n\n" + "要求：只需客观报告结果，无需客套或提出建议。"
+        val instruction = load()
 
         val sub = agent {
-            persona(Persona(instruction))
+            persona(Persona(instruction).personality("寡言少语"))
             llmProvider(context.agentContext.llmProvider)
             memory(memory, context.agentContext.maxRounds)
             maxIterations(maxIterations ?: context.agentContext.maxIterations)
