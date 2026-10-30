@@ -14,6 +14,8 @@ import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.tool.DelegateTarget
+import io.github.yeyi.agent.tool.DelegateTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -85,6 +87,17 @@ class DynamicSubagentTest {
         override val name: String get() = toolName
         override val description: String = "stub $toolName"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
+        override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
+            ToolExecutionResult.success("")
+    }
+
+    private class StubDelegateTool(
+        override val name: String,
+        override val loaderToolNames: Set<String>,
+    ) : Tool, DelegateTool {
+        override val description: String = "stub delegate $name"
+        override val parametersSchema: ToolParameters = ToolParameters.Empty
+        override fun resolveTarget(arguments: JsonElement): DelegateTarget = error("not implemented")
         override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
             ToolExecutionResult.success("")
     }
@@ -376,6 +389,89 @@ class DynamicSubagentTest {
         }
         tool.execute(args, ctx)
         assertTrue(mainMemory.history().isEmpty(), "main agent memory must remain untouched")
+    }
+
+    // ---------- 动态子代理按名挑选工具：补齐 loader 的配套 delegate ----------
+
+    private suspend fun runWithSelectedTools(
+        mainTools: List<Tool>,
+        selected: List<String>,
+    ): Set<String> {
+        val llm = StubLlmProvider(listOf(chatResponse("ok")))
+        val tool = DynamicSubagentTool()
+        val ctx = toolCtx(stubAgentContext(llm, tools = mainTools))
+        val args = buildJsonObject {
+            put("subagents", buildJsonArray {
+                add(buildJsonObject {
+                    put("role", "p")
+                    put("task", "t")
+                    put("tools", buildJsonArray { selected.forEach { add(JsonPrimitive(it)) } })
+                })
+            })
+        }
+        tool.execute(args, ctx)
+        return llm.chatRequests.single().tools.map { it.name }.toSet()
+    }
+
+    @Test
+    fun `selected loader gets its paired delegate injected`() = runTest {
+        val searchTool = StubTool("search_tool")
+        val delegate = StubDelegateTool("dynamic_tool_caller", loaderToolNames = setOf("search_tool"))
+
+        val visible = runWithSelectedTools(listOf(searchTool, delegate), listOf("search_tool"))
+
+        assertEquals(setOf("search_tool", "dynamic_tool_caller"), visible)
+    }
+
+    @Test
+    fun `shared delegate is injected only once for multiple loaders`() = runTest {
+        val searchTool = StubTool("search_tool")
+        val loadLazyTool = StubTool("load_lazy_tool")
+        val delegate = StubDelegateTool("dynamic_tool_caller", loaderToolNames = setOf("search_tool", "load_lazy_tool"))
+
+        val visible = runWithSelectedTools(
+            listOf(searchTool, loadLazyTool, delegate),
+            listOf("search_tool", "load_lazy_tool"),
+        )
+
+        assertEquals(setOf("search_tool", "load_lazy_tool", "dynamic_tool_caller"), visible)
+    }
+
+    @Test
+    fun `loader without paired delegate is kept as-is`() = runTest {
+        val plain = StubTool("search_tool")
+
+        val visible = runWithSelectedTools(listOf(plain), listOf("search_tool"))
+
+        assertEquals(setOf("search_tool"), visible)
+    }
+
+    @Test
+    fun `plain selected tool is not paired with anything`() = runTest {
+        val plain = StubTool("read_file")
+
+        val visible = runWithSelectedTools(listOf(plain, StubTool("write_file")), listOf("read_file"))
+
+        assertEquals(setOf("read_file"), visible)
+    }
+
+    @Test
+    fun `duplicate selected loader does not duplicate tools`() = runTest {
+        val searchTool = StubTool("search_tool")
+        val delegate = StubDelegateTool("dynamic_tool_caller", loaderToolNames = setOf("search_tool"))
+
+        val visible = runWithSelectedTools(listOf(searchTool, delegate), listOf("search_tool", "search_tool"))
+
+        assertEquals(setOf("search_tool", "dynamic_tool_caller"), visible)
+    }
+
+    @Test
+    fun `names not present in main tools are ignored`() = runTest {
+        val plain = StubTool("read_file")
+
+        val visible = runWithSelectedTools(listOf(plain), listOf("read_file", "nonexistent"))
+
+        assertEquals(setOf("read_file"), visible)
     }
 
     @Test

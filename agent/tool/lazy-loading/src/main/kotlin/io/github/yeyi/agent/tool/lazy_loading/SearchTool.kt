@@ -20,7 +20,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * 搜索工具，返回匹配的工具列表供 LLM 选择。
  */
 internal class SearchTool(private val registry: LazyToolRegistry) : Tool {
-    override val name: String = "search_tool"
+    override val name: String = NAME
 
     override val description: String =
         "当没有合适的工具处理用户请求时，使用本工具查询更多可用工具。" +
@@ -103,5 +103,9 @@ internal class SearchTool(private val registry: LazyToolRegistry) : Tool {
         val json = Json.parseToJsonElement(content!!).jsonObject
         val array = json["matched_tools"]?.jsonArray!!
         return array.map { it.jsonPrimitive.content }
+    }
+
+    internal companion object {
+        const val NAME = "search_tool"
     }
 }

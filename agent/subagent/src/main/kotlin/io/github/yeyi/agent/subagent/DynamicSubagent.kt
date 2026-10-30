@@ -5,6 +5,7 @@ import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentPlugin
 import io.github.yeyi.agent.AgentPluginContext
 import io.github.yeyi.agent.llm.ContentPart
+import io.github.yeyi.agent.tool.DelegateTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -98,11 +99,11 @@ internal class DynamicSubagentTool : Tool {
             if (a.role.isEmpty()) return ToolExecutionResult.error("subagents[$i].role is required")
             if (a.task.isEmpty()) return ToolExecutionResult.error("subagents[$i].task is required")
         }
-        val mainTools = context.agentContext.tools.associateBy { it.name }
+        val mainTools by lazy { context.agentContext.tools.associateBy { it.name } }
         val pairs = supervisorScope {
             subagents.mapIndexed { index, arg ->
                 async {
-                    val tools = arg.tools?.mapNotNull { mainTools[it] }
+                    val tools = arg.tools?.let { resolveTools(it, mainTools) }
                     arg to runOne(index, arg, tools, context.agentContext)
                 }
             }.awaitAll()
@@ -137,6 +138,24 @@ internal class DynamicSubagentTool : Tool {
             log.warn("dynamic subagent execute failed: task=${args.task}", e)
             ToolExecutionResult.error(e.message ?: "<no message>")
         }
+    }
+
+    /**
+     * 解析 LLM 为子代理按名挑选的工具集，并补齐 loader 的配套 delegate。
+     *
+     * loader 工具（`search_tool` / `load_lazy_tool` / `load_toolset` 等）负责发现/激活目标，执行
+     * 落在配套的 [io.github.yeyi.agent.tool.DelegateTool]（`dynamic_tool_caller` / `member_tool_delegate`）。
+     * LLM 按名挑选时只会挑中 loader（delegate 描述为空不会被选中），若不同时补上 delegate，
+     * 子代理会陷入「查到工具却调不了」的死角 —— 配对关系声明在 delegate 的
+     * [io.github.yeyi.agent.tool.DelegateTool.loaderToolNames] 上，故按选中名反查。
+     */
+    private fun resolveTools(names: List<String>, mainTools: Map<String, Tool>): List<Tool> {
+        return names.mapNotNull { mainTools[it] }
+            .flatMap { tool ->
+                val delegate = mainTools.values
+                    .firstOrNull { it is DelegateTool && tool.name in it.loaderToolNames }
+                listOfNotNull(tool, delegate)
+            }.distinct()
     }
 
     @Serializable

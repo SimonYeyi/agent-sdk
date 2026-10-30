@@ -16,9 +16,18 @@ import kotlinx.serialization.json.JsonElement
  * 解析失败（参数缺失、目标不存在等）应抛异常，而非返回 null —— 委托工具的
  * [resolveTarget] 与 [Tool.execute] 共享同一套解析逻辑，解析失败即调用失败。
  *
+ * [loaderToolNames] 声明本委托工具配套的 loader 工具名 —— 这些 loader 负责「发现 /
+ * 激活」目标，执行则经由本工具落地。当按名挑选工具（如子代理继承）时，凭此把
+ * loader 与委托工具成对补齐，避免只选了 loader 而无法执行。
+ *
  * @see DelegateTarget
  */
 public interface DelegateTool {
+
+    /**
+     * 本委托工具配套的 loader 工具名列表（如 `search_tool` / `load_toolset`）。
+     */
+    public val loaderToolNames: Set<String>
 
     /**
      * 解析本次委托调用的目标 [Tool] 及其参数。

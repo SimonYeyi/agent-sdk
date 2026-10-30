@@ -23,6 +23,8 @@ internal class MemberToolDelegate(private val registry: ToolsetRegistry) : Tool,
 
     override val description: String = ""
 
+    override val loaderToolNames: Set<String> = setOf("load_${Toolset.CAPABILITY_TYPE}")
+
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """
         {
