@@ -12,7 +12,7 @@ package io.github.yeyi.agent
  * - [extra]：自由扩展（其他未尽内容）
  *
  * 渲染格式（[toString] 按上述顺序拼接为 system prompt 多段文本）：
- * - [role]：直接输出
+ * - [role]：直接输出（空白 role 视为无内容，跳过该段）
  * - 其余部分均以 label 作为标签名包裹：`<label>\n<content>\n</label>`（非列表态单值标签内联为 `<label><content></label>`）
  * - [personality]：内置 label `personality`，内联单行渲染
  * - [knowledge]：内置 label `knowledge`，每项渲染为 `<item>...</item>`
@@ -61,7 +61,7 @@ public class Persona(public val role: String) {
 
     override fun toString(): String {
         val sections = mutableListOf<String>()
-        sections += role
+        if (role.isNotBlank()) sections += role
         personality?.let { sections += section("personality", it, inline = true) }
         if (knowledge.isNotEmpty()) {
             sections += section("knowledge", items(knowledge))

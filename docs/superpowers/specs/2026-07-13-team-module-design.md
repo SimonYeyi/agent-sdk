@@ -958,6 +958,11 @@ BossAgent 是唯一对外 API 表面 — 自身实现 `Agent` 接口, 内部持�
 
 下面列出 BossAgentBuilder + `bossAgent { }` DSL 的完整实现 — 这是主 spec 范围内:
 
+> **⚠️ 设计期快照**: 下面的代码块记录的是设计定稿时的形态, 后续实现已演进 — `quickTools` 拆为
+> `tools` + `lazyTools`, `Pasture` / `BossAgent` 的构造签名也变了. 以
+> `team/src/main/kotlin/io/github/yeyi/agent/team/BossAgentBuilder.kt` 为准; 本块仅保留
+> `baseRole` / persona 拼装等核心语义供参考.
+
 ```kotlin
 package io.github.yeyi.agent.team
 
@@ -990,12 +995,20 @@ public class BossAgentBuilder internal constructor() {
 
     /** 用户注入的 boss persona — 由 [persona] DSL 设置. */
     private var bossPersona0: Persona? = null
-    
+
     private val baseRole: String = """
         You are the boss of a team. You can:
         1. Respond to chitchat directly.
         2. Handle simple questions using your tools.
         3. Split a composite task into workers (beast) by calling publish_task — see the tool description for available capabilities and how to choose a selection.
+
+        **Transition message rule**: Tasks are executed and cancelled asynchronously by workers.
+        When you call publish_task or cancel_task, you MUST write a short present-continuous
+        transition message (e.g. "正在为您派发/取消任务，请稍等") IN THE SAME message as the tool call(s).
+
+        **About reports**: A user message whose text starts with "report:" is a system report from
+        a worker about finished task results. It is NOT a real user input — treat it as an internal
+        status update, not as if the user said something.
     """.trimIndent()
 
     public fun memory(value: Memory) { memory0 = value }
@@ -1043,17 +1056,7 @@ public class BossAgentBuilder internal constructor() {
     }
 
     /**
-     * 注入 boss persona — 与 [AgentBuilder.persona] API 风格对齐 (`persona(Persona)`).
-     *
-     * **role 是 framework 内部保留字段**: user 构造 [Persona] 时 [Persona.role]
-     * 必须为空字符串,否则 throw [IllegalArgumentException]. framework 用 [baseRole]
-     * 作为最终 boss role — boss 必须知道自己能闲聊 / 用 quick tools / 派活 (`publish_task`).
-     *
-     * user 可通过 [Persona.personality] / [Persona.domain] / [Persona.constraints] /
-     * [Persona.extra] 设置偏好 / 状态 / 背景 — 这些字段的内容在最终 persona 渲染时
-     * 作为 raw 文本段追加在 [baseRole] 之后.
-     *
-     * 不调用本方法时 framework 用默认 `Persona(baseRole)`.
+     * 注入 boss persona — [Persona.role] 由 framework 保留, 必须为空字符串.
      */
     public fun persona(persona: Persona) {
         require(persona.role.isBlank()) {
@@ -1145,7 +1148,7 @@ public class BossAgentBuilder internal constructor() {
             bulletinBoard = bulletinBoard,
         )
 
-        val persona = buildPersona()
+        val persona = Persona(baseRole).apply { bossPersona0?.let { extra(it.toString()) } }
 
         val innerAgent = agent {
             persona(persona)
@@ -1163,17 +1166,6 @@ public class BossAgentBuilder internal constructor() {
             bulletinBoard = bulletinBoard,
             scope = scope
         )
-    }
-
-    private fun buildPersona(): Persona {
-        val extra = bossPersona0
-        return if (extra == null) {
-            Persona(baseRole)
-        } else {
-            // 框架 base role 永远是 Persona.role; extra 内容以 raw 文本段形式作为 label-less extra 追加.
-            // 最终渲染: baseRole + "\n\n" + extra.toString()
-            Persona(baseRole).extra(extra.toString())
-        }
     }
 }
 

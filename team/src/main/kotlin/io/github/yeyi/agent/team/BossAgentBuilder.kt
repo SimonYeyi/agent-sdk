@@ -49,10 +49,13 @@ public class BossAgentBuilder internal constructor() {
         status update, not as if the user said something.
     """.trimIndent()
 
+    /**
+     * 注入 boss persona — [Persona.role] 由 framework 保留, 必须为空字符串.
+     */
     public fun persona(persona: Persona) {
         require(persona.role.isBlank()) {
             "Persona.role is reserved by the BossAgent framework — must be blank. " +
-                    "Use personality / knowledge / instructions / extra to customize agent persona."
+                    "Use personality / knowledge / capabilities / instructions / extra to customize agent persona."
         }
         bossPersona0 = persona
     }
@@ -168,7 +171,8 @@ public class BossAgentBuilder internal constructor() {
             lazyToolRegistry0?.let { reg ->
                 put(
                     Selection.Type.Tool.value,
-                    reg.all().map { NamedCapability(it.name, it.description) })
+                    reg.all().map { NamedCapability(it.name, it.description) }
+                )
             }
             toolsetRegistry0?.let { reg ->
                 put(

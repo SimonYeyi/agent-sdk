@@ -2281,6 +2281,10 @@ git commit -m "feat(team): BossAgent 状态机 + 双事件流实现"
 
 - [ ] **Step 1: 实现 BossAgentBuilder + DSL**
 
+> **⚠️ 设计期快照**: 下面的代码块记录的是设计定稿时的形态, 后续实现已演进 — `quickTools` 拆为
+> `tools` + `lazyTools`, `Pasture` / `BossAgent` 的构造签名也变了. 以
+> `team/src/main/kotlin/io/github/yeyi/agent/team/BossAgentBuilder.kt` 为准.
+
 ```kotlin
 package io.github.yeyi.agent.team
 
@@ -2316,6 +2320,14 @@ public class BossAgentBuilder internal constructor() {
         1. Respond to chitchat directly.
         2. Handle simple questions using your tools.
         3. Split a composite task into workers (beast) by calling publish_task — see the tool description for available capabilities and how to choose a selection.
+
+        **Transition message rule**: Tasks are executed and cancelled asynchronously by workers.
+        When you call publish_task or cancel_task, you MUST write a short present-continuous
+        transition message (e.g. "正在为您派发/取消任务，请稍等") IN THE SAME message as the tool call(s).
+
+        **About reports**: A user message whose text starts with "report:" is a system report from
+        a worker about finished task results. It is NOT a real user input — treat it as an internal
+        status update, not as if the user said something.
     """.trimIndent()
 
     public fun memory(value: Memory) { memory0 = value }
@@ -2406,7 +2418,7 @@ public class BossAgentBuilder internal constructor() {
 
         val publishTask = PublishTaskTool(bulletinBoard, capabilitiesByType)
         val cancelTask = CancelTaskTool(bulletinBoard)
-        val persona = buildPersona()
+        val persona = Persona(baseRole).apply { bossPersona0?.let { extra(it.toString()) } }
 
         val innerAgent = agent {
             persona(persona)
@@ -2419,15 +2431,6 @@ public class BossAgentBuilder internal constructor() {
         }
 
         return BossAgent(innerAgent, bulletinBoard, scope)
-    }
-
-    private fun buildPersona(): Persona {
-        val extra = bossPersona0
-        return if (extra == null) {
-            Persona(baseRole)
-        } else {
-            Persona(baseRole).extra(extra.toString())
-        }
     }
 }
 

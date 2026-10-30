@@ -162,6 +162,12 @@ class PersonaTest {
     }
 
     @Test
+    fun `blank role is skipped without leading blank line`() {
+        val persona = Persona("").personality("Friendly")
+        assertEquals("<personality>Friendly</personality>", persona.toString())
+    }
+
+    @Test
     fun `full combination renders in fixed order`() {
         val persona = Persona("你是一个 helpful 助手，优先使用工具完成任务。")
             .personality("Friendly and concise.")
