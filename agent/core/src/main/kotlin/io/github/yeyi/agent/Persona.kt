@@ -13,8 +13,8 @@ package io.github.yeyi.agent
  *
  * 渲染格式（[toString] 按上述顺序拼接为 system prompt 多段文本）：
  * - [role]：直接输出
- * - 其余部分均以 label 作为标签名包裹：`<label>\n<content>\n</label>`
- * - [personality]：内置 label `personality`
+ * - 其余部分均以 label 作为标签名包裹：`<label>\n<content>\n</label>`（非列表态单值标签内联为 `<label><content></label>`）
+ * - [personality]：内置 label `personality`，内联单行渲染
  * - [knowledge]：内置 label `knowledge`，每项渲染为 `<item>...</item>`
  * - [capabilities]：内置 label `capabilities`，每项渲染为 `<item>...</item>`
  * - [instructions]：内置 label `instructions`，每项渲染为 `<item>...</item>`
@@ -62,7 +62,7 @@ public class Persona(public val role: String) {
     override fun toString(): String {
         val sections = mutableListOf<String>()
         sections += role
-        personality?.let { sections += section("personality", it) }
+        personality?.let { sections += section("personality", it, inline = true) }
         if (knowledge.isNotEmpty()) {
             sections += section("knowledge", items(knowledge))
         }
@@ -78,7 +78,9 @@ public class Persona(public val role: String) {
         return sections.joinToString("\n\n")
     }
 
-    private fun section(label: String, content: String): String = "<$label>\n$content\n</$label>"
+    /** [inline] 为 true 时标签与内容同行（适用于非列表态的单值标签，如 personality）。 */
+    private fun section(label: String, content: String, inline: Boolean = false): String =
+        with(if (inline) "" else "\n") { "<$label>$this$content$this</$label>" }
 
     private fun items(contents: List<String>): String =
         contents.joinToString("\n") { "<item>$it</item>" }

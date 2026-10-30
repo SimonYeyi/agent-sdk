@@ -13,9 +13,9 @@ class PersonaTest {
     }
 
     @Test
-    fun `personality section renders as tagged block`() {
+    fun `personality section renders as inline tagged block`() {
         val persona = Persona("role").personality("Friendly")
-        assertEquals("role\n\n<personality>\nFriendly\n</personality>", persona.toString())
+        assertEquals("role\n\n<personality>Friendly</personality>", persona.toString())
     }
 
     @Test
@@ -120,7 +120,7 @@ class PersonaTest {
     @Test
     fun `personality repeated call overrides previous`() {
         val persona = Persona("role").personality("Friendly").personality("Polite")
-        assertEquals("role\n\n<personality>\nPolite\n</personality>", persona.toString())
+        assertEquals("role\n\n<personality>Polite</personality>", persona.toString())
     }
 
     @Test
@@ -173,9 +173,7 @@ class PersonaTest {
         val expected = """
             你是一个 helpful 助手，优先使用工具完成任务。
 
-            <personality>
-            Friendly and concise.
-            </personality>
+            <personality>Friendly and concise.</personality>
 
             <knowledge>
             <item>公司产品支持中文和英文。</item>
