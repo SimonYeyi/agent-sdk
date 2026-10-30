@@ -148,9 +148,15 @@ internal class DynamicSubagentTool : Tool {
      * LLM 按名挑选时只会挑中 loader（delegate 描述为空不会被选中），若不同时补上 delegate，
      * 子代理会陷入「查到工具却调不了」的死角 —— 配对关系声明在 delegate 的
      * [io.github.yeyi.agent.tool.DelegateTool.loaderToolNames] 上，故按选中名反查。
+     *
+     * 例外：`load_skill` —— skill 是寄托于主 agent 的指令文本，可能引用任意主工具，
+     * 无法静态圈定依赖，选中它时直接放开全部主工具（subagent 类工具仍由
+     * [Subagent.run] 过滤防递归，不受影响）。
      */
     private fun resolveTools(names: List<String>, mainTools: Map<String, Tool>): List<Tool> {
-        return names.mapNotNull { mainTools[it] }
+        val selected = names.mapNotNull { mainTools[it] }
+        if (selected.any { it.name == "load_skill" }) return mainTools.values.toList()
+        return selected
             .flatMap { tool ->
                 val delegate = mainTools.values
                     .firstOrNull { it is DelegateTool && tool.name in it.loaderToolNames }
