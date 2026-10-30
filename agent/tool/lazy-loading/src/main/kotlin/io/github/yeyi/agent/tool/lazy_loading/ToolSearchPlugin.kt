@@ -6,11 +6,11 @@ import io.github.yeyi.agent.AgentPluginContext
 /**
  * TOOL level 的 LazyTool 接线模板。
  *
- * 安装 [SearchTool] 和 [ToolCaller]。
+ * 安装 [SearchTool] 和 [DynamicToolCaller]。
  */
 internal class ToolSearchPlugin(
     private val registry: LazyToolRegistry,
-    private val toolCaller: ToolCaller,
+    private val dynamicToolCaller: DynamicToolCaller,
 ) : AgentPlugin<Unit> {
 
     override val id: String = "tool_search"
@@ -21,6 +21,6 @@ internal class ToolSearchPlugin(
 
     override fun install(context: AgentPluginContext) {
         context.registerTool(SearchTool(registry))
-        context.registerTool(toolCaller)
+        context.registerTool(dynamicToolCaller)
     }
 }

@@ -8,7 +8,7 @@ import io.github.yeyi.agent.tool.Tool
  * 延迟加载的工具封装，自身是一个 [Capability]。
  *
  * - 作为 [Capability] 由能力框架自动适配为 `load_lazy_tool`（委托模式）
- * - 实际工具调用通过 [ToolCaller] 统一代理
+ * - 实际工具调用通过 [DynamicToolCaller] 统一代理
  *
  * @see io.github.yeyi.agent.tool.lazy_loading.lazyTools DSL
  */
@@ -29,7 +29,7 @@ public interface LazyTool : Capability<Unit, SchemaLazyContext> {
         arguments: Unit?,
         context: SchemaLazyContext,
     ): String =
-        "LazyTool '${name}' 参数 schema：${tool.toDefinition().parametersSchema}（通过 tool_caller 调用）"
+        "LazyTool '${name}' 参数 schema：${tool.toDefinition().parametersSchema}（通过 ${DynamicToolCaller.NAME} 调用）"
 
     public companion object {
         /** 能力框架中的路由类型，生成工具名 `load_lazy_tool`、路由字段 `tool_name`。 */

@@ -9,7 +9,7 @@ LazyTool 是工具延迟加载的统一抽象，通过 `lazyTools(registry)` 入
 | `SCHEMA` | 延迟参数 schema，激活时返回工具的 schema | `SchemaLazyPlugin` |
 | `TOOL` | 延迟整个工具，按描述搜索发现工具后执行 | `ToolSearchPlugin` + `SearchTool` |
 
-两种模式共用 `LazyToolRegistry`，共用一个 `ToolCaller` 代理工具。
+两种模式共用 `LazyToolRegistry`，共用一个 `DynamicToolCaller` 代理工具。
 
 ## 架构图
 
@@ -31,7 +31,7 @@ LazyTool 是工具延迟加载的统一抽象，通过 `lazyTools(registry)` 入
 │  load_lazy_tool │     │  search_tool        │
 │                 │     │  SearchTool         │
 │                 │     │                     │
-│  tool_caller ───┼─────┼─── tool_caller      │
+│  dynamic_tool_caller ───┼─────┼─── dynamic_tool_caller      │
 │     (同一实例)   │     │   (同一实例)         │
 └─────────────────┘     └─────────────────────┘
 ```
@@ -65,13 +65,13 @@ public class LazyToolRegistry : CapabilityRegistry<LazyTool, Unit, LazyToolConte
     by DefaultCapabilityRegistry(LazyTool.CAPABILITY_TYPE)
 ```
 
-### ToolCaller
+### DynamicToolCaller
 
-代理执行工具，实现 Tool 接口。两个 plugin 共用同一个 ToolCaller 实例：
+代理执行工具，实现 Tool 接口。两个 plugin 共用同一个 DynamicToolCaller 实例：
 
 ```kotlin
-internal class ToolCaller(private val registry: LazyToolRegistry) : Tool, DelegateTool {
-    override val name: String = "tool_caller"
+internal class DynamicToolCaller(private val registry: LazyToolRegistry) : Tool, DelegateTool {
+    override val name: String = "dynamic_tool_caller"
 
     override val description: String = ""
 
@@ -123,7 +123,7 @@ public fun AgentBuilder.lazyTools(registry: LazyToolRegistry) {
     val schemaLazyTools = lazyTools.filter { it.level == LazyTool.Level.SCHEMA }
     val toolSearchTools = lazyTools.filter { it.level == LazyTool.Level.TOOL }
 
-    val toolCaller = ToolCaller(registry)  // 全量 registry
+    val toolCaller = DynamicToolCaller(registry)  // 全量 registry
 
     // SCHEMA level → 过滤后的 registry
     if (schemaLazyTools.isNotEmpty()) {
@@ -148,7 +148,7 @@ SCHEMA level 使用 CapabilityPlugin 架构：
 ```kotlin
 internal class SchemaLazyPlugin(
     registry: LazyToolRegistry,
-    private val toolCaller: ToolCaller,
+    private val toolCaller: DynamicToolCaller,
 ) : CapabilityPlugin<LazyTool, Unit, LazyToolContext>(registry, true) {
 
     override fun contextFactory(): LazyToolContextFactory = LazyToolContextFactory()
@@ -163,7 +163,7 @@ internal class SchemaLazyPlugin(
 ```kotlin
 internal class ToolSearchPlugin(
     private val registry: LazyToolRegistry,
-    private val toolCaller: ToolCaller,
+    private val toolCaller: DynamicToolCaller,
 ) : AgentPlugin<Unit> {
 
     override val id: String = "tool-search"
@@ -210,13 +210,13 @@ internal class SearchTool(private val registry: LazyToolRegistry) : Tool {
                 it.name.contains(query, ignoreCase = true)
         }
         val definitions = results.joinToString("\n") { it.tool.toDefinition().toString() }
-        val text = "search_tool 返回以下工具（通过 tool_caller 调用）:\n$definitions"
+        val text = "search_tool 返回以下工具（通过 dynamic_tool_caller 调用）:\n$definitions"
         return ToolExecutionResult.success(text)
     }
 }
 ```
 
-**注意**：两个 plugin 注册的 `tool_caller` 是同一个 ToolCaller 实例，ToolRegistry 允许同对象重复注册，不会冲突。
+**注意**：两个 plugin 注册的 `dynamic_tool_caller` 是同一个 DynamicToolCaller 实例，ToolRegistry 允许同对象重复注册，不会冲突。
 
 ## 文件清单
 
@@ -225,7 +225,7 @@ internal class SearchTool(private val registry: LazyToolRegistry) : Tool {
 | `LazyTool.kt` | 接口定义，包含 `Level` 枚举和工厂函数 |
 | `LazyToolRegistry.kt` | 注册中心，委托 `DefaultCapabilityRegistry` |
 | `SchemaLazyPlugin.kt` | SCHEMA level 的 Capability 插件 |
-| `ToolCaller.kt` | 代理执行工具，两个 plugin 共用同一实例 |
+| `DynamicToolCaller.kt` | 代理执行工具，两个 plugin 共用同一实例 |
 | `LazyToolContext.kt` | 上下文，空标记类 |
 | `LazyToolExtensions.kt` | `lazyTools` DSL 入口 |
 | `SearchTool.kt` | TOOL level 的搜索工具，返回匹配的工具列表 |
@@ -253,17 +253,17 @@ agent {
 
 1. LLM 调用 `load_lazy_tool`，传入 `{"name": "weather"}`
 2. `LazyTool.activate()` 返回工具的 schema 信息
-3. LLM 调用 `tool_caller`，传入 `{"tool_name": "weather", "arguments": {...}}`
-4. `ToolCaller` 执行实际工具
+3. LLM 调用 `dynamic_tool_caller`，传入 `{"tool_name": "weather", "arguments": {...}}`
+4. `DynamicToolCaller` 执行实际工具
 
 ### TOOL level
 
 1. LLM 调用 `search_tool`，传入 `{"query": "指代消解后的用户指令"}`
 2. `SearchTool.execute()` 返回匹配的工具列表：
    ```
-   search_tool 返回以下工具（通过 tool_caller 调用）:
+   search_tool 返回以下工具（通过 dynamic_tool_caller 调用）:
    {name=weather, description=天气查询, parameters_schema={...}}
    {name=news, description=新闻查询, parameters_schema={...}}
    ```
-3. LLM 根据返回结果选择工具，调用 `tool_caller`
-4. `ToolCaller` 执行实际工具
+3. LLM 根据返回结果选择工具，调用 `dynamic_tool_caller`
+4. `DynamicToolCaller` 执行实际工具

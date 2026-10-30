@@ -24,7 +24,7 @@ class SchemaLazyPluginTest {
         registry.register(LazyTool(FixedTool("weather", "天气查询")))
         registry.register(LazyTool(FixedTool("news", "新闻查询")))
 
-        val toolCaller = ToolCaller(registry)
+        val dynamicToolCaller = DynamicToolCaller(registry)
 
         var installedTools: List<Tool> = emptyList()
         val context = object : AgentPluginContext {
@@ -34,13 +34,13 @@ class SchemaLazyPluginTest {
             override fun appendInstructions(content: String) {}
         }
 
-        val plugin = SchemaLazyPlugin(registry, toolCaller)
+        val plugin = SchemaLazyPlugin(registry, dynamicToolCaller)
         plugin.install(context)
 
         val toolNames = installedTools.map { it.name }
         assertEquals(2, toolNames.size, "Expected 2 tools but got: $toolNames")
         assertTrue("load_lazy_tool" in toolNames, "load_lazy_tool not found in $toolNames")
-        assertTrue("tool_caller" in toolNames, "tool_caller not found in $toolNames")
+        assertTrue(DynamicToolCaller.NAME in toolNames, "tool_caller not found in $toolNames")
     }
 
     @Test
@@ -49,7 +49,7 @@ class SchemaLazyPluginTest {
         registry.register(LazyTool(FixedTool("weather", "天气查询")))
         registry.register(LazyTool(FixedTool("news", "新闻查询")))
 
-        val toolCaller = ToolCaller(registry)
+        val dynamicToolCaller = DynamicToolCaller(registry)
 
         var installedTools: List<Tool> = emptyList()
         val context = object : AgentPluginContext {
@@ -59,7 +59,7 @@ class SchemaLazyPluginTest {
             override fun appendInstructions(content: String) {}
         }
 
-        val plugin = SchemaLazyPlugin(registry, toolCaller)
+        val plugin = SchemaLazyPlugin(registry, dynamicToolCaller)
         plugin.install(context)
 
         val loadTool = installedTools.find { it.name == "load_lazy_tool" }!!

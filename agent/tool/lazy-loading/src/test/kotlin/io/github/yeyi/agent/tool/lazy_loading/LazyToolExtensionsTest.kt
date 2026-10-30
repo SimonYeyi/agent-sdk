@@ -37,13 +37,13 @@ class LazyToolExtensionsTest {
         registry.register(LazyTool(FixedTool("weather", "天气查询"), LazyTool.Level.SCHEMA))
         registry.register(LazyTool(FixedTool("news", "新闻查询"), LazyTool.Level.SCHEMA))
 
-        val toolCaller = ToolCaller(registry)
-        val plugin = SchemaLazyPlugin(registry, toolCaller)
+        val dynamicToolCaller = DynamicToolCaller(registry)
+        val plugin = SchemaLazyPlugin(registry, dynamicToolCaller)
         plugin.install(mockPluginContext)
 
         val toolNames = mockPluginContext.getInstalledTools().map { it.name }
         assertTrue("load_lazy_tool" in toolNames, "load_lazy_tool should be installed")
-        assertTrue("tool_caller" in toolNames, "tool_caller should be installed")
+        assertTrue(DynamicToolCaller.NAME in toolNames, "tool_caller should be installed")
     }
 
     @Test
@@ -52,13 +52,13 @@ class LazyToolExtensionsTest {
         registry.register(LazyTool(FixedTool("weather", "天气查询"), LazyTool.Level.TOOL))
         registry.register(LazyTool(FixedTool("news", "新闻查询"), LazyTool.Level.TOOL))
 
-        val toolCaller = ToolCaller(registry)
-        val plugin = ToolSearchPlugin(registry, toolCaller)
+        val dynamicToolCaller = DynamicToolCaller(registry)
+        val plugin = ToolSearchPlugin(registry, dynamicToolCaller)
         plugin.install(mockPluginContext)
 
         val toolNames = mockPluginContext.getInstalledTools().map { it.name }
         assertTrue("search_tool" in toolNames, "search_tool should be installed")
-        assertTrue("tool_caller" in toolNames, "tool_caller should be installed")
+        assertTrue(DynamicToolCaller.NAME in toolNames, "tool_caller should be installed")
     }
 
     @Test
@@ -99,9 +99,9 @@ class LazyToolExtensionsTest {
         val weatherTool = FixedTool("weather", "天气查询")
         registry.register(LazyTool(weatherTool, LazyTool.Level.SCHEMA))
 
-        val toolCaller = ToolCaller(registry)
+        val dynamicToolCaller = DynamicToolCaller(registry)
 
-        val result = toolCaller.resolveTarget(
+        val result = dynamicToolCaller.resolveTarget(
             buildJsonObject {
                 put("tool_name", "weather")
                 put("arguments", buildJsonObject { })
@@ -117,9 +117,9 @@ class LazyToolExtensionsTest {
         val weatherTool = FixedTool("weather", "天气查询")
         registry.register(LazyTool(weatherTool, LazyTool.Level.TOOL))
 
-        val toolCaller = ToolCaller(registry)
+        val dynamicToolCaller = DynamicToolCaller(registry)
 
-        val result = toolCaller.resolveTarget(
+        val result = dynamicToolCaller.resolveTarget(
             buildJsonObject {
                 put("tool_name", "weather")
                 put("arguments", buildJsonObject { })
@@ -135,15 +135,15 @@ class LazyToolExtensionsTest {
         registry.register(LazyTool(FixedTool("weather", "天气查询"), LazyTool.Level.SCHEMA))
         registry.register(LazyTool(FixedTool("news", "新闻查询"), LazyTool.Level.TOOL))
 
-        val toolCaller = ToolCaller(registry)
+        val dynamicToolCaller = DynamicToolCaller(registry)
 
-        val weatherResult = toolCaller.resolveTarget(
+        val weatherResult = dynamicToolCaller.resolveTarget(
             buildJsonObject {
                 put("tool_name", "weather")
                 put("arguments", buildJsonObject { })
             }
         )
-        val newsResult = toolCaller.resolveTarget(
+        val newsResult = dynamicToolCaller.resolveTarget(
             buildJsonObject {
                 put("tool_name", "news")
                 put("arguments", buildJsonObject { })

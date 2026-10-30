@@ -24,7 +24,7 @@ class ToolSearchPluginTest {
         registry.register(LazyTool(FixedTool("weather", "天气查询"), LazyTool.Level.TOOL))
         registry.register(LazyTool(FixedTool("news", "新闻查询"), LazyTool.Level.TOOL))
 
-        val toolCaller = ToolCaller(registry)
+        val dynamicToolCaller = DynamicToolCaller(registry)
 
         var installedTools: List<Tool> = emptyList()
         val context = object : AgentPluginContext {
@@ -34,13 +34,13 @@ class ToolSearchPluginTest {
             override fun appendInstructions(content: String) {}
         }
 
-        val plugin = ToolSearchPlugin(registry, toolCaller)
+        val plugin = ToolSearchPlugin(registry, dynamicToolCaller)
         plugin.install(context)
 
         val toolNames = installedTools.map { it.name }
         assertEquals(2, toolNames.size, "Expected 2 tools but got: $toolNames")
         assertTrue("search_tool" in toolNames, "search_tool not found in $toolNames")
-        assertTrue("tool_caller" in toolNames, "tool_caller not found in $toolNames")
+        assertTrue(DynamicToolCaller.NAME in toolNames, "tool_caller not found in $toolNames")
     }
 
     @Test
@@ -48,7 +48,7 @@ class ToolSearchPluginTest {
         val registry = LazyToolRegistry()
         registry.register(LazyTool(FixedTool("weather", "天气查询"), LazyTool.Level.TOOL))
 
-        val toolCaller = ToolCaller(registry)
+        val dynamicToolCaller = DynamicToolCaller(registry)
 
         var installedTools: List<Tool> = emptyList()
         val context = object : AgentPluginContext {
@@ -58,7 +58,7 @@ class ToolSearchPluginTest {
             override fun appendInstructions(content: String) {}
         }
 
-        val plugin = ToolSearchPlugin(registry, toolCaller)
+        val plugin = ToolSearchPlugin(registry, dynamicToolCaller)
         plugin.install(context)
 
         val searchTool = installedTools.find { it.name == "search_tool" }!!
@@ -71,7 +71,7 @@ class ToolSearchPluginTest {
         val registry = LazyToolRegistry()
         registry.register(LazyTool(FixedTool("weather", "天气查询"), LazyTool.Level.TOOL))
 
-        val toolCaller = ToolCaller(registry)
+        val dynamicToolCaller = DynamicToolCaller(registry)
 
         var installedTools: List<Tool> = emptyList()
         val context = object : AgentPluginContext {
@@ -81,10 +81,10 @@ class ToolSearchPluginTest {
             override fun appendInstructions(content: String) {}
         }
 
-        val plugin = ToolSearchPlugin(registry, toolCaller)
+        val plugin = ToolSearchPlugin(registry, dynamicToolCaller)
         plugin.install(context)
 
-        val toolCallerInstance = installedTools.find { it.name == "tool_caller" }
-        assertTrue(toolCallerInstance === toolCaller, "tool_caller should be the same instance")
+        val toolCallerInstance = installedTools.find { it.name == DynamicToolCaller.NAME }
+        assertTrue(toolCallerInstance === dynamicToolCaller, "tool_caller should be the same instance")
     }
 }

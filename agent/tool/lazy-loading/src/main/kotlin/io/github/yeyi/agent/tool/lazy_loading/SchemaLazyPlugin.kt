@@ -13,12 +13,12 @@ import io.github.yeyi.agent.tool.ToolExecutionContext
  */
 internal class SchemaLazyPlugin(
     registry: LazyToolRegistry,
-    private val toolCaller: ToolCaller,
+    private val dynamicToolCaller: DynamicToolCaller,
 ) : CapabilityPlugin<LazyTool, Unit, SchemaLazyContext>(registry, true) {
 
     override fun contextFactory(): SchemaLazyContextFactory = SchemaLazyContextFactory()
 
-    override fun auxiliaryTools(): List<Tool> = listOf(toolCaller)
+    override fun auxiliaryTools(): List<Tool> = listOf(dynamicToolCaller)
 }
 
 public class SchemaLazyContext : CapabilityContext

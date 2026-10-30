@@ -17,9 +17,9 @@ import kotlinx.serialization.json.jsonPrimitive
  * 同时实现 [DelegateTool]，使审批等拦截器能穿透委托层，基于目标工具的
  * 策略做决策。[execute] 复用 [resolveTarget] 获取目标，避免路由解析逻辑重复。
  */
-internal class ToolCaller(private val registry: LazyToolRegistry) : Tool, DelegateTool {
+internal class DynamicToolCaller(private val registry: LazyToolRegistry) : Tool, DelegateTool {
 
-    override val name: String = "tool_caller"
+    override val name: String = NAME
 
     override val description: String = ""
 
@@ -59,5 +59,9 @@ internal class ToolCaller(private val registry: LazyToolRegistry) : Tool, Delega
     ): ToolExecutionResult {
         val target = resolveTarget(arguments)
         return target.tool.execute(target.arguments, context)
+    }
+
+    internal companion object {
+        const val NAME = "dynamic_tool_caller"
     }
 }

@@ -51,7 +51,7 @@ internal class SearchTool(private val registry: LazyToolRegistry) : Tool {
 
         val results = registry.all().filter { it.name in matchedToolNames }
         val definitions = results.joinToString("\n") { it.tool.toDefinition().toString() }
-        val text = "查询到以下工具（通过 tool_caller 调用）:\n$definitions"
+        val text = "查询到以下工具（通过 ${DynamicToolCaller.NAME} 调用）:\n$definitions"
         return ToolExecutionResult.success(text)
     }
 

@@ -9,7 +9,7 @@ import io.github.yeyi.agent.AgentBuilder
  * - [LazyTool.Level.SCHEMA] → [SchemaLazyPlugin]
  * - [LazyTool.Level.TOOL] → [ToolSearchPlugin]
  *
- * 两个 plugin 共用同一个 [ToolCaller] 实例。
+ * 两个 plugin 共用同一个 [DynamicToolCaller] 实例。
  *
  * @param registry LazyTool 注册中心，含所有待注册的 LazyTool 实例
  */
@@ -18,19 +18,19 @@ public fun AgentBuilder.lazyTools(registry: LazyToolRegistry) {
     val schemaLazyTools = lazyTools.filter { it.level == LazyTool.Level.SCHEMA }
     val toolSearchTools = lazyTools.filter { it.level == LazyTool.Level.TOOL }
 
-    val toolCaller = ToolCaller(registry)  // 全量 registry
+    val dynamicToolCaller = DynamicToolCaller(registry)  // 全量 registry
 
     // SCHEMA level → 过滤后的 registry
     if (schemaLazyTools.isNotEmpty()) {
         val schemaLazyRegistry = LazyToolRegistry()
         schemaLazyTools.forEach { schemaLazyRegistry.register(it) }
-        plugin(SchemaLazyPlugin(schemaLazyRegistry, toolCaller))
+        plugin(SchemaLazyPlugin(schemaLazyRegistry, dynamicToolCaller))
     }
 
     // TOOL level → 过滤后的 registry
     if (toolSearchTools.isNotEmpty()) {
         val toolSearchRegistry = LazyToolRegistry()
         toolSearchTools.forEach { toolSearchRegistry.register(it) }
-        plugin(ToolSearchPlugin(toolSearchRegistry, toolCaller))
+        plugin(ToolSearchPlugin(toolSearchRegistry, dynamicToolCaller))
     }
 }
