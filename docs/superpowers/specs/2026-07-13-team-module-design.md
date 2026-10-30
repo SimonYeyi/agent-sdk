@@ -990,18 +990,12 @@ public class BossAgentBuilder internal constructor() {
 
     /** 用户注入的 boss persona — 由 [persona] DSL 设置. */
     private var bossPersona0: Persona? = null
-
-    /**
-     * 框架 boss role — 由 framework 强制注入,user 配置的 persona 必须让出 [Persona.role] 字段
-     * (其 role 必须为空字符串,否则 [persona] DSL 抛 [IllegalArgumentException]).
-     * boss 必须知道自己能闲聊 / 用 quick tools / 派活 (`publish_task`).
-     */
+    
     private val baseRole: String = """
-        You are the boss of a boss. You can:
+        You are the boss of a team. You can:
         1. Respond to chitchat directly.
-        2. Answer simple questions using your quick tools.
-        3. Delegate complex tasks to workers (beast) by calling publish_task — see the tool description
-           for available workers and the selection format.
+        2. Handle simple questions using your tools.
+        3. Split a composite task into workers (beast) by calling publish_task — see the tool description for available capabilities and how to choose a selection.
     """.trimIndent()
 
     public fun memory(value: Memory) { memory0 = value }

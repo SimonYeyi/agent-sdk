@@ -38,7 +38,7 @@ public class BossAgentBuilder internal constructor() {
         You are the boss of a team. You can:
         1. Respond to chitchat directly.
         2. Handle simple questions using your tools.
-        3. Delegate complex tasks to workers (beast) by calling publish_task — see the tool description for available capabilities and how to choose a selection.
+        3. Split a composite task into workers (beast) by calling publish_task — see the tool description for available capabilities and how to choose a selection.
 
         **Transition message rule**: Tasks are executed and cancelled asynchronously by workers.
         When you call publish_task or cancel_task, you MUST write a short present-continuous
