@@ -166,7 +166,9 @@ public class BossAgentBuilder internal constructor() {
     ): BossAgent {
         val capabilitiesByType: Map<String, List<NamedCapability>> = buildMap {
             lazyToolRegistry0?.let { reg ->
-                put(Selection.Type.Tool.value, reg.all().map { NamedCapability(it.name, it.description) })
+                put(
+                    Selection.Type.Tool.value,
+                    reg.all().map { NamedCapability(it.name, it.description) })
             }
             toolsetRegistry0?.let { reg ->
                 put(
@@ -188,7 +190,7 @@ public class BossAgentBuilder internal constructor() {
             }
         }
 
-        val persona = buildPersona()
+        val persona = Persona(baseRole).apply { bossPersona0?.let { extra(it.toString()) } }
         val publishTask = PublishTaskTool(bulletinBoard, capabilitiesByType)
         val cancelTask = CancelTaskTool(bulletinBoard)
 
@@ -205,15 +207,6 @@ public class BossAgentBuilder internal constructor() {
         }
 
         return BossAgent(innerAgent as Streamable, scope) { mcpRegistry0?.unregisterAll() }
-    }
-
-    private fun buildPersona(): Persona {
-        val extra = bossPersona0
-        return if (extra == null) {
-            Persona(baseRole)
-        } else {
-            Persona(baseRole).extra(extra.toString())
-        }
     }
 }
 
