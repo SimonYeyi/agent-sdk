@@ -263,9 +263,7 @@ public class BossAgent internal constructor(
         }
 
         suspend fun apply(update: TaskUpdate): String? = lock.withLock {
-            // 未知 taskId 的更新(迟到/重复)不能炸掉整个 collector:
-            // SupervisorJob 下异常只会静默杀死这个协程, boss 从此对所有事件失聪。
-            val task = tasks[update.taskId] ?: return@withLock null
+            val task = tasks[update.taskId]!!
             task.events += update.event
             val terminal = task.terminal
             val roundTasks = tasks.values.filter { it.roundId == task.roundId }

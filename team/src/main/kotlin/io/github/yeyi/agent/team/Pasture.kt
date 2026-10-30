@@ -196,29 +196,21 @@ internal class Pasture(
      * 处理 task 终态: 标 Status, emit TaskUpdate 给 BossAgent.
      */
     private suspend fun handleTerminal(taskId: String, throwable: Throwable? = null) {
+        val newStatus = when (throwable) {
+            null -> Status.DONE
+            is CancellationException -> Status.CANCELED
+            else -> Status.FAILED
+        }
+
         val event = dagLock.withLock {
             val node = dag[taskId] ?: return
             if (node.status == Status.DONE || node.status == Status.FAILED || node.status == Status.CANCELED) return
-            val final = node.result
-            // beast 流结束却没有任何终态事件时不能只改状态不发事件:
-            // boss 的 tracker 靠 TaskUpdate 判定终态, 丢了事件整轮就永远等不到收束。
-            val newStatus = when {
-                throwable is CancellationException -> Status.CANCELED
-                throwable != null -> Status.FAILED
-                final != null -> Status.DONE
-                else -> Status.FAILED
-            }
             dag[taskId] = node.also {
                 it.status = newStatus
-                it.error = throwable
+                if (throwable != null) it.error = throwable
             }
-            when {
-                throwable != null -> AgentEvent.Failed(throwable)
-                final != null -> final
-                else -> AgentEvent.Failed(
-                    IllegalStateException("task $taskId ended without a terminal event")
-                )
-            }
+            if (throwable == null) node.result!!
+            else AgentEvent.Failed(throwable)
         }
         bulletinBoard.progressEvent(TaskUpdate(taskId, event))
     }
