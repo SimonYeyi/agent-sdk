@@ -15,9 +15,9 @@ package io.github.yeyi.agent
  * - [role]：直接输出（空白 role 视为无内容，跳过该段）
  * - 其余部分均以 label 作为标签名包裹：`<label>\n<content>\n</label>`（非列表态单值标签内联为 `<label><content></label>`）
  * - [personality]：内置 label `personality`，内联单行渲染
- * - [knowledge]：内置 label `knowledge`，每项渲染为 `<item>...</item>`
- * - [capabilities]：内置 label `capabilities`，每项渲染为 `<item>...</item>`
- * - [instructions]：内置 label `instructions`，每项渲染为 `<item>...</item>`
+ * - [knowledge]：内置 label `knowledge`，每项渲染为 `<item>...</item>`（单值无 item 标签）
+ * - [capabilities]：内置 label `capabilities`，每项渲染为 `<item>...</item>`（单值无 item 标签）
+ * - [instructions]：内置 label `instructions`，每项渲染为 `<item>...</item>`（单值无 item 标签）
  * - [extra]：可选 label；无 label 时直接输出（不包裹），有 label 时以 label 作为标签名包裹
  *
  * 示例：
@@ -82,6 +82,6 @@ public class Persona(public val role: String) {
     private fun section(label: String, content: String, inline: Boolean = false): String =
         with(if (inline) "" else "\n") { "<$label>$this$content$this</$label>" }
 
-    private fun items(contents: List<String>): String =
+    private fun items(contents: List<String>): String = if (contents.size == 1) contents[0] else
         contents.joinToString("\n") { "<item>$it</item>" }
 }

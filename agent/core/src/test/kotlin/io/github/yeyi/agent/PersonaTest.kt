@@ -2,6 +2,7 @@ package io.github.yeyi.agent
 
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 class PersonaTest {
@@ -22,7 +23,7 @@ class PersonaTest {
     fun `knowledge section renders as tagged block`() {
         val persona = Persona("role").knowledge("公司产品支持中英文")
         assertEquals(
-            "role\n\n<knowledge>\n<item>公司产品支持中英文</item>\n</knowledge>",
+            "role\n\n<knowledge>\n公司产品支持中英文\n</knowledge>",
             persona.toString()
         )
     }
@@ -42,7 +43,7 @@ class PersonaTest {
     fun `capabilities section renders as tagged block`() {
         val persona = Persona("role").capabilities("可以调用天气工具")
         assertEquals(
-            "role\n\n<capabilities>\n<item>可以调用天气工具</item>\n</capabilities>",
+            "role\n\n<capabilities>\n可以调用天气工具\n</capabilities>",
             persona.toString()
         )
     }
@@ -62,7 +63,7 @@ class PersonaTest {
     fun `instructions with single text renders as one item`() {
         val persona = Persona("role").instructions("回复必须简明扼要")
         assertEquals(
-            "role\n\n<instructions>\n<item>回复必须简明扼要</item>\n</instructions>",
+            "role\n\n<instructions>\n回复必须简明扼要\n</instructions>",
             persona.toString()
         )
     }
@@ -115,6 +116,55 @@ class PersonaTest {
         val rendered = persona.toString()
         assertTrue(rendered.contains("<personality>"))
         assertTrue(!rendered.contains("<knowledge>"))
+    }
+
+    @Test
+    fun `non list single value renders inline while list single value renders block`() {
+        val persona = Persona("role").personality("P").knowledge("K")
+        assertEquals(
+            "role\n\n<personality>P</personality>\n\n<knowledge>\nK\n</knowledge>",
+            persona.toString()
+        )
+    }
+
+    @Test
+    fun `list section with single value renders content without item tag`() {
+        val knowledge = Persona("role").knowledge("K").toString()
+        val capabilities = Persona("role").capabilities("C").toString()
+        val instructions = Persona("role").instructions("I").toString()
+        assertTrue(knowledge.contains("<knowledge>\nK\n</knowledge>"))
+        assertTrue(capabilities.contains("<capabilities>\nC\n</capabilities>"))
+        assertTrue(instructions.contains("<instructions>\nI\n</instructions>"))
+        assertFalse(knowledge.contains("<item>"))
+        assertFalse(capabilities.contains("<item>"))
+        assertFalse(instructions.contains("<item>"))
+    }
+
+    @Test
+    fun `list section with multiple values renders one item per line`() {
+        val knowledge = Persona("role").knowledge("K1").knowledge("K2").toString()
+        val capabilities = Persona("role").capabilities("C1").capabilities("C2").toString()
+        val instructions = Persona("role").instructions("I1").instructions("I2").toString()
+        assertEquals(
+            "role\n\n<knowledge>\n<item>K1</item>\n<item>K2</item>\n</knowledge>",
+            knowledge
+        )
+        assertEquals(
+            "role\n\n<capabilities>\n<item>C1</item>\n<item>C2</item>\n</capabilities>",
+            capabilities
+        )
+        assertEquals(
+            "role\n\n<instructions>\n<item>I1</item>\n<item>I2</item>\n</instructions>",
+            instructions
+        )
+    }
+
+    @Test
+    fun `unset list sections are omitted`() {
+        val rendered = Persona("role").toString()
+        assertFalse(rendered.contains("<knowledge>"))
+        assertFalse(rendered.contains("<capabilities>"))
+        assertFalse(rendered.contains("<instructions>"))
     }
 
     @Test
@@ -182,11 +232,11 @@ class PersonaTest {
             <personality>Friendly and concise.</personality>
 
             <knowledge>
-            <item>公司产品支持中文和英文。</item>
+            公司产品支持中文和英文。
             </knowledge>
 
             <capabilities>
-            <item>可以调用天气查询工具。</item>
+            可以调用天气查询工具。
             </capabilities>
 
             <instructions>
