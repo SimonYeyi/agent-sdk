@@ -56,7 +56,7 @@ internal class DynamicSubagentTool : Tool {
                 "properties": {
                   "role": {
                     "type": "string",
-                    "description": "子代理的角色定位（如'严谨的代码审查员'、'热情的客服'等）。"
+                    "description": "子代理的角色定位（如'你是一位代码审查员'、'你是一名作家'等）。"
                   },
                   "context": {
                     "type": "string",
