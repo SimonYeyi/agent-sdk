@@ -46,7 +46,7 @@ public interface LazyTool : Capability<Unit, LazyToolContext> {
     public val level: Level
 
     public companion object {
-        public const val CAPABILITY_TYPE: String = "lazy_tool"
+        internal const val CAPABILITY_TYPE: String = "lazy_tool"
     }
 
     public enum class Level {

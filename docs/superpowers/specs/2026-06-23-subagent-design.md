@@ -108,7 +108,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
     }
 
     public companion object {
-        public const val CAPABILITY_TYPE: String = "subagent"
+        internal const val CAPABILITY_TYPE: String = "subagent"
     }
 }
 ```

@@ -33,7 +33,7 @@ public interface LazyTool : Capability<Unit, SchemaLazyContext> {
 
     public companion object {
         /** 能力框架中的路由类型，生成工具名 `load_lazy_tool`、路由字段 `tool_name`。 */
-        public const val CAPABILITY_TYPE: String = "lazy_tool"
+        internal const val CAPABILITY_TYPE: String = "lazy_tool"
     }
 
     /** 延迟加载级别。 */
