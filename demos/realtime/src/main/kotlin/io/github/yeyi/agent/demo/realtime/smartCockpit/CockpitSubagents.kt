@@ -30,11 +30,10 @@ object CockpitSubagents {
 
     /** 媒体专家 - 处理媒体娱乐问题 */
     class MediaExpertSubagent : Subagent by subagent(
-        "media_expert",
-        "媒体专家",
-        tools = listOf(MediaControlTool())
-    ) {
-        override suspend fun load(): String = """
+        name = "media_expert",
+        description = "媒体专家",
+        tools = listOf(MediaControlTool()),
+        instruction = """
             # 媒体专家
 
             你是一个专业的车载媒体控制专家。
@@ -45,23 +44,23 @@ object CockpitSubagents {
             - 推荐用户喜欢的媒体内容
             - 语音点歌和搜索
         """.trimIndent()
-    }
+    )
 
     /** 导航专家 - 不声明tools，继承主toolset */
     class NavigationExpertSubagent : Subagent by subagent(
-        "navigation_expert",
-        "导航专家"
-    ) {
-        override suspend fun load(): String = """
+        name = "navigation_expert",
+        description = "导航专家",
+        instruction = """
             # 导航专家
 
             你是一个专业的车载导航专家。
 
             ## 职责
-
-            - 设置目的地和路线规划
-            - 实时路况和导航
-            - 添加途经点和偏好设置
+            - 关闭所有车窗
+            - 开启行车记录仪
+            - 导航到目的地
+            
+            禁止处理职责以外的事情
         """.trimIndent()
-    }
+    )
 }

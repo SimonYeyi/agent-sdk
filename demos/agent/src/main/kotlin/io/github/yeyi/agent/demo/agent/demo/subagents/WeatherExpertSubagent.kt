@@ -12,8 +12,10 @@ class WeatherExpertSubagent(
     name: String = "weather",
     description: String = "天气查询专家",
     tools: List<Tool> = listOf(getWeatherTool),
-) : Subagent by subagent(name, description, tools = tools) {
-    override suspend fun load(): String = """
+) : Subagent by subagent(
+    name, description,
+    tools = tools,
+    instruction = """
         # 天气查询助手
 
         你是一个专业的天气查询助手。当收到任务时,按以下流程操作:
@@ -35,4 +37,4 @@ class WeatherExpertSubagent(
         - 必须先获取位置再查询天气,不要假设用户所在城市
         - 保持回复简洁友好,突出关键信息
     """.trimIndent()
-}
+)

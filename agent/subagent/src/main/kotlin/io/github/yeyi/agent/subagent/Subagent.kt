@@ -42,7 +42,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
         val memory = memory ?: InMemoryMemory()
         val resolvedTools = (tools ?: context.agentContext.tools)
             .filter { !it.name.contains(CAPABILITY_TYPE) }
-        val instruction = load()
+        val instruction = load() + "\n\n" + "要求：只需客观报告结果，无需客套或提出建议。"
 
         val sub = agent {
             persona(Persona(instruction))

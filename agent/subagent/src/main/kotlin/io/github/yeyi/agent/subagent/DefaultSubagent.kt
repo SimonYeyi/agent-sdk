@@ -27,7 +27,7 @@ private class DefaultSubagent(
 public fun subagent(
     name: String,
     description: String,
-    instruction: String = description,
+    instruction: String,
     maxIterations: Int? = null,
     memory: Memory? = null,
     tools: List<Tool>? = null
