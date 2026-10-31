@@ -3,20 +3,19 @@ package io.github.yeyi.agent
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
-import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.Usage
 import io.github.yeyi.agent.log.log
-import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.ReadOnlyMemory
 import io.github.yeyi.agent.memory.RepairedMemory
 import io.github.yeyi.agent.memory.RoundsBoundedMemory
 import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.memory.addToMemory
+import io.github.yeyi.agent.memory.toChatMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -341,7 +340,7 @@ public class ReActAgent internal constructor(
     }
 
     private suspend fun buildRequest(): ChatRequest {
-        val messages = modalityAdapter.resolve(memory.history().map { labelPrefixed(it) })
+        val messages = modalityAdapter.resolve(memory.history().map { it.toChatMessage() })
         return ChatRequest(
             messages = buildList {
                 add(ChatMessage.System(persona.toString()))
@@ -349,21 +348,6 @@ public class ReActAgent internal constructor(
             },
             tools = toolRegistry.all().map(Tool::toDefinition)
         )
-    }
-
-    /** 带 label 的上行消息（User / System）拼 `"label: content"` 前缀给模型感知来源，
-     *  持久化 content 保持原样。下行消息不会带 label，原样返回。 */
-    private fun labelPrefixed(entry: MemoryEntry): ChatMessage {
-        val label = entry.label ?: return entry.message
-        return when (val message = entry.message) {
-            // User 是 parts 列表，只给首个 Text 块拼，媒体块不被污染
-            is ChatMessage.User -> message.copy(parts = message.parts.mapIndexed { i, part ->
-                if (i == 0 && part is ContentPart.Text) ContentPart.Text("$label: ${part.text}") else part
-            })
-
-            is ChatMessage.System -> message.copy(content = "$label: ${message.content}")
-            else -> message
-        }
     }
 
     private fun buildContext(currentIteration: Int) = AgentContext(
