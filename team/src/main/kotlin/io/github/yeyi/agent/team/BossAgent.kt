@@ -7,6 +7,7 @@ import io.github.yeyi.agent.llm.ContentPart
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -239,17 +241,27 @@ public class BossAgent internal constructor(
             userRound.channel.close()
             // 轮次完成即移除，无人收集的 round 不滞留登记表
             shutdownHelper.remove(userRound)
-            scheduler.roundFinished()
+            // NonCancellable：取消路径上 finally 内的挂起调用会立即抛取消异常，
+            // 调度器必须落地回到 WAITING，否则后续轮次永远排队不执行。
+            withContext(NonCancellable) { scheduler.roundFinished() }
         }
     }
 
     private suspend fun runResultRound(result: String) {
-        // 报告轮次同样流式运行：任务报告逐字输出，降低送达感知延迟。
-        // 流式增量经 report SharedFlow 送达 UI，最终由 Final 权威完整文本兜底。
-        innerAgent.runStream(AgentQuery.text(result, label = REPORT_LABEL)).collect { e ->
-            (report as MutableSharedFlow).emit(e)
+        try {
+            // 报告轮次同样流式运行：任务报告逐字输出，降低送达感知延迟。
+            // 流式增量经 report SharedFlow 送达 UI，最终由 Final 权威完整文本兜底。
+            // 终局三选一：正常以 Final 收尾，真实失败由内层 agent 自行发出 Failed，
+            // 取消（shutdown / scope 取消）不发事件 —— report 是热流，不因单轮取消而关闭。
+            innerAgent.runStream(AgentQuery.text(result, label = REPORT_LABEL)).collect { e ->
+                (report as MutableSharedFlow).emit(e)
+            }
+        } finally {
+            // 轮次收尾（含取消异常路径）：调度器必须回到 WAITING，
+            // 否则后续轮次永远排队不执行 —— boss 静默僵死。
+            // NonCancellable：取消路径上 finally 内的挂起调用会立即抛取消异常，收尾必须落地。
+            withContext(NonCancellable) { scheduler.roundFinished() }
         }
-        scheduler.roundFinished()
     }
 
     // ========== 内部类: 任务追踪域 ==========
