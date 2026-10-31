@@ -6,8 +6,12 @@ import kotlinx.coroutines.flow.Flow
 /**
  * Agent 执行接口——本质契约。
  *
- * [run] 通过 [AgentEvent] Flow 向调用方推送中间状态，最终以
- * [AgentEvent.Final] 或 [AgentEvent.Failed] 终止。
+ * [run] 通过 [AgentEvent] Flow 向调用方推送中间状态，终局**三选一**：
+ * - [AgentEvent.Final] —— 正常终结，携带最终结果；
+ * - [AgentEvent.Failed] —— 运行失败，携带原始异常；
+ * - [kotlinx.coroutines.CancellationException] —— 回合被取消（如：[Agent.Cancelable]）
+ *
+ * 三者互斥且必有其一：一次收集不会以"零事件 + 正常结束"收尾。
  *
  * 调用方可通过 [kotlinx.coroutines.flow.first] 或 [kotlinx.coroutines.flow.last] 获取最终结果，
  * 也可全程订阅事件流实现实时 UI 反馈。
@@ -24,6 +28,11 @@ public interface Agent {
      * 入参 [AgentQuery] 承载文本 + 多模态块。
      *
      * 适用场景：响应速度优先、无需流式输出。
+     *
+     * **轮次语义**：返回的 [Flow] 代表一个轮次，**至多收集一次**——重复收集是调用方错误
+     * （实现方通常抛 [IllegalStateException]）。实现 [Agent.Cancelable] 的 Agent 在本方法
+     * 调用时即占用活跃轮次：若最终不收集该流，必须调用 [Agent.Cancelable.cancel] 释放占用，
+     * 否则 agent 停留在"已有活跃轮次"，后续 [run] 抛 [IllegalStateException]。
      */
     public fun run(query: AgentQuery): Flow<AgentEvent>
 
@@ -38,6 +47,9 @@ public interface Agent {
      * 入参 [AgentQuery] 承载文本 + 多模态块。
      *
      * 适用场景：需要实时展示 LLM 输出文字、工具调用进度等。
+     *
+     * 轮次语义与 [run] 一致（至多收集一次、不收集须 [Agent.Cancelable.cancel] 释放占用）——
+     * 两者是同一个"轮次"的两种执行方式，不能对同一轮既 [run] 又 [runStream]。
      */
     public interface Streamable {
         public fun runStream(query: AgentQuery): Flow<AgentEvent>
@@ -85,6 +97,13 @@ public interface Agent {
      * 与 [Shutdownable] 的分工：[cancel] 是可恢复的中断（回合结束，Agent 继续可用）；
      * [Shutdownable.shutdown] 是终态操作（Agent 作废，之后调用 [Agent.run] 抛 [IllegalStateException]）。
      *
+     * **未收集轮次的释放义务**：实现本能力的 Agent 通常在 [Agent.run] 调用时即占用活跃轮次 ——
+     * 若返回的流最终不被收集，必须调用 [cancel] 作废该轮并释放占用，
+     * 否则 agent 停留在"已有活跃轮次"，后续 [Agent.run] 抛 [IllegalStateException]。
+     *
+     * **已关闭的 Agent**：[Shutdownable.shutdown] 之后调用 [cancel] 的行为由实现定义 ——
+     * 终态语义下已关闭的 Agent 不再接受任何操作（实现可抛 [IllegalStateException]）。
+     *
      * 适用场景：用户主动打断、任务重规划、Agent 超时兜底。
      */
     public interface Cancelable {
@@ -110,6 +129,9 @@ public interface Agent {
      * 结束（尚未被收集的 flow 在收集时同样以 [CancellationException] 结束，不静默零事件）；
      * 之后调用 [Agent.run] 抛出 [IllegalStateException]（Agent 已关闭）；如需继续使用必须重新创建实例。
      * 幂等：可重复调用，第二次无副作用。
+     *
+     * 关闭时需调用 [Cancelable.cancel] 确保轮次同时终止；
+     * 终态语义下已关闭的 Agent 不再接受任何操作（实现可抛 [IllegalStateException]）。
      *
      * 适用场景：会话/应用结束时的资源回收，以及任何带后台协程或外部资源的 Agent 的整体终止。
      */

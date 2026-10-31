@@ -30,9 +30,11 @@ public fun Tool.toDefinition(): ToolDefinition {
 /**
  * 等待并返回 agent 运行的最终结果。
  *
- * 终端事件识别:
+ * 终局三选一（与 [Agent.run] 的契约一致）：
  * - [AgentEvent.Final] → 返回其 [AgentEvent.Final.result]
  * - [AgentEvent.Failed] → 抛出其 [AgentEvent.Failed.cause]（原始异常，不重新包装）
+ * - [kotlinx.coroutines.CancellationException] → 原样上抛（回合被打断或 Agent 已关闭），
+ *   不包装、不吞掉 —— 调用方沿用"catch 取消异常"的既有用法即可。
  *
  * 其他 [AgentEvent] 子类型被忽略。
  * Flow 自身异常按 Flow 协议传播。

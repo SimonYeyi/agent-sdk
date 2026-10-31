@@ -11,6 +11,7 @@ import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.demo.agent.demo.DemoAgentFactory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.tool.ToolExecutionResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -110,6 +111,9 @@ class ChatViewModel(
                     RunMode.BATCH -> agent.run(AgentQuery.text(text))
                 }
                 flow.collect { handleEvent(it) }
+            } catch (e: CancellationException) {
+                // 终局三选一里的第三种：回合被取消（清空消息 / 关闭页面）——
+                // 不是运行失败，不渲染错误气泡。
             } catch (t: Throwable) {
                 _messages.update {
                     it + UiMessage.Error(t.message ?: "Unknown error", id = nextUiId())

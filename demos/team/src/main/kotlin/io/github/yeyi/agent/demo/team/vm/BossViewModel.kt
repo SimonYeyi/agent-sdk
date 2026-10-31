@@ -20,6 +20,7 @@ import io.github.yeyi.agent.session.SessionManager
 import io.github.yeyi.agent.team.BossAgent
 import io.github.yeyi.agent.team.TasksState
 import io.github.yeyi.agent.tool.ToolExecutionResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -230,8 +231,14 @@ class BossViewModel(
         _isLoading.value = true
 
         viewModelScope.launch {
-            agent.run(AgentQuery.text(text)).collect { event ->
-                handleAgentEvent(event, pendingText = text)
+            try {
+                agent.run(AgentQuery.text(text)).collect { event ->
+                    handleAgentEvent(event, pendingText = text)
+                }
+            } catch (e: CancellationException) {
+                // 终局三选一里的第三种：轮次被终止（session 重置 / boss 关闭）——
+                // 不是运行失败，只把 loading 归位，不渲染错误气泡。
+                _isLoading.value = false
             }
         }
     }

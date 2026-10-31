@@ -29,7 +29,8 @@ import kotlin.test.assertTrue
 /**
  * 回合中断（[Agent.Cancelable]）的行为约定：
  * - 打断只终止 agent 自身的执行，收集方协程不受影响；
- * - 被打断的回合以零终态事件自然收尾，不向收集方抛异常；
+ * - 被打断的回合以 [kotlinx.coroutines.CancellationException] 结束收集 ——
+ *   不发终态事件，也不以"零事件 + 正常结束"收尾（终局三选一：Final / Failed / 取消异常）；
  * - 打断不消耗 agent 的可用性——后续回合照常执行。
  */
 class CancelableTest {
