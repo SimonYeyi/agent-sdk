@@ -15,6 +15,8 @@ import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.memory.InMemoryMemory
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +32,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
@@ -155,6 +158,80 @@ class BossAgentTest {
         }
         assertTrue(job1.isCompleted)
         assertTrue(job2.isCompleted)
+    }
+
+    /**
+     * 回归：shutdown 终止在途 run flow 时，收集必须以取消异常收尾 —— 不是静默截断。
+     *
+     * 静默收尾（channel 无 cause 关闭）会让收集方看到"正常结束但没有终态事件"，
+     * 违反 [io.github.yeyi.agent.Agent.Shutdownable] 的统一终止协议。
+     */
+    @Test
+    fun `shutdown terminates in-flight run flow with cancellation`() = runBlocking {
+        val (boss, _) = createBossAgent(
+            provider = SlowFirstLlmProvider(
+                responses = listOf(
+                    ChatResponse(message = ChatMessage.Assistant("r1"), finishReason = FinishReason.Stop)
+                ),
+                firstCallDelayMs = 500
+            )
+        )
+
+        val caught = CompletableDeferred<Throwable?>()
+        val job = launch {
+            try {
+                boss.run(AgentQuery.text("one")).toList()
+                caught.complete(null)
+            } catch (e: CancellationException) {
+                caught.complete(e)
+            }
+        }
+        delay(50) // run 已被调度并挂起在 LLM
+        boss.shutdown()
+        withTimeout(1000) { job.join() }
+
+        assertTrue(
+            caught.await() is CancellationException,
+            "shutdown 应以取消异常终止在途 flow —— 实际结果: ${caught.await()}"
+        )
+        // 收集方协程本身未被取消（异常由 collect 外围捕获）。
+        assertFalse(job.isCancelled)
+    }
+
+    /**
+     * 回归：shutdown 后才被收集的 flow 同样以取消异常收尾 —— 不静默零事件。
+     */
+    @Test
+    fun `run flow collected after shutdown ends with cancellation`() = runBlocking {
+        val (boss, _) = createBossAgent()
+
+        val flow = boss.run(AgentQuery.text("hello"))
+        boss.shutdown()
+
+        val e = assertFailsWith<CancellationException> { flow.toList() }
+        // 关闭原因透传到收集方：调用方据此区分"已关闭"与其它取消。
+        assertTrue(e.message.orEmpty().contains("shut down"))
+    }
+
+    /**
+     * 回归：shutdown 与 run 并发时，新轮不得成为"无人执行、channel 永不关闭"的孤儿 ——
+     * 收集方要么收到取消异常，要么 run 直接抛终态异常，绝不永久挂起。
+     *
+     * 孤儿窗口：run 通过"scope 仍活跃"检查后、登记进登记表之前，shutdown 扫过登记表 ——
+     * 之后登记的轮次既没有执行者，也没人关它的 channel。
+     */
+    @Test
+    fun `concurrent run and shutdown never leaves a collector hanging`() = runBlocking {
+        repeat(20) {
+            val (boss, _) = createBossAgent()
+            val collector = launch {
+                // run 既可能正常跑完、也可能抛终态异常、也可能被取消 —— 都可接受，
+                // 唯一不可接受的是永远不结束。
+                runCatching { boss.run(AgentQuery.text("hello")).toList() }
+            }
+            boss.shutdown()
+            withTimeout(2000) { collector.join() }
+        }
     }
 
     @Test

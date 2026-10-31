@@ -4,6 +4,7 @@ import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.llm.ContentPart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.cancel
@@ -14,7 +15,6 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onSubscription
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -83,6 +83,9 @@ public class BossAgent internal constructor(
         /** 系统报告标签 — 任务完成汇报以 `AgentQuery.text(result, label = REPORT_LABEL)` 注入 innerAgent，
          *  随记忆条目持久化，UI 可据此渲染"系统"气泡，模型侧通过 `report: content` 前缀感知。 */
         public const val REPORT_LABEL: String = "report"
+
+        /** 已关闭时的报错消息 —— 关闭后拒绝再运行 / 再登记轮次时使用。 */
+        private const val SHUTDOWN_MESSAGE: String = "Agent is shut down"
     }
 
     // ===== 任务追踪 =====
@@ -149,9 +152,6 @@ public class BossAgent internal constructor(
     // ========== Public API ==========
 
     override fun run(query: AgentQuery): Flow<AgentEvent> {
-        // scope 已取消 (shutdown 调用过) — 已关闭的 Agent 不可再运行，直接抛非法状态异常。
-        check(scope.isActive) { "Agent is shut down" }
-
         val queryText = (query.parts.firstOrNull() as? ContentPart.Text)?.text
             ?: query.parts.joinToString(" ") { it.toString() }
         val userRound = UserRound(
@@ -160,7 +160,14 @@ public class BossAgent internal constructor(
             System.currentTimeMillis(),
             Channel(Channel.UNLIMITED)
         )
-        shutdownHelper.record(userRound)
+        // 关闭检查与登记合并为一道闸 —— record 在已 shutdown 时拒绝。
+        // 单独用 "scope 是否还活着" 判断不够：shutdown 若恰好插在检查与登记之间，
+        // 登记进去的轮次既无执行者（scope 已取消）也无人关它的 channel，收集方永久挂起。
+        if (!shutdownHelper.record(userRound)) {
+            // 已关闭 —— 按终态语义抛 ISE。flow 尚未交给调用方（throw 在 return 之前），
+            // 这一轮的 channel 无人可达，无需关闭。
+            throw IllegalStateException(SHUTDOWN_MESSAGE)
+        }
         scope.launch { scheduler.submitUserRound(userRound) }
         // 注销不在此处做：调用方可能 run 后不 collect（flow 惰性），
         // 由 runUserRound 完成时注销，未跑到的轮次由 shutdown 兜底 clear。
@@ -173,9 +180,13 @@ public class BossAgent internal constructor(
      * 之后 boss LLM 不会再被新事件触发; pasture 的 running jobs 也会被取消.
      * 最后触发 [onShutdown] 钩子 (由构造方注入, 用于关闭外部资源如 MCP 连接).
      * 调用方负责在不再使用 boss 时调用本方法 (e.g., 在应用关闭时).
+     *
+     * 终止协议: 进行中及尚未被收集的 run flow 收集均以 [CancellationException] 结束 ——
+     * 不静默截断, 与 [Agent.Shutdownable] 的统一约定一致.
+     * 关闭后调用 [run] 抛 [IllegalStateException].
      */
     public override fun shutdown() {
-        shutdownHelper.closeAll()
+        shutdownHelper.release()
         scope.cancel()
         onShutdown()
     }
@@ -217,7 +228,14 @@ public class BossAgent internal constructor(
             // 用户轮使用流式运行：逐字输出，降低用户感知延迟
             innerAgent.runStream(AgentQuery.text(userRound.input))
                 .collect { e -> userRound.channel.send(e) }
+        } catch (cause: CancellationException) {
+            // 轮次被打断（scope 取消 / shutdown）：以取消异常终止收集 ——
+            // 收集方据此知道这一轮被终止，而不是看到"截断但无终态"的静默收尾。
+            // channel 带 cause 关闭后，收集端的迭代器会抛出该 cause。
+            userRound.channel.close(cause)
+            throw cause
         } finally {
+            // 正常路径：普通关闭（无 cause）→ 收集方在收到 Final 后正常结束。
             userRound.channel.close()
             // 轮次完成即移除，无人收集的 round 不滞留登记表
             shutdownHelper.remove(userRound)
@@ -364,13 +382,31 @@ public class BossAgent internal constructor(
      * 正常流程中轮次完成时由 [runUserRound] 的 finally 关闭自身 channel 并注销;
      * 但排队未启动的轮次没有执行者关闭 channel, 若不兜底其收集方会永久挂起.
      * 因此 shutdown 时统一关闭登记表中所有未结束 round 的 channel（close 幂等）.
+     *
+     * channel 带取消异常关闭 —— 收集方看到的是"这一轮被终止", 而非静默截断.
+     *
+     * [record] 与 [release] 互斥: shutdown 之后不再登记任何 round ——
+     * 否则会出现"shutdown 已扫过登记表、之后才登记的 round 永远没人执行、channel 永不关闭"
+     * 的窗口, 收集方永久挂起.
      */
     private class ShutdownHelper {
+        private val lock = Any()
         private val userRounds: MutableSet<UserRound> = ConcurrentHashMap.newKeySet()
-        fun record(round: UserRound) = run { userRounds += round }
-        fun remove(round: UserRound) = run { userRounds -= round }
-        fun closeAll() {
-            userRounds.forEach { it.channel.close() }
+
+        /** shutdown 已发生 —— 之后 [record] 一律拒绝. */
+        private var released = false
+
+        /** 登记 round. 返回 false = 已 shutdown, 调用方须自行终止该轮. */
+        fun record(round: UserRound): Boolean = synchronized(lock) {
+            if (released) return false
+            userRounds += round; return true
+        }
+
+        fun remove(round: UserRound) = synchronized(lock) { userRounds -= round }
+
+        fun release() = synchronized(lock) {
+            released = true
+            userRounds.forEach { it.channel.close(CancellationException(SHUTDOWN_MESSAGE)) }
             userRounds.clear()
         }
     }
