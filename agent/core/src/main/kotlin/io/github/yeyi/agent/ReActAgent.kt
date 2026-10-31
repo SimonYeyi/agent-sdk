@@ -586,10 +586,19 @@ public class ReActAgent internal constructor(
     /**
      * 同一轮次被重复收集 —— 调用方错误。
      *
-     * 只在 SDK 内部消费：轮次收尾据此判断"这次收集是不是拥有者"，
-     * 非拥有者的收集不得触碰仍在运行的轮次的槽位与信箱。
-     * 继承 [IllegalStateException]，对外仍表现为"调用方错误"，但内部可以精确识别，
-     * 不会与收集方自己抛出的 [IllegalStateException] 混淆。
+     * **抛出时机**：不是 [Agent.run] / [Agent.Streamable.runStream] 调用时，而是**收集时** ——
+     * 违规的那一次 collect 一进入流就收到本异常。重复收集只有到收集时才会被发现：
+     * `run()` 只建轮、不碰执行体，调用它本身不抛任何异常。
+     *
+     * **不转 [AgentEvent.Failed]**：Failed 的唯一产地是轮次执行体内部的失败路径，
+     * 而重复收集发生在执行体启动之前（执行体 LAZY，从未运行）—— 这一轮没有产出任何
+     * 事件，也就没有失败可言。正在运行的那一轮的收集者同样收不到这条失败：
+     * 失败事件发在这一轮共享的流上，若因第二次收集伪造一条，污染的正是真正的收集者。
+     *
+     * 继承 [IllegalStateException]：对外仍表现为"调用方错误"，但内部可以精确识别 ——
+     * 轮次收尾据此判断"这次收集是不是拥有者"，非拥有者的收集不得触碰仍在运行的轮次
+     * 的槽位与信箱；用专属类型而非笼统的 ISE，是为了不和收集方自己抛出的
+     * [IllegalStateException] 混淆。
      */
     private class RepeatedCollectionException :
         IllegalStateException("a turn flow may only be collected once")
