@@ -29,8 +29,9 @@ public interface Agent {
      *
      * 适用场景：响应速度优先、无需流式输出。
      *
-     * **轮次语义**：返回的 [Flow] 代表一个轮次，**至多收集一次**——重复收集是调用方错误
-     * （实现方通常抛 [IllegalStateException]）。实现 [Agent.Cancelable] 的 Agent 在本方法
+     * **轮次语义**：返回的 [Flow] 代表一个轮次，**只允许收集一次**——重复收集是调用方错误。
+     *
+     * 实现 [Agent.Cancelable] 的 Agent 在本方法
      * 调用时即占用活跃轮次：若最终不收集该流，必须调用 [Agent.Cancelable.cancel] 释放占用，
      * 否则 agent 停留在"已有活跃轮次"，后续 [run] 抛 [IllegalStateException]。
      */
@@ -48,7 +49,7 @@ public interface Agent {
      *
      * 适用场景：需要实时展示 LLM 输出文字、工具调用进度等。
      *
-     * 轮次语义与 [run] 一致（至多收集一次、不收集须 [Agent.Cancelable.cancel] 释放占用）——
+     * 轮次语义与 [run] 一致（**只允许收集一次**、不收集须 [Agent.Cancelable.cancel] 释放占用）——
      * 两者是同一个"轮次"的两种执行方式，不能对同一轮既 [run] 又 [runStream]。
      */
     public interface Streamable {
