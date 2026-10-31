@@ -60,22 +60,22 @@ cancel 相关的跨轮状态有**两处**，分居两个类：
 
 | 决策点 | 结论 |
 |---|---|
-| 轮次身份 | 引入 `Turn` —— 轮次身份，持有本轮的转向信箱与可取消流 |
-| 类划分 | `CancelableFlow` 专做可取消流（执行体登记 / 打断 / 「本轮已被取消」标志）；`SteerInbox` 专做转向消息收纳（纯信箱）；终局闸归 `Turn`；`Turn` 持有前两者 |
+| 轮次身份 | 引入 `AgentTurn` —— 轮次身份，持有本轮的转向信箱与可取消流 |
+| 类划分 | `CancelableFlow` 专做可取消流（执行体登记 / 打断 / 「本轮已被取消」标志）；`SteerInbox` 专做转向消息收纳（纯信箱）；终局闸归 `AgentTurn`；`AgentTurn` 持有前两者 |
 | 执行体登记 | 从全局单槽下沉到**每轮自己的** `CancelableFlow` —— 不再有可被顶掉的跨轮登记 |
-| 槽位 | 保留 agent 级单槽 `activeTurn: AtomicReference<Turn?>`（槽位按定义属于持有它的 agent）；**槽位归 agent、轮次不持有槽位** |
-| 终局闸 | 归 `Turn` —— 终局路径要调用它，`turn.lock()` 的语义才准确；信箱的投递 / 排空也要用它，于是信箱持有 `Turn` 引用 |
+| 槽位 | 保留 agent 级单槽 `activeTurn: AtomicReference<AgentTurn?>`（槽位按定义属于持有它的 agent）；**槽位归 agent、轮次不持有槽位** |
+| 终局闸 | 归 `AgentTurn` —— 终局路径要调用它，`turn.lock()` 的语义才准确；信箱的投递 / 排空也要用它，于是信箱持有 `AgentTurn` 引用 |
 | 闸的定位 | **轮次锁**，不是信箱锁 —— 它保护的是"本轮的终局裁决"（判空 → 发 Final → 关信箱 → 还槽）与"投递 steering"的互斥；信箱本身（`Channel`）已是线程安全的，闸不是为它加的 |
-| 成员暴露 | `Turn.steering` / `Turn.flow` 直接公开，**不铺转发方法** —— 转发只是把调用点搬家，没有多出语义 |
-| 依赖形状 | **单向**：`SteerInbox` 持 `Turn` 取闸；`CancelableFlow` 不再持 `Turn` —— 它要问的「本轮是否已被取消」已下沉为自身的标志，与执行体登记同锁 |
-| 终态真相源 | **各自的状态各自持有** —— 终局闸在 `Turn`；「本轮已被取消」标志在 `CancelableFlow`（与执行体登记同一把锁 ⇒ 登记与打断之间的判定无竞争） |
-| 作废 vs 终局 | 作废 = 置 `CancelableFlow.canceled`（打断时即置）+ 关信箱（`turn.steering.close()`）；**没有 `Turn.close()`** —— 终局路径只关信箱，那里执行体正是在跑的自己，打断自己会把成功轮次变成取消轮次 |
+| 成员暴露 | `AgentTurn.steering` / `AgentTurn.flow` 直接公开，**不铺转发方法** —— 转发只是把调用点搬家，没有多出语义 |
+| 依赖形状 | **单向**：`SteerInbox` 持 `AgentTurn` 取闸；`CancelableFlow` 不再持 `AgentTurn` —— 它要问的「本轮是否已被取消」已下沉为自身的标志，与执行体登记同锁 |
+| 终态真相源 | **各自的状态各自持有** —— 终局闸在 `AgentTurn`；「本轮已被取消」标志在 `CancelableFlow`（与执行体登记同一把锁 ⇒ 登记与打断之间的判定无竞争） |
+| 作废 vs 终局 | 作废 = 置 `CancelableFlow.canceled`（打断时即置）+ 关信箱（`turn.steering.close()`）；**没有 `AgentTurn.close()`** —— 终局路径只关信箱，那里执行体正是在跑的自己，打断自己会把成功轮次变成取消轮次 |
 | 兜底销毁 | **删除无认人销毁路径** —— 结构上不再存在能误杀别人槽位的动作 |
 | `steer()` 语义 | 投递失败即重读槽位重试；只有确认「此刻无活跃轮次」才返回 false |
 | 一轮至多执行一次 | 执行体登记（登记后永不清空）—— 重复 collect 抛 `IllegalStateException`（跑不起来的调用错误，不是运行时错误） |
 | 公开契约 | **不变** —— `Agent.Cancelable.cancel()` 仍无参、仍打断持槽位的当前轮 |
 | 类名 | `SteerInbox` / `CancelableFlow` 保持原名，只改语义 |
-| `Turn` id | 暂不引入 |
+| `AgentTurn` id | 暂不引入 |
 
 ---
 
@@ -83,11 +83,11 @@ cancel 相关的跨轮状态有**两处**，分居两个类：
 
 ```
 ReActAgent
- ├─ activeTurn : AtomicReference<Turn?>   ← agent 级：当前活跃轮次（槽位归 agent）
- └─ Turn                                 ← 每轮：轮次身份
+ ├─ activeTurn : AtomicReference<AgentTurn?>   ← agent 级：当前活跃轮次（槽位归 agent）
+ └─ AgentTurn                                 ← 每轮：轮次身份
       ├─ gate        : Semaphore(1)       ← 终局闸（轮次锁）
       ├─ flow        : CancelableFlow     ← 本轮的可取消流（执行体登记 / 打断 / 已取消标志）
-      └─ steering    : SteerInbox         ← 转向消息收纳（纯信箱，持 Turn 引用以便取闸）
+      └─ steering    : SteerInbox         ← 转向消息收纳（纯信箱，持 AgentTurn 引用以便取闸）
 ```
 
 ### 为什么闸随轮走
@@ -107,7 +107,7 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
 
 两把锁互不嵌套：
 
-- `Turn.gate`（`Semaphore`）—— 转向投递与终局裁决的互斥；
+- `AgentTurn.gate`（`Semaphore`）—— 转向投递与终局裁决的互斥；
 - `CancelableFlow.lock`（`synchronized`）—— 执行体登记 / 打断 / 已取消标志。
 
 登记路径不碰闸，闸内不碰登记 → 无环路。
@@ -116,7 +116,7 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
 
 闸保护的是**本轮的终局裁决**（判空 → 发 Final → 关信箱 → 还槽）与**投递 steering** 两者的互斥 —— 目的是让「终局已经发出 Final」与「此刻没有活跃轮次」对 `steer()` 表现为同一个原子事实。信箱本身（`Channel`）已经是线程安全的，闸不为它而设。
 
-因此闸必须留在 `Turn`（轮次级）：它守的是轮次的终局裁决，跨轮争用没有语义；而闸随轮走之后，**跨轮争用自然消失** —— 至多一个活跃轮次 ⇒ 同一时刻至多一把闸被持有。
+因此闸必须留在 `AgentTurn`（轮次级）：它守的是轮次的终局裁决，跨轮争用没有语义；而闸随轮走之后，**跨轮争用自然消失** —— 至多一个活跃轮次 ⇒ 同一时刻至多一把闸被持有。
 
 若把它降格为"只锁信箱"，则「终态事件已发完」与「槽位已空」不再互斥，`steer()` 必然要在两者之间取其一：取"信箱可投"就可能撞上 Final 已发的轮次（消息随轮消亡），取"槽位为空"就可能拒掉一个仍活跃轮次的合法投递。两者都会破坏公开契约。**故维持轮次锁。**
 
@@ -135,7 +135,9 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
 
 ## 类的职责
 
-### Turn —— 轮次身份
+以下四个类同住 `agent/core/src/main/kotlin/io/github/yeyi/agent/AgentTurn.kt`，是同包的 `internal` 顶层类（与包内 `Agent*` 命名对齐；拆出独立文件后可跨文件共用，可见性由类内私有放宽为模块内可见）。
+
+### AgentTurn —— 轮次身份
 
 ```kotlin
     /**
@@ -146,12 +148,12 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
      * 于是信箱持有本轮的引用。
      *
      * 两个成员直接公开：调用方用它们的机械能力（投递 / 排空 / 判空 / 关闭、登记 / 打断），
-     * 不在 Turn 上再铺一层转发方法 —— 转发只是把调用点搬家，没有多出语义。
+     * 不在 AgentTurn 上再铺一层转发方法 —— 转发只是把调用点搬家，没有多出语义。
      *
      * 槽位归 agent（`activeTurn`），轮次不持有槽位 —— 归还槽位由 agent 在终局 / 收尾处
      * 以 CAS 认人归还，轮次只提供自己的身份用于认人。
      */
-    private class Turn {
+    internal class AgentTurn {
         /**
          * 终局闸门 —— 互斥"抢占 Final"与"投递 steering"两个动作.
          *
@@ -161,7 +163,7 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
          * Semaphore 的 permit 与线程无关, release 可由任意线程执行。
          *
          * 代价: 不可重入 —— collector / AgentHook 回调内同步调用 steer() 会死锁
-         * (本就是硬约束, 见 [steer] 的 KDoc)。
+         * (本就是硬约束, 见 [Agent.Steerable.steer] 的 KDoc)。
          */
         private val gate = Semaphore(1)
         val flow = CancelableFlow()
@@ -178,10 +180,10 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
     /**
      * 转向消息收纳 —— 本轮的信箱，只做机械操作。
      *
-     * 锁不在这里，而在 [Turn]：闸保护的是"本轮的终局裁决"，终局路径调的是 `turn.lock()`。
+     * 锁不在这里，而在 [AgentTurn]：闸保护的是"本轮的终局裁决"，终局路径调的是 `turn.lock()`。
      * 本类的投递 / 排空也要用它，故持有本轮引用 —— 双向依赖，语义闭合。
      */
-    private class SteerInbox(private val turn: Turn) {
+    internal class SteerInbox(private val turn: AgentTurn) {
         private val inbox = Channel<AgentQuery>(Channel.UNLIMITED)
 
         /** 投递在途指令。闸内执行，与终局裁决互斥。 */
@@ -221,7 +223,7 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
      * - [cancel] 只取消这一个子协程 —— 协程取消向下传播、不向上，收集方协程本身不被取消，
      *   但收集会因 [CancellationException] 而结束，沿用"collect 外围 try/catch 取消异常"的既有用法；
      */
-    private class CancelableFlow {
+    internal class CancelableFlow {
         private enum class Attach { Ok, Canceled, Repeated }
 
         private val lock = Any()
@@ -276,7 +278,7 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
 
 要点：
 
-- **登记与「已取消」标志同锁** —— `attach` 与 `cancel` 的判定因此没有竞争窗口（标志若在 `Turn` 上、在锁外读，cancel/collect 竞态下会误判）；
+- **登记与「已取消」标志同锁** —— `attach` 与 `cancel` 的判定因此没有竞争窗口（标志若在 `AgentTurn` 上、在锁外读，cancel/collect 竞态下会误判）；
 - **登记永不清空** —— 收尾期间重复 `cancel()` 仍判定"该轮已收集"，不会误走兜底分支把槽位提前还掉；
 - **`cancel()` 的返回值只回答"有没有执行体"** —— `job == null` ⟺ 本轮从未被收集 ⟹ 没有 `onCompletion` 会来 ⟹ 须由 agent 兜底还槽；`job != null` ⟹ 打断已投递（对已结束的 job 是无害空操作）⟹ 槽位由 `onCompletion` 归还。
 
@@ -284,22 +286,34 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
 
 轮次收尾（还槽 + 关信箱）挂在流级 `onCompletion` 上 —— 它**按收集次数触发**，而非按轮次触发：被拒绝的第二次收集同样会走到这里。因此收尾必须先判断"这次收集是不是拥有者"。
 
-判据是 `Attach.Repeated` 抛出的**专用异常** `RepeatedCollectionException` —— `ReActAgent` 的私有嵌套类，不进公开异常体系，继承 `IllegalStateException`：
+判据是 `Attach.Repeated` 抛出的**专用异常** `RepeatedCollectionException` —— 同包的 `internal` 顶层类（`AgentTurn.kt`），不进公开异常体系，继承 `IllegalStateException`：
 
 ```kotlin
     /**
      * 同一轮次被重复收集 —— 调用方错误。
      *
-     * 只在 SDK 内部消费：轮次收尾据此判断"这次收集是不是拥有者"，
-     * 非拥有者的收集不得触碰仍在运行的轮次的槽位与信箱。
-     * 继承 [IllegalStateException]，对外仍表现为"调用方错误"，但内部可以精确识别，
-     * 不会与收集方自己抛出的 [IllegalStateException] 混淆。
+     * **抛出时机**：不是 [Agent.run] / [Agent.Streamable.runStream] 调用时，而是**收集时** ——
+     * 违规的那一次 collect 一进入流就收到本异常。重复收集只有到收集时才会被发现：
+     * `run()` 只建轮、不碰执行体，调用它本身不会抛本异常。
+     * （`run()` 调用时确实可能抛 [IllegalStateException] —— 那是"已有活跃轮次"的并发拒绝，
+     * 与重复收集无关。）
+     *
+     * **不转 [AgentEvent.Failed]**：Failed 的唯一产地是轮次执行体内部的失败路径，
+     * 而重复收集发生在执行体启动之前（执行体 LAZY，从未运行）—— 这一轮没有产出任何
+     * 事件，也就没有失败可言。正在运行的那一轮的收集者同样收不到这条失败：
+     * 失败事件发在这一轮共享的流上，若因第二次收集伪造一条，污染的正是真正的收集者。
+     *
+     * 继承 [IllegalStateException]：对外仍表现为"调用方错误"，但内部可以精确识别 ——
+     * 轮次收尾据此判断"这次收集是不是拥有者"，非拥有者的收集不得触碰仍在运行的轮次
+     * 的槽位与信箱；用专属类型而非笼统的 ISE，是为了不和收集方自己抛出的
+     * [IllegalStateException] 混淆。
      */
-    private class RepeatedCollectionException :
+    internal class RepeatedCollectionException :
         IllegalStateException("a turn flow may only be collected once")
 ```
 
 - 它是"非拥有者"的唯一来源 —— 只有重复收集这一条路径会抛它；
+- 这是**实现内部的信号**，公开接口不约束重复收集抛哪种异常 —— 顶层契约只写"不允许重复收集"，异常形态（此处为继承 `IllegalStateException` 的内部类型）由实现者决定；
 - 不能改用笼统的 `IllegalStateException` 判定 —— `onCompletion` 的 `cause` 也包含**收集方自己抛出的异常**，消费者代码里一个 ISE 就会让收尾被跳过 → 槽位永久泄漏 → agent 从此再也不能 `run`；
 - 也不能改用 `CancellationException` 判定 —— 拥有者被打断与"从未被收集的轮次被作废"都是它，但两者要求的动作相反（一个要还槽、一个不能还）。
 
@@ -328,8 +342,8 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
 ### run（建轮）
 
 ```kotlin
-    private fun runTurn(body: suspend (turn: Turn, emit: suspend (AgentEvent) -> Unit) -> Unit): Flow<AgentEvent> {
-        val turn = Turn()
+    private fun runTurn(body: suspend (turn: AgentTurn, emit: suspend (AgentEvent) -> Unit) -> Unit): Flow<AgentEvent> {
+        val turn = AgentTurn()
         if (!activeTurn.compareAndSet(null, turn)) error("Concurrent run not supported: another run is active")
         return turn.flow.with { emit -> body(turn, emit) }
             .onCompletion { cause ->
@@ -417,7 +431,7 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
     if (!turn.steering.isEmpty()) consumeSteering(turn)
 
     // consumeSteering
-    private suspend fun consumeSteering(turn: Turn) {
+    private suspend fun consumeSteering(turn: AgentTurn) {
         turn.steering.drain().forEach { query -> /* 注入 memory */ }
     }
 ```
@@ -432,7 +446,7 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
 |---|---|---|
 | 1 | 至多一个活跃轮次 | `activeTurn` 单槽 CAS |
 | 2 | `steer()` 返回 false ⟹ 此刻无活跃轮次，可安全开新轮 | 重读重试（steer 路径）+ 「信箱已关 ⟹ 已不在槽位」 |
-| 3 | 一次 collect 必以 Final / Failed / CancellationException 之一结束 | `finalize` / `loop` 的 catch / `attach` 拒绝 → 取消异常。**例外**：重复收集是调用方错误 → `IllegalStateException` |
+| 3 | 一次 collect 必以 Final / Failed / CancellationException 之一结束 | `finalize` / `loop` 的 catch / `attach` 拒绝 → 取消异常。**例外**：重复收集是调用方错误 → 重复收集异常（实现自定义，此处继承 `IllegalStateException`） |
 | 4 | 信箱已关 ⟹ 已不在槽位 | 终局路径「先 CAS 还槽、后关信箱」；`cancel()` 兜底路径反过来「先关信箱后还槽」—— 两者都在同一闸内完成，对 `steer()` 是原子的一步（`steer` 的投递要取闸，看不到中间态） |
 | 5 | 槽位释放总在终态事件之后 | 成功：emit(Final) → 还槽；失败：emit(Failed) → onCompletion 还槽；取消：流结束后 onCompletion 还槽 |
 | 6 | 一轮至多执行一次 | `attach` 的执行体登记（登记后永不清空）—— 重复 collect 一律 `IllegalStateException` |
@@ -460,7 +474,7 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
 | 从未被收集的轮次被 cancel 后再 collect | 靠信箱已关拦下（`isClosedForSend` 检查） | `cancel()` 置 `canceled` 标志 → `attach` 的 `Canceled` 分支拦下 → 取消异常。**不变**，但不再依赖 delicate API |
 | 收尾期间再次 `cancel()` | 提前释放槽位 → 旧轮未死、新轮可进（可双跑） | 保持占用，到 `onCompletion` 才还 |
 | `cancel()` 时无活跃轮 | 走无认人销毁（理论上会关掉新一轮的信箱） | 真 no-op |
-| 同一流 collect 两次 | 静默顶掉登记，两个 loop 并发写 memory | 第二次抛 `IllegalStateException`（内部为专用的重复收集异常） |
+| 同一流 collect 两次 | 静默顶掉登记，两个 loop 并发写 memory | 第二次在**收集时**抛 `IllegalStateException`（内部为专用的重复收集异常） |
 | 同一流 collect 两次（第一轮仍在跑） | 第二次收集触发的流级收尾命中运行中轮的认人 CAS → 提前释放其槽位（可双跑）并关掉其信箱（`steer()` 对活轮返回 false） | 第二次抛专用的重复收集异常 → 收尾按"这次收集是不是拥有者"跳过 → 不碰运行中轮的槽位与信箱 |
 | 收集方自己的代码抛出 `IllegalStateException` | （无）| 收尾**不得**按 `IllegalStateException` 笼统跳过 —— 收集方的异常同样会终止流，一并跳过会让槽位永久泄漏、agent 再也不能 `run`；专用异常类型把二者分开 |
 | 轮次跑完后再 collect 一次 | 静默重跑整个 loop（重复 Final、重复写 memory） | 抛 `IllegalStateException` |
@@ -474,9 +488,11 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
 
 | 文件 | 改动 |
 |---|---|
-| `agent/core/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` | 新增 `Turn`（终局闸 + 两个成员）；`SteerInbox` 改为每轮一份的纯信箱（持 `Turn` 引用取闸）；`CancelableFlow` 改为每轮一份（登记下沉，消灭全局单槽；`canceled` 标志与登记同锁）；agent 级加 `activeTurn`；`runTurn`/`cancel`/`steer`/`loop`/`loopOnce`/`finalize`/`consumeSteering` 改用 `turn`；作废 = `cancel()` 内的置 `canceled` 标志 + 关信箱（入闸），终局路径只关信箱；`isClosedForSend` 移除，`SteerInbox.isEmpty` 改用 `@OptIn(ExperimentalCoroutinesApi::class)`；新增私有嵌套异常 `RepeatedCollectionException`（`ReActAgent` 内部）—— 重复收集的内部信号，`onCompletion` 据此跳过收尾（非拥有者的收集不碰运行中轮的槽位与信箱），对外仍表现为 `IllegalStateException` |
+| `agent/core/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` | agent 级加 `activeTurn`；`runTurn`/`cancel`/`steer`/`loop`/`loopOnce`/`finalize`/`consumeSteering` 改用 `turn`；作废 = `cancel()` 内的置 `canceled` 标志 + 关信箱（入闸），终局路径只关信箱 |
+| `agent/core/src/main/kotlin/io/github/yeyi/agent/AgentTurn.kt`（新增） | 轮次容器独立成文件（`internal` 顶层类，与包内 `Agent*` 命名对齐）：`AgentTurn`（终局闸 + 两个成员）；`SteerInbox` 改为每轮一份的纯信箱（持 `AgentTurn` 引用取闸）；`CancelableFlow` 改为每轮一份（登记下沉，消灭全局单槽；`canceled` 标志与登记同锁）；`isClosedForSend` 移除，`SteerInbox.isEmpty` 改用 `@OptIn(ExperimentalCoroutinesApi::class)`；新增 `RepeatedCollectionException` —— 重复收集的内部信号，`onCompletion` 据此跳过收尾（非拥有者的收集不碰运行中轮的槽位与信箱），对外仍表现为 `IllegalStateException` |
 | `agent/core/src/test/kotlin/io/github/yeyi/agent/CancelableTest.kt` | 并入两个回归用例：迟收集的废弃轮次不得夺走运行中轮的 cancel 登记；收尾期间的第二次 cancel 不得释放槽位；另加：被拒绝的重复收集不得释放运行中轮的槽位与信箱；收集方自己抛出的 `IllegalStateException` 不得让轮次收尾被跳过（否则槽位永久泄漏） |
 | `agent/core/src/test/kotlin/io/github/yeyi/agent/CancelAuditTest.kt` | 删除（用例并入 `CancelableTest`） |
+| `agent/core/src/main/kotlin/io/github/yeyi/agent/Agent.kt` | 顶层接口契约写明轮次语义：[run] / [runStream] 返回的流**只允许收集一次**（重复收集是调用方错误），不收集须调 [Agent.Cancelable.cancel] 释放占用。接口**不约束重复收集抛哪种异常** —— 异常形态由实现者决定，公开面只承诺"不允许重复收集" |
 
 ---
 
