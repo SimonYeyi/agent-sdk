@@ -12,11 +12,14 @@ import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withContext
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -57,6 +60,53 @@ class CancelableTest {
                 started.complete(Unit)
                 gate.await()
             }
+            emit(ChatResponseEvent.ContentDelta("done"))
+            emit(ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop))
+        }
+    }
+
+    /** 每次 chat() 都挂起 —— 用于构造"运行中的轮次"，可反复打断。 */
+    private class AlwaysGatedLlm : LlmProvider {
+        override val name: String = "always-gated"
+        val started = CompletableDeferred<Unit>()
+        private val gate = CompletableDeferred<Unit>()
+
+        override suspend fun chat(request: ChatRequest): ChatResponse {
+            if (!started.isCompleted) started.complete(Unit)
+            gate.await()
+            return ChatResponse(
+                message = ChatMessage.Assistant(content = "done"),
+                finishReason = FinishReason.Stop
+            )
+        }
+
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
+            emit(ChatResponseEvent.ContentDelta("done"))
+            emit(ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop))
+        }
+    }
+
+    /** 被取消后"收尾很慢" —— 用于观察打断与槽位释放的时序。 */
+    private class SlowUnwindLlm : LlmProvider {
+        override val name: String = "slow-unwind"
+        val started = CompletableDeferred<Unit>()
+        private val gate = CompletableDeferred<Unit>()
+
+        override suspend fun chat(request: ChatRequest): ChatResponse {
+            started.complete(Unit)
+            try {
+                gate.await()
+            } catch (e: CancellationException) {
+                withContext(NonCancellable) { delay(300) } // 模拟收尾耗时
+                throw e
+            }
+            return ChatResponse(
+                message = ChatMessage.Assistant(content = "done"),
+                finishReason = FinishReason.Stop
+            )
+        }
+
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
             emit(ChatResponseEvent.ContentDelta("done"))
             emit(ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop))
         }
@@ -234,5 +284,75 @@ class CancelableTest {
 
         val events = agent.run(AgentQuery.text("hi again")).toList()
         assertEquals(1, events.filterIsInstance<AgentEvent.Final>().size)
+    }
+
+    /**
+     * 回归：迟收集的废弃轮次不得夺走运行中轮次的执行体登记。
+     *
+     * 登记若挂在 agent 级全局单槽上，废弃轮次一被收集就会顶掉运行中轮的登记 ——
+     * 此后运行中轮永远打断不掉，槽位还会被提前放掉。
+     */
+    @Test
+    fun `late collection of an abandoned round must not steal the running round's cancel slot`() = runTest {
+        val llm = AlwaysGatedLlm()
+        val agent = agentOf(llm)
+
+        // 第一轮：创建但不收集 → cancel 放弃 → 槽位归还
+        val abandoned = agent.run(AgentQuery.text("first"))
+        agent.cancel()
+
+        // 第二轮：开跑并被收集（挂在 LLM 上）
+        val caught = CompletableDeferred<Throwable?>()
+        val job = launch {
+            try {
+                agent.run(AgentQuery.text("second")).collect { }
+                caught.complete(null)
+            } catch (e: CancellationException) {
+                caught.complete(e)
+            }
+        }
+        llm.started.await()
+
+        // 关键：此时才收集已被放弃的第一轮
+        assertFailsWith<CancellationException> { abandoned.toList() }
+
+        // 期望：cancel() 打断的仍是正在运行的第二轮
+        agent.cancel()
+        job.join()
+
+        assertTrue(
+            caught.await() is CancellationException,
+            "运行中的第二轮应被 cancel() 打断 —— 实际结果: ${caught.await()}"
+        )
+    }
+
+    /**
+     * 回归：收尾期间的第二次 cancel() 不得释放槽位。
+     *
+     * 打断只投递取消，执行体还可能跑着一段收尾 —— 此刻放掉槽位，新一轮就能与
+     * 正在死去的旧轮并发。
+     */
+    @Test
+    fun `second cancel must not free the slot while the cancelled round is still unwinding`() = runTest {
+        val llm = SlowUnwindLlm()
+        val agent = agentOf(llm)
+
+        val job = launch {
+            try {
+                agent.run(AgentQuery.text("first")).collect { }
+            } catch (_: CancellationException) {
+            }
+        }
+        llm.started.await()
+
+        agent.cancel() // 打断；轮次进入慢收尾
+        agent.cancel() // 幂等的第二次 —— 不应放掉槽位
+
+        // 旧轮仍在收尾 → 槽位仍被占用 → 此刻开新轮应报并发异常
+        val ex = assertFailsWith<IllegalStateException> {
+            agent.run(AgentQuery.text("second")).toList()
+        }
+        assertTrue(ex.message!!.contains("Concurrent run not supported"))
+        job.join()
     }
 }
