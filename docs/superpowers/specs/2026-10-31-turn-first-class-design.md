@@ -238,7 +238,8 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
                 // 收集方不会拿到"零事件 + 正常结束"的静默出口。
                 Attach.Canceled -> throw CancellationException("flow is canceled")
                 // 同一轮被重复收集（含跑完后再收集）—— 跑不起来的调用错误，不是运行时错误。
-                Attach.Repeated -> throw IllegalStateException("a turn flow may only be collected once")
+                // 专用异常类型是"这次收集不是拥有者"的内部信号（见 RepeatedCollectionException）。
+                Attach.Repeated -> throw RepeatedCollectionException()
             }
             // 取消异常原样上抛：打断与"执行体自身被取消"对收集方是同一种信号，
             // 调用方沿用 collect 外围 try/catch(CancellationException) 即可。
@@ -264,7 +265,7 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
         /**
          * 打断本轮执行体（对已结束的 job 是无害的空操作）。
          *
-         * @return true = 取消成功，打断执行；false = 取消失败，执行还未开始
+         * @return true = 取消成功，打断执行体；false = 取消失败，无执行体可取消
          */
         fun cancel(): Boolean = synchronized(lock) {
             canceled = true
@@ -278,6 +279,29 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
 - **登记与「已取消」标志同锁** —— `attach` 与 `cancel` 的判定因此没有竞争窗口（标志若在 `Turn` 上、在锁外读，cancel/collect 竞态下会误判）；
 - **登记永不清空** —— 收尾期间重复 `cancel()` 仍判定"该轮已收集"，不会误走兜底分支把槽位提前还掉；
 - **`cancel()` 的返回值只回答"有没有执行体"** —— `job == null` ⟺ 本轮从未被收集 ⟹ 没有 `onCompletion` 会来 ⟹ 须由 agent 兜底还槽；`job != null` ⟹ 打断已投递（对已结束的 job 是无害空操作）⟹ 槽位由 `onCompletion` 归还。
+
+### 重复收集的内部信号
+
+轮次收尾（还槽 + 关信箱）挂在流级 `onCompletion` 上 —— 它**按收集次数触发**，而非按轮次触发：被拒绝的第二次收集同样会走到这里。因此收尾必须先判断"这次收集是不是拥有者"。
+
+判据是 `Attach.Repeated` 抛出的**专用异常** `RepeatedCollectionException` —— `ReActAgent` 的私有嵌套类，不进公开异常体系，继承 `IllegalStateException`：
+
+```kotlin
+    /**
+     * 同一轮次被重复收集 —— 调用方错误。
+     *
+     * 只在 SDK 内部消费：轮次收尾据此判断"这次收集是不是拥有者"，
+     * 非拥有者的收集不得触碰仍在运行的轮次的槽位与信箱。
+     * 继承 [IllegalStateException]，对外仍表现为"调用方错误"，但内部可以精确识别，
+     * 不会与收集方自己抛出的 [IllegalStateException] 混淆。
+     */
+    private class RepeatedCollectionException :
+        IllegalStateException("a turn flow may only be collected once")
+```
+
+- 它是"非拥有者"的唯一来源 —— 只有重复收集这一条路径会抛它；
+- 不能改用笼统的 `IllegalStateException` 判定 —— `onCompletion` 的 `cause` 也包含**收集方自己抛出的异常**，消费者代码里一个 ISE 就会让收尾被跳过 → 槽位永久泄漏 → agent 从此再也不能 `run`；
+- 也不能改用 `CancellationException` 判定 —— 拥有者被打断与"从未被收集的轮次被作废"都是它，但两者要求的动作相反（一个要还槽、一个不能还）。
 
 ### 轮次的三种状态与 `cancel()` 的处置
 
@@ -308,7 +332,10 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
         val turn = Turn()
         if (!activeTurn.compareAndSet(null, turn)) error("Concurrent run not supported: another run is active")
         return turn.flow.with { emit -> body(turn, emit) }
-            .onCompletion {
+            .onCompletion { cause ->
+                // 非拥有者的收集（重复收集）不得收尾：认人 CAS 会命中仍在运行的轮次，
+                // 把它的槽位提前释放（可开出并发双跑），并关掉它的信箱（steer() 对活着的轮返回 false）。
+                if (cause is RepeatedCollectionException) return@onCompletion
                 // 还槽（认人）：槽位若已是新一轮则空操作 —— 不得误杀下一轮。
                 activeTurn.compareAndSet(turn, null)
                 // 轮次收尾：关信箱
@@ -319,7 +346,7 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
 
 ### collect（执行）
 
-`flow.with` → `attach` 登记（被拒时按 `Canceled` / `Repeated` 分别抛取消异常 / 非法状态）→ `await` → 执行体结束（登记**不清空**）。
+`flow.with` → `attach` 登记（被拒时按 `Canceled` / `Repeated` 分别抛取消异常 / 重复收集异常）→ `await` → 执行体结束（登记**不清空**）→ `onCompletion` 收尾（还槽 + 关信箱；重复收集那次除外）。
 
 ### cancel（打断）
 
@@ -433,7 +460,9 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
 | 从未被收集的轮次被 cancel 后再 collect | 靠信箱已关拦下（`isClosedForSend` 检查） | `cancel()` 置 `canceled` 标志 → `attach` 的 `Canceled` 分支拦下 → 取消异常。**不变**，但不再依赖 delicate API |
 | 收尾期间再次 `cancel()` | 提前释放槽位 → 旧轮未死、新轮可进（可双跑） | 保持占用，到 `onCompletion` 才还 |
 | `cancel()` 时无活跃轮 | 走无认人销毁（理论上会关掉新一轮的信箱） | 真 no-op |
-| 同一流 collect 两次 | 静默顶掉登记，两个 loop 并发写 memory | 第二次抛 `IllegalStateException` |
+| 同一流 collect 两次 | 静默顶掉登记，两个 loop 并发写 memory | 第二次抛 `IllegalStateException`（内部为专用的重复收集异常） |
+| 同一流 collect 两次（第一轮仍在跑） | 第二次收集触发的流级收尾命中运行中轮的认人 CAS → 提前释放其槽位（可双跑）并关掉其信箱（`steer()` 对活轮返回 false） | 第二次抛专用的重复收集异常 → 收尾按"这次收集是不是拥有者"跳过 → 不碰运行中轮的槽位与信箱 |
+| 收集方自己的代码抛出 `IllegalStateException` | （无）| 收尾**不得**按 `IllegalStateException` 笼统跳过 —— 收集方的异常同样会终止流，一并跳过会让槽位永久泄漏、agent 再也不能 `run`；专用异常类型把二者分开 |
 | 轮次跑完后再 collect 一次 | 静默重跑整个 loop（重复 Final、重复写 memory） | 抛 `IllegalStateException` |
 | `steer()` 撞上轮次终结的窗口 | 可能返回 false 而此刻有活跃轮（违反不变式 2） | 重读重试，确认无活跃轮才返回 false |
 | 被 cancel 后立刻 `run()` | 从未被收集被 cancel → 可开新轮；运行中被 cancel → 抛并发异常 | **不变** |
@@ -445,8 +474,8 @@ agent 至多一个活跃轮次，且**跨轮的闸临界区永不重叠** ——
 
 | 文件 | 改动 |
 |---|---|
-| `agent/core/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` | 新增 `Turn`（终局闸 + 两个成员）；`SteerInbox` 改为每轮一份的纯信箱（持 `Turn` 引用取闸）；`CancelableFlow` 改为每轮一份（登记下沉，消灭全局单槽；`canceled` 标志与登记同锁）；agent 级加 `activeTurn`；`runTurn`/`cancel`/`steer`/`loop`/`loopOnce`/`finalize`/`consumeSteering` 改用 `turn`；作废 = `cancel()` 内的置 `canceled` 标志 + 关信箱（入闸），终局路径只关信箱；`isClosedForSend` 移除，`SteerInbox.isEmpty` 改用 `@OptIn(ExperimentalCoroutinesApi::class)` |
-| `agent/core/src/test/kotlin/io/github/yeyi/agent/CancelableTest.kt` | 并入两个回归用例：迟收集的废弃轮次不得夺走运行中轮的 cancel 登记；收尾期间的第二次 cancel 不得释放槽位 |
+| `agent/core/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` | 新增 `Turn`（终局闸 + 两个成员）；`SteerInbox` 改为每轮一份的纯信箱（持 `Turn` 引用取闸）；`CancelableFlow` 改为每轮一份（登记下沉，消灭全局单槽；`canceled` 标志与登记同锁）；agent 级加 `activeTurn`；`runTurn`/`cancel`/`steer`/`loop`/`loopOnce`/`finalize`/`consumeSteering` 改用 `turn`；作废 = `cancel()` 内的置 `canceled` 标志 + 关信箱（入闸），终局路径只关信箱；`isClosedForSend` 移除，`SteerInbox.isEmpty` 改用 `@OptIn(ExperimentalCoroutinesApi::class)`；新增私有嵌套异常 `RepeatedCollectionException`（`ReActAgent` 内部）—— 重复收集的内部信号，`onCompletion` 据此跳过收尾（非拥有者的收集不碰运行中轮的槽位与信箱），对外仍表现为 `IllegalStateException` |
+| `agent/core/src/test/kotlin/io/github/yeyi/agent/CancelableTest.kt` | 并入两个回归用例：迟收集的废弃轮次不得夺走运行中轮的 cancel 登记；收尾期间的第二次 cancel 不得释放槽位；另加：被拒绝的重复收集不得释放运行中轮的槽位与信箱；收集方自己抛出的 `IllegalStateException` 不得让轮次收尾被跳过（否则槽位永久泄漏） |
 | `agent/core/src/test/kotlin/io/github/yeyi/agent/CancelAuditTest.kt` | 删除（用例并入 `CancelableTest`） |
 
 ---

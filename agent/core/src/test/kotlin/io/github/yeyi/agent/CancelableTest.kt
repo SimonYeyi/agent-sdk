@@ -356,4 +356,63 @@ class CancelableTest {
         assertTrue(ex.message!!.contains("Concurrent run not supported"))
         job.join()
     }
+
+    /**
+     * 回归：收集方自己抛出的异常不得让轮次收尾被跳过。
+     *
+     * 收尾按"这次收集是不是拥有者"判定，依据是内部专用的重复收集信号 ——
+     * 不能按笼统的 IllegalStateException 判定：收集方代码里的 ISE 同样会终止整条流，
+     * 若据此跳过收尾，槽位将永久泄漏，agent 从此再也不能 run。
+     */
+    @Test
+    fun `an exception thrown by the collector must not skip the round's release`() = runTest {
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop),
+                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = agentOf(provider)
+
+        // 收集方自己的代码抛异常（消费端 bug）—— 流被终止，但轮次必须照常收尾。
+        runCatching {
+            agent.run(AgentQuery.text("hi")).collect { throw IllegalStateException("consumer bug") }
+        }
+
+        // 槽位已归还 → 下一轮照常执行。
+        val events = agent.run(AgentQuery.text("hi again")).toList()
+        assertEquals(1, events.filterIsInstance<AgentEvent.Final>().size)
+    }
+
+    /**
+     * 回归：被拒绝的重复收集不得动活跃轮次的槽位与信箱。
+     *
+     * 轮次收尾若挂在流级 onCompletion 上，被拒绝的第二次收集也会执行它 ——
+     * 认人 CAS 命中仍在运行的轮次 → 槽位提前释放（可开出并发双跑、两个 loop 并发写记忆），
+     * 且活跃轮的信箱被关 → steer() 对活着的轮返回 false。
+     */
+    @Test
+    fun `a rejected repeated collection must not release the running round's slot`() = runTest {
+        val llm = GatedLlm()
+        val agent = agentOf(llm)
+
+        val flow = agent.run(AgentQuery.text("hi"))
+        val job = launch { runCatching { flow.toList() } }
+        llm.started.await()
+
+        // 同一 flow 第二次收集 → 重复收集是调用方错误
+        assertFailsWith<IllegalStateException> { flow.toList() }
+
+        // 槽位仍在 → 不能开出并发第二轮
+        val ex = assertFailsWith<IllegalStateException> {
+            agent.run(AgentQuery.text("second")).toList()
+        }
+        assertTrue(ex.message!!.contains("Concurrent run not supported"))
+
+        // 活跃轮的信箱仍在 → steer 仍可注入
+        assertTrue(agent.steer(AgentQuery.text("later")))
+
+        agent.cancel()
+        job.join()
+    }
 }

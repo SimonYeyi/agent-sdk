@@ -81,7 +81,10 @@ public class ReActAgent internal constructor(
         val turn = Turn()
         if (!activeTurn.compareAndSet(null, turn))
             error("Concurrent run not supported: another run is active")
-        return turn.flow.with { emit -> body(turn, emit) }.onCompletion {
+        return turn.flow.with { emit -> body(turn, emit) }.onCompletion { cause ->
+            // 非拥有者的收集（重复收集）不得收尾：认人 CAS 会命中仍在运行的轮次，
+            // 把它的槽位提前释放（可开出并发双跑），并关掉它的信箱（steer() 对活着的轮返回 false）。
+            if (cause is RepeatedCollectionException) return@onCompletion
             // 还槽（认人）：槽位若已是新一轮则空操作 —— 不得误杀下一轮。
             activeTurn.compareAndSet(turn, null)
             // 轮次收尾：关信箱
@@ -530,6 +533,12 @@ public class ReActAgent internal constructor(
         private var job: Job? = null
         private var canceled = false
 
+        /**
+         * 构造本轮的可取消流。
+         *
+         * [Attach.Repeated] 抛出的 [RepeatedCollectionException] 是"这次收集不是拥有者"的
+         * 内部信号 —— 轮次收尾据此跳过，避免重复收集提前释放仍在运行的轮次的槽位与信箱。
+         */
         fun <T> with(body: suspend (emit: suspend (T) -> Unit) -> Unit): Flow<T> = channelFlow {
             // LAZY 启动：执行体在 await() 之前不运行 —— 一旦开始收集，执行体必已登记进本轮，
             // 此后的 cancel() 不会落空。
@@ -540,7 +549,7 @@ public class ReActAgent internal constructor(
                 // 收集方不会拿到"零事件 + 正常结束"的静默出口。
                 Attach.Canceled -> throw CancellationException("flow is canceled")
                 // 同一轮被重复收集（含跑完后再收集）—— 跑不起来的调用错误，不是运行时错误。
-                Attach.Repeated -> throw IllegalStateException("a turn flow may only be collected once")
+                Attach.Repeated -> throw RepeatedCollectionException()
             }
             // 取消异常原样上抛：打断与"执行体自身被取消"对收集方是同一种信号，
             // 调用方沿用 collect 外围 try/catch(CancellationException) 即可。
@@ -566,11 +575,22 @@ public class ReActAgent internal constructor(
         /**
          * 打断本轮执行体（对已结束的 job 是无害的空操作）。
          *
-         * @return true = 取消成功，打断执行；false = 取消失败，执行还未开始
+         * @return true = 取消成功，打断执行体；false = 取消失败，无执行体可取消
          */
         fun cancel(): Boolean = synchronized(lock) {
             canceled = true
             return job?.cancel()?.let { true } ?: false
         }
     }
+
+    /**
+     * 同一轮次被重复收集 —— 调用方错误。
+     *
+     * 只在 SDK 内部消费：轮次收尾据此判断"这次收集是不是拥有者"，
+     * 非拥有者的收集不得触碰仍在运行的轮次的槽位与信箱。
+     * 继承 [IllegalStateException]，对外仍表现为"调用方错误"，但内部可以精确识别，
+     * 不会与收集方自己抛出的 [IllegalStateException] 混淆。
+     */
+    private class RepeatedCollectionException :
+        IllegalStateException("a turn flow may only be collected once")
 }
