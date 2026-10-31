@@ -15,10 +15,10 @@ import io.github.yeyi.agent.skill.skills
 import io.github.yeyi.agent.subagent.subagents
 import io.github.yeyi.agent.tool.lazy_loading.lazyTools
 import io.github.yeyi.agent.toolset.toolsets
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
-import kotlinx.coroutines.launch
 
 /**
  * 从 AgentDefinition 和 AgentScope 构建 Agent 实例。
@@ -50,13 +50,18 @@ public fun AgentDefinition.spawn(scope: AgentScope): SpawnedAgent {
  *
  * [shutdown] 是终态操作：回收底层资源（MCP 子进程等）、终止进行中的 [run] flow（收集自然结束）并标记已关闭，
  * 之后调用 [run] 抛出 [IllegalStateException]；如需继续使用必须重新 spawn。
+ *
+ * [cancel] 是可恢复的中断：只打断当前回合，SpawnedAgent 本身仍可继续使用；
+ * 在途回合的收集以 [CancellationException] 结束——沿用 collect 外围 try/catch 取消异常的既有用法。
  */
 public class SpawnedAgent internal constructor(
     private val delegate: ReActAgent,
     private val mcpRegistry: McpRegistry? = null
-) : Agent, Streamable, Steerable, Shutdownable {
+) : Agent, Streamable, Steerable, Agent.Cancelable, Shutdownable {
     // 关闭信号，兼作关闭状态：isCompleted 即"已关闭"，complete 原子且幂等。
     private val shutdownSignal = CompletableDeferred<Unit>()
+
+    private fun checkShutdown() = check(!shutdownSignal.isCompleted) { "Agent is shut down" }
 
     override fun run(query: AgentQuery): Flow<AgentEvent> = runDelegate { delegate.run(query) }
 
@@ -66,7 +71,7 @@ public class SpawnedAgent internal constructor(
     private fun runDelegate(createDelegateFlow: () -> Flow<AgentEvent>): Flow<AgentEvent> {
         // 已关闭的 Agent 不可再运行——直接抛非法状态异常，而非返回 Failed 事件。
         checkShutdown()
-        // 入口即创建 delegate flow：delegate.run()/runStream() 内部的 acquireSteerInbox()
+        // 入口即创建 delegate flow：delegate.run()/runStream() 内部的 "run 即占槽"
         // 急切占据活跃 run 槽位，与 ReActAgent "run 即占槽" 语义对齐——run 返回后尚未收集的
         // 间隙里 steer() 不得误判空闲（否则调用方会按 KDoc 模式触发并发 fallback run）。
         val delegateFlow = createDelegateFlow()
@@ -75,12 +80,15 @@ public class SpawnedAgent internal constructor(
             // 守卫：shutdown 已在 collect 前发生——不再启动 delegate，flow 以零事件自然结束
             // （归"shutdown 终止进行中 run flow"协议，而非抛异常）。避免踩到已回收的 MCP 注册表。
             runCatching { checkShutdown() }.getOrElse { return@channelFlow }
-            // delegate 收集与关闭信号并发竞赛：谁先完成谁胜出。
-            val delegateJob = launch { delegateFlow.collect { send(it) } }
-            val signalJob = launch { shutdownSignal.await(); delegateJob.cancel() }
-            delegateJob.join(); signalJob.cancel()
-            // 无论 delegate 自然完成还是被 shutdown 终止，flow 均以正常收尾结束：
-            // 关闭信号触发时 delegate 被取消（停止收集、不再产生事件），flow 收集随之自然结束。
+            // delegate 被 cancel()/shutdown 打断时，取消异常在此分流：
+            // 关闭（终态）→ 收集自然结束、不抛异常——"shutdown 终止在途回合"的既有协议；
+            // 打断（可恢复）→ 取消异常原样上抛，沿用 collect 外围 try/catch 的既有用法。
+            try {
+                delegateFlow.collect { send(it) }
+            } catch (cause: CancellationException) {
+                if (shutdownSignal.isCompleted) return@channelFlow
+                throw cause
+            }
         }
     }
 
@@ -90,11 +98,17 @@ public class SpawnedAgent internal constructor(
         return delegate.steer(query)
     }
 
+    /** 打断当前回合 —— 委托给底层 agent，SpawnedAgent 本身仍可继续使用。 */
+    override fun cancel() {
+        checkShutdown()
+        delegate.cancel()
+    }
+
     /** 永久关闭 Agent 并回收资源（MCP 子进程等）。幂等，可重复调用。 */
     override fun shutdown() {
         if (!shutdownSignal.complete(Unit)) return
+        // 打断进行中的回合：delegate 的事件流随之自然收尾。
+        delegate.cancel()
         mcpRegistry?.unregisterAll()
     }
-
-    private fun checkShutdown() = check(!shutdownSignal.isCompleted) { "Agent is shut down" }
 }

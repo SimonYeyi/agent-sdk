@@ -17,7 +17,11 @@ import io.github.yeyi.agent.memory.RepairedMemory
 import io.github.yeyi.agent.memory.RoundsBoundedMemory
 import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.memory.addToMemory
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
 import io.github.yeyi.agent.modality.ModalityAdapter
@@ -27,7 +31,9 @@ import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolRegistry
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.buffer
+import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import java.util.concurrent.Semaphore
@@ -42,27 +48,35 @@ public class ReActAgent internal constructor(
     private val maxRounds: Int,
     private val maxIterations: Int,
     private val hook: AgentHook = NoOpAgentHook,
-) : Agent, Agent.Streamable, Agent.Steerable {
+) : Agent, Agent.Streamable, Agent.Steerable, Agent.Cancelable {
     private val memory = RoundsBoundedMemory(RepairedMemory(memory), maxRounds, llmProvider)
     private val steerInbox = SteerInbox()
+    private val turnFlow = CancelableFlow()
 
-    override fun run(query: AgentQuery): Flow<AgentEvent> {
-        acquireSteerInbox()
-        return flow {
-            loop(query, { req -> llmProvider.chat(req) }, { emit(it) })
-        }
+    override fun run(query: AgentQuery): Flow<AgentEvent> = runTurn { emit ->
+        loop(query, { req -> llmProvider.chat(req) }, emit)
     }
 
-    override fun runStream(query: AgentQuery): Flow<AgentEvent> {
-        acquireSteerInbox()
-        return flow {
-            val runner = StreamingRunner(llmProvider)
-            loop(
-                query = query,
-                llmCall = { req -> runner.run(req) { emit(AgentEvent.TextDelta(it)) } },
-                emit = { emit(it) }
-            )
-        }
+    override fun runStream(query: AgentQuery): Flow<AgentEvent> = runTurn { emit ->
+        val streaming = StreamingRunner(llmProvider)
+        loop(
+            query = query,
+            llmCall = { req -> streaming.run(req) { emit(AgentEvent.TextDelta(it)) } },
+            emit = emit
+        )
+    }
+
+    /** 回合的公共骨架：占活跃槽位 → 交由可中断容器执行 → 无论何种终态都释放槽位。 */
+    private fun runTurn(body: suspend (emit: suspend (AgentEvent) -> Unit) -> Unit): Flow<AgentEvent> {
+        // eager 占据活跃 run 槽位：调用即建信箱，杜绝 "run 返回但未收集" 间隙里
+        // steer() 误判空闲导致并发双 run。已有活跃 run 时抛并发异常。
+        if (!steerInbox.create()) error("Concurrent run not supported: another run is active")
+        return turnFlow.with(body).onCompletion { steerInbox.destroy() }
+    }
+
+    /** 打断当前回合 —— 只终止 agent 自身的执行，收集方协程不受影响。 */
+    override fun cancel() {
+        turnFlow.cancel()
     }
 
     /**
@@ -99,7 +113,7 @@ public class ReActAgent internal constructor(
 
             throw AgentException.MaxIterations(maxIterations)
         } catch (cause: Throwable) {
-            if (cause is kotlinx.coroutines.CancellationException) {
+            if (cause is CancellationException) {
                 withContext(NonCancellable) {
                     RepairedMemory.repairOrphans(memory, RepairedMemory.CANCELLED)
                 }
@@ -111,9 +125,6 @@ public class ReActAgent internal constructor(
             // 失败路径携带原始 Throwable,不再包成 AgentException —— 让上层自由判型。
             hook.safeInvoke { onRunFailed(buildContext(iterations), cause) }
             emit(AgentEvent.Failed(cause))
-        } finally {
-            // 兜底销毁（幂等，正常 Final 路径已在检查点②销毁过）。
-            steerInbox.destroy()
         }
     }
 
@@ -253,14 +264,6 @@ public class ReActAgent internal constructor(
             steerInbox.gate.release()
         }
         return result
-    }
-
-    /**
-     * eager 占据活跃 run 槽位：调用即建信箱，杜绝 "run 返回但未收集" 间隙里
-     * steer() 误判空闲导致并发双 run。已有活跃 run 时抛并发异常。
-     */
-    private fun acquireSteerInbox() {
-        if (!steerInbox.create()) error("Concurrent run not supported: another run is active")
     }
 
     private suspend fun consumeSteering(steerInbox: SteerInbox) {
@@ -437,5 +440,48 @@ public class ReActAgent internal constructor(
 
         @OptIn(ExperimentalCoroutinesApi::class)
         fun isEmpty(): Boolean = channelRef.get()?.isEmpty ?: true
+    }
+
+    /**
+     * 可中断的执行容器 —— 把"在子协程里跑一段产生事件的逻辑，并允许外部打断"这套语义收在一处。
+     *
+     * 设计要点：
+     * - 执行体跑在收集方的 scope 里（[channelFlow] 的子协程），因此收集方被取消时，
+     *   结构化并发照旧向下传导，执行体一并停止；
+     * - [cancel] 只取消这一个子协程 —— 协程取消向下传播、不向上，收集方协程本身不被取消，
+     *   但收集会因 [CancellationException] 而结束，沿用"collect 外围 try/catch 取消异常"的既有用法；
+     * - 轮次不并发由外部 [SteerInbox] 保证，这里只管"打断当前这一轮"，故状态仅需一个字段。
+     */
+    private class CancelableFlow {
+        /** 当前回合的执行体协程；null = 无在途回合。 */
+        private val active = AtomicReference<Job?>(null)
+
+        /**
+         * 执行 [body] 并产出事件流。
+         *
+         * 事件通道用 [Channel.RENDEZVOUS] 恢复严格背压：每个事件都要等消费者取走才继续，
+         * 生产者不会跑到消费者前面 —— 与引入 Cancelable 之前 `flow {}` 的语义一致。
+         * 消费者被取消时，[channelFlow] 的作用域取消照旧向下传导到生产者，与背压深度无关。
+         *
+         * @param body 执行体，参数为事件发送函数
+         */
+        fun <T> with(body: suspend (emit: suspend (T) -> Unit) -> Unit): Flow<T> = channelFlow {
+            // LAZY 启动：执行体在 await() 之前不运行 —— 一旦开始收集，执行体必已登记进 active，
+            // 此后的 cancel() 不会落空。
+            val producer = async(start = CoroutineStart.LAZY) { body { send(it) } }
+            active.set(producer)
+            try {
+                // 取消异常原样上抛：打断与"执行体自身被取消"对收集方是同一种信号，
+                // 调用方沿用 collect 外围 try/catch(CancellationException) 即可。
+                producer.await()
+            } finally {
+                active.compareAndSet(producer, null)
+            }
+        }.buffer(Channel.RENDEZVOUS)
+
+        /** 中断当前执行；回合尚未开始执行时为 no-op。幂等。 */
+        fun cancel() {
+            active.getAndSet(null)?.cancel()
+        }
     }
 }

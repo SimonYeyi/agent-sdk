@@ -28,6 +28,7 @@ import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.lazy_loading.LazyTool
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.Toolset
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -39,6 +40,7 @@ import kotlinx.serialization.json.JsonElement
 import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
@@ -432,6 +434,39 @@ class AgentScopeTest {
         job.join()
         // in-flight run 被 shutdown 终止：flow 自然结束（不再产生事件），而非挂起等待 gate 或抛异常
         assertTrue(completed)
+    }
+
+    @Test
+    fun `spawnedAgent cancel interrupts in-flight run and stays usable`() = runTest {
+        val started = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val delegate = agent {
+            llmProvider(GatedLlm(started, gate))
+            memory(InMemoryMemory())
+        } as ReActAgent
+        val spawned = SpawnedAgent(delegate)
+
+        var completed = false
+        val caught = CompletableDeferred<Throwable?>()
+        val job = launch {
+            try {
+                spawned.run(AgentQuery.text("ping")).collect { }
+                caught.complete(null)
+            } catch (e: CancellationException) {
+                caught.complete(e)
+            }
+            completed = true
+        }
+        started.await()
+        spawned.cancel()
+        job.join()
+        // in-flight run 被 cancel 打断：取消异常原样上抛给收集方，收集方协程本身未被取消
+        assertTrue(caught.await() is CancellationException)
+        assertTrue(completed)
+        assertFalse(job.isCancelled)
+        // cancel 是可恢复的中断 —— spawn 产物本身仍然可用
+        spawned.shutdown()
+        assertFailsWith<IllegalStateException> { spawned.run(AgentQuery.text("ping")) }
     }
 
     @Test

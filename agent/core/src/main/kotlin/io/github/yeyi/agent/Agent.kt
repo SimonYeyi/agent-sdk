@@ -72,6 +72,31 @@ public interface Agent {
     }
 
     /**
+     * 回合中断能力。
+     *
+     * 仅实现本接口的 Agent 才可被 [cancel] 打断当前回合——调用方应通过
+     * `agent is Agent.Cancelable` 探测能力，而非无条件调用 [cancel]。
+     *
+     * [cancel] 只作用于当前回合，不改变 Agent 自身状态：打断后 Agent 仍可再次 [Agent.run]。
+     * 终止协议与 [Shutdownable] 一致：进行中的 [Agent.run] flow 收集以 [CancellationException] 结束，
+     * 调用方沿用"collect 外围 try/catch 取消异常"的既有用法即可。
+     *
+     * 与 [Shutdownable] 的分工：[cancel] 是可恢复的中断（回合结束，Agent 继续可用）；
+     * [Shutdownable.shutdown] 是终态操作（Agent 作废，之后调用 [Agent.run] 抛 [IllegalStateException]）。
+     *
+     * 适用场景：用户主动打断、任务重规划、Agent 超时兜底。
+     */
+    public interface Cancelable {
+        /**
+         * 打断当前正在执行的回合。
+         *
+         * 无活跃回合时为 no-op；回合尚未开始执行时同样为 no-op —— 该回合在收集时照常执行。
+         * 幂等。
+         */
+        public fun cancel()
+    }
+
+    /**
      * 整体关闭能力。
      *
      * 仅实现本接口的 Agent 才可被 [shutdown] 永久关闭——调用方应通过 `agent is Agent.Shutdownable`
