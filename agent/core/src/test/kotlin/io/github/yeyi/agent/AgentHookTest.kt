@@ -81,7 +81,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
         )
         agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals(
@@ -115,7 +115,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
         )
         agent.runStream(AgentQuery.text("hi")).awaitResult()
         assertEquals(
@@ -146,7 +146,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(),
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
         )
 
@@ -185,7 +185,7 @@ class AgentHookTest {
             add(ChatMessage.ToolResult("c1", "echo", listOf(ContentPart.Text("prev-r-2"))))
         }
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(),
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(),
             memory = memory, modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
         )
         agent.run(AgentQuery.text("hi")).awaitResult()
@@ -215,7 +215,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("ok", result.message.content)
@@ -241,7 +241,7 @@ class AgentHookTest {
         )
         // maxIterations=1,浼氱珛鍒?emit Failed(MaxIterations)
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 1, hook = errorHook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 1, hook = errorHook
         )
         agent.run(AgentQuery.text("hi")).toList()
         assertTrue(errorHook.errors.size == 1)
@@ -260,7 +260,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("ok", result.message.content)
@@ -291,7 +291,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("final", result.message.content)
@@ -314,7 +314,7 @@ class AgentHookTest {
             override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = errorHook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = errorHook
         )
         agent.run(AgentQuery.text("hi")).toList()
         assertEquals(1, errorHook.errors.size)
@@ -337,7 +337,7 @@ class AgentHookTest {
             override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = errorHook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = errorHook
         )
         try { agent.run(AgentQuery.text("hi")).toList() } catch (t: Throwable) {
             assertTrue(t is kotlinx.coroutines.CancellationException)
@@ -366,7 +366,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
         )
         val events2 = agent.run(AgentQuery.text("hi")).toList()
@@ -393,7 +393,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
@@ -421,7 +421,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
@@ -456,7 +456,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
@@ -484,7 +484,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
@@ -514,7 +514,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = Persona(""), llmProvider = provider, toolRegistry = registryOf(),
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
         )
         agent.run(AgentQuery.text("hi")).awaitResult()

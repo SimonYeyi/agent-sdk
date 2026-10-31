@@ -2,7 +2,7 @@ package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
@@ -46,7 +46,7 @@ class BeastTest {
         val fake = FakeLlmProvider(nonStreamResponses = listOf(FINAL_RESPONSE))
         val ox = Ox(
             llmProvider = fake,
-            persona = Persona("test"),
+            persona = AgentPersona("test"),
             toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
@@ -67,7 +67,7 @@ class BeastTest {
         val lazyToolReg = LazyToolRegistry().apply { register(LazyTool(EchoTool)) }
         val ox = Ox(
             llmProvider = fake,
-            persona = Persona("test"),
+            persona = AgentPersona("test"),
             toolRegistry = null,
             lazyToolRegistry = lazyToolReg,
             skillRegistry = SkillRegistry(),
@@ -87,7 +87,7 @@ class BeastTest {
         val fake = FakeLlmProvider(nonStreamResponses = listOf(FINAL_RESPONSE))
         val horse = Horse(
             llmProvider = fake,
-            persona = Persona("specialist"),
+            persona = AgentPersona("specialist"),
             lazyToolRegistry = null,
             toolsetRegistry = null,
             maxIterations = 1, maxRounds = 5,
@@ -116,7 +116,7 @@ class BeastTest {
         val toolReg = ToolRegistry().apply { register(EchoTool) }
         val horse = Horse(
             llmProvider = fake,
-            persona = Persona("specialist"),
+            persona = AgentPersona("specialist"),
             toolRegistry = toolReg,
             lazyToolRegistry = null,
             toolsetRegistry = null,
@@ -135,7 +135,7 @@ class BeastTest {
         val fake = FakeLlmProvider(nonStreamResponses = listOf(FINAL_RESPONSE))
         val ox = Ox(
             llmProvider = fake,
-            persona = Persona(""),
+            persona = AgentPersona(""),
             toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
@@ -162,7 +162,7 @@ class BeastTest {
         }
         val ox = Ox(
             llmProvider = failingFake,
-            persona = Persona(""),
+            persona = AgentPersona(""),
             toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,
@@ -184,7 +184,7 @@ class BeastTest {
         val blockingFake = FakeLlmProvider(nonStreamResponses = listOf(FINAL_RESPONSE))
         val ox = Ox(
             llmProvider = blockingFake,
-            persona = Persona(""),
+            persona = AgentPersona(""),
             toolRegistry = null,
             lazyToolRegistry = null,
             skillRegistry = null,

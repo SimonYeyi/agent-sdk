@@ -2,7 +2,7 @@ package io.github.yeyi.agent.skill
 
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.AgentQuery
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
@@ -81,7 +81,7 @@ class SkillExtensionsTest {
     fun `skills with Delegate mode registers load_skill tool with correct prompt`() = runTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
-        b.persona(Persona("x"))
+        b.persona(AgentPersona("x"))
         val registry = SkillRegistry()
         registry.register(
             listOf(
@@ -124,7 +124,7 @@ class SkillExtensionsTest {
     fun `skills with Delegate mode and iterable registers load_skill tool`() = runTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
-        b.persona(Persona("x"))
+        b.persona(AgentPersona("x"))
         val registry = SkillRegistry()
         registry.register(listOf(FixedSkill("weather", "d", "body")))
         b.skills(registry)

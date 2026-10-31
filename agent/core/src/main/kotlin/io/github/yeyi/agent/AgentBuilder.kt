@@ -26,7 +26,7 @@ import io.github.yeyi.agent.tool.ToolRegistry
  * [plugin] for the plugin extension point). The core builder only deals with persona, tools, memory, hook, and the LLM provider.
  */
 public class AgentBuilder {
-    private var persona: Persona = Persona("You are a helpful assistant.")
+    private var persona: AgentPersona = AgentPersona("You are a helpful assistant.")
     private var llmProvider: LlmProvider? = null
     private var memory: Memory = InMemoryMemory()
     private var maxRounds: Int = 20
@@ -38,7 +38,7 @@ public class AgentBuilder {
     private val plugins = mutableMapOf<String, AgentPlugin<*>>()
 
     /** 设置 Agent 人设。 */
-    public fun persona(persona: Persona) {
+    public fun persona(persona: AgentPersona) {
         this.persona = persona
     }
 
@@ -177,7 +177,7 @@ public class AgentBuilder {
  * Usage:
  * ```kotlin
  * val a = agent {
- *     persona(Persona(role = "You are a helpful assistant."))
+ *     persona(AgentPersona(role = "You are a helpful assistant."))
  *     llmProvider(openAiProvider)
  *     tool(WeatherTool())
  * }

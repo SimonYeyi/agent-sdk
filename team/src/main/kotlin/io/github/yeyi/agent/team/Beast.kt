@@ -3,7 +3,7 @@ package io.github.yeyi.agent.team
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
@@ -29,7 +29,7 @@ internal interface Beast : Agent
 
 internal class Ox internal constructor(
     private val llmProvider: LlmProvider,
-    private val persona: Persona,
+    private val persona: AgentPersona,
     private val toolRegistry: ToolRegistry?,
     private val lazyToolRegistry: LazyToolRegistry?,
     private val toolsetRegistry: ToolsetRegistry?,
@@ -56,7 +56,7 @@ internal class Ox internal constructor(
 
 internal class Horse internal constructor(
     private val llmProvider: LlmProvider,
-    private val persona: Persona,
+    private val persona: AgentPersona,
     private val toolRegistry: ToolRegistry? = null,
     private val lazyToolRegistry: LazyToolRegistry? = null,
     private val toolsetRegistry: ToolsetRegistry? = null,

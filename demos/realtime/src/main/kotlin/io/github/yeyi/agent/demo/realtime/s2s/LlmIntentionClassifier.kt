@@ -1,6 +1,6 @@
 package io.github.yeyi.agent.demo.realtime.s2s
 
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.awaitResult
@@ -23,8 +23,8 @@ internal class LlmIntentionClassifier(
     private val getAllTasks: () -> List<String>,
 ) : IntentionClassifier {
 
-    private fun buildPersona(chatHistories: List<String>): Persona {
-        return Persona(
+    private fun buildPersona(chatHistories: List<String>): AgentPersona {
+        return AgentPersona(
             """
             你是车载语音的意图分类助手，职责是将用户输入判别为任务指令（Task）或闲聊（Chat）。
 

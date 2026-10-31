@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.demo.agent.vm
 
 import io.github.yeyi.agent.Agent
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
@@ -54,7 +54,7 @@ class ChatViewModelTest {
             )
         )
         val agent: Agent = agent {
-            persona(Persona("you are helpful"))
+            persona(AgentPersona("you are helpful"))
             llmProvider(provider)
             maxIterations(5)
         }
@@ -81,7 +81,7 @@ class ChatViewModelTest {
             )
         )
         val agent: Agent = agent {
-            persona(Persona("you are helpful"))
+            persona(AgentPersona("you are helpful"))
             llmProvider(provider)
             maxIterations(5)
         }
@@ -115,7 +115,7 @@ class ChatViewModelTest {
             )
         )
         val agent: Agent = agent {
-            persona(Persona("you are helpful"))
+            persona(AgentPersona("you are helpful"))
             llmProvider(provider)
             maxIterations(5)
         }

@@ -30,7 +30,7 @@ public data class ChatRequest(
 public sealed interface ChatMessage {
     public val role: Role
 
-    /** 系统消息，通常放入 [io.github.yeyi.agent.Persona] 渲染后的角色文本。 */
+    /** 系统消息，通常放入 [io.github.yeyi.agent.AgentPersona] 渲染后的角色文本。 */
     @Serializable
     @SerialName("system")
     public data class System(public val content: String) : ChatMessage {

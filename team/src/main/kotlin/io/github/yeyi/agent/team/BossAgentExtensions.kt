@@ -1,15 +1,15 @@
 package io.github.yeyi.agent.team
 
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.config.AgentDefinition
 import io.github.yeyi.agent.config.AgentScope
 
 /**
  * 从 AgentDefinition 构建 BossAgent。
  *
- * BossAgent 的角色由框架收敛（[BossAgentBuilder] 保留 [Persona.role]），因此 [AgentDefinition.persona]
+ * BossAgent 的角色由框架收敛（[BossAgentBuilder] 保留 [AgentPersona.role]），因此 [AgentDefinition.persona]
  * 在 boss 场景不被消费，必须留空；外部增强请配置 [AgentDefinition.instructions]，
- * 经 [Persona.instructions] 写入 system prompt。
+ * 经 [AgentPersona.instructions] 写入 system prompt。
  *
  * @param scope 运行时上下文
  * @return BossAgent 实例
@@ -21,7 +21,7 @@ public fun AgentDefinition.spawnBoss(scope: AgentScope): BossAgent {
     }
     val resolveInfo = scope.resolver().resolve(this@spawnBoss)
     return bossAgent {
-        persona(Persona("").apply { instructions?.let { instructions(it) } })
+        persona(AgentPersona("").apply { instructions?.let { instructions(it) } })
         llmProvider(resolveInfo.llmProvider)
         memory(scope.memory, maxMemoryRounds)
         maxIterations(maxIterations)

@@ -17,7 +17,7 @@ class ReActAgentMultimodalTest {
     private fun makeAgent(provider: FakeLlmProvider): Agent {
         val memory = InMemoryMemory()
         return ReActAgent(
-            persona = Persona("you are helpful"),
+            persona = AgentPersona("you are helpful"),
             llmProvider = provider,
             toolRegistry = ToolRegistry(),
             memory = memory,

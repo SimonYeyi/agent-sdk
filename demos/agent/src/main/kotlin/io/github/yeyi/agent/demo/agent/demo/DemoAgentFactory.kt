@@ -2,7 +2,7 @@ package io.github.yeyi.agent.demo.agent.demo
 
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentHook
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.demo.agent.BuildConfig
 import io.github.yeyi.agent.demo.agent.demo.mcp.CalculatorMcp
@@ -106,7 +106,7 @@ object DemoAgentFactory {
             }
 
         return agent {
-            persona(Persona(role = "你是一个 helpful 助手，优先使用工具完成任务。"))
+            persona(AgentPersona(role = "你是一个 helpful 助手，优先使用工具完成任务。"))
             memory(memory ?: InMemoryMemory())
             llmProvider(llmProvider)
             lazyTools(LazyToolRegistry().apply {

@@ -4,7 +4,7 @@ import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.awaitResult
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
@@ -73,7 +73,7 @@ class DynamicSubagentTest {
         tools: List<Tool> = emptyList(),
         memory: Memory = InMemoryMemory(),
     ): AgentContext = AgentContext(
-        persona = Persona("main"),
+        persona = AgentPersona("main"),
         maxIterations = maxIterations,
         currentIteration = 1,
         memory = memory,

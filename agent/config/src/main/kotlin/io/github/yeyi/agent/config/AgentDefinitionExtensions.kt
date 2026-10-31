@@ -6,7 +6,7 @@ import io.github.yeyi.agent.Agent.Steerable
 import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.ReActAgent
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.mcp.McpRegistry
@@ -29,7 +29,7 @@ import kotlinx.coroutines.flow.channelFlow
 public fun AgentDefinition.spawn(scope: AgentScope): SpawnedAgent {
     val resolveInfo = scope.resolver().resolve(this@spawn)
     val delegate = agent {
-        persona(Persona(persona ?: "").apply { instructions?.let { instructions(it) } })
+        persona(AgentPersona(persona ?: "").apply { instructions?.let { instructions(it) } })
         llmProvider(resolveInfo.llmProvider)
         memory(scope.memory, maxMemoryRounds)
         maxIterations(maxIterations)

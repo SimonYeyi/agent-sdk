@@ -2,7 +2,7 @@ package io.github.yeyi.agent.toolset
 
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.AgentQuery
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
@@ -85,7 +85,7 @@ class ToolsetExtensionsTest {
     fun `Delegate mode load_toolset description lists all toolsets by name and description`() = runTest {
         val llm = RecordingLlm()
         val b = AgentBuilder().apply { llmProvider(llm) }
-        b.persona(Persona("x"))
+        b.persona(AgentPersona("x"))
         b.toolsets(registryWith("weather" to "天气查询", "news" to "新闻查询"))
         b.build().run(AgentQuery.text("hi")).toList()
         val loadToolset = llm.recorded.single().tools.single { it.name == "load_toolset" }

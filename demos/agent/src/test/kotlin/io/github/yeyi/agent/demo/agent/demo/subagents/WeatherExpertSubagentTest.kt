@@ -1,8 +1,7 @@
 package io.github.yeyi.agent.demo.agent.demo.subagents
 
 import io.github.yeyi.agent.AgentContext
-import io.github.yeyi.agent.Persona
-import io.github.yeyi.agent.demo.agent.demo.tools.getWeatherTool
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
@@ -10,7 +9,6 @@ import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
-import io.github.yeyi.agent.skill.SkillContext
 import io.github.yeyi.agent.subagent.SubagentContext
 import io.github.yeyi.agent.subagent.SubagentTask
 import kotlinx.coroutines.test.runTest
@@ -22,7 +20,7 @@ import kotlin.test.assertTrue
 class WeatherExpertSubagentTest {
 
     private fun stubAgentContext(llm: LlmProvider): AgentContext = AgentContext(
-        persona = Persona("main"),
+        persona = AgentPersona("main"),
         maxIterations = 100,
         currentIteration = 1,
         memory = InMemoryMemory(),

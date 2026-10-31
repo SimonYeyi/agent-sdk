@@ -64,7 +64,7 @@ public interface AgentPluginContext {
     public fun registerTool(tool: Tool)
 
     /**
-     * 追加一条指令说明，写入 [Persona] 的能力区域。
+     * 追加一条指令说明，写入 [AgentPersona] 的能力区域。
      *
      * @param content 追加的指令说明
      */

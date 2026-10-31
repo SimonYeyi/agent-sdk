@@ -2,7 +2,7 @@ package io.github.yeyi.agent.toolset
 
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentException
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.LlmProvider
@@ -57,7 +57,7 @@ class MemberToolDelegateTest {
     private fun emptyContext(): ToolExecutionContext = ToolExecutionContext(
         toolCallId = "test",
         agentContext = AgentContext(
-            persona = Persona(""),
+            persona = AgentPersona(""),
             maxIterations = 1,
             currentIteration = 1,
             memory = InMemoryMemory(),

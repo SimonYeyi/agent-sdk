@@ -114,7 +114,7 @@ class CancelableTest {
     }
 
     private fun agentOf(provider: LlmProvider) = ReActAgent(
-        persona = Persona(""),
+        persona = AgentPersona(""),
         llmProvider = provider,
         toolRegistry = registryOf(),
         memory = InMemoryMemory(),

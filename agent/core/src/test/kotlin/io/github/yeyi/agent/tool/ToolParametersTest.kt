@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.tool
 
 import io.github.yeyi.agent.AgentContext
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.llm.text
@@ -35,7 +35,7 @@ class ToolParametersTest {
         val context = ToolExecutionContext(
             toolCallId = "call-123",
             agentContext = AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = InMemoryMemory(),

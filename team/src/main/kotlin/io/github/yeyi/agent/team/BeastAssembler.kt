@@ -1,6 +1,6 @@
 package io.github.yeyi.agent.team
 
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.subagent.SubagentRegistry
@@ -19,8 +19,8 @@ internal class BeastAssembler(
     private val maxIterations: Int,
     private val maxRounds: Int,
 ) {
-    private val basePersona: Persona
-        get() = Persona("你是一个牛马，需努力完成任务，不可弄虚作假").personality("寡言少语")
+    private val basePersona: AgentPersona
+        get() = AgentPersona("你是一个牛马，需努力完成任务，不可弄虚作假").personality("寡言少语")
 
     suspend fun assemble(selection: Selection): Beast {
         return try {

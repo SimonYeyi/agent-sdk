@@ -2,7 +2,7 @@ package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentHook
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.mcp.McpRegistry
@@ -19,7 +19,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 
 public class BossAgentBuilder internal constructor() {
-    private var bossPersona0: Persona? = null
+    private var bossPersona0: AgentPersona? = null
     private var llmProvider0: LlmProvider? = null
     private var memory0: Memory? = null
     private var maxRounds0: Int = 20
@@ -50,11 +50,11 @@ public class BossAgentBuilder internal constructor() {
     """.trimIndent()
 
     /**
-     * 注入 boss persona — [Persona.role] 由 framework 保留, 必须为空字符串.
+     * 注入 boss persona — [AgentPersona.role] 由 framework 保留, 必须为空字符串.
      */
-    public fun persona(persona: Persona) {
+    public fun persona(persona: AgentPersona) {
         require(persona.role.isBlank()) {
-            "Persona.role is reserved by the BossAgent framework — must be blank. " +
+            "AgentPersona.role is reserved by the BossAgent framework — must be blank. " +
                     "Use personality / knowledge / capabilities / instructions / extra to customize agent persona."
         }
         bossPersona0 = persona
@@ -194,7 +194,7 @@ public class BossAgentBuilder internal constructor() {
             }
         }
 
-        val persona = Persona(baseRole).apply { bossPersona0?.let { extra(it.toString()) } }
+        val persona = AgentPersona(baseRole).apply { bossPersona0?.let { extra(it.toString()) } }
         val publishTask = PublishTaskTool(bulletinBoard, capabilitiesByType)
         val cancelTask = CancelTaskTool(bulletinBoard)
 

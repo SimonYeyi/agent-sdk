@@ -22,7 +22,7 @@ package io.github.yeyi.agent
  *
  * 示例：
  * ```
- * Persona("你是一个 helpful 助手。")
+ * AgentPersona("你是一个 helpful 助手。")
  *     .personality("Friendly and concise.")
  *     .knowledge("公司产品支持中文和英文。")
  *     .capabilities("可以调用天气查询技能。")
@@ -31,7 +31,7 @@ package io.github.yeyi.agent
  *     .extra("你必须遵守中华人民共和国法律法规：...", "法律约束")
  * ```
  */
-public class Persona(public val role: String) {
+public class AgentPersona(public val role: String) {
     private var personality: String? = null
     private val knowledge: MutableList<String> = mutableListOf()
     private val capabilities: MutableList<String> = mutableListOf()
@@ -39,16 +39,16 @@ public class Persona(public val role: String) {
     private val extras: MutableList<Pair<String?, String>> = mutableListOf()
 
     /** 设置性格/回复风格描述，渲染为 `<personality>` 标签。多次调用后者覆盖前者。 */
-    public fun personality(content: String): Persona = apply { this.personality = content }
+    public fun personality(content: String): AgentPersona = apply { this.personality = content }
 
     /** 添加单条长期知识/背景记忆，渲染为 `<knowledge>` 标签下的一项。多次调用累加。 */
-    public fun knowledge(content: String): Persona = apply { knowledge.add(content) }
+    public fun knowledge(content: String): AgentPersona = apply { knowledge.add(content) }
 
     /** 添加单条能力/技能描述，渲染为 `<capabilities>` 标签下的一项。多次调用累加。 */
-    public fun capabilities(content: String): Persona = apply { capabilities.add(content) }
+    public fun capabilities(content: String): AgentPersona = apply { capabilities.add(content) }
 
     /** 添加单条行为要求，渲染为 `<instructions>` 标签下的一项。多次调用累加。 */
-    public fun instructions(content: String): Persona = apply { instructions.add(content) }
+    public fun instructions(content: String): AgentPersona = apply { instructions.add(content) }
 
     /**
      * 添加附加文本段落。
@@ -56,7 +56,7 @@ public class Persona(public val role: String) {
      * @param content 段落内容
      * @param label 可选标签；有值时以 label 作为标签名包裹内容，为 null 时直接输出 content
      */
-    public fun extra(content: String, label: String? = null): Persona =
+    public fun extra(content: String, label: String? = null): AgentPersona =
         apply { extras.add(label to content) }
 
     override fun toString(): String {

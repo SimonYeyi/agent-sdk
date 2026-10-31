@@ -2,7 +2,7 @@ package io.github.yeyi.agent.memory
 
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.EmptyAgentHook
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
@@ -476,7 +476,7 @@ class RoundsBoundedMemoryTest {
         }
         memory.attachHook(
             hook, AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -520,7 +520,7 @@ class RoundsBoundedMemoryTest {
         }
         memory.attachHook(
             hook, AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -565,7 +565,7 @@ class RoundsBoundedMemoryTest {
         }
         memory.attachHook(
             hook, AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -618,7 +618,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -674,7 +674,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -715,7 +715,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -760,7 +760,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -815,7 +815,7 @@ class RoundsBoundedMemoryTest {
         }
         memory.attachHook(
             hook, AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -862,7 +862,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -901,7 +901,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -952,7 +952,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -1015,7 +1015,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -1066,7 +1066,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -1104,7 +1104,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -1147,7 +1147,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -1194,7 +1194,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -1235,7 +1235,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -1273,7 +1273,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -1317,7 +1317,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),
@@ -1359,7 +1359,7 @@ class RoundsBoundedMemoryTest {
         memory.attachHook(
             EmptyAgentHook(),
             AgentContext(
-                persona = Persona(""),
+                persona = AgentPersona(""),
                 maxIterations = 1,
                 currentIteration = 1,
                 memory = ReadOnlyMemory(memory),

@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.approval
 
 import io.github.yeyi.agent.AgentContext
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.hook.AgentHookEvent
 import io.github.yeyi.agent.hook.HookContext
@@ -27,7 +27,7 @@ import kotlin.test.assertSame
 class ApprovalHookTest {
 
     private fun createContext(tools: List<Tool>) = AgentContext(
-        persona = Persona(role = ""),
+        persona = AgentPersona(role = ""),
         maxIterations = 5,
         currentIteration = 1,
         memory = InMemoryMemory(),

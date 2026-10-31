@@ -3,7 +3,7 @@
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentContext
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.llm.text
@@ -23,7 +23,7 @@ class CancelTaskToolTest {
     private fun ctx(callId: String): ToolExecutionContext = ToolExecutionContext(
         toolCallId = callId,
         agentContext = AgentContext(
-            persona = Persona(""),
+            persona = AgentPersona(""),
             maxIterations = 1,
             currentIteration = 1,
             memory = InMemoryMemory(),

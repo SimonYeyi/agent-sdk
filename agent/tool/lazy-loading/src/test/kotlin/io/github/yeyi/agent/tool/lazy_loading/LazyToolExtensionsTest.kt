@@ -165,7 +165,7 @@ class LazyToolExtensionsTest {
         return ToolExecutionContext(
             toolCallId = "test",
             agentContext = io.github.yeyi.agent.AgentContext(
-                persona = io.github.yeyi.agent.Persona("test"),
+                persona = io.github.yeyi.agent.AgentPersona("test"),
                 maxIterations = 10,
                 currentIteration = 1,
                 memory = io.github.yeyi.agent.memory.InMemoryMemory(),

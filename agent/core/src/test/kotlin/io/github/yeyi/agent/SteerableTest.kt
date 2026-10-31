@@ -20,7 +20,6 @@ import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -104,7 +103,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
-            persona = Persona(""),
+            persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,
@@ -124,7 +123,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
-            persona = Persona(""),
+            persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,
@@ -156,7 +155,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
-            persona = Persona(""),
+            persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(echo),
             memory = mem,
@@ -205,7 +204,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
-            persona = Persona(""),
+            persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,
@@ -254,7 +253,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
-            persona = Persona(""),
+            persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,
@@ -297,7 +296,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
-            persona = Persona(""),
+            persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(echo),
             memory = mem,
@@ -350,7 +349,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
-            persona = Persona(""),
+            persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,
@@ -390,7 +389,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
-            persona = Persona(""),
+            persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,
@@ -426,7 +425,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
-            persona = Persona(""),
+            persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,
@@ -483,7 +482,7 @@ class SteerableTest {
                     )
                 )
                 val agent = ReActAgent(
-                    persona = Persona(""),
+                    persona = AgentPersona(""),
                     llmProvider = provider,
                     toolRegistry = registryOf(),
                     memory = InMemoryMemory(),
@@ -528,7 +527,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
-            persona = Persona(""),
+            persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
             memory = mem,

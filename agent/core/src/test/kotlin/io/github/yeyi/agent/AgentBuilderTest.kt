@@ -25,7 +25,7 @@ class AgentBuilderTest {
     @Test
     fun `missing llmProvider throws`() {
         assertFailsWith<IllegalArgumentException> {
-            agent { persona(Persona("x")) }
+            agent { persona(AgentPersona("x")) }
         }
     }
 

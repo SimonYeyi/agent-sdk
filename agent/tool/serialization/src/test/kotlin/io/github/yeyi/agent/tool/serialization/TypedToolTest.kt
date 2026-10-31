@@ -3,7 +3,7 @@ package io.github.yeyi.agent.tool.serialization
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.AgentContext
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.LlmProvider
@@ -185,7 +185,7 @@ class OptionalFieldsToolImpl : TypedTool<OptionalFieldsRequest, Unit>(
 private fun createToolExecutionContext(): ToolExecutionContext = ToolExecutionContext(
     toolCallId = "test-call",
     agentContext = AgentContext(
-        persona = Persona(""),
+        persona = AgentPersona(""),
         maxIterations = 10,
         currentIteration = 0,
         memory = InMemoryMemory(),

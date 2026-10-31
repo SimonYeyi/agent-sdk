@@ -17,7 +17,7 @@ import io.github.yeyi.agent.tool.Tool
  * @param metadata 扩展数据，hooks 可自由写入供后续 hooks 使用
  */
 public class AgentContext(
-    public val persona: Persona,
+    public val persona: AgentPersona,
     public val maxIterations: Int,
     public val currentIteration: Int,
     public val memory: Memory,

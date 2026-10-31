@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.subagent
 
 import io.github.yeyi.agent.AgentQuery
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.awaitResult
 import io.github.yeyi.agent.capability.Capability
@@ -28,7 +28,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
     /**
      * 加载子 agent 的人设指令文本。
      *
-     * 在 [run] 构造子 agent 前调用，返回值作为子 agent 的 [io.github.yeyi.agent.Persona] role 文本。
+     * 在 [run] 构造子 agent 前调用，返回值作为子 agent 的 [io.github.yeyi.agent.AgentPersona] role 文本。
      * 可实现为从文件/网络/应用状态动态加载。
      */
     public suspend fun load(): String
@@ -45,7 +45,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
         val instruction = load()
 
         val sub = agent {
-            persona(Persona(instruction).personality("寡言少语"))
+            persona(AgentPersona(instruction).personality("寡言少语"))
             llmProvider(context.agentContext.llmProvider)
             memory(memory, context.agentContext.maxRounds)
             maxIterations(maxIterations ?: context.agentContext.maxIterations)

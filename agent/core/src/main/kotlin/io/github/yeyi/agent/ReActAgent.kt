@@ -31,7 +31,7 @@ import kotlinx.serialization.json.JsonNull
 import java.util.concurrent.atomic.AtomicReference
 
 public class ReActAgent internal constructor(
-    private val persona: Persona,
+    private val persona: AgentPersona,
     private val llmProvider: LlmProvider,
     private val toolRegistry: ToolRegistry,
     memory: Memory,

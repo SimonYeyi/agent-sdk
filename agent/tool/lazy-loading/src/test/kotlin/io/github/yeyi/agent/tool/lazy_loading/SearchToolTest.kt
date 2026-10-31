@@ -1,7 +1,7 @@
 package io.github.yeyi.agent.tool.lazy_loading
 
 import io.github.yeyi.agent.AgentContext
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.llm.ChatRequest
@@ -19,7 +19,6 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -39,7 +38,7 @@ class SearchToolTest {
         return ToolExecutionContext(
             toolCallId = "test",
             agentContext = AgentContext(
-                persona = Persona("test"),
+                persona = AgentPersona("test"),
                 maxIterations = 10,
                 currentIteration = 1,
                 memory = InMemoryMemory(),
