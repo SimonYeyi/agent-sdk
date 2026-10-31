@@ -48,8 +48,8 @@ public fun AgentDefinition.spawn(scope: AgentScope): SpawnedAgent {
 /**
  * spawn 产物：实现 [Agent] 的委托包装，并实现 [Shutdownable] 提供整体关闭。
  *
- * [shutdown] 是终态操作：回收底层资源（MCP 子进程等）、终止进行中的 [run] flow（收集自然结束）并标记已关闭，
- * 之后调用 [run] 抛出 [IllegalStateException]；如需继续使用必须重新 spawn。
+ * [shutdown] 是终态操作：回收底层资源（MCP 子进程等）、终止进行中的 [run] flow（收集以 [CancellationException]
+ * 结束）并标记已关闭，之后调用 [run] 抛出 [IllegalStateException]；如需继续使用必须重新 spawn。
  *
  * [cancel] 是可恢复的中断：只打断当前回合，SpawnedAgent 本身仍可继续使用；
  * 在途回合的收集以 [CancellationException] 结束——沿用 collect 外围 try/catch 取消异常的既有用法。
@@ -77,16 +77,16 @@ public class SpawnedAgent internal constructor(
         val delegateFlow = createDelegateFlow()
         // channelFlow：delegate 在独立子协程中收集转发，send 可跨协程（flow 的 emit 违反不变式）。
         return channelFlow {
-            // 守卫：shutdown 已在 collect 前发生——不再启动 delegate，flow 以零事件自然结束
-            // （归"shutdown 终止进行中 run flow"协议，而非抛异常）。避免踩到已回收的 MCP 注册表。
-            runCatching { checkShutdown() }.getOrElse { return@channelFlow }
+            // 守卫：shutdown 已在 collect 前发生——不再启动 delegate（避免踩到已回收的 MCP 注册表）。
+            // 以取消异常收尾，而非"零事件 + 正常结束"的静默出口。
+            runCatching { checkShutdown() }.getOrElse { throw CancellationException(it.message) }
             // delegate 被 cancel()/shutdown 打断时，取消异常在此分流：
-            // 关闭（终态）→ 收集自然结束、不抛异常——"shutdown 终止在途回合"的既有协议；
+            // 关闭（终态）→ 以取消异常收尾，收集方能明确知道这一轮被终止；
             // 打断（可恢复）→ 取消异常原样上抛，沿用 collect 外围 try/catch 的既有用法。
             try {
                 delegateFlow.collect { send(it) }
             } catch (cause: CancellationException) {
-                if (shutdownSignal.isCompleted) return@channelFlow
+                runCatching { checkShutdown() }.getOrElse { throw CancellationException(it.message) }
                 throw cause
             }
         }

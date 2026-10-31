@@ -19,6 +19,7 @@ import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.memory.addToMemory
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.async
@@ -67,16 +68,35 @@ public class ReActAgent internal constructor(
     }
 
     /** 回合的公共骨架：占活跃槽位 → 交由可中断容器执行 → 无论何种终态都释放槽位。 */
+    @OptIn(DelicateCoroutinesApi::class)
     private fun runTurn(body: suspend (emit: suspend (AgentEvent) -> Unit) -> Unit): Flow<AgentEvent> {
         // eager 占据活跃 run 槽位：调用即建信箱，杜绝 "run 返回但未收集" 间隙里
         // steer() 误判空闲导致并发双 run。已有活跃 run 时抛并发异常。
-        if (!steerInbox.create()) error("Concurrent run not supported: another run is active")
-        return turnFlow.with(body).onCompletion { steerInbox.destroy() }
+        val inbox = steerInbox.create()
+            ?: error("Concurrent run not supported: another run is active")
+        return turnFlow.with { emit ->
+            // 信箱已被 cancel 作废（本轮被放弃，槽位已还给别人）→ 本轮不再执行。
+            // 以取消异常收尾，与"运行中被打断"同型：收集方不会拿到"零事件 + 正常结束"的静默出口。
+            if (inbox.isClosedForSend) throw CancellationException("turn abandoned by cancel()")
+            body(emit)
+        }.onCompletion {
+            // 认人兜底：只关本轮信箱 —— 槽位若已是新一轮则空操作，避免误杀下一轮的信箱。
+            steerInbox.destroy(inbox)
+        }
     }
 
-    /** 打断当前回合 —— 只终止 agent 自身的执行，收集方协程不受影响。 */
+    /**
+     * 打断当前回合 —— 只终止 agent 自身的执行，收集方协程不受影响。
+     *
+     * 回合从未被收集时（run() 已返回、流被放弃）：没有执行体可打断，而槽位也无人回收
+     * —— agent 会被永久锁死，之后每次 run() 都抛 "Concurrent run not supported"。
+     * 此时 cancel() 销毁信箱、把槽位还回去；该轮之后若被收集，以取消异常收尾（与运行中被打断同型）。
+     */
     override fun cancel() {
-        turnFlow.cancel()
+        // true  ⟺ 有在途执行体 ⟹ 打断它，槽位由该轮流的 onCompletion 认人兜底释放。
+        // false ⟺ 无在途执行体 ⟹ 回合从未被收集（或已跑完）；从未被收集时无人回收槽位，
+        //        此时销毁信箱把槽位还回去 —— 该轮若之后被收集，因信箱已关而以取消异常结束。
+        if (!turnFlow.cancel()) steerInbox.destroy()
     }
 
     /**
@@ -234,9 +254,9 @@ public class ReActAgent internal constructor(
         emit: suspend (AgentEvent) -> Unit,
     ): AgentResult? {
         // 终局：Final 抢占 + 终局。与 steer() 闸门下互斥。
-        steerInbox.gate.acquireUninterruptibly()
+        steerInbox.lock()
         if (!steerInbox.isEmpty()) {
-            steerInbox.gate.release()
+            steerInbox.unlock()
             // 指令已注入 memory，抢占 Final，强制再跑一轮让 LLM 带着新指令重新作答
             consumeSteering(steerInbox)
             return null
@@ -261,7 +281,7 @@ public class ReActAgent internal constructor(
         } finally {
             // 闸门用 Semaphore: release 可由任意线程执行 —— emit 是挂起点,
             // 协程恢复后可能换线程, 线程亲和锁在此 unlock 会抛 IllegalMonitorStateException。
-            steerInbox.gate.release()
+            steerInbox.unlock()
         }
         return result
     }
@@ -401,7 +421,7 @@ public class ReActAgent internal constructor(
         /**
          * 终局闸门 —— 互斥"抢占 Final"与"投递 steering"两个动作.
          *
-         * 用 [Semaphore] 而非 [java.util.concurrent.locks.ReentrantLock]: 终局窗口会跨越挂起点 ([emit] 是 suspend),
+         * 用 [Semaphore] 而非 [java.util.concurrent.locks.ReentrantLock]: 终局窗口会跨越挂起点 ('emit' 是 suspend),
          * 协程恢复后可能换线程; ReentrantLock 是线程亲和的, 换线程 unlock 会抛
          * IllegalMonitorStateException —— 表现为 agent 在已发出 Final 之后又报 Failed。
          * Semaphore 的 permit 与线程无关, release 可由任意线程执行。
@@ -409,32 +429,55 @@ public class ReActAgent internal constructor(
          * 代价: 不可重入 —— collector / AgentHook 回调内同步调用 steer() 会死锁
          * (本就是硬约束, 见 [steer] 的 KDoc)。
          */
-        val gate = Semaphore(1)
+        private val gate = Semaphore(1)
 
-        fun create(): Boolean = channelRef.compareAndSet(null, Channel(Channel.UNLIMITED))
+        fun lock() = gate.acquireUninterruptibly()
 
-        fun destroy() = channelRef.getAndSet(null)?.close()
+        fun unlock() = gate.release()
+
+        /**
+         * 认领槽位（建信箱）；已有活跃轮次时返回 null。
+         *
+         * 返回的信箱即本轮身份 —— 后续的认人销毁靠它。
+         */
+        fun create(): Channel<AgentQuery>? {
+            val inbox = Channel<AgentQuery>(Channel.UNLIMITED)
+            return if (channelRef.compareAndSet(null, inbox)) inbox else null
+        }
+
+        /**
+         * 销毁信箱。
+         *
+         * @param inbox null = 无认人销毁 —— 终结块用：此刻槽位必属本轮。
+         *             非 null = 认人销毁：只关这一封；槽位已是新一轮时空操作。
+         */
+        fun destroy(inbox: Channel<AgentQuery>? = null) {
+            if (inbox == null) {
+                channelRef.getAndSet(null)?.close()
+                return
+            }
+            if (channelRef.compareAndSet(inbox, null)) inbox.close()
+        }
 
         fun add(query: AgentQuery): Boolean {
-            gate.acquireUninterruptibly()
+            lock()
             try {
                 return channelRef.get()?.trySend(query)?.isSuccess ?: false
             } finally {
-                gate.release()
+                unlock()
             }
         }
 
         fun drain(): List<AgentQuery> {
-            gate.acquireUninterruptibly()
+            lock()
             try {
-                return buildList {
-                    while (true) {
-                        val query = channelRef.get()?.tryReceive()?.getOrNull() ?: return@buildList
-                        add(query)
-                    }
+                val queries = mutableListOf<AgentQuery>()
+                while (true) {
+                    val query = channelRef.get()?.tryReceive()?.getOrNull() ?: return queries
+                    queries.add(query)
                 }
             } finally {
-                gate.release()
+                unlock()
             }
         }
 
@@ -479,9 +522,15 @@ public class ReActAgent internal constructor(
             }
         }.buffer(Channel.RENDEZVOUS)
 
-        /** 中断当前执行；回合尚未开始执行时为 no-op。幂等。 */
-        fun cancel() {
-            active.getAndSet(null)?.cancel()
+        /**
+         * 中断当前执行。
+         *
+         * @return true = 确有在途执行体，已打断；
+         *         false = 无在途执行体（回合从未被收集，或已跑完）——此时打断是 no-op。
+         * 幂等。
+         */
+        fun cancel(): Boolean = with(active.getAndSet(null)) {
+            return this?.cancel()?.let { true } ?: false
         }
     }
 }

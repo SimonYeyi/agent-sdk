@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
@@ -121,7 +122,7 @@ class CancelableTest {
     }
 
     @Test
-    fun `cancel before the round starts is a no-op`() = runTest {
+    fun `cancel before the round starts abandons the round`() = runTest {
         val provider = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
@@ -131,10 +132,50 @@ class CancelableTest {
 
         val flow = agent.run(AgentQuery.text("hi"))
         agent.cancel()
-        val events = flow.toList()
 
-        // cancel 只打断"正在执行"的回合；尚未开始的回合收集时照常执行。
+        // 回合从未被收集 → cancel 放弃该回合：收集时以取消异常收尾（与"运行中被打断"同型），
+        // 绝不出现"零事件 + 正常结束"的静默出口，且不再调用 LLM。
+        assertFailsWith<CancellationException> { flow.toList() }
+        assertTrue(provider.recordedRequests.isEmpty())
+    }
+
+    @Test
+    fun `cancel releases the slot of a round that was never collected`() = runTest {
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = agentOf(provider)
+
+        // run() 即占槽，但流从未被收集 —— 没有 cancel 的话槽位永远不会被回收。
+        agent.run(AgentQuery.text("hi"))
+        agent.cancel()
+
+        // 槽位已释放 → 下一轮不再撞上 "Concurrent run not supported"。
+        val events = agent.run(AgentQuery.text("hi again")).toList()
         assertEquals(1, events.filterIsInstance<AgentEvent.Final>().size)
+    }
+
+    @Test
+    fun `the abandoned round does not destroy the next round's mailbox`() = runTest {
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = agentOf(provider)
+
+        // 第一轮被放弃：信箱销毁、槽位还回。
+        val abandoned = agent.run(AgentQuery.text("hi"))
+        agent.cancel()
+        // 第二轮占槽，信箱就位。
+        agent.run(AgentQuery.text("hi again"))
+
+        // 第一轮此时才被收集：以取消异常收尾，其兜底释放认人 —— 不得销毁第二轮的信箱。
+        assertFailsWith<CancellationException> { abandoned.toList() }
+        // 第二轮的信箱仍在 → steer 仍可注入。
+        assertTrue(agent.steer(AgentQuery.text("later")))
     }
 
     @Test
@@ -149,6 +190,30 @@ class CancelableTest {
         agent.cancel()
 
         val events = agent.run(AgentQuery.text("hi")).toList()
+        assertEquals(1, events.filterIsInstance<AgentEvent.Final>().size)
+    }
+
+    @Test
+    fun `cancelling the collector ends the round with a cancellation and releases the slot`() = runTest {
+        val llm = GatedLlm()
+        val agent = agentOf(llm)
+
+        val caught = CompletableDeferred<Throwable?>()
+        val job = launch {
+            try {
+                agent.run(AgentQuery.text("hi")).collect { }
+                caught.complete(null)
+            } catch (e: CancellationException) {
+                caught.complete(e)
+            }
+        }
+        llm.started.await()
+        job.cancel() // 外部取消收集方协程
+        job.join()
+
+        // 收集方拿到取消异常（不是静默零事件），槽位由该轮流的 onCompletion 认人释放。
+        assertTrue(caught.await() is CancellationException)
+        val events = agent.run(AgentQuery.text("hi again")).toList()
         assertEquals(1, events.filterIsInstance<AgentEvent.Final>().size)
     }
 

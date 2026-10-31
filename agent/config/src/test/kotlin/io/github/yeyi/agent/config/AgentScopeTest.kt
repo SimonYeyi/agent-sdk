@@ -424,16 +424,21 @@ class AgentScopeTest {
         } as ReActAgent
         val spawned = SpawnedAgent(delegate)
 
-        var completed = false
+        val caught = CompletableDeferred<Throwable?>()
         val job = launch {
-            spawned.run(AgentQuery.text("ping")).collect { }
-            completed = true
+            try {
+                spawned.run(AgentQuery.text("ping")).collect { }
+                caught.complete(null)
+            } catch (e: CancellationException) {
+                caught.complete(e)
+            }
         }
         started.await() // 确认 delegate 已挂起在 LLM 调用
         spawned.shutdown()
         job.join()
-        // in-flight run 被 shutdown 终止：flow 自然结束（不再产生事件），而非挂起等待 gate 或抛异常
-        assertTrue(completed)
+        // in-flight run 被 shutdown 终止：收集以取消异常收尾（而非静默截断），
+        // 也不会挂起等待 gate。
+        assertTrue(caught.await() is CancellationException)
     }
 
     @Test
@@ -490,7 +495,7 @@ class AgentScopeTest {
     @Test
     fun `spawnedAgent run collected after shutdown does not start delegate`() = runTest {
         // run() 在 shutdown 前调用，但 collect 在 shutdown 后——此时 delegate 不应再启动：
-        // flow 以零事件自然结束，而非启动一轮 LLM 调用踩到已回收的 MCP 注册表。
+        // 收集以取消异常收尾，而非静默零事件，也非启动一轮 LLM 调用踩到已回收的 MCP 注册表。
         val llm = CountingLlm()
         val delegate = agent {
             llmProvider(llm)
@@ -500,15 +505,14 @@ class AgentScopeTest {
 
         val flow = spawned.run(AgentQuery.text("ping"))
         spawned.shutdown()
-        val events = flow.toList()
 
-        assertTrue(events.isEmpty())
+        assertFailsWith<CancellationException> { flow.toList() }
         assertEquals(0, llm.calls)
     }
 
     @Test
     fun `spawnedAgent runStream terminates in-flight stream flow`() = runTest {
-        // runStream 与 run 遵循同一终态契约：shutdown 终止进行中的流式 flow，收集自然结束。
+        // runStream 与 run 遵循同一终态契约：shutdown 终止进行中的流式 flow，收集以取消异常收尾。
         val started = CompletableDeferred<Unit>()
         val gate = CompletableDeferred<Unit>()
         val delegate = agent {
@@ -517,20 +521,25 @@ class AgentScopeTest {
         } as ReActAgent
         val spawned = SpawnedAgent(delegate)
 
-        var completed = false
+        val caught = CompletableDeferred<Throwable?>()
         val job = launch {
-            spawned.runStream(AgentQuery.text("ping")).collect { }
-            completed = true
+            try {
+                spawned.runStream(AgentQuery.text("ping")).collect { }
+                caught.complete(null)
+            } catch (e: CancellationException) {
+                caught.complete(e)
+            }
         }
         started.await() // 确认 delegate 已挂起在 LLM 调用
         spawned.shutdown()
         job.join()
-        assertTrue(completed)
+        assertTrue(caught.await() is CancellationException)
     }
 
     @Test
     fun `spawnedAgent runStream collected after shutdown does not start delegate`() = runTest {
-        // runStream 入口 check 通过后 shutdown、collect 前已关闭——delegate 不应再启动，零事件自然结束。
+        // runStream 入口 check 通过后 shutdown、collect 前已关闭——delegate 不应再启动，
+        // 收集以取消异常收尾而非静默零事件。
         val llm = CountingLlm()
         val delegate = agent {
             llmProvider(llm)
@@ -540,9 +549,8 @@ class AgentScopeTest {
 
         val flow = spawned.runStream(AgentQuery.text("ping"))
         spawned.shutdown()
-        val events = flow.toList()
 
-        assertTrue(events.isEmpty())
+        assertFailsWith<CancellationException> { flow.toList() }
         assertEquals(0, llm.calls)
     }
 

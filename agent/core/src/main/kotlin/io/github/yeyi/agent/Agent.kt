@@ -1,5 +1,6 @@
 package io.github.yeyi.agent
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -90,8 +91,10 @@ public interface Agent {
         /**
          * 打断当前正在执行的回合。
          *
-         * 无活跃回合时为 no-op；回合尚未开始执行时同样为 no-op —— 该回合在收集时照常执行。
-         * 幂等。
+         * 无活跃回合时为 no-op（幂等）；
+         * 若回合已通过[Agent.run] 或 [Streamable.runStream] 创建，则 [Flow.collect] 以 [CancellationException] 结束
+         * - 若在[cancel]之后被收集，将以 [CancellationException] 直接结束；
+         * - 若回合已在执行，则打断其执行体，以 [CancellationException] 结束。
          */
         public fun cancel()
     }
@@ -103,7 +106,8 @@ public interface Agent {
      * 探测能力，而非无条件调用 [shutdown]。
      *
      * [shutdown] 是终态操作：停止 Agent 的后台活动、终止进行中的 [Agent.run] flow 并回收其持有的
-     * 外部资源（如 MCP 子进程）。终止协议统一：进行中的 [Agent.run] flow 收集自然结束、不再产生事件；
+     * 外部资源（如 MCP 子进程）。终止协议统一：进行中的 [Agent.run] flow 收集以 [CancellationException]
+     * 结束（尚未被收集的 flow 在收集时同样以 [CancellationException] 结束，不静默零事件）；
      * 之后调用 [Agent.run] 抛出 [IllegalStateException]（Agent 已关闭）；如需继续使用必须重新创建实例。
      * 幂等：可重复调用，第二次无副作用。
      *
