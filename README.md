@@ -52,7 +52,7 @@
 
 ```kotlin
 val agent: Agent = agent {
-    persona(Persona("你是一个 helpful 助手，优先使用工具完成任务。"))
+    persona(AgentPersona("你是一个 helpful 助手，优先使用工具完成任务。"))
     llmProvider(OpenAiProvider(apiKey, model, baseUrl))
     memory(session.memory, maxRounds = 30)
     tool(GetWeatherTool(weatherApiKey))
@@ -106,7 +106,7 @@ appliance.events.collect { /* UserTranscript / AudioDelta / ResponseDone */ }
 
 ```kotlin
 val boss: BossAgent = bossAgent {
-    persona(Persona(role = "").personality("友好、简洁").domain("智能家居"))
+    persona(AgentPersona(role = "").personality("友好、简洁").domain("智能家居"))
     llmProvider(llmProvider)
     memory(memory, maxRounds = 40)
     quickTools(quickToolRegistry)       // Boss 同步执行的轻量工具

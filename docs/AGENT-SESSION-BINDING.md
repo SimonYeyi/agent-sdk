@@ -202,7 +202,7 @@ public class AgentResolver internal constructor(private val scope: AgentScope) {
 public fun AgentDefinition.spawn(scope: AgentScope): Agent {
     val info = scope.resolver().resolve(this@spawn)
     return agent {
-        persona(Persona(persona))
+        persona(AgentPersona(persona))
         llmProvider(info.llmProvider)
         memory(scope.memory, maxMemoryRounds)
         maxIterations(maxIterations)

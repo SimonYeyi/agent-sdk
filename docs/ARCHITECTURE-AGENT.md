@@ -123,14 +123,14 @@ public interface Memory {
 - `RoundsBoundedMemory` — 装饰器，超过保留轮次时触发摘要压缩
 - `JsonlBackedMemory` — JSONL 文件持久化（session 模块提供）
 
-## 7. Persona 系统
+## 7. AgentPersona 系统
 
 ```kotlin
-public class Persona(public val role: String) {
-    fun personality(text: String): Persona
-    fun domain(text: String): Persona
-    fun constraints(items: List<String>): Persona
-    fun extra(text: String, label: String? = null): Persona
+public class AgentPersona(public val role: String) {
+    fun personality(text: String): AgentPersona
+    fun domain(text: String): AgentPersona
+    fun constraints(items: List<String>): AgentPersona
+    fun extra(text: String, label: String? = null): AgentPersona
 }
 ```
 
@@ -156,7 +156,7 @@ AgentEvent (sealed interface)
 
 ```kotlin
 val agent = agent {
-    persona(Persona("你是一个 helpful 助手"))
+    persona(AgentPersona("你是一个 helpful 助手"))
     llmProvider(OpenAiProvider(...))
     memory(session.memory, maxRounds = 30)
     tool(GetWeatherTool())
@@ -324,7 +324,7 @@ LLM 判断需要技能 → 调用 load_skill {name: "weather"}
 
 ### 13.1 设计意图
 
-Subagent 是独立 LLM 循环 + 任务委派能力。每个 Subagent 是一个独立的 Agent 实例，拥有自己的 Persona / Memory / Tool 集。
+Subagent 是独立 LLM 循环 + 任务委派能力。每个 Subagent 是一个独立的 Agent 实例，拥有自己的 AgentPersona / Memory / Tool 集。
 
 ### 13.2 Subagent 接口
 

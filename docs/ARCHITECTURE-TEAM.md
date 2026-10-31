@@ -335,7 +335,7 @@ internal sealed interface Selection {
 
 ```kotlin
 val boss = bossAgent {
-    persona(Persona(role = "").personality("友好").domain("智能家居"))
+    persona(AgentPersona(role = "").personality("友好").domain("智能家居"))
     llmProvider(llmProvider)
     memory(memory, maxRounds = 40)
     maxIterations(20)
@@ -361,7 +361,7 @@ val boss = bossAgent {
 | `mcps()` | 当前 stub，仅 `@Suppress("UNUSED_PARAMETER")` | 编译验证通过，运行时无实际行为 |
 
 **构建时校验**：
-- `Persona.role` 必须为 blank（框架保留字段，用于注入系统角色）
+- `AgentPersona.role` 必须为 blank（框架保留字段，用于注入系统角色）
 - `llmProvider` 必须设置
 - `memory` 必须设置
 - 两次 `attach()` 抛 `IllegalStateException`

@@ -1,16 +1,16 @@
-# Persona 重构实现计划
+# AgentPersona 重构实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 把 `ReActAgent` 中以 `systemPrompt: String` 形式存在的人设概念，封装为 `Persona` 值对象，并贯穿 `ReActAgent` / `AgentContext` / `AgentBuilder` 与 Skill 扩展。
+**Goal:** 把 `ReActAgent` 中以 `systemPrompt: String` 形式存在的人设概念，封装为 `AgentPersona` 值对象，并贯穿 `ReActAgent` / `AgentContext` / `AgentBuilder` 与 Skill 扩展。
 
-**Architecture:** 新增 `Persona` 值对象（构造期收 `role`，其余字段通过方法追加；`toString()` 渲染为多段人设文本）。`ReActAgent`、`AgentContext`、`AgentBuilder` 三处构造器/DSL 同步改名为 `persona`。Skill 扩展通过 `persona.extra(...)` 注入技能索引。破坏性公开 API 变更，按设计文档一次性发布。
+**Architecture:** 新增 `AgentPersona` 值对象（构造期收 `role`，其余字段通过方法追加；`toString()` 渲染为多段人设文本）。`ReActAgent`、`AgentContext`、`AgentBuilder` 三处构造器/DSL 同步改名为 `persona`。Skill 扩展通过 `persona.extra(...)` 注入技能索引。破坏性公开 API 变更，按设计文档一次性发布。
 
 **Tech Stack:** Kotlin (现有项目，无新增依赖)
 
 **Spec 参考:** `docs/superpowers/specs/2026-06-15-persona-refactor-design.md`
 
-**TDD 原则:** 新建 `Persona` 类时严格走 TDD（先测试后实现）；机械替换类任务直接执行。
+**TDD 原则:** 新建 `AgentPersona` 类时严格走 TDD（先测试后实现）；机械替换类任务直接执行。
 
 ---
 
@@ -18,13 +18,13 @@
 
 | 路径 | 动作 | 说明 |
 |---|---|---|
-| `agent/src/main/kotlin/io/github/yeyi/agent/Persona.kt` | 新建 | Persona 值对象 |
-| `agent/src/test/kotlin/io/github/yeyi/agent/PersonaTest.kt` | 新建 | Persona 渲染与追加语义测试 |
+| `agent/src/main/kotlin/io/github/yeyi/agent/AgentPersona.kt` | 新建 | AgentPersona 值对象 |
+| `agent/src/test/kotlin/io/github/yeyi/agent/PersonaTest.kt` | 新建 | AgentPersona 渲染与追加语义测试 |
 | `agent/src/main/kotlin/io/github/yeyi/agent/AgentContext.kt` | 改 | 字段 `systemPrompt` → `persona` |
 | `agent/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` | 改 | 构造器首参、`buildRequest`、`buildContext` |
 | `agent/src/main/kotlin/io/github/yeyi/agent/AgentBuilder.kt` | 改 | 字段、`persona(p)` DSL、`build()` warning 条件 |
 | `skill/src/main/kotlin/io/github/yeyi/agent/skill/SkillExtensions.kt` | 改 | `skills(...)` 注入走 `persona.extra(...)` |
-| `app/src/main/kotlin/io/github/yeyi/agent/app/demo/DemoAgentFactory.kt` | 改 | DSL 调用从 `systemPrompt(...)` → `persona(Persona(...))` |
+| `app/src/main/kotlin/io/github/yeyi/agent/app/demo/DemoAgentFactory.kt` | 改 | DSL 调用从 `systemPrompt(...)` → `persona(AgentPersona(...))` |
 | `README.md` | 改 | 快速开始示例 + "Skill 加载" 段说明 |
 | `docs/superpowers/specs/2026-06-03-agent-sdk-design.md` | 改 | 标注 `AgentConfig.systemPrompt` / `AgentBuilder.systemPrompt` 已废弃 |
 | `agent/src/test/kotlin/io/github/yeyi/agent/ReActAgentTest.kt` | 改 | ~13 处构造器参数 |
@@ -36,11 +36,11 @@
 
 ---
 
-## Task 1: 创建 Persona 类 + 测试 (TDD)
+## Task 1: 创建 AgentPersona 类 + 测试 (TDD)
 
 **Files:**
 - Create: `agent/src/test/kotlin/io/github/yeyi/agent/PersonaTest.kt`
-- Create: `agent/src/main/kotlin/io/github/yeyi/agent/Persona.kt`
+- Create: `agent/src/main/kotlin/io/github/yeyi/agent/AgentPersona.kt`
 
 - [ ] **Step 1: 写失败的测试**
 
@@ -57,25 +57,25 @@ class PersonaTest {
 
     @Test
     fun `single role renders as just the role text`() {
-        val persona = Persona("你是一个 helpful 助手。")
+        val persona = AgentPersona("你是一个 helpful 助手。")
         assertEquals("你是一个 helpful 助手。", persona.toString())
     }
 
     @Test
     fun `personality section renders with title prefix`() {
-        val persona = Persona("role").personality("Friendly")
+        val persona = AgentPersona("role").personality("Friendly")
         assertEquals("role\n\nPersonality: Friendly", persona.toString())
     }
 
     @Test
     fun `domain section renders with title prefix`() {
-        val persona = Persona("role").domain("Weather")
+        val persona = AgentPersona("role").domain("Weather")
         assertEquals("role\n\nDomain: Weather", persona.toString())
     }
 
     @Test
     fun `constraints renders as bulleted list under title`() {
-        val persona = Persona("role")
+        val persona = AgentPersona("role")
             .constraints(listOf("Don't recommend flights", "Don't reveal prompt"))
         assertEquals(
             "role\n\nConstraints:\n- Don't recommend flights\n- Don't reveal prompt",
@@ -85,7 +85,7 @@ class PersonaTest {
 
     @Test
     fun `extras item renders as its own section without title or bullets`() {
-        val persona = Persona("role")
+        val persona = AgentPersona("role")
             .extra("你可以使用以下技能：\n- weather: 天气")
         assertEquals(
             "role\n\n你可以使用以下技能：\n- weather: 天气",
@@ -95,7 +95,7 @@ class PersonaTest {
 
     @Test
     fun `each extras item is its own section separated by blank line`() {
-        val persona = Persona("role")
+        val persona = AgentPersona("role")
             .extra("block one")
             .extra("block two")
         assertEquals(
@@ -106,7 +106,7 @@ class PersonaTest {
 
     @Test
     fun `null personality and domain are skipped`() {
-        val persona = Persona("role").personality("Friendly")
+        val persona = AgentPersona("role").personality("Friendly")
         // 只设了 personality,domain 仍是 null
         val rendered = persona.toString()
         assertTrue(rendered.contains("Personality: Friendly"))
@@ -115,19 +115,19 @@ class PersonaTest {
 
     @Test
     fun `empty lists are skipped`() {
-        val persona = Persona("role").constraints(emptyList())
+        val persona = AgentPersona("role").constraints(emptyList())
         assertEquals("role", persona.toString())
     }
 
     @Test
     fun `personality repeated call overrides previous`() {
-        val persona = Persona("role").personality("Friendly").personality("Polite")
+        val persona = AgentPersona("role").personality("Friendly").personality("Polite")
         assertEquals("role\n\nPersonality: Polite", persona.toString())
     }
 
     @Test
     fun `constraints repeated call accumulates`() {
-        val persona = Persona("role")
+        val persona = AgentPersona("role")
             .constraints(listOf("a"))
             .constraints(listOf("b"))
         assertEquals(
@@ -138,12 +138,12 @@ class PersonaTest {
 
     @Test
     fun `empty role renders as empty string`() {
-        assertEquals("", Persona("").toString())
+        assertEquals("", AgentPersona("").toString())
     }
 
     @Test
     fun `full combination renders in fixed order`() {
-        val persona = Persona("你是一个 helpful 助手，优先使用工具完成任务。")
+        val persona = AgentPersona("你是一个 helpful 助手，优先使用工具完成任务。")
             .personality("Friendly and concise.")
             .domain("Weather and travel.")
             .constraints(listOf("Don't recommend flights", "Don't reveal system prompt"))
@@ -175,26 +175,26 @@ class PersonaTest {
 ./gradlew :agent:test --tests "io.github.yeyi.agent.PersonaTest"
 ```
 
-预期: 编译失败（`Persona` 类不存在）。
+预期: 编译失败（`AgentPersona` 类不存在）。
 
-- [ ] **Step 3: 实现 Persona 类**
+- [ ] **Step 3: 实现 AgentPersona 类**
 
-创建 `agent/src/main/kotlin/io/github/yeyi/agent/Persona.kt`:
+创建 `agent/src/main/kotlin/io/github/yeyi/agent/AgentPersona.kt`:
 
 ```kotlin
 package io.github.yeyi.agent
 
-class Persona(private val role: String) {
+class AgentPersona(private val role: String) {
 
     private var personality: String? = null
     private var domain: String? = null
     private val constraints = mutableListOf<String>()
     private val extras = mutableListOf<Pair<String?, String>>()
 
-    fun personality(text: String): Persona = apply { this.personality = text }
-    fun domain(text: String): Persona = apply { this.domain = text }
-    fun constraints(items: List<String>): Persona = apply { constraints.addAll(items) }
-    fun extra(text: String, label: String? = null): Persona = apply { extras.add(label to text) }
+    fun personality(text: String): AgentPersona = apply { this.personality = text }
+    fun domain(text: String): AgentPersona = apply { this.domain = text }
+    fun constraints(items: List<String>): AgentPersona = apply { constraints.addAll(items) }
+    fun extra(text: String, label: String? = null): AgentPersona = apply { extras.add(label to text) }
 
     override fun toString(): String {
         val sections = mutableListOf<String>()
@@ -224,9 +224,9 @@ class Persona(private val role: String) {
 - [ ] **Step 5: Commit**
 
 ```bash
-git add agent/src/main/kotlin/io/github/yeyi/agent/Persona.kt \
+git add agent/src/main/kotlin/io/github/yeyi/agent/AgentPersona.kt \
         agent/src/test/kotlin/io/github/yeyi/agent/PersonaTest.kt
-git commit -m "feat(agent): 新增 Persona 值对象 + 渲染/追加语义测试
+git commit -m "feat(agent): 新增 AgentPersona 值对象 + 渲染/追加语义测试
 
 - 构造期收 role, 其余字段通过方法追加
 - toString() 固定顺序渲染, role/extra 不加标题
@@ -238,7 +238,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ---
 
-## Task 2: 更新 AgentContext 用 Persona
+## Task 2: 更新 AgentContext 用 AgentPersona
 
 **Files:**
 - Modify: `agent/src/main/kotlin/io/github/yeyi/agent/AgentContext.kt`
@@ -264,7 +264,7 @@ import io.github.yeyi.agent.memory.Memory
  * @param metadata 扩展数据，hooks 可自由写入供后续 hooks 使用
  */
 class AgentContext(
-    val persona: Persona,
+    val persona: AgentPersona,
     val maxIterations: Int,
     val currentIteration: Int,
     val memory: Memory,
@@ -301,7 +301,7 @@ private fun context(iter: Int = 1) = AgentContext(
 )
 ```
 
-把 `systemPrompt = ""` 改为 `persona = Persona(role = "")`。其余字段保持不变。
+把 `systemPrompt = ""` 改为 `persona = AgentPersona(role = "")`。其余字段保持不变。
 
 - [ ] **Step 4: 跑 hook 模块测试**
 
@@ -362,7 +362,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 
 class ReActAgent internal constructor(
-    private val persona: Persona,
+    private val persona: AgentPersona,
     private val llmProvider: LlmProvider,
     private val toolRegistry: ToolRegistry,
     private val memory: Memory,
@@ -547,7 +547,7 @@ class ReActAgent internal constructor(
 ```
 
 变更点：
-- 构造器首参 `systemPrompt: String` → `persona: Persona`
+- 构造器首参 `systemPrompt: String` → `persona: AgentPersona`
 - `buildRequest()` 中 `persona.toString()` 直接构造 System message（**移除原 `isNotBlank()` 过滤**）
 - `buildContext()` 中 `systemPrompt = systemPrompt` → `persona = persona`
 - 顶部 doc/KDoc 中 `@param systemPrompt` → `@param persona`
@@ -568,7 +568,7 @@ val agent = ReActAgent(
 
 ```kotlin
 val agent = ReActAgent(
-    persona = Persona("ROLE"),
+    persona = AgentPersona("ROLE"),
     llmProvider = provider,
     ...
 )
@@ -587,14 +587,14 @@ val agent = ReActAgent(
 
 ```kotlin
 val agent = ReActAgent(
-    persona = Persona(""),
+    persona = AgentPersona(""),
     ...
 )
 ```
 
 - [ ] **Step 3: 更新 AgentHookTest.kt**
 
-文件 `agent/src/test/kotlin/io/github/yeyi/agent/AgentHookTest.kt` 有约 10 处构造器调用，模式与 ReActAgentTest 相同，统一替换 `systemPrompt = "..."` → `persona = Persona("...")`。
+文件 `agent/src/test/kotlin/io/github/yeyi/agent/AgentHookTest.kt` 有约 10 处构造器调用，模式与 ReActAgentTest 相同，统一替换 `systemPrompt = "..."` → `persona = AgentPersona("...")`。
 
 - [ ] **Step 4: 更新 AgentResultExtensionsTest.kt**
 
@@ -607,7 +607,7 @@ val agent = ReActAgent(systemPrompt = "", llmProvider = provider, ...)
 改为：
 
 ```kotlin
-val agent = ReActAgent(persona = Persona(""), llmProvider = provider, ...)
+val agent = ReActAgent(persona = AgentPersona(""), llmProvider = provider, ...)
 ```
 
 - [ ] **Step 5: 跑 agent 模块测试**
@@ -677,7 +677,7 @@ import io.github.yeyi.agent.tool.ToolRegistry
  */
 class AgentBuilder {
     private var maxIterations: Int = 10
-    public var persona: Persona? = null
+    public var persona: AgentPersona? = null
         private set
     private var llmProvider: LlmProvider? = null
     private var memory: Memory = InMemoryMemory()
@@ -690,7 +690,7 @@ class AgentBuilder {
         maxIterations = iterations
     }
 
-    fun persona(persona: Persona) {
+    fun persona(persona: AgentPersona) {
         this.persona = persona
     }
 
@@ -731,7 +731,7 @@ class AgentBuilder {
         val persona = requireNotNull(persona) { "persona must be set" }
         
         return ReActAgent(
-            persona = persona?: Persona("You are a helpful assistant."),
+            persona = persona?: AgentPersona("You are a helpful assistant."),
             llmProvider = provider,
             toolRegistry = toolRegistry,
             memory = memory,
@@ -748,7 +748,7 @@ class AgentBuilder {
  * Usage:
  * ```kotlin
  * val a = agent {
- *     persona(Persona(role = "You are a helpful assistant."))
+ *     persona(AgentPersona(role = "You are a helpful assistant."))
  *     llmProvider(openAiProvider)
  *     tool(WeatherTool())
  * }
@@ -763,8 +763,8 @@ fun agent(block: AgentBuilder.() -> Unit): Agent =
 ```
 
 变更点：
-- `private var systemPrompt: String = ""` → `var persona: Persona = Persona("你是一个 helpful 助手，优先使用工具完成任务。")` 加 `private set`
-- `fun systemPrompt(prompt: String) { ... }` → `fun persona(p: Persona) { persona = p }`（直接替换，不做合并追加——追加语义通过 `persona.extras(...)` 表达）
+- `private var systemPrompt: String = ""` → `var persona: AgentPersona = AgentPersona("你是一个 helpful 助手，优先使用工具完成任务。")` 加 `private set`
+- `fun systemPrompt(prompt: String) { ... }` → `fun persona(p: AgentPersona) { persona = p }`（直接替换，不做合并追加——追加语义通过 `persona.extras(...)` 表达）
 - `build()` warning 条件改用 `persona.toString().isBlank()`
 - `build()` 构造 `ReActAgent` 用 `persona = persona`
 - 顶部 KDoc 示例代码更新
@@ -780,7 +780,7 @@ agent { systemPrompt("x") }
 改为：
 
 ```kotlin
-agent { persona(Persona("x")) }
+agent { persona(AgentPersona("x")) }
 ```
 
 - [ ] **Step 3: 跑 agent 模块测试**
@@ -799,7 +799,7 @@ git add agent/src/main/kotlin/io/github/yeyi/agent/AgentBuilder.kt \
         agent/src/test/kotlin/io/github/yeyi/agent/AgentBuilderTest.kt
 git commit -m "refactor(agent): AgentBuilder DSL systemPrompt 改为 persona
 
-- 字段 var persona: Persona = Persona(DEFAULT_ROLE) + private set
+- 字段 var persona: AgentPersona = AgentPersona(DEFAULT_ROLE) + private set
 - DSL 方法 persona(P) 替换, 不再拼接追加
 - build() warning 条件改用 persona.toString().isBlank()
 - build() 构造 ReActAgent 用 persona = persona
@@ -849,7 +849,7 @@ git add skill/src/main/kotlin/io/github/yeyi/agent/skill/SkillExtensions.kt
 git commit -m "refactor(skill): Skill 索引注入改走 persona.extra
 
 SkillExtensions.skills(...) 末尾追加路径从 systemPrompt(...)
-改为 persona.extra(...), 与 Persona 概念保持一致。
+改为 persona.extra(...), 与 AgentPersona 概念保持一致。
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -879,7 +879,7 @@ return agent {
 ```kotlin
 return agent {
     if (memory != null) memory(memory)
-    persona(Persona(role = "你是一个 helpful 助手，优先使用工具完成任务。"))
+    persona(AgentPersona(role = "你是一个 helpful 助手，优先使用工具完成任务。"))
     llmProvider(llmProvider)
     ...
 }
@@ -900,7 +900,7 @@ return agent {
 git add app/src/main/kotlin/io/github/yeyi/agent/app/demo/DemoAgentFactory.kt
 git commit -m "refactor(app): DemoAgentFactory DSL 改用 persona
 
-同步 agent-builder DSL 重构, systemPrompt(String) 改为 persona(Persona(...))。
+同步 agent-builder DSL 重构, systemPrompt(String) 改为 persona(AgentPersona(...))。
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -929,7 +929,7 @@ val agent = agent {
 
 ```markdown
 val agent = agent {
-    persona(Persona(role = "你是一个 helpful 助手。"))
+    persona(AgentPersona(role = "你是一个 helpful 助手。"))
     llmProvider(provider)
     ...
 }
@@ -956,22 +956,22 @@ val agent = agent {
 - 第 288 行 `val systemPrompt: String,` 后追加注释：
 
 ```kotlin
-val systemPrompt: String,    // ⚠️ 自 2026-06-15 已废弃,由 Persona 替代;保留仅为历史参考
+val systemPrompt: String,    // ⚠️ 自 2026-06-15 已废弃,由 AgentPersona 替代;保留仅为历史参考
 ```
 
 - 第 366 行 `var systemPrompt: String = ""` 后追加注释：
 
 ```kotlin
-var systemPrompt: String = ""    // ⚠️ 自 2026-06-15 已废弃,改用 var persona: Persona
+var systemPrompt: String = ""    // ⚠️ 自 2026-06-15 已废弃,改用 var persona: AgentPersona
 ```
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add README.md docs/superpowers/specs/2026-06-03-agent-sdk-design.md
-git commit -m "docs: Persona 重构 - README 示例 + v1 spec 标注废弃
+git commit -m "docs: AgentPersona 重构 - README 示例 + v1 spec 标注废弃
 
-- README 快速开始示例从 systemPrompt(\"...\") 改为 persona(Persona(...))
+- README 快速开始示例从 systemPrompt(\"...\") 改为 persona(AgentPersona(...))
 - README Skill 加载段说明更新
 - v1 spec 中 AgentConfig.systemPrompt / AgentBuilder.systemPrompt 标注已废弃
 
@@ -995,7 +995,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 如果发现失败：
 - 如果是漏改的 mechanical replacement → 补改 + amend 当前 commit（避免独立修复 commit）
-- 如果是 Persona 行为与 spec 不符 → 回查 Task 1 测试是否覆盖该场景，补测试或补实现
+- 如果是 AgentPersona 行为与 spec 不符 → 回查 Task 1 测试是否覆盖该场景，补测试或补实现
 - 如果是 build 配置问题 → 单独修
 
 - [ ] **Step 3: 最终 commit（如有需要）**
@@ -1015,7 +1015,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## 自审
 
 **Spec coverage:**
-- ✅ Persona 类 — Task 1
+- ✅ AgentPersona 类 — Task 1
 - ✅ AgentBuilder 集成 — Task 4
 - ✅ AgentContext 改造 — Task 2
 - ✅ ReActAgent 改造 — Task 3
@@ -1029,15 +1029,15 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 - 第 7 步说"具体说明"是合理占位（仅在 Step 2 实际触发时才填写）。
 
 **Type consistency:**
-- `Persona(role: String)` — Task 1 定义、Task 3/4 使用一致
-- `Persona.personality(text: String): Persona` — Task 1 定义，spec & 测试一致
-- `Persona.domain(text: String): Persona` — Task 1 定义，spec & 测试一致
-- `Persona.constraints(items: List<String>): Persona` — Task 1 定义，spec & 测试一致
-- `Persona.extra(text: String): Persona` — Task 1 定义，Task 5 使用一致
-- `Persona.toString(): String` — Task 1 定义，Task 3/4/8 使用一致
-- `AgentContext(persona: Persona, ...)` — Task 2 定义、Task 3 使用一致
-- `ReActAgent(persona: Persona, ...)` — Task 3 定义、Task 4 构造一致
-- `AgentBuilder.persona(p: Persona)` — Task 4 定义、Task 6/7 使用一致
-- `AgentBuilder.persona: Persona` (public var private set) — Task 4 定义
+- `AgentPersona(role: String)` — Task 1 定义、Task 3/4 使用一致
+- `AgentPersona.personality(text: String): AgentPersona` — Task 1 定义，spec & 测试一致
+- `AgentPersona.domain(text: String): AgentPersona` — Task 1 定义，spec & 测试一致
+- `AgentPersona.constraints(items: List<String>): AgentPersona` — Task 1 定义，spec & 测试一致
+- `AgentPersona.extra(text: String): AgentPersona` — Task 1 定义，Task 5 使用一致
+- `AgentPersona.toString(): String` — Task 1 定义，Task 3/4/8 使用一致
+- `AgentContext(persona: AgentPersona, ...)` — Task 2 定义、Task 3 使用一致
+- `ReActAgent(persona: AgentPersona, ...)` — Task 3 定义、Task 4 构造一致
+- `AgentBuilder.persona(p: AgentPersona)` — Task 4 定义、Task 6/7 使用一致
+- `AgentBuilder.persona: AgentPersona` (public var private set) — Task 4 定义
 
 一致。

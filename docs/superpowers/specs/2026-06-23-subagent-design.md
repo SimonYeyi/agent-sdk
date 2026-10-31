@@ -63,7 +63,7 @@ subagent/src/main/kotlin/io/github/yeyi/agent/subagent/
 ```kotlin
 package io.github.yeyi.agent.subagent
 
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.awaitResult
 import io.github.yeyi.agent.capability.Capability
@@ -96,7 +96,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
         val instructions = load(context)
 
         val sub = agent {
-            persona(Persona(instructions))
+            persona(AgentPersona(instructions))
             llmProvider(context.agentContext.llmProvider)
             memory(memory, context.agentContext.maxRounds)
             maxIterations(maxIterations ?: context.agentContext.maxIterations)

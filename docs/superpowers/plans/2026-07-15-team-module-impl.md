@@ -15,7 +15,7 @@
 ## 前置条件
 
 本计划假定以下现有模块已存在（均为项目已有模块）：
-- `:agent` — `Agent`, `AgentBuilder`, `ReActAgent`, `AgentEvent`, `AgentException`, `Persona`, `Tool`, `ToolRegistry`, `InMemoryMemory`
+- `:agent` — `Agent`, `AgentBuilder`, `ReActAgent`, `AgentEvent`, `AgentException`, `AgentPersona`, `Tool`, `ToolRegistry`, `InMemoryMemory`
 - `:capability` — `Capability`, `CapabilityRegistry`, `DefaultCapabilityRegistry`, `CapabilityAdapter`
 - `:skill` — `Skill`, `SkillRegistry`, `SkillContext`, `SkillExtensions`
 - `:subagent` — `Subagent`, `SubagentRegistry`, `SubagentContext`, `SubagentExtensions`
@@ -65,7 +65,7 @@
 | `agent/src/main/kotlin/io/github/yeyi/agent/AgentExtensions.kt` | 改 | `awaitResult()` 跟随 Failed 签名变化 |
 | `agent/src/main/kotlin/io/github/yeyi/agent/AgentException.kt` | 改 | 解除 Failed 的强制依赖，保留类但仅供内部转换 |
 | `agent/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` | 改 | 失败路径不再强制 `toAgentException()` 包装 |
-| `agent/src/main/kotlin/io/github/yeyi/agent/Persona.kt` | 改 | `role` 改为公开只读属性（供 BossAgentBuilder 校验） |
+| `agent/src/main/kotlin/io/github/yeyi/agent/AgentPersona.kt` | 改 | `role` 改为公开只读属性（供 BossAgentBuilder 校验） |
 | `skill/src/main/kotlin/io/github/yeyi/agent/skill/Skill.kt` | 改 | `load(context: SkillContext)` → `load()` |
 | `skill/src/main/kotlin/io/github/yeyi/agent/skill/SkillExtensions.kt` | 改 | 跟随 load() 签名变化 |
 | `skill/src/main/kotlin/io/github/yeyi/agent/skill/SkillRegistry.kt` | 改 | 新增 `allTools(): List<Tool>` |
@@ -308,7 +308,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
         val instruction = load()  // 不再传 context
 
         val sub = agent {
-            persona(Persona(instruction))
+            persona(AgentPersona(instruction))
             llmProvider(context.agentContext.llmProvider)
             memory(memory, context.agentContext.maxRounds)
             maxIterations(maxIterations ?: context.agentContext.maxIterations)
@@ -334,15 +334,15 @@ git commit -m "refactor(subagent)!: Subagent.load() 移除 context 参数"
 
 ---
 
-## Task 0.6: `Persona.role` 改为公开只读属性
+## Task 0.6: `AgentPersona.role` 改为公开只读属性
 
 **Files:**
-- Modify: `agent/src/main/kotlin/io/github/yeyi/agent/Persona.kt`
+- Modify: `agent/src/main/kotlin/io/github/yeyi/agent/AgentPersona.kt`
 
 - [ ] **Step 1: 修改 `role` 为公开只读属性**
 
 ```kotlin
-public class Persona(val role: String) {
+public class AgentPersona(val role: String) {
     private var personality: String? = null
     private var domain: String? = null
     private val constraints: MutableList<String> = mutableListOf()
@@ -361,7 +361,7 @@ Expected: PASS
 - [ ] **Step 3: Commit**
 
 ```bash
-git commit -m "feat(agent): Persona.role 改为公开只读属性
+git commit -m "feat(agent): AgentPersona.role 改为公开只读属性
 
 供 BossAgentBuilder 校验角色文本是否为空。非破坏性变更。"
 ```
@@ -742,7 +742,7 @@ git commit -m "feat(team): Selection sealed 层级 + FACTORIES 映射"
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
@@ -783,7 +783,7 @@ class BeastTest {
         val fake = FakeLlmProvider(nonStreamResponses = listOf(FINAL_RESPONSE))
         val ox = Ox(
             llmProvider = fake,
-            persona = Persona("test"),
+            persona = AgentPersona("test"),
             toolRegistry = null, skillRegistry = null,
             subagentRegistry = null, toolsetRegistry = null,
             maxIterations = 1, maxRounds = 5,
@@ -800,7 +800,7 @@ class BeastTest {
         val fake = FakeLlmProvider(nonStreamResponses = listOf(FINAL_RESPONSE))
         val horse = Horse(
             llmProvider = fake,
-            persona = Persona("specialist"),
+            persona = AgentPersona("specialist"),
             tools = emptyList(),
             maxIterations = 1, maxRounds = 5,
         )
@@ -827,7 +827,7 @@ class BeastTest {
         val fake = FakeLlmProvider(nonStreamResponses = listOf(toolCallResponse, finalResponse))
         val horse = Horse(
             llmProvider = fake,
-            persona = Persona("specialist"),
+            persona = AgentPersona("specialist"),
             tools = listOf(EchoTool),
             maxIterations = 5, maxRounds = 5,
         )
@@ -844,7 +844,7 @@ class BeastTest {
         val fake = FakeLlmProvider(nonStreamResponses = listOf(FINAL_RESPONSE))
         val ox = Ox(
             llmProvider = fake,
-            persona = Persona(""),
+            persona = AgentPersona(""),
             toolRegistry = null, skillRegistry = null,
             subagentRegistry = null, toolsetRegistry = null,
             maxIterations = 1, maxRounds = 5,
@@ -868,7 +868,7 @@ class BeastTest {
         }
         val ox = Ox(
             llmProvider = failingFake,
-            persona = Persona(""),
+            persona = AgentPersona(""),
             toolRegistry = null, skillRegistry = null,
             subagentRegistry = null, toolsetRegistry = null,
             maxIterations = 1, maxRounds = 5,
@@ -887,7 +887,7 @@ class BeastTest {
         val blockingFake = FakeLlmProvider(nonStreamResponses = listOf(FINAL_RESPONSE))
         val ox = Ox(
             llmProvider = blockingFake,
-            persona = Persona(""),
+            persona = AgentPersona(""),
             toolRegistry = null, skillRegistry = null,
             subagentRegistry = null, toolsetRegistry = null,
             maxIterations = 1, maxRounds = 5,
@@ -925,7 +925,7 @@ internal interface Beast {
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
@@ -936,7 +936,7 @@ import io.github.yeyi.agent.toolset.ToolsetRegistry
 
 internal class Ox internal constructor(
     private val llmProvider: LlmProvider,
-    private val persona: Persona,
+    private val persona: AgentPersona,
     private val toolRegistry: ToolRegistry?,
     private val skillRegistry: SkillRegistry?,
     private val subagentRegistry: SubagentRegistry?,
@@ -965,7 +965,7 @@ internal class Ox internal constructor(
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
@@ -973,7 +973,7 @@ import io.github.yeyi.agent.tool.Tool
 
 internal class Horse internal constructor(
     private val llmProvider: LlmProvider,
-    private val persona: Persona,
+    private val persona: AgentPersona,
     private val tools: List<Tool> = emptyList(),
     private val maxIterations: Int,
     private val maxRounds: Int,
@@ -1027,7 +1027,7 @@ git commit -m "feat(team): Beast interface + Ox + Horse 实现"
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.skill.Skill
 import io.github.yeyi.agent.skill.SkillRegistry
@@ -1137,7 +1137,7 @@ internal class Pasture internal constructor(
             }
         }
 
-        val persona = Persona(
+        val persona = AgentPersona(
             buildString {
                 append(baseRole)
                 skillTexts.forEach { append("\n\n").append(it) }
@@ -1149,7 +1149,7 @@ internal class Pasture internal constructor(
 
     private fun buildOx(): Ox = Ox(
         llmProvider = llmProvider,
-        persona = Persona(baseRole),
+        persona = AgentPersona(baseRole),
         toolRegistry = toolRegistry,
         skillRegistry = skillRegistry,
         subagentRegistry = subagentRegistry,
@@ -2288,7 +2288,7 @@ git commit -m "feat(team): BossAgent 状态机 + 双事件流实现"
 ```kotlin
 package io.github.yeyi.agent.team
 
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.mcp.McpRegistry
@@ -2313,7 +2313,7 @@ public class BossAgentBuilder internal constructor() {
     private var subagentRegistry0: SubagentRegistry? = null
     private var toolsetRegistry0: ToolsetRegistry? = null
 
-    private var bossPersona0: Persona? = null
+    private var bossPersona0: AgentPersona? = null
 
     private val baseRole: String = """
         You are the boss of a team. You can:
@@ -2361,9 +2361,9 @@ public class BossAgentBuilder internal constructor() {
         @Suppress("UNUSED_PARAMETER") registry
     }
 
-    public fun persona(persona: Persona) {
+    public fun persona(persona: AgentPersona) {
         require(persona.role.isBlank()) {
-            "Persona.role is reserved by the BossAgent framework — must be empty string. " +
+            "AgentPersona.role is reserved by the BossAgent framework — must be empty string. " +
                 "Use personality / domain / constraints / extra to customize agent persona."
         }
         bossPersona0 = persona
@@ -2418,7 +2418,7 @@ public class BossAgentBuilder internal constructor() {
 
         val publishTask = PublishTaskTool(bulletinBoard, capabilitiesByType)
         val cancelTask = CancelTaskTool(bulletinBoard)
-        val persona = Persona(baseRole).apply { bossPersona0?.let { extra(it.toString()) } }
+        val persona = AgentPersona(baseRole).apply { bossPersona0?.let { extra(it.toString()) } }
 
         val innerAgent = agent {
             persona(persona)
@@ -3191,7 +3191,7 @@ git commit -m "test(team): Pasture 取消测试 (spec §11.4)
 | `Subagent.load()` 去 ctx | Task 0.5 | ✅ |
 | `Toolset.all()` 新增 | Task 0.1 | ✅ |
 | `SkillRegistry.allTools()` 新增 | Task 0.2 | ✅ |
-| `Persona.role` 公开 | Task 0.6 | ✅ |
+| `AgentPersona.role` 公开 | Task 0.6 | ✅ |
 
 ### 测试覆盖点（spec §11）
 

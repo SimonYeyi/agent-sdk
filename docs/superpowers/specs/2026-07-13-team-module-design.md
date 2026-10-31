@@ -367,10 +367,10 @@ internal data class TaskUpdate(
 
 牛马 = 团队中的"牲口" — 跑一次任务，通过 `onEvent` 流式回调。两种实现按工作模式区分，但 **persona 由外部传入**（Pasture 预组装），不在 Beast 内部再拼：
 
-- **牛 ([Ox])**: 通用 beast — 像常规 ReActAgent：持 `Persona`（系统提示）+ 4 个 capability registry（`ToolRegistry?` / `SkillRegistry?` / `SubagentRegistry?` / `ToolsetRegistry?`），`agent { }` DSL 把所有 registry 注册进 inner agent，ReAct 循环自由选用。适用"无明确 selection，自己挑工具"的场景。
-- **马 ([Horse])**: 专项 beast — 持 **预组装好的 `Persona`** + 派生 `tools: List<Tool>` 列表（没有 registries），inner agent 只用这一组 tool + 一组 persona 跑。适用"boss 已显式选好 selection，专注按 persona + tool 跑"的场景。
+- **牛 ([Ox])**: 通用 beast — 像常规 ReActAgent：持 `AgentPersona`（系统提示）+ 4 个 capability registry（`ToolRegistry?` / `SkillRegistry?` / `SubagentRegistry?` / `ToolsetRegistry?`），`agent { }` DSL 把所有 registry 注册进 inner agent，ReAct 循环自由选用。适用"无明确 selection，自己挑工具"的场景。
+- **马 ([Horse])**: 专项 beast — 持 **预组装好的 `AgentPersona`** + 派生 `tools: List<Tool>` 列表（没有 registries），inner agent 只用这一组 tool + 一组 persona 跑。适用"boss 已显式选好 selection，专注按 persona + tool 跑"的场景。
 
-两种实现都吃 `Persona`（风格一致），区别在于：
+两种实现都吃 `AgentPersona`（风格一致），区别在于：
 - **Ox 持 4 registry**（完整 raw ReActAgent 装配模型，beast 自己解析）
 - **Horse 不持 registry**（pre-load 模式：selection 解析 + persona + tool 列表组装都已在 Pasture 完成）
 
@@ -385,7 +385,7 @@ internal data class TaskUpdate(
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
@@ -399,8 +399,8 @@ import io.github.yeyi.agent.toolset.ToolsetRegistry
  * 牛马 = 团队中的"牲口" — 跑一次任务，通过 onEvent 流式回调。
  *
  * 两种实现:
- * - [Ox]: 通用 — 持 4 个单 registry + Persona, agent { } DSL 全注册 (适合"无明确 selection"任务)
- * - [Horse]: 专项 — 持 Persona + 派生的 tools 列表, 不持 registry (pre-load 模式)
+ * - [Ox]: 通用 — 持 4 个单 registry + AgentPersona, agent { } DSL 全注册 (适合"无明确 selection"任务)
+ * - [Horse]: 专项 — 持 AgentPersona + 派生的 tools 列表, 不持 registry (pre-load 模式)
  *
  * 每次 [run] 都 new 一个独立的 ReActAgent (独立 memory, 独立 ReAct 循环),
  * 跑完丢弃, 避免状态污染.
@@ -413,7 +413,7 @@ internal interface Beast {
 }
 
 /**
- * 牛 = 通用 beast. 持 [Persona] + 4 个 capability registry (tool/skill/subagent/toolset).
+ * 牛 = 通用 beast. 持 [AgentPersona] + 4 个 capability registry (tool/skill/subagent/toolset).
  * 通过 agent { } DSL 把 registry 注册进 inner agent, 内部 ReAct 循环自由选用.
  *
  * 适用: 任务没有具体 selection (空 selections), 牛自选工具.
@@ -428,7 +428,7 @@ internal interface Beast {
  */
 internal class Ox internal constructor(
     private val llmProvider: LlmProvider,
-    private val persona: Persona,
+    private val persona: AgentPersona,
     private val toolRegistry: ToolRegistry?,
     private val skillRegistry: SkillRegistry?,
     private val subagentRegistry: SubagentRegistry?,
@@ -452,8 +452,8 @@ internal class Ox internal constructor(
 }
 
 /**
- * 马 = 专项 beast (pre-load 模式). 持 [Persona] + 派生 tools 列表, 不持 registry.
- * [Persona] 与 tools 列表都已由 [Pasture] 预组装好 — Horse 内部不做 selection 解析 / wire-up,
+ * 马 = 专项 beast (pre-load 模式). 持 [AgentPersona] + 派生 tools 列表, 不持 registry.
+ * [AgentPersona] 与 tools 列表都已由 [Pasture] 预组装好 — Horse 内部不做 selection 解析 / wire-up,
  * 只用成品跑 ReAct 循环.
  *
  * 适用: boss 已显式选择 selection(s), 马专注按 persona + 选定的 tools 跑任务.
@@ -462,7 +462,7 @@ internal class Ox internal constructor(
  */
 internal class Horse internal constructor(
     private val llmProvider: LlmProvider,
-    private val persona: Persona,
+    private val persona: AgentPersona,
     private val tools: List<Tool> = emptyList(),
     private val maxIterations: Int,
     private val maxRounds: Int,
@@ -482,8 +482,8 @@ internal class Horse internal constructor(
 
 **Beast 持有什么 / 不持什么**:
 - Beast 不持有: 任务状态、memory、agent 实例 — 全部任务级, 跑完即丢
-- Ox 持有: 4 个单 capability registry (`toolRegistry` / `skillRegistry` / `subagentRegistry` / `toolsetRegistry`, 每个类别至多 1 个) + 预组装 `Persona`
-- Horse 持有: 预组装 `Persona` + 派生 `tools: List<Tool>`(Pasture 组装的成品)
+- Ox 持有: 4 个单 capability registry (`toolRegistry` / `skillRegistry` / `subagentRegistry` / `toolsetRegistry`, 每个类别至多 1 个) + 预组装 `AgentPersona`
+- Horse 持有: 预组装 `AgentPersona` + 派生 `tools: List<Tool>`(Pasture 组装的成品)
 - 每次 run 都 new 一个独立 ReActAgent, 独立 memory, 独立 ReAct 循环
 
 派发逻辑见 [Pasture] (§ 4.4) — v1 多数走 `Horse` 分支 (Boss 派发的 TaskAssignment 都带非空 selections 且不含 subagent); `Ox` 是 [assembleHorse] 失败 (selections 空 / 含任何 subagent / 找不到 selection) 时 `handleAssignment` 兜底退 [Ox].
@@ -494,7 +494,7 @@ internal class Horse internal constructor(
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.skill.Skill
 import io.github.yeyi.agent.skill.SkillRegistry
@@ -679,7 +679,7 @@ internal class Pasture internal constructor(
             }
         }
 
-        val persona = Persona(
+        val persona = AgentPersona(
             buildString {
                 append(baseRole)
                 skillTexts.forEach { append("\n\n").append(it) }
@@ -702,7 +702,7 @@ internal class Pasture internal constructor(
      */
     private fun buildOx(): Ox = Ox(
         llmProvider = llmProvider,
-        persona = Persona(baseRole),
+        persona = AgentPersona(baseRole),
         toolRegistry = toolRegistry,
         skillRegistry = skillRegistry,
         subagentRegistry = subagentRegistry,
@@ -966,7 +966,7 @@ BossAgent 是唯一对外 API 表面 — 自身实现 `Agent` 接口, 内部持�
 ```kotlin
 package io.github.yeyi.agent.team
 
-import io.github.yeyi.agent.Persona
+import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.Memory
@@ -994,7 +994,7 @@ public class BossAgentBuilder internal constructor() {
     private var toolsetRegistry0: ToolsetRegistry? = null
 
     /** 用户注入的 boss persona — 由 [persona] DSL 设置. */
-    private var bossPersona0: Persona? = null
+    private var bossPersona0: AgentPersona? = null
 
     private val baseRole: String = """
         You are the boss of a team. You can:
@@ -1056,11 +1056,11 @@ public class BossAgentBuilder internal constructor() {
     }
 
     /**
-     * 注入 boss persona — [Persona.role] 由 framework 保留, 必须为空字符串.
+     * 注入 boss persona — [AgentPersona.role] 由 framework 保留, 必须为空字符串.
      */
-    public fun persona(persona: Persona) {
+    public fun persona(persona: AgentPersona) {
         require(persona.role.isBlank()) {
-            "Persona.role is reserved by the BossAgent framework — must be empty string. " +
+            "AgentPersona.role is reserved by the BossAgent framework — must be empty string. " +
                 "Use personality / domain / constraints / extra to customize agent persona."
         }
         bossPersona0 = persona
@@ -1148,7 +1148,7 @@ public class BossAgentBuilder internal constructor() {
             bulletinBoard = bulletinBoard,
         )
 
-        val persona = Persona(baseRole).apply { bossPersona0?.let { extra(it.toString()) } }
+        val persona = AgentPersona(baseRole).apply { bossPersona0?.let { extra(it.toString()) } }
 
         val innerAgent = agent {
             persona(persona)
@@ -1221,7 +1221,7 @@ val boss = bossAgent {
 
 Pre-load 模式下, 全部装配逻辑由 [Pasture.assembleHorse] 一次性完成 (§ 4.4), [Horse] / [Ox] 内部不再做 wire-up. 本节列出规则总览, 便于查阅.
 
-**Persona 拼装**:
+**AgentPersona 拼装**:
 | 选中情况 | persona 来源 |
 |---|---|
 | 含任何 Subagent | (不适用 — 全部 selection 丢弃, 退 [Ox] 用 baseRole, 见 § 4.4) |
@@ -1779,7 +1779,7 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 
 | 字段 / DSL | 旧 | 新 |
 |---|---|---|
-| `beastPersona: Persona` | 存在, 用户可配 | **移除** — Pasture 内部 baseRole 替代 |
+| `beastPersona: AgentPersona` | 存在, 用户可配 | **移除** — Pasture 内部 baseRole 替代 |
 | `memory` / `llmProvider` / `maxIterations` / `maxRounds` | `public var` 属性 | 方法式 `memory(...)` / `llmProvider(...)` / `maxIterations(...)` / `maxRounds(...)` |
 | `tool(tool: Tool, quick: Boolean)` + `tool(registry: ToolRegistry)` | 两个重载 | 拆为 `tools(registry)` (委派池) 和 `quickTools(registry)` (boss 直调), 语义显式化 |
 | `skill(registry)` / `subagent(registry)` / `toolset(registry)` | 存在 | 重命名为复数 `skills(registry)` / `subagents(registry)` / `toolsets(registry)`, 语义不变 |
@@ -1816,7 +1816,7 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 |---|---|---|
 | A | 命名：`BossAgent` / `bossAgent { }` / 4 组件 `BulletinBoard` / `Pasture` / `BossAgent` / `Beast` (Ox/Horse) | 外部唯一公开 API |
 | B | `BossAgent` 包装 `ReActAgent`，不重写 ReAct 循环 | 包装模式 |
-| C | `Beast` 接口 — `Ox` (通用, 持 4 个单 capability registry + Persona) + `Horse` (专项, 持 Persona + 派生 tools 列表) — 包装 `ReActAgent`；每次任务 new, 不维护 pool | 双实现, 按工作模式分 |
+| C | `Beast` 接口 — `Ox` (通用, 持 4 个单 capability registry + AgentPersona) + `Horse` (专项, 持 AgentPersona + 派生 tools 列表) — 包装 `ReActAgent`；每次任务 new, 不维护 pool | 双实现, 按工作模式分 |
 | D | BossAgent 整体配置：每个 capability 类别至多 1 个 registry (`ToolRegistry` / `SkillRegistry` / `SubagentRegistry` / `ToolsetRegistry`), 4 个单 setter 一次配置, BossAgent 内部分配给 boss (菜单) 和 pasture (路由). MCP 通过 `McpRegistry` 内部注册到 `ToolsetRegistry`. baseRole 由 Pasture 内部决定 (不暴露给用户) | BossAgent 是一整体, 内部封装 base role |
 | E | `tools(registry)` 和 `quickTools(registry)` 两条独立方法 — `quickTools()` 把 registry 内容合并到 innerAgent 的 ToolRegistry (boss 快速可调, 同步阻塞当前 run, 执行耗时短), `tools()` 是 tool 池, 经 `Selection.Tool` 选用 | 拆布尔参数为两条方法, 语义显式化; 方法名复数化 (skills/subagents/toolsets/tools/quickTools/mcps) 与 AgentBuilder DSL 对齐 |
 | F | 多意图/依赖：`publish_task(tasks=[...])` 一次批量并发派多个无依赖任务; 多次 `publish_task` 跨轮串行依赖任务; **同一 task 多 selections** 组合资源 — LLM 显式表达, 框架不特殊处理 | 状态机 + LLM 自主 + 工具 description 引导 |
@@ -1824,7 +1824,7 @@ LLM 在第一轮派任务 A → 决定 final 文本（不写 A 的结果） → 
 | H | 闲聊 vs 派活：靠 `PublishTaskTool.description` 引导 LLM，框架不干预 | description 引导 |
 | I | 未知 selection: 任一 selection 找不到 → `assembleHorse` 抛 IllegalStateException → handleAssignment fallback Ox (静默降级); 含任何 subagent → assembleHorse 抛 IllegalStateException → 退 Ox; 空 selections 同样抛异常退 Ox. 不向 boss 报错, 不做 partial success | 牧场不反向干预, 全部静默降级到 Ox 通用模式 |
 | J | YAGNI: 多牧场、跨进程、持久化、限流、beast pool 全部不在范围 | 保留扩展点 |
-| K | `Beast` 双实现 + pre-load 模式: Ox 持全 registry (通用), Horse 只持 Persona + 派生 tools 列表 (专项, 不持 registry). Pasture.assembleHorse 一次性解析所有 selections, 拼出 Beast | 通用 vs 专项, 装配下沉到 Pasture |
+| K | `Beast` 双实现 + pre-load 模式: Ox 持全 registry (通用), Horse 只持 AgentPersona + 派生 tools 列表 (专项, 不持 registry). Pasture.assembleHorse 一次性解析所有 selections, 拼出 Beast | 通用 vs 专项, 装配下沉到 Pasture |
 | L | 派活含 Subagent v1 不走 Horse — boss 看不到 `subagent.tools` 等私有细节, 装配会破坏 subagent 闭环; selections 含任何 subagent → 全部 selection 丢弃, 退 Ox. Ox 持全 registry 让 LLM 在通用循环里 capability invoke 调 subagent (无 SubagentInvoker 包装层, Subagent 通过 Capability 机制被 invoke) | subagent 是原子能力, 不与外部 selection 混合装配 |
 | M | 取消通过 `publishEvent(Cancellation)` + pasture 取消 beast job 实现 | 事件总线 + coroutine cancel |
 | N | 取消失败（job 已完成）静默忽略（幂等） | 取消是事件不是事务 |

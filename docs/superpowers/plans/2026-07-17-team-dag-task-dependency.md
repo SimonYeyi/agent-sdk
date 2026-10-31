@@ -300,7 +300,7 @@
               }
           }
   
-          val persona = Persona(
+          val persona = AgentPersona(
               buildString {
                   append(baseRole)
                   skillTexts.forEach { append("\n\n").append(it) }
@@ -312,7 +312,7 @@
   
       private fun buildOx(): Ox = Ox(
           llmProvider = llmProvider,
-          persona = Persona(baseRole),
+          persona = AgentPersona(baseRole),
           toolRegistry = toolRegistry,
           skillRegistry = skillRegistry,
           subagentRegistry = subagentRegistry,

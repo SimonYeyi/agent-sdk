@@ -1539,7 +1539,7 @@ import kotlin.test.assertEquals
 class ReActAgentMultimodalTest {
 
     private fun makeAgent(provider: FakeLlmProvider): Agent = ReActAgent(
-        persona = Persona("you are helpful"),
+        persona = AgentPersona("you are helpful"),
         llmProvider = provider,
         toolRegistry = ToolRegistry(),
         memory = InMemoryMemory(),
@@ -1582,7 +1582,7 @@ class ReActAgentMultimodalTest {
 ```
 
 注：实际 API 校正（pre-flight review）：
-- `Persona("...")` 主构造，无 `Persona.of(...)` factory
+- `AgentPersona("...")` 主构造，无 `AgentPersona.of(...)` factory
 - `FakeLlmProvider` 用 `nonStreamResponses: List<ChatResponse>`（无 `textResponse` 单参）
 - `ToolRegistry()` 空注册；`NoOpTool` 不存在
 - `ChatMessage.Assistant(content)` + `FinishReason.Stop` + `ChatResponse(message, finishReason)` 完整构造

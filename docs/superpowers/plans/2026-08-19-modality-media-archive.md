@@ -977,7 +977,7 @@ Expected: PASS（修改前应通过 —— 这是验证基线，修改后必须�
 a) 修改类签名（line 24-32）：
 ```kotlin
 public class ReActAgent internal constructor(
-    private val persona: Persona,
+    private val persona: AgentPersona,
     private val llmProvider: LlmProvider,
     private val toolRegistry: ToolRegistry,
     memory: Memory,
@@ -1037,7 +1037,7 @@ d) 修改 `build()`（line 96-108）：
         val modalityAdapter = modalityAdapter ?: DefaultModalityAdapter()
 
         return ReActAgent(
-            persona = persona ?: Persona("You are a helpful assistant."),
+            persona = persona ?: AgentPersona("You are a helpful assistant."),
             llmProvider = provider,
             toolRegistry = toolRegistry,
             memory = memory,
