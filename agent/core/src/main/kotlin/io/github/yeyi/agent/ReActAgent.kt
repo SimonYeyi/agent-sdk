@@ -82,8 +82,8 @@ public class ReActAgent internal constructor(
         // true  ⟺ 该轮已被收集 ⟹ 打断已投递，槽位由该轮流的 onCompletion 认人归还。
         // false ⟺ 该轮从未被收集 ⟹ 没有 onCompletion 会来，槽位必须在此归还。
         if (turn.flow.cancel()) return turn.terminated
-        // 从未被收集的轮次：当场退场（关信箱 + 还槽 + 收尾信号）。
-        // 该轮从未被收集 ⇒ 没有执行体 ⇒ 闸必空闲。
+        // 从未被收集的轮次：当场退场（还槽 + 关信箱 + 收尾信号）。
+        // 该轮从未被收集 ⇒ 没有执行体 ⇒ 退场不必取闸。
         retireTurn(turn)
         return turn.terminated
     }
@@ -122,32 +122,30 @@ public class ReActAgent internal constructor(
             // 非拥有者的收集（重复收集）不得收尾：认人 CAS 会命中仍在运行的轮次，
             // 把它的槽位提前释放（可开出并发双跑），并关掉它的信箱（steer() 对活着的轮返回 false）。
             if (cause is RepeatedCollectionException) return@onCompletion
+            // 轮次退场：流已结束，没有执行体在跑 —— 退场不必取闸。
             retireTurn(turn)
         }
     }
 
     /**
-     * 轮次退场 —— 关信箱 + 还槽（认人）+ 完成收尾信号。
+     * 轮次退场 —— 还槽（认人）+ 关信箱 + 完成收尾信号。
      *
-     * 两处共用：轮次流的收尾（[runTurn] 的 onCompletion）与"放弃从未被收集的轮次"
-     * （[cancel]）—— 两者都是"这一轮结束了，把位子让给下一轮"，语义相同。
+     * **不必在闸内**：闸护的是"终局裁决"与"投递"互斥，而退场时执行体已结束，
+     * 唯一可能并发的只有投递 —— 两步之间被挤进一个投递，代价只是那轮 steer
+     * 对已死的轮返回 true（与"cancel 之后 steer 仍可能返回 true"同一语义）。
+     * 终局路径（[finalize]）顺手在闸内调它（它本就持闸跨越终态发射），
+     * 那里的投递会被挡在闸外 → 对已死的轮返回 false。
      *
-     * 关信箱与还槽在轮的闸内完成：闸把这两步对 [steer] 变成原子的一步 ——
-     * 后来的 steer() 拿到闸时信箱已关、槽位已空 → 投递失败 → 重读槽位 → 空 → 返回 false，
-     * 既不死循环，也满足「false ⟹ 可开新轮」。
+     * 先还槽、后关信箱：恒有「信箱已关 ⟹ 槽位已空」——
+     * steer() 的重试循环靠这条必然推进，也保证「false ⟹ 可安全开新轮」。
      *
-     * 收尾信号在闸外完成：等待者若恰在完成瞬间回头调 steer()，不该卡在闸上（闸不可重入）。
+     * 关的是信箱而不是 turn.close()：终局时执行体正是在跑的那个自身，打断自己会
+     * 把成功轮次变成取消轮次。
      */
     private fun retireTurn(turn: AgentTurn) {
-        turn.lock()
-        try {
-            turn.steering.close()
-            activeTurn.compareAndSet(turn, null) // 还槽（认人）：槽位若已是新一轮则空操作
-        } finally {
-            turn.unlock()
-        }
-        // 槽位已还、信箱已关 → 等待者醒来即可安全开新轮。
-        turn.terminated.complete(Unit)
+        activeTurn.compareAndSet(turn, null) // 还槽（认人）：槽位若已是新一轮则空操作
+        turn.steering.close()                   // 关信箱（幂等）
+        turn.terminated.complete(Unit)           // 收尾信号：等待者醒来即可安全开新轮
     }
 
     private suspend fun loop(turn: AgentTurn) {
@@ -304,11 +302,7 @@ public class ReActAgent internal constructor(
             // 闸门释放之后 steer() 拿到的 false 才意味着"可安全开新 run"——
             // 若把 emit(Final) 放闸外，缝隙里 steer()==false 触发的 fallback run
             // 会先发 Initial，旧 run 的 Final 后到，混流。
-            // 先还槽、后关门：保证恒有「信箱已关 ⟹ 槽位已空」，steer() 的重试循环靠这条必然推进。
-            // 关的是信箱而不是 turn.close()：此刻执行体正是在跑的那个自身，打断自己会
-            // 把成功轮次变成取消轮次。
-            activeTurn.compareAndSet(turn, null)   // 还槽（认人）
-            turn.steering.close()                    // 关信箱（幂等；retireTurn 会再关一次）
+            retireTurn(turn)   // 还槽 + 关信箱 + 收尾信号（闸内核心，与退场路径同一件事）
         } finally {
             // 闸门用 Semaphore: release 可由任意线程执行 —— emit 是挂起点,
             // 协程恢复后可能换线程, 线程亲和锁在此 unlock 会抛 IllegalMonitorStateException。

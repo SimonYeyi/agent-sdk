@@ -140,8 +140,7 @@ public interface Agent {
          *   此刻开新轮仍会撞上 [IllegalStateException]（"Concurrent run not supported"）；
          *   [kotlinx.coroutines.Job.join] 该句柄再开新轮则必定成功。
          *
-         *   纪律：严禁在收集回调内 join 该句柄 —— 收尾信号由收集方收尾时完成，
-         *   在收集回调里等它就是等自己（自等自，死锁）。
+         *   纪律：严禁在收集回调内 join 该句柄 —— （自等自，死锁）。
          *
          *   纪律：**不要 cancel 该句柄**。它是一个只读的"退场完成"信号，
          *   实现上是一个 [kotlinx.coroutines.CompletableDeferred]，
