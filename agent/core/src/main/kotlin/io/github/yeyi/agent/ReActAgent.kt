@@ -89,7 +89,7 @@ public class ReActAgent internal constructor(
     }
 
     /**
-     * [AgentTurn.lock] 序列化 [SteerInbox.add] 与终局 isEmpty 裁决+终态发射+关门，堵死
+     * [AgentTurn.lock] 序列化投递与终局 isEmpty 裁决+终态发射+关门，堵死
      * "add 返回 true 但消息困死 buffer 无人消费"的窗口。
      *
      * 完结束契约：返回 false ⟺ 无活跃 run ⟺ 终态事件(Final)已发射完毕。
@@ -106,7 +106,18 @@ public class ReActAgent internal constructor(
         // 终止性：trySend 只在信箱已关时失败，而信箱已关的轮次必定已不在槽位里 → 每轮迭代必然推进。
         while (true) {
             val turn = activeTurn.get() ?: return false
-            if (turn.steering.add(query)) return true
+            // 投递在闸内：与终局裁决互斥 —— 投递若挤进"判空 → 发 Final → 关信箱"那个窗口，
+            // 指令会既被接受又没被消费（steer 返回 true，指令却被 Final 带走）。
+            turn.lock()
+            val delivered = try {
+                turn.steering.add(query)
+            } finally {
+                turn.unlock()
+            }
+            // 投递失败 = 信箱已关 = 那一轮已退场 —— 此刻可能已有新一轮占着槽位，
+            // 故不能就此返回 false（false 的契约是"无活跃轮次，可安全开新轮"）；
+            // 重读槽位再试，指令才能落到新一轮上。
+            if (delivered) return true
         }
     }
 

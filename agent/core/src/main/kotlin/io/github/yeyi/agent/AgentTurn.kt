@@ -18,8 +18,9 @@ import java.util.concurrent.Semaphore
  * 一轮 run —— 轮次身份，也是本轮状态的唯一所有者。
  *
  * 持有终局闸：闸保护的是"本轮的终局裁决"（判空 → 发 Final → 关信箱 → 还槽），
- * 终局路径调的就是 `turn.lock()` —— 语义准确；信箱的投递 / 排空也要用它，
- * 于是信箱持有本轮的引用。
+ * 终局路径调的就是 `turn.lock()` —— 语义准确；投递侧也取它
+ * （见 [io.github.yeyi.agent.ReActAgent.steer]），两边取同一把闸，
+ * "投递"与"终局裁决"才互斥。
  *
  * 两个成员直接公开：调用方用它们的机械能力（投递 / 排空 / 判空 / 关闭、登记 / 打断），
  * 不在 AgentTurn 上再铺一层转发方法 —— 转发只是把调用点搬家，没有多出语义。
@@ -55,7 +56,9 @@ internal class AgentTurn(
 
     /** 本轮的流 —— 事件出口在它手里。 */
     val flow = TurnFlow()
-    val steering = SteerInbox(this)   // 构造期传 this 是安全的：信箱只在调用期用它取闸
+
+    /** 本轮的在途信箱 —— 纯缓冲，不取闸。 */
+    val steering = SteerInbox()
 
     /**
      * 本轮收尾信号 —— 完成即代表"槽位已还、信箱已关"。
@@ -90,35 +93,34 @@ internal class AgentTurn(
 }
 
 /**
- * 转向消息收纳 —— 本轮的信箱，只做机械操作。
+ * 转向消息收纳 —— 本轮的信箱，纯缓冲。
  *
- * 锁不在这里，而在 [AgentTurn]：闸保护的是"本轮的终局裁决"，终局路径调的是 `turn.lock()`。
- * 本类的投递 / 排空也要用它，故持有本轮引用 —— 双向依赖，语义闭合。
+ * 不持闸、不取闸：闸是 agent 层的裁决机制（"投递"与"终局裁决"互斥），
+ * 由取闸的两侧各自负责 —— 投递侧见 [io.github.yeyi.agent.ReActAgent.steer]，
+ * 终局侧见 `finalize`。信箱只提供两个原子的 Channel 操作：投递与排空。
  */
-internal class SteerInbox(private val turn: AgentTurn) {
+internal class SteerInbox {
     private val inbox = Channel<AgentQuery>(Channel.UNLIMITED)
 
-    /** 投递在途指令。闸内执行，与终局裁决互斥。 */
-    fun add(query: AgentQuery): Boolean {
-        turn.lock()
-        try {
-            return inbox.trySend(query).isSuccess
-        } finally {
-            turn.unlock()
-        }
-    }
+    /**
+     * 投递在途指令。
+     *
+     * **调用方必须持有本轮闸** —— 闸护的是"投递"与"终局裁决"互斥：
+     * 投递若与判空/发 Final/关信箱交错，指令会既被接受又没被消费。
+     */
+    fun add(query: AgentQuery): Boolean = inbox.trySend(query).isSuccess
 
-    /** 排空在途指令。闸内执行。 */
+    /**
+     * 排空在途指令。不取闸。
+     *
+     * 排空只由 agent 的执行体调用（串行），与投递并发也无妨 ——
+     * 挤在排空之后的那条由下一个检查点（迭代头）消费，不会丢。
+     */
     fun drain(): List<AgentQuery> {
-        turn.lock()
-        try {
-            val queries = mutableListOf<AgentQuery>()
-            while (true) {
-                val query = inbox.tryReceive().getOrNull() ?: return queries
-                queries.add(query)
-            }
-        } finally {
-            turn.unlock()
+        val queries = mutableListOf<AgentQuery>()
+        while (true) {
+            val query = inbox.tryReceive().getOrNull() ?: return queries
+            queries.add(query)
         }
     }
 

@@ -214,7 +214,18 @@ internal class TurnFlow {
 ```
 
 **依赖形状**：流与轮次之间**没有回调、没有反向引用** —— 轮次持有流，流不知道轮次；
-`SteerInbox` 仍持轮次取闸，于是依赖仍是单向的（轮次 → 信箱 / 轮次 → 流 ← 轮次）。
+`SteerInbox` 降为**纯缓冲**（不持轮次、不取闸），依赖仍是单向的（轮次 → 信箱 / 轮次 → 流 ← 轮次）。
+
+**闸只护一处，且由取闸的两侧各自负责**：闸保护的是"终局裁决"
+（判空 → 发 Final → 关信箱）与"投递"互斥 —— 投递若与判空/发 Final/关信箱交错，
+指令会既被接受又没被消费。终局侧在 `finalize` 取闸，投递侧在 `steer` 取闸，
+两边取同一把闸（[AgentTurn] 持有），互斥成立。
+信箱的**排空不取闸**：它只由 agent 的执行体调用（串行），Channel 收发本身原子，
+与投递并发也无妨 —— 挤在排空之后的那条由下一个检查点（迭代头）消费，不会丢。
+不取闸还消掉一个死锁陷阱：闸不可重入，排空若在持闸时调用会自锁，
+`finalize` 那条"有指令就抢占 Final"的分支因此不必再为排空而绕开持闸。
+（它仍要先解锁再消费指令 —— 理由不同：消费要写记忆，记忆压缩可能触发一次 LLM 调用，
+闸内只容得下 `emit(Final)` 这一个已知挂起点。）
 
 ### `AgentTurn`（同文件）
 
@@ -236,7 +247,7 @@ internal class AgentTurn(
     /** 本轮的流 —— 事件出口在它手里。 */
     val flow = TurnFlow()
 
-    val steering = SteerInbox(this)
+    val steering = SteerInbox()
 
     /** 本轮迭代计数 —— 自产累积量，非输入，故不进构造器。 */
     var iterations: Int = 0
@@ -417,7 +428,8 @@ private suspend fun llmCallWithContextOverflowHandle(request: ChatRequest, turn:
 | `docs/superpowers/specs/2026-10-31-turn-first-class-design.md` | 落地后同步：类的职责一节补执行态归属说明 |
 
 **不在改动范围**：公开 API（`Agent` / `Agent.Streamable` / `Agent.Steerable` / `Agent.Cancelable`）、
-`TurnFlow` 的取消/登记语义、`SteerInbox`、`BossAgent` 及其 team 模块。
+`TurnFlow` 的取消/登记语义、`BossAgent` 及其 team 模块。
+（`SteerInbox` 已随《闸只护一处》一节调整：降为纯缓冲，取闸挪到投递侧。）
 
 ---
 
