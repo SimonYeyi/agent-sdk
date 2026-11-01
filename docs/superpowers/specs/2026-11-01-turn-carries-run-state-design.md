@@ -82,12 +82,12 @@ override fun runStream(query: AgentQuery): Flow<AgentEvent> = runTurn { turn, em
 | 为何不是独立 `TurnRun` | 两者严格 1:1（一个轮次一份执行态），拆分只为"关注点纯度"付出多一层间接 —— 本轮一次事件的出口、一次调模型的方式，本就是"这一轮"的属性 |
 | `AgentTurn` 职责 | 从"身份 + 机械"扩为"身份 + 机械 + 执行态"：闸 / 信箱 / 流 / 迭代计数 / 工具调用记录 / 本轮输入与调模型策略 |
 | 归属判据 | 与轮次同生共死 ⟹ 进轮次；随 agent ⟹ 留在 agent 字段；单次调用 ⟹ 留作参数 |
-| **构造器 = 必需且不可变** | `query`（必需输入）与 `llmCaller`（必需策略）进构造器 —— 编译期强制必填、不可后改 |
+| **构造器 = 必需且不可变** | `query`（必需输入）与 `llmCall`（必需策略）进构造器 —— 编译期强制必填、不可后改 |
 | **类体初始化 = 自产累积量** | `iterations` / `toolCalls` 不是输入，在类体初始化，不进构造器 |
 | **出口归谁持有** | **归 `TurnFlow`** —— 它才是拥有 channel 的一侧；出口留在它自己手里，**不外借、不回填** |
 | **发射不需要轮次** | `turn.flow.emit(event)` —— 出口的持有者就是流本身，发射方不必经手轮次 |
-| `llmCaller` 的形态 | **单个 lambda、两个参数** `suspend (ChatRequest, TurnFlow) -> ChatResponse` —— 策略在**调用时**拿到本轮的流（流式分支要往里发 delta）；不用工厂、不用双重柯里化 |
-| 晚绑定的数量 | **零**（从调用方视角）—— `query` / `llmCaller` 走构造器；出口由流在收集时装进**自己**；`iterations` / `toolCalls` 自产 |
+| `llmCall` 的形态 | **单个 lambda、一个参数** `suspend (ChatRequest) -> ChatResponse` —— 策略只管"怎么调模型"，不必认识 `TurnFlow`；需要往出口发事件的分支（流式 delta）由调用方在闭包里自引用本轮完成 |
+| 晚绑定的数量 | **零**（从调用方视角）—— `query` / `llmCall` 走构造器；出口由流在收集时装进**自己**；`iterations` / `toolCalls` 自产 |
 | `turn.flow` 的 channel 模型 | **不动** —— `channelFlow` + LAZY producer + `attach` 三态 + `buffer(RENDEZVOUS)` 是反复调出来的取消/背压语义，换模型风险远大于收益 |
 | `context` | 留在迭代局部（`buildContext(turn.iterations)` 派生），不进轮次 |
 | agent 级字段 | 一律不动（`memory` / `toolRegistry` / `persona` / `hook` / `modalityAdapter` / `llmProvider` / `maxIterations`） |
@@ -145,7 +145,7 @@ collect ─► channelFlow { … send(e) … }      ← 收集方的 send
 ## 时序
 
 ```
-run() ──► AgentTurn(query, llmCaller) 建立
+run() ──► AgentTurn(query, llmCall) 建立
             │  · 身份与机械：闸 / 信箱 / 流
             │  · 执行态：iterations / toolCalls
             ▼
@@ -225,12 +225,12 @@ internal class AgentTurn(
     val query: AgentQuery,
 
     /**
-     * 本轮调模型的方式 —— **单个 lambda、两个参数**：请求 + 本轮的流。
+     * 本轮调模型的方式 —— **单个 lambda、一个参数**：只收请求。
      *
-     * 流在**调用时**才交到策略手里：流式分支要把 delta 发进本轮出口，
-     * 而出口此刻才装得上 —— 故不能是捕获出口的闭包（那会与装出口成环）。
+     * 策略不必认识 `TurnFlow`：需要往出口发事件的分支（流式 delta）
+     * 由调用方在闭包里自引用本轮完成。
      */
-    private val llmCaller: suspend (ChatRequest, TurnFlow) -> ChatResponse,
+    val llmCall: suspend (ChatRequest) -> ChatResponse,
 ) {
     private val gate = Semaphore(1)
 
@@ -245,9 +245,6 @@ internal class AgentTurn(
     /** 本轮工具调用记录 —— 同上。 */
     val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
 
-    /** 本轮调模型 —— 把本轮的流一并交给策略。 */
-    suspend fun llmCall(request: ChatRequest): ChatResponse = llmCaller(request, flow)
-
     fun lock() = gate.acquireUninterruptibly()
     fun unlock() = gate.release()
 }
@@ -261,13 +258,16 @@ internal class AgentTurn(
 
 ```kotlin
 override fun run(query: AgentQuery): Flow<AgentEvent> {
-    val turn = AgentTurn(query) { req, _ -> llmProvider.chat(req) }
+    val turn = AgentTurn(query) { req -> llmProvider.chat(req) }
     return runTurn(turn)
 }
 
 override fun runStream(query: AgentQuery): Flow<AgentEvent> {
-    val turn = AgentTurn(query) { req, flow ->
-        StreamingRunner(llmProvider).run(req) { flow.emit(AgentEvent.TextDelta(it)) }
+    // 策略只收请求，发 delta 需要本轮的出口 —— 故由闭包自引用本轮。
+    // llmCall 只在执行体里被调用（收集之后），那时本轮必已赋值。
+    lateinit var turn: AgentTurn
+    turn = AgentTurn(query) { req ->
+        StreamingRunner(llmProvider).run(req) { turn.flow.emit(AgentEvent.TextDelta(it)) }
     }
     return runTurn(turn)
 }
@@ -364,7 +364,7 @@ private suspend fun llmCallWithContextOverflowHandle(request: ChatRequest, turn:
 |---|---|---|
 | 出口未装即发射 → 事件丢失 | 中 | 装出口由 `TurnFlow.start` 自己做（调用方无从跳过）；未装即发射抛 ISE，不静默丢 |
 | 出口多一跳导致还槽早于 Final 抵达 | 中 | 不改 channel 模型（见《出口放在哪一侧》），语义逐条对照上表 |
-| 策略要拿流（多一个参数） | 低 | `turn.llmCall(request)` 一行封装，调用点无感；流是本轮唯一的事件出口，交给策略无越权风险 |
+| 策略不再拿流 → 发 delta 需自引用本轮 | 低 | 流式分支在闭包里自引用本轮（`lateinit var turn`）；`llmCall` 只在执行体里被调用，那时本轮必已赋值 |
 | `AgentTurn` 变胖，关注点变宽 | 中（设计取舍） | 本轮接受 —— 判据是"与轮次同生共死"；`AgentTurn` KDoc 已自称"本轮状态的唯一所有者" |
 | 可变状态上轮次（`toolCalls` / `iterations`） | 低 | 均为本轮私有累积，轮次终结即丢弃 |
 | 回归风险 | 中 | 取消 / 重复收集 / 背压三处语义敏感，改造后必须重跑 `CancelableTest` 相关用例 |
@@ -381,8 +381,8 @@ private suspend fun llmCallWithContextOverflowHandle(request: ChatRequest, turn:
 
 | 文件 | 改动 |
 |---|---|
-| `agent/core/src/main/kotlin/io/github/yeyi/agent/AgentTurn.kt` | `TurnFlow` 增 `sink` / `emit`，`with` 改 `start`、去泛型（出口类型固定为 `AgentEvent`）；`AgentTurn` 构造器加 `query` / `llmCaller`，新增 `iterations` / `toolCalls` / `llmCall` |
-| `agent/core/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` | `run` / `runStream` 建轮并只提供调模型策略（`llmCaller`）；`runTurn` 收轮次（占槽 + 收尾）；`loop` / `loopOnce` / `callTools` / `finalize` / `consumeSteering` / `llmCallWithContextOverflowHandle` 签名改为只传轮次；事件出口改走 `turn.flow.emit` |
+| `agent/core/src/main/kotlin/io/github/yeyi/agent/AgentTurn.kt` | `TurnFlow` 增 `sink` / `emit`，`with` 改 `start`、去泛型（出口类型固定为 `AgentEvent`）；`AgentTurn` 构造器加 `query` / `llmCall`（单参 lambda），新增 `iterations` / `toolCalls` |
+| `agent/core/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` | `run` / `runStream` 建轮并只提供调模型策略（`llmCall`）；`runTurn` 收轮次（占槽 + 收尾）；`loop` / `loopOnce` / `callTools` / `finalize` / `consumeSteering` / `llmCallWithContextOverflowHandle` 签名改为只传轮次；事件出口改走 `turn.flow.emit` |
 | `agent/core/src/test/kotlin/io/github/yeyi/agent/CancelableTest.kt` | 回归用例须全绿（取消 / 重复收集 / 终局三选一） |
 | `docs/superpowers/specs/2026-10-31-turn-first-class-design.md` | 落地后同步：类的职责一节补执行态归属说明 |
 

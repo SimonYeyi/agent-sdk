@@ -32,12 +32,12 @@ internal class AgentTurn(
     val query: AgentQuery,
 
     /**
-     * 本轮调模型的方式 —— 单个 lambda、两个参数：请求 + 本轮的流。
+     * 本轮调模型的方式 —— 只收请求。
      *
-     * 流在**调用时**才交到策略手里：流式分支要把 delta 发进本轮出口，
-     * 而出口此刻才装得上 —— 故不能是捕获出口的闭包（那会与装出口成环）。
+     * 策略不必拿到本轮：需要往出口发事件的分支（流式 delta）由调用方
+     * 在闭包里自引用本轮完成。
      */
-    private val llmCaller: suspend (ChatRequest, TurnFlow) -> ChatResponse,
+    val llmCall: suspend (ChatRequest) -> ChatResponse,
 ) {
     /**
      * 终局闸门 —— 互斥"抢占 Final"与"投递 steering"两个动作.
@@ -61,9 +61,6 @@ internal class AgentTurn(
 
     /** 本轮工具调用记录 —— 同上。 */
     val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
-
-    /** 本轮调模型 —— 把本轮的流一并交给策略。 */
-    suspend fun llmCall(request: ChatRequest): ChatResponse = llmCaller(request, flow)
 
     fun lock() = gate.acquireUninterruptibly()
     fun unlock() = gate.release()

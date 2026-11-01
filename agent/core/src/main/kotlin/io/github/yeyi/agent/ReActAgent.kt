@@ -50,34 +50,16 @@ public class ReActAgent internal constructor(
     private val activeTurn = AtomicReference<AgentTurn?>(null)
 
     override fun run(query: AgentQuery): Flow<AgentEvent> {
-        val turn = AgentTurn(query) { req, _ -> llmProvider.chat(req) }
+        val turn = AgentTurn(query) { req -> llmProvider.chat(req) }
         return runTurn(turn)
     }
 
     override fun runStream(query: AgentQuery): Flow<AgentEvent> {
-        val turn = AgentTurn(query) { req, flow ->
-            StreamingRunner(llmProvider).run(req) { flow.emit(AgentEvent.TextDelta(it)) }
+        lateinit var turn: AgentTurn
+        turn = AgentTurn(query) { req ->
+            StreamingRunner(llmProvider).run(req) { turn.flow.emit(AgentEvent.TextDelta(it)) }
         }
         return runTurn(turn)
-    }
-
-    /**
-     * 回合的公共骨架：占活跃槽位 → 交由可中断容器执行 → 无论何种终态都释放槽位。
-     */
-    private fun runTurn(turn: AgentTurn): Flow<AgentEvent> {
-        // eager 占据活跃 run 槽位：调用即建轮，杜绝 "run 返回但未收集" 间隙里
-        // steer() 误判空闲导致并发双 run。已有活跃 run 时抛并发异常。
-        if (!activeTurn.compareAndSet(null, turn))
-            error("Concurrent run not supported: another run is active")
-        return turn.flow.start { loop(turn) }.onCompletion { cause ->
-            // 非拥有者的收集（重复收集）不得收尾：认人 CAS 会命中仍在运行的轮次，
-            // 把它的槽位提前释放（可开出并发双跑），并关掉它的信箱（steer() 对活着的轮返回 false）。
-            if (cause is RepeatedCollectionException) return@onCompletion
-            // 还槽（认人）：槽位若已是新一轮则空操作 —— 不得误杀下一轮。
-            activeTurn.compareAndSet(turn, null)
-            // 轮次收尾：关信箱
-            turn.steering.close()
-        }
     }
 
     /**
@@ -125,6 +107,25 @@ public class ReActAgent internal constructor(
         while (true) {
             val turn = activeTurn.get() ?: return false
             if (turn.steering.add(query)) return true
+        }
+    }
+
+    /**
+     * 回合的公共骨架：占活跃槽位 → 交由可中断容器执行 → 无论何种终态都释放槽位。
+     */
+    private fun runTurn(turn: AgentTurn): Flow<AgentEvent> {
+        // eager 占据活跃 run 槽位：调用即建轮，杜绝 "run 返回但未收集" 间隙里
+        // steer() 误判空闲导致并发双 run。已有活跃 run 时抛并发异常。
+        if (!activeTurn.compareAndSet(null, turn))
+            error("Concurrent run not supported: another run is active")
+        return turn.flow.start { loop(turn) }.onCompletion { cause ->
+            // 非拥有者的收集（重复收集）不得收尾：认人 CAS 会命中仍在运行的轮次，
+            // 把它的槽位提前释放（可开出并发双跑），并关掉它的信箱（steer() 对活着的轮返回 false）。
+            if (cause is RepeatedCollectionException) return@onCompletion
+            // 还槽（认人）：槽位若已是新一轮则空操作 —— 不得误杀下一轮。
+            activeTurn.compareAndSet(turn, null)
+            // 轮次收尾：关信箱
+            turn.steering.close()
         }
     }
 
