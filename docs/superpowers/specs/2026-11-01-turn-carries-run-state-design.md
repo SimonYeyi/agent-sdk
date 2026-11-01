@@ -294,8 +294,10 @@ private fun runTurn(turn: AgentTurn): Flow<AgentEvent> {
 建轮与占槽分开不影响语义：CAS 失败照样抛 "Concurrent run not supported"，
 轮次建了却没占上，直接丢弃 —— 此时它既没装出口、也没起执行体，不漏资源。
 
-`StreamingRunner` **仍是每轮新建的局部对象**，不提为 agent 字段 ——
-它是本轮"怎么调模型"的实现细节，挂在 agent 上等于把一次性协作的东西抬成 agent 的常驻面。
+`StreamingRunner` **既不提为 agent 字段，也不留局部变量** ——
+它只在 `runStream` 的 lambda 里被 new 一次、用一次就丢，是本轮"怎么调模型"的实现细节；
+挂在 agent 上等于把一次性协作的东西抬成 agent 的常驻面，
+留个局部变量也只是给一次性对象安了个名字。
 
 执行链随之塌缩：
 
@@ -317,7 +319,9 @@ private suspend fun llmCallWithContextOverflowHandle(request: ChatRequest, turn:
 | `llmCallWithContextOverflowHandle` | 2 | 2 | 0（`llmCall` → `turn.llmCall`） |
 | `run` / `runStream` | 各 1 段 loop 调用 | 各 1 行调模型策略 | 重复调用消失 |
 
-`callTools` 保留 `response` / `allAsync` 两个局部量，`context` 在 `loopOnce` 内派生一次后按需传入。
+`callTools` 保留 `response` / `allAsync` 两个局部量；`context` 各自就地派生
+（`buildContext(turn.iterations)`）—— 它是"轮次 + 当前迭代"的纯派生量，
+传下去只是把同一个派生动作搬个家。
 
 `loop` 体内的局部量按归属上移：`iterations` / `toolCalls` 由局部变量改为轮次字段
 （`turn.iterations`、`turn.toolCalls`），循环条件与计数改为 `turn.iterations`，

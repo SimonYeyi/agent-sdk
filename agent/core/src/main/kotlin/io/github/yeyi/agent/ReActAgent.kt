@@ -49,30 +49,27 @@ public class ReActAgent internal constructor(
      */
     private val activeTurn = AtomicReference<AgentTurn?>(null)
 
-    override fun run(query: AgentQuery): Flow<AgentEvent> = runTurn { turn, emit ->
-        loop(query, turn, { req -> llmProvider.chat(req) }, emit)
+    override fun run(query: AgentQuery): Flow<AgentEvent> {
+        val turn = AgentTurn(query) { req, _ -> llmProvider.chat(req) }
+        return runTurn(turn)
     }
 
-    override fun runStream(query: AgentQuery): Flow<AgentEvent> = runTurn { turn, emit ->
-        val streaming = StreamingRunner(llmProvider)
-        loop(
-            query = query,
-            turn = turn,
-            llmCall = { req -> streaming.run(req) { emit(AgentEvent.TextDelta(it)) } },
-            emit = emit
-        )
+    override fun runStream(query: AgentQuery): Flow<AgentEvent> {
+        val turn = AgentTurn(query) { req, flow ->
+            StreamingRunner(llmProvider).run(req) { flow.emit(AgentEvent.TextDelta(it)) }
+        }
+        return runTurn(turn)
     }
 
     /**
      * 回合的公共骨架：占活跃槽位 → 交由可中断容器执行 → 无论何种终态都释放槽位。
      */
-    private fun runTurn(body: suspend (turn: AgentTurn, emit: suspend (AgentEvent) -> Unit) -> Unit): Flow<AgentEvent> {
+    private fun runTurn(turn: AgentTurn): Flow<AgentEvent> {
         // eager 占据活跃 run 槽位：调用即建轮，杜绝 "run 返回但未收集" 间隙里
         // steer() 误判空闲导致并发双 run。已有活跃 run 时抛并发异常。
-        val turn = AgentTurn()
         if (!activeTurn.compareAndSet(null, turn))
             error("Concurrent run not supported: another run is active")
-        return turn.flow.with { emit -> body(turn, emit) }.onCompletion { cause ->
+        return turn.flow.start { loop(turn) }.onCompletion { cause ->
             // 非拥有者的收集（重复收集）不得收尾：认人 CAS 会命中仍在运行的轮次，
             // 把它的槽位提前释放（可开出并发双跑），并关掉它的信箱（steer() 对活着的轮返回 false）。
             if (cause is RepeatedCollectionException) return@onCompletion
@@ -131,23 +128,17 @@ public class ReActAgent internal constructor(
         }
     }
 
-    private suspend fun loop(
-        query: AgentQuery,
-        turn: AgentTurn,
-        llmCall: suspend (ChatRequest) -> ChatResponse,
-        emit: suspend (AgentEvent) -> Unit,
-    ) {
-        val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
-        var iterations = 0
-
+    private suspend fun loop(turn: AgentTurn) {
         try {
-            emit(AgentEvent.Initial(query))
+            turn.flow.emit(AgentEvent.Initial(turn.query))
 
-            memory.attachHook(MemoryCompressProxyHook(hook, emit), buildContext(0))
-            modalityAdapter.archive(ChatMessage.User(query.parts)).addToMemory(memory, query.label)
+            memory.attachHook(MemoryCompressProxyHook(hook) { turn.flow.emit(it) }, buildContext(0))
+            modalityAdapter.archive(ChatMessage.User(turn.query.parts))
+                .addToMemory(memory, turn.query.label)
 
-            while (iterations < maxIterations) {
-                loopOnce(++iterations, toolCalls, turn, llmCall, emit)?.let { return }
+            while (turn.iterations < maxIterations) {
+                turn.iterations++
+                loopOnce(turn)?.let { return }
             }
 
             throw AgentException.MaxIterations(maxIterations)
@@ -162,26 +153,20 @@ public class ReActAgent internal constructor(
             // 看到的是「我上一轮输出了错误」，可据此重试/澄清；UI 按 "error" label 渲染错误气泡。
             ChatMessage.Assistant(cause.message ?: cause.toString()).addToMemory(memory, "error")
             // 失败路径携带原始 Throwable,不再包成 AgentException —— 让上层自由判型。
-            hook.safeInvoke { onRunFailed(buildContext(iterations), cause) }
-            emit(AgentEvent.Failed(cause))
+            hook.safeInvoke { onRunFailed(buildContext(turn.iterations), cause) }
+            turn.flow.emit(AgentEvent.Failed(cause))
         }
     }
 
-    private suspend fun loopOnce(
-        iterations: Int,
-        toolCalls: MutableList<AgentResult.ToolCallRecord>,
-        turn: AgentTurn,
-        llmCall: suspend (ChatRequest) -> ChatResponse,
-        emit: suspend (AgentEvent) -> Unit,
-    ): AgentResult? {
+    private suspend fun loopOnce(turn: AgentTurn): AgentResult? {
         // 检查点①：迭代头注入。Instruct 在此进入 memory，本轮 buildRequest 即生效
         if (!turn.steering.isEmpty()) consumeSteering(turn)
 
-        val context = buildContext(iterations)
+        val context = buildContext(turn.iterations)
         val request = buildRequest()
 
         val finalRequest = hook.safeInvoke { beforeLlmCall(context, request) } ?: request
-        val response = llmCallWithContextOverflowHandle(finalRequest, llmCall)
+        val response = llmCallWithContextOverflowHandle(finalRequest, turn)
         hook.safeInvoke { afterLlmResponse(context, response) }
 
         response.message.addToMemory(memory)
@@ -194,31 +179,26 @@ public class ReActAgent internal constructor(
             check(response.message.content.isNullOrBlank().not()) {
                 "Final event must carry non-blank content: LLM returned a response with neither tool calls nor content."
             }
-            return finalize(response, iterations, toolCalls, turn, context, emit)
+            return finalize(turn, response)
         }
 
         val allToolAsync = response.message.toolCalls
             .all { call -> toolRegistry.getOrNull(call.name) is AsyncTool }
 
-        callTools(response, toolCalls, allToolAsync, context, emit)
+        callTools(turn, response, allToolAsync)
 
         if (allToolAsync) {
             val emptyResponse = ChatResponse(ChatMessage.Assistant(), null, FinishReason.Stop)
             emptyResponse.message.addToMemory(memory)
-            return finalize(emptyResponse, iterations, toolCalls, turn, context, emit)
+            return finalize(turn, emptyResponse)
         }
 
         return null
     }
 
-    private suspend fun callTools(
-        response: ChatResponse,
-        toolCalls: MutableList<AgentResult.ToolCallRecord>,
-        allAsync: Boolean,
-        context: AgentContext,
-        emit: suspend (AgentEvent) -> Unit,
-    ) {
-        emit(
+    private suspend fun callTools(turn: AgentTurn, response: ChatResponse, allAsync: Boolean) {
+        val context = buildContext(turn.iterations)
+        turn.flow.emit(
             AgentEvent.ToolCallExplanation(
                 text = response.message.content?.takeIf { it != "" },
                 toolCalls = response.message.toolCalls,
@@ -227,7 +207,7 @@ public class ReActAgent internal constructor(
         )
 
         for (call in response.message.toolCalls) {
-            emit(AgentEvent.ToolCallStart(call))
+            turn.flow.emit(AgentEvent.ToolCallStart(call))
             val synthetic = hook.safeInvoke { beforeToolCall(context, call) }
             val startMs = System.currentTimeMillis()
             val raw = synthetic?.copy(isError = true) ?: toolRegistry.dispatch(
@@ -240,7 +220,7 @@ public class ReActAgent internal constructor(
                 afterToolCall(context, call, raw, synthetic != null, durMs)
             } ?: raw
 
-            toolCalls += AgentResult.ToolCallRecord(
+            turn.toolCalls += AgentResult.ToolCallRecord(
                 callId = call.id,
                 toolName = call.name,
                 arguments = call.arguments,
@@ -257,7 +237,7 @@ public class ReActAgent internal constructor(
                 )
             ).addToMemory(memory)
 
-            emit(AgentEvent.ToolCallEnd(call, final))
+            turn.flow.emit(AgentEvent.ToolCallEnd(call, final))
         }
     }
 
@@ -266,14 +246,7 @@ public class ReActAgent internal constructor(
      * 正常收敛与 [AsyncTool] 短路共用，保证协议一致性。
      * 若在途指令 (steer) 非空，放弃终局返回 null，强制再跑一轮让 LLM 带着指令重新作答。
      */
-    private suspend fun finalize(
-        response: ChatResponse,
-        iterations: Int,
-        toolCalls: MutableList<AgentResult.ToolCallRecord>,
-        turn: AgentTurn,
-        context: AgentContext,
-        emit: suspend (AgentEvent) -> Unit,
-    ): AgentResult? {
+    private suspend fun finalize(turn: AgentTurn, response: ChatResponse): AgentResult? {
         // 终局：Final 抢占 + 终局。与 steer() 闸门下互斥。
         turn.lock()
         if (!turn.steering.isEmpty()) {
@@ -284,13 +257,13 @@ public class ReActAgent internal constructor(
         }
         val result = AgentResult(
             message = response.message,
-            iterations = iterations,
-            toolCalls = toolCalls.toList(),
+            iterations = turn.iterations,
+            toolCalls = turn.toolCalls.toList(),
             usage = response.usage,
         )
-        hook.safeInvoke { onRunCompleted(context, result) }
+        hook.safeInvoke { onRunCompleted(buildContext(turn.iterations), result) }
         try {
-            emit(AgentEvent.Final(result))
+            turn.flow.emit(AgentEvent.Final(result))
             // 终局：终态发射 → 还槽 + 关门，全程持闸。
             // 闸门释放之后 steer() 拿到的 false 才意味着"可安全开新 run"——
             // 若把 emit(Final) 放闸外，缝隙里 steer()==false 触发的 fallback run
@@ -318,21 +291,22 @@ public class ReActAgent internal constructor(
 
     private suspend fun llmCallWithContextOverflowHandle(
         request: ChatRequest,
-        llmCall: suspend (ChatRequest) -> ChatResponse
+        turn: AgentTurn
     ): ChatResponse {
         return try {
-            llmCall(request)
+            turn.llmCall(request)
         } catch (e: Throwable) {
             e.takeIf { it.isContextOverflow() }
                 ?.let { log.warn(it) }
                 ?.let { memory.handleContextOverflow() }
-                ?.let { llmCallWithContextOverflowHandle(buildRequest(), llmCall) }
+                ?.let { llmCallWithContextOverflowHandle(buildRequest(), turn) }
                 ?: throw e
         }
     }
 
     private suspend fun buildRequest(): ChatRequest {
-        val messages = modalityAdapter.resolve(memory.history().map { it.toChatMessage() })
+        val history = memory.history().map { it.toChatMessage() }
+        val messages = modalityAdapter.resolve(history)
         return ChatRequest(
             messages = buildList {
                 add(ChatMessage.System(persona.toString()))

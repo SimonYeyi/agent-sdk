@@ -1,5 +1,7 @@
 package io.github.yeyi.agent
 
+import io.github.yeyi.agent.llm.ChatRequest
+import io.github.yeyi.agent.llm.ChatResponse
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -20,8 +22,23 @@ import java.util.concurrent.Semaphore
  *
  * 两个成员直接公开：调用方用它们的机械能力（投递 / 排空 / 判空 / 关闭、登记 / 打断），
  * 不在 AgentTurn 上再铺一层转发方法 —— 转发只是把调用点搬家，没有多出语义。
+ * （事件出口的发射同理：[TurnFlow.emit] 落在持有 channel 的那一侧。）
+ *
+ * 本轮的执行态也归它：初始查询、调模型的方式、迭代计数、工具调用记录 ——
+ * 与轮次同生共死的东西不散成并列参数。
  */
-internal class AgentTurn {
+internal class AgentTurn(
+    /** 本轮的初始查询 —— 必需且不可变。 */
+    val query: AgentQuery,
+
+    /**
+     * 本轮调模型的方式 —— 单个 lambda、两个参数：请求 + 本轮的流。
+     *
+     * 流在**调用时**才交到策略手里：流式分支要把 delta 发进本轮出口，
+     * 而出口此刻才装得上 —— 故不能是捕获出口的闭包（那会与装出口成环）。
+     */
+    private val llmCaller: suspend (ChatRequest, TurnFlow) -> ChatResponse,
+) {
     /**
      * 终局闸门 —— 互斥"抢占 Final"与"投递 steering"两个动作.
      *
@@ -34,8 +51,19 @@ internal class AgentTurn {
      * (本就是硬约束, 见 [Agent.Steerable.steer] 的 KDoc)。
      */
     private val gate = Semaphore(1)
+
+    /** 本轮的流 —— 事件出口在它手里。 */
     val flow = TurnFlow()
     val steering = SteerInbox(this)   // 构造期传 this 是安全的：信箱只在调用期用它取闸
+
+    /** 本轮迭代计数 —— 自产累积量，非输入，故不进构造器。 */
+    var iterations: Int = 0
+
+    /** 本轮工具调用记录 —— 同上。 */
+    val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
+
+    /** 本轮调模型 —— 把本轮的流一并交给策略。 */
+    suspend fun llmCall(request: ChatRequest): ChatResponse = llmCaller(request, flow)
 
     fun lock() = gate.acquireUninterruptibly()
     fun unlock() = gate.release()
@@ -85,6 +113,9 @@ internal class SteerInbox(private val turn: AgentTurn) {
  *
  * 每轮一份 —— 执行体登记下沉到轮次，跨轮不再有可被顶掉的全局单槽。
  *
+ * 本类同时是本轮**事件出口的持有者**：出口留在拥有 channel 的这一侧，
+ * 发射方（`turn.flow.emit(...)`）不必经手轮次，也不必等外部回填。
+ *
  * 设计要点：
  * - 执行体跑在收集方的 scope 里（[channelFlow] 的子协程），因此收集方被取消时，
  *   结构化并发照旧向下传导，执行体一并停止；
@@ -98,16 +129,22 @@ internal class TurnFlow {
     private var job: Job? = null
     private var canceled = false
 
+    /** 本轮的事件出口 —— 收集时装一次，此后发射走它。 */
+    private var sink: (suspend (AgentEvent) -> Unit)? = null
+
     /**
-     * 构造本轮的轮次流。
+     * 启动本轮执行体。
+     *
+     * 出口在收集时装进本流（[sink]），执行体随后才开始跑 —— 保证执行体启动时
+     * 本轮出口必已就位。
      *
      * [Attach.Repeated] 抛出的 [RepeatedCollectionException] 是"这次收集不是拥有者"的
      * 内部信号 —— 轮次收尾据此跳过，避免重复收集提前释放仍在运行的轮次的槽位与信箱。
      */
-    fun <T> with(body: suspend (emit: suspend (T) -> Unit) -> Unit): Flow<T> = channelFlow {
+    fun start(body: suspend () -> Unit): Flow<AgentEvent> = channelFlow {
         // LAZY 启动：执行体在 await() 之前不运行 —— 一旦开始收集，执行体必已登记进本轮，
         // 此后的 cancel() 不会落空。
-        val producer = async(start = CoroutineStart.LAZY) { body { send(it) } }
+        val producer = async(start = CoroutineStart.LAZY) { body() }
         when (attach(producer)) {
             Attach.Ok -> Unit
             // 本轮已被取消作废、且从未被收集 → 不再执行；以取消异常收尾，
@@ -116,10 +153,22 @@ internal class TurnFlow {
             // 同一轮被重复收集（含跑完后再收集一次）—— 跑不起来的调用错误，不是运行时错误。
             Attach.Repeated -> throw RepeatedCollectionException()
         }
+        check(sink == null) { "turn flow is already started" }
+        sink = { e -> send(e) }
         // 取消异常原样上抛：打断与"执行体自身被取消"对收集方是同一种信号，
         // 调用方沿用 collect 外围 try/catch(CancellationException) 即可。
         producer.await()
     }.buffer(Channel.RENDEZVOUS)
+
+    /**
+     * 向本轮的事件出口发一个事件 —— **不需要轮次**，出口就在本流手里。
+     *
+     * 未收集即调用是内部不变式违规 —— 明确抛 [IllegalStateException]，
+     * 不静默丢弃（静默吞事件会表现为"事件凭空消失"，是最难查的一类故障）。
+     */
+    suspend fun emit(event: AgentEvent) {
+        checkNotNull(sink) { "turn flow is not started yet" }.invoke(event)
+    }
 
     /**
      * 登记执行体 —— 与打断同锁，二者必有其一先发生：
