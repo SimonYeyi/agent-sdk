@@ -65,39 +65,16 @@ public class ReActAgent internal constructor(
     }
 
     /**
-     * 打断当前回合 —— 只终止 agent 自身的执行，收集方协程不受影响。
+     * 投递在途指令 —— 与终局裁决互斥：[AgentTurn.lock] 序列化"投递"与
+     * "判空 → 发 Final → 关信箱"，堵死"指令被接受却没被消费"的窗口
+     * （投递若挤进终局窗口，指令会被 Final 带走）。
      *
-     * 回合从未被收集时（run() 已返回、流被放弃）：没有执行体可打断，而槽位也无人回收
-     * —— agent 会被永久锁死，之后每次 run() 都抛 "Concurrent run not supported"。
-     * 此时 cancel() 作废该轮（置已取消标志 + 关信箱）、把槽位还回去；该轮之后若被收集，
-     * 以取消异常收尾（与运行中被打断同型）。
-     *
-     * @return 该轮收尾的句柄 —— 完成即代表槽位已还、信箱已关，之后可安全地再次 run()；
-     *   无活跃轮次时返回 null（幂等 no-op）。调用方可以 join 它等旧轮退场，
-     *   也可以不等待 —— 不等待时收尾完成前再次 run() 仍可能撞上并发拒绝。
-     *   句柄只用于"等"：不要 cancel 它（[Agent.Cancelable.cancel] 的 KDoc 有说明）。
-     */
-    override fun cancel(): Job? {
-        val turn = activeTurn.get() ?: return null // 无活跃轮次 → no-op（幂等）
-        // true  ⟺ 该轮已被收集 ⟹ 打断已投递，槽位由该轮流的 onCompletion 认人归还。
-        // false ⟺ 该轮从未被收集 ⟹ 没有 onCompletion 会来，槽位必须在此归还。
-        if (turn.flow.cancel()) return turn.terminated
-        // 从未被收集的轮次：当场退场（还槽 + 关信箱 + 收尾信号）。
-        // 该轮从未被收集 ⇒ 没有执行体 ⇒ 退场不必取闸。
-        retireTurn(turn)
-        return turn.terminated
-    }
-
-    /**
-     * [AgentTurn.lock] 序列化投递与终局 isEmpty 裁决+终态发射+关门，堵死
-     * "add 返回 true 但消息困死 buffer 无人消费"的窗口。
-     *
-     * 完结束契约：返回 false ⟺ 无活跃 run ⟺ 终态事件(Final)已发射完毕。
+     * 投递失败契约：返回 false ⟺ 无活跃 run ⟺ 终态事件(Final)已发射完毕。
      * 终局持闸期间阻塞等待，正是语义正确的"等待裁决"——既不能 true
-     * （消息无人消费）也不能 false（Final 未发完，此时开新 run 会与旧 run 的事件混流）。
+     * （指令无人消费）也不能 false（Final 未发完，此时开新 run 会与旧 run 的事件混流）。
      *
      * 纪律：闸内允许且仅允许 onRunCompleted 与 emit(Final) 两个已知挂起点，
-     * 严禁其他 suspend——持闸挂起会阻塞其他线程的 add，编译器不拦，只能靠约定。
+     * 严禁其他 suspend——持闸挂起会阻塞其他线程的投递，编译器不拦，只能靠约定。
      * 死锁硬约束：collector / AgentHook 回调内严禁同步调用 steer()（闸门不可重入）。
      */
     override fun steer(query: AgentQuery): Boolean {
@@ -119,6 +96,30 @@ public class ReActAgent internal constructor(
             // 重读槽位再试，指令才能落到新一轮上。
             if (delivered) return true
         }
+    }
+
+    /**
+     * 打断当前回合 —— 只终止 agent 自身的执行，收集方协程不受影响。
+     *
+     * 回合从未被收集时（run() 已返回、流被放弃）：没有执行体可打断，而槽位也无人回收
+     * —— agent 会被永久锁死，之后每次 run() 都抛 "Concurrent run not supported"。
+     * 此时 cancel() 作废该轮（置已取消标志 + 关信箱）、把槽位还回去；该轮之后若被收集，
+     * 以取消异常收尾（与运行中被打断同型）。
+     *
+     * @return 该轮收尾的句柄 —— 完成即代表槽位已还、信箱已关，之后可安全地再次 run()；
+     *   无活跃轮次时返回 null（幂等 no-op）。调用方可以 join 它等旧轮退场，
+     *   也可以不等待 —— 不等待时收尾完成前再次 run() 仍可能撞上并发拒绝。
+     *   句柄只用于"等"：不要 cancel 它（[Agent.Cancelable.cancel] 的 KDoc 有说明）。
+     */
+    override fun cancel(): Job? {
+        val turn = activeTurn.get() ?: return null // 无活跃轮次 → no-op（幂等）
+        // true  ⟺ 该轮已被收集 ⟹ 打断已投递，槽位由该轮流的 onCompletion 认人归还。
+        // false ⟺ 该轮从未被收集 ⟹ 没有 onCompletion 会来，槽位必须在此归还。
+        if (turn.flow.cancel()) return turn.terminated
+        // 从未被收集的轮次：当场退场（还槽 + 关信箱 + 收尾信号）。
+        // 该轮从未被收集 ⇒ 没有执行体 ⇒ 退场不必取闸。
+        retireTurn(turn)
+        return turn.terminated
     }
 
     /**

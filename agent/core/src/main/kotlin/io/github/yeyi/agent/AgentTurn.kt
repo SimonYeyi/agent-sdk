@@ -97,7 +97,7 @@ internal class AgentTurn(
  *
  * 不持闸、不取闸：闸是 agent 层的裁决机制（"投递"与"终局裁决"互斥），
  * 由取闸的两侧各自负责 —— 投递侧见 [io.github.yeyi.agent.ReActAgent.steer]，
- * 终局侧见 `finalize`。信箱只提供两个原子的 Channel 操作：投递与排空。
+ * 终局侧见 `finalize`。信箱只提供 Channel 上的原子操作：投递、排空、判空、关闭。
  */
 internal class SteerInbox {
     private val inbox = Channel<AgentQuery>(Channel.UNLIMITED)
