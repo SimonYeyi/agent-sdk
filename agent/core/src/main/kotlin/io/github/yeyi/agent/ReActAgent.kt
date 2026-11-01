@@ -17,6 +17,7 @@ import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.memory.addToMemory
 import io.github.yeyi.agent.memory.toChatMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import io.github.yeyi.agent.modality.ModalityAdapter
@@ -70,12 +71,16 @@ public class ReActAgent internal constructor(
      * —— agent 会被永久锁死，之后每次 run() 都抛 "Concurrent run not supported"。
      * 此时 cancel() 作废该轮（置已取消标志 + 关信箱）、把槽位还回去；该轮之后若被收集，
      * 以取消异常收尾（与运行中被打断同型）。
+     *
+     * @return 该轮收尾的句柄 —— 完成即代表槽位已还、信箱已关，之后可安全地再次 run()；
+     *   无活跃轮次时返回 null（幂等 no-op）。调用方可以 join 它等旧轮退场，
+     *   也可以不等待 —— 不等待时收尾完成前再次 run() 仍可能撞上并发拒绝。
      */
-    override fun cancel() {
-        val turn = activeTurn.get() ?: return // 无活跃轮次 → no-op（幂等）
+    override fun cancel(): Job? {
+        val turn = activeTurn.get() ?: return null // 无活跃轮次 → no-op（幂等）
         // true  ⟺ 该轮已被收集 ⟹ 打断已投递，槽位由该轮流的 onCompletion 认人归还。
         // false ⟺ 该轮从未被收集 ⟹ 没有 onCompletion 会来，槽位必须在此归还。
-        if (turn.flow.cancel()) return
+        if (turn.flow.cancel()) return turn.terminated
         // 作废与还槽一起入闸：闸把「关信箱 + 还槽」对 steer() 变成原子的一步 ——
         // 后来的 steer() 拿到闸时信箱已关、槽位已空 → 投递失败 → 重读槽位 → 空 → 返回 false，
         // 既不死循环，也满足「false ⟹ 可开新轮」。
@@ -84,9 +89,11 @@ public class ReActAgent internal constructor(
         try {
             turn.steering.close()
             activeTurn.compareAndSet(turn, null) // 还槽（认人）
+            turn.terminated.complete(Unit)        // 槽位已还 → 等待者可安全开新轮
         } finally {
             turn.unlock()
         }
+        return turn.terminated
     }
 
     /**
@@ -127,6 +134,8 @@ public class ReActAgent internal constructor(
             activeTurn.compareAndSet(turn, null)
             // 轮次收尾：关信箱
             turn.steering.close()
+            // 收尾信号：完成点在还槽与关信箱之后 —— 等待者醒来时旧轮已彻底退场。
+            turn.terminated.complete(Unit)
         }
     }
 

@@ -24,6 +24,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 /**
@@ -414,5 +416,67 @@ class CancelableTest {
 
         agent.cancel()
         job.join()
+    }
+
+    /**
+     * 打断后重开：等收尾句柄 → 旧轮彻底退场 → 新轮必定能起来。
+     *
+     * 不等句柄时槽位可能仍被占着（收尾发生在收集方侧），此刻开新轮撞并发拒绝；
+     * join 之后槽位已还、信箱已关，新轮稳起。
+     */
+    @Test
+    fun `joining the cancel handle makes the next round startable`() = runTest {
+        val llm = GatedLlm()
+        val agent = agentOf(llm)
+
+        val job = launch {
+            try {
+                agent.run(AgentQuery.text("hi")).collect { }
+            } catch (_: CancellationException) {
+            }
+        }
+        llm.started.await()
+
+        val handle = assertNotNull(agent.cancel())
+        handle.join()
+
+        // 旧轮已退场（槽位已还、信箱已关）→ 新轮必定能起来
+        val events = agent.run(AgentQuery.text("hi again")).toList()
+        assertEquals(1, events.filterIsInstance<AgentEvent.Final>().size)
+        // 信箱已关 → steer 无处可投
+        assertFalse(agent.steer(AgentQuery.text("later")))
+        job.join()
+    }
+
+    /** 无活跃轮次时打断是幂等 no-op —— 没有句柄可给。 */
+    @Test
+    fun `cancel without an active round returns no handle`() = runTest {
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = agentOf(provider)
+
+        assertNull(agent.cancel())
+    }
+
+    /** 被放弃的轮次（从未收集）同步还槽 —— 句柄当场完成，无需等待。 */
+    @Test
+    fun `the handle of an abandoned round is already completed`() = runTest {
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = agentOf(provider)
+
+        agent.run(AgentQuery.text("hi")) // 从不收集
+        val handle = assertNotNull(agent.cancel())
+        assertTrue(handle.isCompleted)
+
+        // 槽位已还 → 新轮照常执行
+        val events = agent.run(AgentQuery.text("hi again")).toList()
+        assertEquals(1, events.filterIsInstance<AgentEvent.Final>().size)
     }
 }

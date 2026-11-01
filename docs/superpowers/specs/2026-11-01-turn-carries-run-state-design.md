@@ -91,7 +91,7 @@ override fun runStream(query: AgentQuery): Flow<AgentEvent> = runTurn { turn, em
 | `turn.flow` 的 channel 模型 | **不动** —— `channelFlow` + LAZY producer + `attach` 三态 + `buffer(RENDEZVOUS)` 是反复调出来的取消/背压语义，换模型风险远大于收益 |
 | `context` | **挂到轮次上**（`turn.iterationContext`），每轮迭代刷新一次 —— 它带可变状态（`AgentContext.metadata`），不是纯派生量 |
 | agent 级字段 | 一律不动（`memory` / `toolRegistry` / `persona` / `hook` / `modalityAdapter` / `llmProvider` / `maxIterations`） |
-| 公开 API | **不变** —— `Agent.run` / `runStream` / `steer` / `cancel` 签名与契约均不动 |
+| 公开 API | **本轮重构不变** —— `Agent.run` / `runStream` / `steer` 签名与契约均不动（`cancel` 的签名在本轮之后另行调整，见《打断后的重开》—— 它改为返回收尾句柄） |
 | `BossAgent` | **不动** —— 本轮只动 `ReActAgent` + `AgentTurn` + `TurnFlow` |
 
 ---
@@ -408,3 +408,42 @@ private suspend fun llmCallWithContextOverflowHandle(request: ChatRequest, turn:
 
 **不在改动范围**：公开 API（`Agent` / `Agent.Streamable` / `Agent.Steerable` / `Agent.Cancelable`）、
 `TurnFlow` 的取消/登记语义、`SteerInbox`、`BossAgent` 及其 team 模块。
+
+---
+
+## 打断后的重开（`cancel` 返回收尾句柄）
+
+**问题**：打断只投递取消，槽位由该轮流的 `onCompletion`（收集方收尾时）归还。
+`cancel()` 返回后旧轮往往还在收尾，此刻 `run()` 会撞上 `Concurrent run not supported` ——
+收集方与 `cancel()` 同线程时（Android 主线程的常态）这是确定性失败，不是竞态。
+
+**取舍**：不加新接口（`cancelAndAwait` 之类），改为**让 `cancel` 把"等不等"的选择权交给调用方**：
+
+```kotlin
+public fun cancel(): Job?
+```
+
+返回的句柄 = 该轮的收尾信号（`AgentTurn.terminated`，一个 `CompletableDeferred`），
+完成点定在"还槽 + 关信箱"之后 —— 等待者醒来时旧轮已彻底退场，随后 `run()` 必定能起来。
+无活跃轮次时返回 `null`（幂等 no-op）。
+
+**等或不等，由调用方决定**：
+
+```kotlin
+agent.cancel()?.join()      // 等：旧轮退场后再开新轮，必定成功
+agent.cancel()               // 不等：打断立即返回；收尾完成前开新轮仍可能撞并发拒绝
+```
+
+**完成点放在收尾路径而非执行体结束**：执行体结束比收集方收尾更早，
+但两者并非定序（收集方自己抛异常时，执行体反而更晚结束），
+且"执行体结束"这一路径还要额外处理重复收集的 producer —— 收益不抵复杂度。
+因此句柄随收集方收尾一起完成。
+
+**连带澄清的一点**：`cancel()` 之后、旧轮收尾之前，`steer()` 仍会返回 `true`
+（信箱还没关），但那条指令投进的是一具死轮次的信箱，会被丢弃 ——
+这是正常语义，不是缺陷：轮次已死，未消费的在途指令随它作废（在途指令不跨轮）。
+硬不变式只有一条：**`steer` 返回 `false` ⟹ 没有活跃轮次 ⟹ 调用方可安全开新轮**。
+句柄完成后（信箱已关、槽位已空），`steer()` 老实返回 `false`。
+
+**纪律**：严禁在收集回调内 `join` 该句柄 —— 收尾信号由收集方收尾时完成，
+在收集回调里等它就是等自己（自等自，死锁）。与 `steer()` 的"闸门不可重入"同源。

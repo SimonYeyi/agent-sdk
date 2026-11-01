@@ -17,6 +17,7 @@ import io.github.yeyi.agent.tool.lazy_loading.lazyTools
 import io.github.yeyi.agent.toolset.toolsets
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 
@@ -99,9 +100,9 @@ public class SpawnedAgent internal constructor(
     }
 
     /** 打断当前回合 —— 委托给底层 agent，SpawnedAgent 本身仍可继续使用。 */
-    override fun cancel() {
+    override fun cancel(): Job? {
         checkShutdown()
-        delegate.cancel()
+        return delegate.cancel()
     }
 
     /** 永久关闭 Agent 并回收资源（MCP 子进程等）。幂等，可重复调用。 */

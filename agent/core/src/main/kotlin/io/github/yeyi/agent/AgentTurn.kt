@@ -3,6 +3,7 @@ package io.github.yeyi.agent
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -55,6 +56,17 @@ internal class AgentTurn(
     /** 本轮的流 —— 事件出口在它手里。 */
     val flow = TurnFlow()
     val steering = SteerInbox(this)   // 构造期传 this 是安全的：信箱只在调用期用它取闸
+
+    /**
+     * 本轮收尾信号 —— 完成即代表"槽位已还、信箱已关"。
+     *
+     * 由收尾路径完成（轮次流结束 / 放弃轮次），作为 [Agent.Cancelable.cancel] 的返回句柄：
+     * 调用方 [kotlinx.coroutines.Job.join] 它，即可确保旧轮彻底退场后再开新一轮。
+     *
+     * 完成点定在"还槽 + 关信箱"之后 —— 否则等待者醒来时槽位可能仍被占着，
+     * 紧接着的 [Agent.run] 会撞上并发拒绝。
+     */
+    val terminated = CompletableDeferred<Unit>()
 
     /** 本轮迭代计数 —— 自产累积量，非输入，故不进构造器。 */
     var iterations: Int = 0

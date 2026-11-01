@@ -1,6 +1,7 @@
 package io.github.yeyi.agent
 
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -95,6 +96,11 @@ public interface Agent {
      * 终止协议与 [Shutdownable] 一致：进行中的 [Agent.run] flow 收集以 [CancellationException] 结束，
      * 调用方沿用"collect 外围 try/catch 取消异常"的既有用法即可。
      *
+     * **打断后想立刻重开，要等 [cancel] 返回的句柄**：打断只投递取消，
+     * 旧轮的收尾（槽位归还、信箱关闭）在收集方侧进行 —— [cancel] 返回时往往还没收完，
+     * 此刻开新轮会撞上 [IllegalStateException]（"Concurrent run not supported"）。
+     * [kotlinx.coroutines.Job.join] 该句柄后再开新轮则必定成功。
+     *
      * 与 [Shutdownable] 的分工：[cancel] 是可恢复的中断（回合结束，Agent 继续可用）；
      * [Shutdownable.shutdown] 是终态操作（Agent 作废，之后调用 [Agent.run] 抛 [IllegalStateException]）。
      *
@@ -115,8 +121,18 @@ public interface Agent {
          * 若回合已通过[Agent.run] 或 [Streamable.runStream] 创建，则 [Flow.collect] 以 [CancellationException] 结束
          * - 若在[cancel]之后被收集，将以 [CancellationException] 直接结束；
          * - 若回合已在执行，则打断其执行体，以 [CancellationException] 结束。
+         *
+         * @return 该轮收尾的句柄 —— 完成即代表该轮已彻底退场（槽位已还、信箱已关），
+         *   此后调用方可安全地再次 [Agent.run]；无活跃回合时返回 null。
+         *
+         *   **等或不等，由调用方决定**：不等待时，[cancel] 只投递打断，旧轮仍在收尾，
+         *   此刻开新轮仍会撞上 [IllegalStateException]（"Concurrent run not supported"）；
+         *   [kotlinx.coroutines.Job.join] 该句柄再开新轮则必定成功。
+         *
+         *   纪律：严禁在收集回调内 join 该句柄 —— 收尾信号由收集方收尾时完成，
+         *   在收集回调里等它就是等自己（自等自，死锁）。
          */
-        public fun cancel()
+        public fun cancel(): Job?
     }
 
     /**
