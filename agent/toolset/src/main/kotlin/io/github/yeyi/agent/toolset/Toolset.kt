@@ -33,10 +33,7 @@ public interface Toolset : Capability<Unit, ToolsetContext> {
      * 默认实现:把 [all] 渲染为简明文本返回给 LLM —— 不预设 wire 格式,
      * MCP / LLM provider 等消费者可按需覆写本方法(例如嵌 JSON schema)。
      */
-    public override suspend fun activate(
-        arguments: Unit?,
-        context: ToolsetContext,
-    ): String =
+    public override suspend fun activate(arguments: Unit?, context: ToolsetContext): String =
         "Toolset '$name' 包含以下成员 Tool（通过 member_tool_delegate 调用）:\n${all().map { it.toDefinition() }}"
 
     public companion object {

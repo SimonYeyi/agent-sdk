@@ -2,9 +2,11 @@ package io.github.yeyi.agent.mcp
 
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.toolset.Toolset
-import io.ktor.client.HttpClientConfig
+import io.github.yeyi.agent.toolset.ToolsetContext
 import kotlin.jvm.Volatile
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 /**
  * MCP 能力 — 一个 [Toolset] 形态的远端 MCP 服务。
@@ -54,6 +56,25 @@ public abstract class Mcp : Toolset {
      * 保证工具定义反映远端 MCP 服务的最新状态。
      */
     final override fun all(): List<Tool> = createToolset().also { delegate = it }.all()
+
+    /**
+     * 激活本 MCP 服务 —— 成员工具清单的渲染入口。
+     *
+     * [all] 内部是一次真实的 MCP 网络往返（[all] → [createToolset] → `client.toolsList()`），
+     * 而 [all] 是非挂起方法，只能用 [runBlocking] 把网络往返拉回同步 —— 它阻塞的是调用线程。
+     * 直接继承 [Toolset.activate] 会让这次往返发生在调用方线程上（Android 上即主线程），
+     * 期间主线程被占住，是 ANR 的来源之一。
+     *
+     * 故在此把整个渲染过程切到 [Dispatchers.IO]：阻塞转移到 IO 线程，
+     * 调用方在 [withContext] 处挂起让出线程，等待期间不占用调用线程。
+     *
+     * 注意这里切的是"等待发生在哪个线程"，不是"网络 IO 用哪个线程"——
+     * 传输层（[StdioTransport] / [HttpTransport]）自己已在 IO 调度器上做实际的读写。
+     */
+    override suspend fun activate(arguments: Unit?, context: ToolsetContext): String =
+        withContext(Dispatchers.IO) {
+            super.activate(arguments, context)
+        }
 
     override fun get(name: String): Tool = delegate?.get(name)
         ?: error("Mcp '$name' not initialized: call all() first to fetch tool schemas")

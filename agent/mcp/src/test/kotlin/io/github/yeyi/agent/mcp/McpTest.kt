@@ -36,6 +36,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNotSame
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -194,6 +195,60 @@ class McpTest {
         // MCP doesn't crash and the toolset name is mentioned so the LLM can scope later calls.
         assertTrue(result.isNotEmpty(), "activate should still return a header for an empty toolset, got empty")
         assertTrue("empty" in result, "activate output should mention the MCP name, got: $result")
+    }
+
+    @Test
+    fun `activate runs the MCP round trip off the calling thread`() = runTest {
+        // [Mcp.all] 内部用 runBlocking 拉取远端工具列表 —— 阻塞的是它所在的那条线程。
+        // 未经 activate 覆写时，那条线程就是调用方（Android 上是主线程）。
+        val callerThread = Thread.currentThread()
+        var transportThread: Thread? = null
+        val json = Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+            explicitNulls = false
+        }
+        val transport = object : McpTransport {
+            override suspend fun send(
+                request: JsonRpcRequest<JsonElement>
+            ): JsonRpcResponse<JsonElement> {
+                if (request.method == McpMethods.TOOLS_LIST) {
+                    transportThread = Thread.currentThread()
+                }
+                return when (request.method) {
+                    McpMethods.INITIALIZE -> JsonRpcResponse(
+                        jsonrpc = "2.0",
+                        id = request.id,
+                        result = json.parseToJsonElement(
+                            """{"protocolVersion":"2025-06-18","serverInfo":{"name":"test","version":"1.0"},"capabilities":{}}"""
+                        ),
+                    )
+                    McpMethods.TOOLS_LIST -> JsonRpcResponse(
+                        jsonrpc = "2.0",
+                        id = request.id,
+                        result = json.encodeToJsonElement(
+                            ListToolsResult.serializer(),
+                            ListToolsResult(tools = emptyList()),
+                        ),
+                    )
+                    else -> error("Unknown method: ${request.method}")
+                }
+            }
+
+            override suspend fun sendNotification(notification: JsonRpcNotification<JsonElement>) = Unit
+            override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
+            override suspend fun close() = Unit
+        }
+        val mcp = fakeMcp(name = "calc", transport = transport)
+
+        mcp.activate(null, ToolsetContext())
+
+        assertNotNull(transportThread, "transport should have been asked for the tool list")
+        assertNotSame(
+            callerThread,
+            transportThread,
+            "the MCP round trip must not block the calling thread",
+        )
     }
 
     // ---------- Mcp.add 抛异常 ----------
