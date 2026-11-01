@@ -81,18 +81,9 @@ public class ReActAgent internal constructor(
         // true  ⟺ 该轮已被收集 ⟹ 打断已投递，槽位由该轮流的 onCompletion 认人归还。
         // false ⟺ 该轮从未被收集 ⟹ 没有 onCompletion 会来，槽位必须在此归还。
         if (turn.flow.cancel()) return turn.terminated
-        // 作废与还槽一起入闸：闸把「关信箱 + 还槽」对 steer() 变成原子的一步 ——
-        // 后来的 steer() 拿到闸时信箱已关、槽位已空 → 投递失败 → 重读槽位 → 空 → 返回 false，
-        // 既不死循环，也满足「false ⟹ 可开新轮」。
+        // 从未被收集的轮次：当场退场（关信箱 + 还槽 + 收尾信号）。
         // 该轮从未被收集 ⇒ 没有执行体 ⇒ 闸必空闲。
-        turn.lock()
-        try {
-            turn.steering.close()
-            activeTurn.compareAndSet(turn, null) // 还槽（认人）
-            turn.terminated.complete(Unit)        // 槽位已还 → 等待者可安全开新轮
-        } finally {
-            turn.unlock()
-        }
+        retireTurn(turn)
         return turn.terminated
     }
 
@@ -130,13 +121,32 @@ public class ReActAgent internal constructor(
             // 非拥有者的收集（重复收集）不得收尾：认人 CAS 会命中仍在运行的轮次，
             // 把它的槽位提前释放（可开出并发双跑），并关掉它的信箱（steer() 对活着的轮返回 false）。
             if (cause is RepeatedCollectionException) return@onCompletion
-            // 还槽（认人）：槽位若已是新一轮则空操作 —— 不得误杀下一轮。
-            activeTurn.compareAndSet(turn, null)
-            // 轮次收尾：关信箱
-            turn.steering.close()
-            // 收尾信号：完成点在还槽与关信箱之后 —— 等待者醒来时旧轮已彻底退场。
-            turn.terminated.complete(Unit)
+            retireTurn(turn)
         }
+    }
+
+    /**
+     * 轮次退场 —— 关信箱 + 还槽（认人）+ 完成收尾信号。
+     *
+     * 两处共用：轮次流的收尾（[runTurn] 的 onCompletion）与"放弃从未被收集的轮次"
+     * （[cancel]）—— 两者都是"这一轮结束了，把位子让给下一轮"，语义相同。
+     *
+     * 关信箱与还槽在轮的闸内完成：闸把这两步对 [steer] 变成原子的一步 ——
+     * 后来的 steer() 拿到闸时信箱已关、槽位已空 → 投递失败 → 重读槽位 → 空 → 返回 false，
+     * 既不死循环，也满足「false ⟹ 可开新轮」。
+     *
+     * 收尾信号在闸外完成：等待者若恰在完成瞬间回头调 steer()，不该卡在闸上（闸不可重入）。
+     */
+    private fun retireTurn(turn: AgentTurn) {
+        turn.lock()
+        try {
+            turn.steering.close()
+            activeTurn.compareAndSet(turn, null) // 还槽（认人）：槽位若已是新一轮则空操作
+        } finally {
+            turn.unlock()
+        }
+        // 槽位已还、信箱已关 → 等待者醒来即可安全开新轮。
+        turn.terminated.complete(Unit)
     }
 
     private suspend fun loop(turn: AgentTurn) {
