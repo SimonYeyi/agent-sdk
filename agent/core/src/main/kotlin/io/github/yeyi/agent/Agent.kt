@@ -142,6 +142,12 @@ public interface Agent {
          *
          *   纪律：严禁在收集回调内 join 该句柄 —— 收尾信号由收集方收尾时完成，
          *   在收集回调里等它就是等自己（自等自，死锁）。
+         *
+         *   纪律：**不要 cancel 该句柄**。它是一个只读的"退场完成"信号，
+         *   实现上是一个 [kotlinx.coroutines.CompletableDeferred]，
+         *   而 [Job.cancel] 是公开方法 —— 一旦被取消，[kotlinx.coroutines.Job.join]
+         *   会立刻以 [CancellationException] 结束，而此时槽位可能还没还、
+         *   旧轮可能还在收尾，"join 之后开新轮必定成功"的承诺随之失效。
          */
         public fun cancel(): Job?
     }

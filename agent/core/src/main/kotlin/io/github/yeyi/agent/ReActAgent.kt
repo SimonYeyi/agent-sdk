@@ -75,6 +75,7 @@ public class ReActAgent internal constructor(
      * @return 该轮收尾的句柄 —— 完成即代表槽位已还、信箱已关，之后可安全地再次 run()；
      *   无活跃轮次时返回 null（幂等 no-op）。调用方可以 join 它等旧轮退场，
      *   也可以不等待 —— 不等待时收尾完成前再次 run() 仍可能撞上并发拒绝。
+     *   句柄只用于"等"：不要 cancel 它（[Agent.Cancelable.cancel] 的 KDoc 有说明）。
      */
     override fun cancel(): Job? {
         val turn = activeTurn.get() ?: return null // 无活跃轮次 → no-op（幂等）
@@ -307,7 +308,7 @@ public class ReActAgent internal constructor(
             // 关的是信箱而不是 turn.close()：此刻执行体正是在跑的那个自身，打断自己会
             // 把成功轮次变成取消轮次。
             activeTurn.compareAndSet(turn, null)   // 还槽（认人）
-            turn.steering.close()                    // 关信箱（幂等）
+            turn.steering.close()                    // 关信箱（幂等；retireTurn 会再关一次）
         } finally {
             // 闸门用 Semaphore: release 可由任意线程执行 —— emit 是挂起点,
             // 协程恢复后可能换线程, 线程亲和锁在此 unlock 会抛 IllegalMonitorStateException。

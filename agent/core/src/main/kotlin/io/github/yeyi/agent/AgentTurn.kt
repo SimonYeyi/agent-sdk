@@ -212,7 +212,7 @@ internal class TurnFlow {
      */
     fun cancel(): Boolean = synchronized(lock) {
         canceled = true
-        return job?.cancel()?.let { true } ?: false
+        return job?.let { it.cancel(); true } ?: false
     }
 }
 

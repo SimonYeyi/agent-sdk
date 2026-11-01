@@ -17,6 +17,7 @@ import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -74,6 +75,24 @@ class ControllableLlmProvider(
 }
 
 class SteerableTest {
+
+    /** chat() 被调用时发信号 —— 让测试知道执行体已走到终局前的最后一步。 */
+    private class SignallingLlm : LlmProvider {
+        override val name: String = "signalling"
+        val called = CompletableDeferred<Unit>()
+
+        override suspend fun chat(request: ChatRequest): ChatResponse {
+            called.complete(Unit)
+            return ChatResponse(
+                message = ChatMessage.Assistant(content = "done"),
+                finishReason = FinishReason.Stop
+            )
+        }
+
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> {
+            TODO("Not used in these tests")
+        }
+    }
 
     /**
      * 轮转线程调度器：每次 [dispatch] 换一个线程执行，用于确定性地制造
@@ -560,5 +579,50 @@ class SteerableTest {
         assertEquals("first", (run1.last() as AgentEvent.Final).result.message.content)
         assertEquals("two", (run2.first() as AgentEvent.Initial).query.parts.first().let { (it as ContentPart.Text).text })
         assertEquals("second", (run2.last() as AgentEvent.Final).result.message.content)
+    }
+
+    /**
+     * 回归：与终局交接同时到达的 steer 必须返回 false —— 那一轮已经死了。
+     *
+     * finalize 持闸跨越 emit(Final)：闸被占住的窗口是"等收集方把 Final 接走"的全长。
+     * 这期间到达的 steer() 读到槽位还占着 → 阻塞在闸上 → finalize 放闸后才继续投递：
+     * - 信箱已关 → 投递失败 → 重读槽位 → 已空 → 返回 false，调用方按
+     *   "if (!steer) run(...)" 兜底开新轮，指令送达；
+     * - 信箱还开着 → 投递成功 → 返回 true → 指令进了没人再排空的信箱，被静默丢弃，
+     *   且调用方以为已被接受、不再兜底 —— 指令丢失。
+     *
+     * 构造：收集方在 Initial 上磨蹭，让 finalize 持闸等着；另一个线程在这个窗口里 steer。
+     */
+    @Test
+    fun `steer racing with the final handover reports no active round`() = runBlocking {
+        val llm = SignallingLlm()
+        val agent = ReActAgent(
+            persona = AgentPersona(""),
+            llmProvider = llm,
+            toolRegistry = registryOf(),
+            memory = InMemoryMemory(),
+            modalityAdapter = DefaultModalityAdapter(null),
+            maxRounds = 20,
+            maxIterations = 5
+        )
+
+        val collector = launch(Dispatchers.Default) {
+            agent.run(AgentQuery.text("hi")).collect {
+                if (it is AgentEvent.Initial) delay(300) // 让 finalize 持闸等 Final
+            }
+        }
+        llm.called.await() // 执行体已调过模型 → 即将进入终局
+        delay(50)          // 让它进到 finalize 里、持闸等着
+
+        val steerResult = CompletableDeferred<Boolean>()
+        launch(Dispatchers.Default) {
+            steerResult.complete(agent.steer(AgentQuery.text("mid")))
+        }
+
+        assertFalse(
+            steerResult.await(),
+            "a steer racing with the final handover must report no active round"
+        )
+        collector.join()
     }
 }

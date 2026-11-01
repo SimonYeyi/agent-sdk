@@ -99,7 +99,11 @@ public class SpawnedAgent internal constructor(
         return delegate.steer(query)
     }
 
-    /** 打断当前回合 —— 委托给底层 agent，SpawnedAgent 本身仍可继续使用。 */
+    /**
+     * 打断当前回合 —— 委托给底层 agent，SpawnedAgent 本身仍可继续使用。
+     *
+     * @return 底层 agent 的收尾句柄 —— 语义与 [Agent.Cancelable.cancel] 一致。
+     */
     override fun cancel(): Job? {
         checkShutdown()
         return delegate.cancel()
