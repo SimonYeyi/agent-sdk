@@ -62,6 +62,17 @@ internal class AgentTurn(
     /** 本轮工具调用记录 —— 同上。 */
     val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
 
+    /**
+     * 本轮当前迭代的上下文 —— 一轮迭代一份，迭代内所有钩子点共用同一个对象。
+     *
+     * 由 agent 在每轮迭代开始时刷新（`buildContext(turn.iterations)`）。
+     *
+     * 不能各自派生：[AgentContext.metadata] 是可变 map，KDoc 承诺"供后续 hooks 使用" ——
+     * 一旦一轮迭代里拆成多个对象，钩子之间就传不了数据了（重构前一轮迭代只有一个 context，
+     * 从 `beforeLlmCall` 一路传到 `onRunCompleted`）。
+     */
+    lateinit var iterationContext: AgentContext
+
     fun lock() = gate.acquireUninterruptibly()
     fun unlock() = gate.release()
 }

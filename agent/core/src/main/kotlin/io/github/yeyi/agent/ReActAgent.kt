@@ -132,9 +132,19 @@ public class ReActAgent internal constructor(
 
     private suspend fun loop(turn: AgentTurn) {
         try {
+            // 本轮上下文：循环外的第 0 次 —— 第一次迭代之前就得有一个可读的。
+            // 记忆压缩钩子挂在轮次开头，紧随其后的 query 归档写入就可能触发压缩
+            // （老对话已超 maxRounds 时是常事），钩子要拿 context；
+            // 失败路径同理 —— 迭代之前就失败时 onRunFailed 也要有。
+            // 循环内每轮迭代由 loopOnce 刷新成当轮的上下文。
+            turn.iterationContext = buildContext(turn.iterations)
+
             turn.flow.emit(AgentEvent.Initial(turn.query))
 
-            memory.attachHook(MemoryCompressProxyHook(hook) { turn.flow.emit(it) }, buildContext(0))
+            memory.attachHook(
+                MemoryCompressProxyHook(hook) { turn.flow.emit(it) },
+                turn.iterationContext
+            )
             modalityAdapter.archive(ChatMessage.User(turn.query.parts))
                 .addToMemory(memory, turn.query.label)
 
@@ -155,7 +165,7 @@ public class ReActAgent internal constructor(
             // 看到的是「我上一轮输出了错误」，可据此重试/澄清；UI 按 "error" label 渲染错误气泡。
             ChatMessage.Assistant(cause.message ?: cause.toString()).addToMemory(memory, "error")
             // 失败路径携带原始 Throwable,不再包成 AgentException —— 让上层自由判型。
-            hook.safeInvoke { onRunFailed(buildContext(turn.iterations), cause) }
+            hook.safeInvoke { onRunFailed(turn.iterationContext, cause) }
             turn.flow.emit(AgentEvent.Failed(cause))
         }
     }
@@ -164,7 +174,12 @@ public class ReActAgent internal constructor(
         // 检查点①：迭代头注入。Instruct 在此进入 memory，本轮 buildRequest 即生效
         if (!turn.steering.isEmpty()) consumeSteering(turn)
 
-        val context = buildContext(turn.iterations)
+        val context = buildContext(turn.iterations).also {
+            // 上下文挂到轮次上：一轮迭代一份，迭代内的钩子点共用同一个对象 ——
+            // AgentContext.metadata 是可变 map，拆开就传不了数据了。
+            turn.iterationContext = it
+        }
+
         val request = buildRequest()
 
         val finalRequest = hook.safeInvoke { beforeLlmCall(context, request) } ?: request
@@ -199,7 +214,6 @@ public class ReActAgent internal constructor(
     }
 
     private suspend fun callTools(turn: AgentTurn, response: ChatResponse, allAsync: Boolean) {
-        val context = buildContext(turn.iterations)
         turn.flow.emit(
             AgentEvent.ToolCallExplanation(
                 text = response.message.content?.takeIf { it != "" },
@@ -210,16 +224,16 @@ public class ReActAgent internal constructor(
 
         for (call in response.message.toolCalls) {
             turn.flow.emit(AgentEvent.ToolCallStart(call))
-            val synthetic = hook.safeInvoke { beforeToolCall(context, call) }
+            val synthetic = hook.safeInvoke { beforeToolCall(turn.iterationContext, call) }
             val startMs = System.currentTimeMillis()
             val raw = synthetic?.copy(isError = true) ?: toolRegistry.dispatch(
                 call.name,
                 call.arguments,
-                ToolExecutionContext(call.id, context)
+                ToolExecutionContext(call.id, turn.iterationContext)
             )
             val durMs = System.currentTimeMillis() - startMs
             val final = hook.safeInvoke {
-                afterToolCall(context, call, raw, synthetic != null, durMs)
+                afterToolCall(turn.iterationContext, call, raw, synthetic != null, durMs)
             } ?: raw
 
             turn.toolCalls += AgentResult.ToolCallRecord(
@@ -263,7 +277,7 @@ public class ReActAgent internal constructor(
             toolCalls = turn.toolCalls.toList(),
             usage = response.usage,
         )
-        hook.safeInvoke { onRunCompleted(buildContext(turn.iterations), result) }
+        hook.safeInvoke { onRunCompleted(turn.iterationContext, result) }
         try {
             turn.flow.emit(AgentEvent.Final(result))
             // 终局：终态发射 → 还槽 + 关门，全程持闸。

@@ -89,7 +89,7 @@ override fun runStream(query: AgentQuery): Flow<AgentEvent> = runTurn { turn, em
 | `llmCall` 的形态 | **单个 lambda、一个参数** `suspend (ChatRequest) -> ChatResponse` —— 策略只管"怎么调模型"，不必认识 `TurnFlow`；需要往出口发事件的分支（流式 delta）由调用方在闭包里自引用本轮完成 |
 | 晚绑定的数量 | **零**（从调用方视角）—— `query` / `llmCall` 走构造器；出口由流在收集时装进**自己**；`iterations` / `toolCalls` 自产 |
 | `turn.flow` 的 channel 模型 | **不动** —— `channelFlow` + LAZY producer + `attach` 三态 + `buffer(RENDEZVOUS)` 是反复调出来的取消/背压语义，换模型风险远大于收益 |
-| `context` | 留在迭代局部（`buildContext(turn.iterations)` 派生），不进轮次 |
+| `context` | **挂到轮次上**（`turn.iterationContext`），每轮迭代刷新一次 —— 它带可变状态（`AgentContext.metadata`），不是纯派生量 |
 | agent 级字段 | 一律不动（`memory` / `toolRegistry` / `persona` / `hook` / `modalityAdapter` / `llmProvider` / `maxIterations`） |
 | 公开 API | **不变** —— `Agent.run` / `runStream` / `steer` / `cancel` 签名与契约均不动 |
 | `BossAgent` | **不动** —— 本轮只动 `ReActAgent` + `AgentTurn` + `TurnFlow` |
@@ -244,6 +244,15 @@ internal class AgentTurn(
     /** 本轮工具调用记录 —— 同上。 */
     val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
 
+    /**
+     * 本轮当前迭代的上下文 —— 一轮迭代一份，迭代内所有钩子点共用同一个对象。
+     *
+     * 由 agent 在每轮迭代开始时刷新（`buildContext(turn.iterations)`）。
+     * 不能各派生各的：[AgentContext.metadata] 是可变 map，KDoc 承诺"供后续 hooks 使用" ——
+     * 一旦一轮迭代里拆成多个对象，钩子之间就传不了数据了。
+     */
+    lateinit var iterationContext: AgentContext
+
     fun lock() = gate.acquireUninterruptibly()
     fun unlock() = gate.release()
 }
@@ -320,13 +329,21 @@ private suspend fun llmCallWithContextOverflowHandle(request: ChatRequest, turn:
 | `llmCallWithContextOverflowHandle` | 2 | 2 | 0（`llmCall` → `turn.llmCall`） |
 | `run` / `runStream` | 各 1 段 loop 调用 | 各 1 行调模型策略 | 重复调用消失 |
 
-`callTools` 保留 `response` / `allAsync` 两个局部量；`context` 各自就地派生
-（`buildContext(turn.iterations)`）—— 它是"轮次 + 当前迭代"的纯派生量，
-传下去只是把同一个派生动作搬个家。
+`callTools` 保留 `response` / `allAsync` 两个局部量。
+
+`context` **挂到轮次上**（`turn.iterationContext`）—— 它不是"纯派生量"：
+[AgentContext.metadata] 是可变 map，KDoc 承诺"供后续 hooks 使用"，一轮迭代里拆成多个对象，
+钩子之间就传不了数据了。故一轮迭代只造一个 context，由 `loopOnce` 造好放进轮次，
+`callTools` / `finalize` 从轮次取用（签名仍只传轮次）。
+
+`buildContext` 的调用点收敛为两处，且都只往轮次里装：
+循环外的前置一次（迭代 0 —— 记忆压缩钩子与失败路径都要用），
+循环内每轮迭代刷新成当轮的。其余消费点一律从 `turn.iterationContext` 取：
+记忆压缩钩子（`attachHook`）、`onRunFailed`、`callTools` 的工具钩子与 `ToolExecutionContext`、
+`onRunCompleted`。
 
 `loop` 体内的局部量按归属上移：`iterations` / `toolCalls` 由局部变量改为轮次字段
-（`turn.iterations`、`turn.toolCalls`），循环条件与计数改为 `turn.iterations`，
-`onRunFailed` 的 context 由 `buildContext(turn.iterations)` 派生。
+（`turn.iterations`、`turn.toolCalls`），循环条件与计数改为 `turn.iterations`。
 
 ### 事件出口的改写点
 
@@ -353,6 +370,7 @@ private suspend fun llmCallWithContextOverflowHandle(request: ChatRequest, turn:
 | 死锁硬约束（回调内不得同步 `steer()`） | `AgentTurn.gate` 仍是 `Semaphore`，不可重入的性质不变 |
 | 认人归还槽位 | `activeTurn.compareAndSet(turn, null)` 两处不动 |
 | 事件顺序 | `turn.flow.emit` 即原 `emit`，同一个 sink，无缓冲差异 |
+| **一轮迭代内钩子点共用同一个 `AgentContext`** | `context` 挂到轮次上（`turn.iterationContext`），每轮迭代刷新一次 —— `AgentContext.metadata` 是可变 map，拆开就传不了数据 |
 
 **新增**一条内部不变式：**执行体启动前出口必已装好**（由 `start` 内部的顺序保证；
 未装即发射抛 ISE，不静默丢）。
@@ -382,9 +400,10 @@ private suspend fun llmCallWithContextOverflowHandle(request: ChatRequest, turn:
 
 | 文件 | 改动 |
 |---|---|
-| `agent/core/src/main/kotlin/io/github/yeyi/agent/AgentTurn.kt` | `TurnFlow` 增 `sink` / `emit`，`with` 改 `start`、去泛型（出口类型固定为 `AgentEvent`）；`AgentTurn` 构造器加 `query` / `llmCall`（单参 lambda），新增 `iterations` / `toolCalls` |
-| `agent/core/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` | `run` / `runStream` 建轮并只提供调模型策略（`llmCall`）；`runTurn` 收轮次（占槽 + 收尾）；`loop` / `loopOnce` / `callTools` / `finalize` / `consumeSteering` / `llmCallWithContextOverflowHandle` 签名改为只传轮次；事件出口改走 `turn.flow.emit` |
+| `agent/core/src/main/kotlin/io/github/yeyi/agent/AgentTurn.kt` | `TurnFlow` 增 `sink` / `emit`，`with` 改 `start`、去泛型（出口类型固定为 `AgentEvent`）；`AgentTurn` 构造器加 `query` / `llmCall`（单参 lambda），新增 `iterations` / `toolCalls` / `context` |
+| `agent/core/src/main/kotlin/io/github/yeyi/agent/ReActAgent.kt` | `run` / `runStream` 建轮并只提供调模型策略（`llmCall`）；`runTurn` 收轮次（占槽 + 收尾）；`loop` / `loopOnce` / `callTools` / `finalize` / `consumeSteering` / `llmCallWithContextOverflowHandle` 签名改为只传轮次；事件出口改走 `turn.flow.emit`；`context` 由 `loop`（迭代 0 兜底）与 `loopOnce`（每轮刷新）造好放进轮次，其余消费点一律从 `turn.iterationContext` 取 |
 | `agent/core/src/test/kotlin/io/github/yeyi/agent/CancelableTest.kt` | 回归用例须全绿（取消 / 重复收集 / 终局三选一） |
+| `agent/core/src/test/kotlin/io/github/yeyi/agent/AgentHookTest.kt` | 回归用例：一轮迭代内钩子点共用同一个 `AgentContext`（metadata 跨阶段可见） |
 | `docs/superpowers/specs/2026-10-31-turn-first-class-design.md` | 落地后同步：类的职责一节补执行态归属说明 |
 
 **不在改动范围**：公开 API（`Agent` / `Agent.Streamable` / `Agent.Steerable` / `Agent.Cancelable`）、

@@ -520,4 +520,76 @@ class AgentHookTest {
         agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("value", capturedMetadata?.get("key"))
     }
+
+    /**
+     * 回归：一轮迭代内的钩子点必须共用同一个 [AgentContext] 对象。
+     *
+     * [AgentContext.metadata] 是可变 map，KDoc 承诺"供后续 hooks 使用" ——
+     * 若一轮迭代里各派生各的（模型钩子一份、工具钩子一份、终局钩子一份），
+     * 钩子之间就传不了数据了，metadata 通道静默失效。
+     */
+    @Test
+    fun `metadata flows across hook phases within one iteration`() = runTest {
+        val seenMetadata = mutableMapOf<String, String?>()
+        val llmContexts = mutableListOf<AgentContext>()
+        val toolContexts = mutableListOf<AgentContext>()
+        val completedContexts = mutableListOf<AgentContext>()
+        val hook = object : EmptyAgentHook() {
+            override suspend fun beforeLlmCall(
+                context: AgentContext,
+                request: ChatRequest,
+            ): ChatRequest {
+                llmContexts += context
+                context.metadata["trace"] = "abc"
+                return request
+            }
+
+            override suspend fun beforeToolCall(context: AgentContext, call: ToolCall): ToolExecutionResult? {
+                toolContexts += context
+                seenMetadata["beforeToolCall"] = context.metadata["trace"]
+                return null
+            }
+
+            override suspend fun onRunCompleted(context: AgentContext, result: AgentResult) {
+                completedContexts += context
+                seenMetadata["onRunCompleted"] = context.metadata["trace"]
+            }
+        }
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    message = ChatMessage.Assistant(
+                        content = "",
+                        toolCalls = listOf(
+                            ToolCall(
+                                id = "c1",
+                                name = "echo",
+                                arguments = JsonObject(mapOf("text" to JsonPrimitive("x"))),
+                            )
+                        ),
+                    ),
+                    finishReason = FinishReason.ToolCalls,
+                ),
+                ChatResponse(ChatMessage.Assistant(content = "final"), finishReason = FinishReason.Stop),
+            )
+        )
+        val agent = ReActAgent(
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
+            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
+        )
+        agent.run(AgentQuery.text("hi")).awaitResult()
+
+        // 两次迭代：第一轮出工具调用，第二轮收敛
+        assertEquals(2, llmContexts.size)
+        assertEquals(1, toolContexts.size)
+        assertEquals(1, completedContexts.size)
+
+        // metadata 跨钩子阶段可见（写于模型钩子，读于工具钩子与终局钩子）
+        assertEquals("abc", seenMetadata["beforeToolCall"])
+        assertEquals("abc", seenMetadata["onRunCompleted"])
+
+        // 同一轮迭代内，钩子点拿到的是同一个对象
+        assertSame(llmContexts[0], toolContexts[0])
+        assertSame(llmContexts[1], completedContexts[0])
+    }
 }
