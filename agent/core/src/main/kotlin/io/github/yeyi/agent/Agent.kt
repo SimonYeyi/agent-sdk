@@ -63,8 +63,15 @@ public interface Agent {
      * 当 Agent 正在执行 [Agent.run] 时，[steer] 将指令注入当前运行的轮次，
      * 在下一个检查点（迭代头 / Final 前）生效。调用方无需判断 Agent 是否活跃——
      * [steer] 返回值即为送达确认：
-     * - `true`：指令已注入，将在当前 run 的后续轮次中生效
+     * - `true`：指令已被当前轮次接受，将在当前 run 的后续轮次中生效
      * - `false`：无活跃 run，指令未送达；调用方应改为调用 [Agent.run] 启动新 run
+     *
+     * **`true` 的边界**：它承诺"已被接受"，不承诺"必被消费"—— 若该轮在消费之前
+     * 被打断或异常终止，尚未消费的在途指令随该轮一并作废（轮次都没了，"下一轮"无从谈起；
+     * 在途指令也不跨轮）。终局不会带走未消费的指令：[Agent.run] 正常收尾时，
+     * 若信箱非空则抢占 Final、强制再跑一轮把指令送进模型。
+     *
+     * **`false` 的保证**：返回 `false` 时必然没有活跃轮次，调用方紧接着调 [Agent.run] 必定起得来。
      *
      * 典型用法：
      * ```
@@ -72,6 +79,10 @@ public interface Agent {
      *     agent.run(query).collect { event -> ... }
      * }
      * ```
+     *
+     * 打断之后不要再 steer —— 那一轮已死，指令会被丢弃；应当另起一轮
+     * （先 [Agent.Cancelable.cancel] 并等待收尾句柄完成，则随后的 steer 会如实返回 `false`，
+     * 兜底的 [Agent.run] 便能正常触发）。
      *
      * 注入不携带观察义务——steer 不返回 Flow，调用方若需观察当前 run 的事件，
      * 应在启动 run 时 collect 返回的 Flow。
