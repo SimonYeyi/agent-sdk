@@ -55,9 +55,10 @@ public class ReActAgent internal constructor(
     }
 
     override fun runStream(query: AgentQuery): Flow<AgentEvent> {
+        val streaming = StreamingRunner(llmProvider)
         lateinit var turn: AgentTurn
         turn = AgentTurn(query) { req ->
-            StreamingRunner(llmProvider).run(req) { turn.flow.emit(AgentEvent.TextDelta(it)) }
+            streaming.run(req) { turn.flow.emit(AgentEvent.TextDelta(it)) }
         }
         return runTurn(turn)
     }

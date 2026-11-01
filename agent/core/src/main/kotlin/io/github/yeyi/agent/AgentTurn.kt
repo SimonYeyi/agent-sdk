@@ -150,7 +150,6 @@ internal class TurnFlow {
             // 同一轮被重复收集（含跑完后再收集一次）—— 跑不起来的调用错误，不是运行时错误。
             Attach.Repeated -> throw RepeatedCollectionException()
         }
-        check(sink == null) { "turn flow is already started" }
         sink = { e -> send(e) }
         // 取消异常原样上抛：打断与"执行体自身被取消"对收集方是同一种信号，
         // 调用方沿用 collect 外围 try/catch(CancellationException) 即可。
