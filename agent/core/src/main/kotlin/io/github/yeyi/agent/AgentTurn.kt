@@ -34,7 +34,7 @@ internal class AgentTurn {
      * (本就是硬约束, 见 [Agent.Steerable.steer] 的 KDoc)。
      */
     private val gate = Semaphore(1)
-    val flow = CancelableFlow()
+    val flow = TurnFlow()
     val steering = SteerInbox(this)   // 构造期传 this 是安全的：信箱只在调用期用它取闸
 
     fun lock() = gate.acquireUninterruptibly()
@@ -91,7 +91,7 @@ internal class SteerInbox(private val turn: AgentTurn) {
  * - [cancel] 只取消这一个子协程 —— 协程取消向下传播、不向上，收集方协程本身不被取消，
  *   但收集会因 [CancellationException] 而结束，沿用"collect 外围 try/catch 取消异常"的既有用法；
  */
-internal class CancelableFlow {
+internal class TurnFlow {
     private enum class Attach { Ok, Canceled, Repeated }
 
     private val lock = Any()
@@ -99,7 +99,7 @@ internal class CancelableFlow {
     private var canceled = false
 
     /**
-     * 构造本轮的可取消流。
+     * 构造本轮的轮次流。
      *
      * [Attach.Repeated] 抛出的 [RepeatedCollectionException] 是"这次收集不是拥有者"的
      * 内部信号 —— 轮次收尾据此跳过，避免重复收集提前释放仍在运行的轮次的槽位与信箱。
