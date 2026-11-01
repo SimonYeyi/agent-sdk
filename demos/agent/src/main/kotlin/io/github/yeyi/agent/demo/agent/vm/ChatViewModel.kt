@@ -10,6 +10,7 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.demo.agent.demo.DemoAgentFactory
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -52,13 +53,28 @@ class ChatViewModel(
     private suspend fun reloadMessages() {
         val history = memory.history()
         _messages.value = history
-            .map { it.message }
-            .filter { msg ->
+            .filter { entry ->
+                val msg = entry.message
                 msg is ChatMessage.User ||
                 (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank()) ||
                 (msg is ChatMessage.System && !msg.content.isNullOrBlank())
             }
             .map { it.toUiMessage() }
+    }
+
+    /**
+     * 记忆条目 → UI 消息。
+     *
+     * 带 "error" label 的助手消息是运行失败写入的记忆，渲染为错误气泡，
+     * 与运行时 [AgentEvent.Failed] 的气泡样式一致 —— 记忆压缩后重建列表
+     * 不把错误降级成普通助手气泡。
+     */
+    private fun MemoryEntry.toUiMessage(): UiMessage {
+        val msg = message
+        if (msg is ChatMessage.Assistant && label == "error") {
+            return UiMessage.Error(cause = msg.content ?: "Unknown error", id = nextUiId())
+        }
+        return msg.toUiMessage()
     }
 
     private fun ChatMessage.toUiMessage(): UiMessage {

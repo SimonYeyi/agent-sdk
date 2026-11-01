@@ -11,6 +11,7 @@ import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.text
+import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.session.AgentReference
 import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.session.SessionManager
@@ -92,7 +93,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                         msg is ChatMessage.User ||
                         (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank())
                     }
-                    .map { it.message.toUiMessage() }
+                    .map { it.toUiMessage() }
                 _uiState.value = _uiState.value.copy(
                     currentSession = session,
                     messages = chatMessages,
@@ -262,7 +263,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                         msg is ChatMessage.User ||
                         (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank())
                     }
-                    .map { it.message.toUiMessage() }
+                    .map { it.toUiMessage() }
 
                 if (olderMessages.isEmpty()) {
                     _uiState.value = _uiState.value.copy(
@@ -286,6 +287,21 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     }
 
     }
+
+/**
+ * 记忆条目 → UI 消息。
+ *
+ * 带 "error" label 的助手消息是运行失败写入的记忆，渲染为错误气泡，
+ * 与运行时 [io.github.yeyi.agent.AgentEvent.Failed] 的气泡样式一致 ——
+ * 重启后恢复渲染不把错误降级成普通助手气泡。
+ */
+private fun MemoryEntry.toUiMessage(): UiMessage {
+    val msg = message
+    if (msg is ChatMessage.Assistant && label == "error") {
+        return UiMessage.Error(cause = msg.content ?: "Unknown error", id = UUID.randomUUID().toString())
+    }
+    return msg.toUiMessage()
+}
 
 private fun ChatMessage.toUiMessage(): UiMessage {
     return when (this) {
