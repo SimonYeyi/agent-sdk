@@ -194,7 +194,6 @@ internal class TurnFlow {
             Attach.Canceled -> throw CancellationException("flow is canceled")
             Attach.Repeated -> throw RepeatedCollectionException()
         }
-        check(sink == null) { "turn flow is already started" }
         sink = { e -> send(e) }; producer.await()
     }.buffer(Channel.RENDEZVOUS)
 
@@ -265,9 +264,10 @@ override fun run(query: AgentQuery): Flow<AgentEvent> {
 override fun runStream(query: AgentQuery): Flow<AgentEvent> {
     // 策略只收请求，发 delta 需要本轮的出口 —— 故由闭包自引用本轮。
     // llmCall 只在执行体里被调用（收集之后），那时本轮必已赋值。
+    val streaming = StreamingRunner(llmProvider)
     lateinit var turn: AgentTurn
     turn = AgentTurn(query) { req ->
-        StreamingRunner(llmProvider).run(req) { turn.flow.emit(AgentEvent.TextDelta(it)) }
+        streaming.run(req) { turn.flow.emit(AgentEvent.TextDelta(it)) }
     }
     return runTurn(turn)
 }
@@ -294,10 +294,11 @@ private fun runTurn(turn: AgentTurn): Flow<AgentEvent> {
 建轮与占槽分开不影响语义：CAS 失败照样抛 "Concurrent run not supported"，
 轮次建了却没占上，直接丢弃 —— 此时它既没装出口、也没起执行体，不漏资源。
 
-`StreamingRunner` **既不提为 agent 字段，也不留局部变量** ——
-它只在 `runStream` 的 lambda 里被 new 一次、用一次就丢，是本轮"怎么调模型"的实现细节；
-挂在 agent 上等于把一次性协作的东西抬成 agent 的常驻面，
-留个局部变量也只是给一次性对象安了个名字。
+`StreamingRunner` **既不提为 agent 字段，也留在 `runStream` 的局部变量里** ——
+它无状态（可变状态都在 `run()` 的局部变量里），每轮 new 一次、整轮持有即可；
+挂在 agent 上等于把一次性协作的东西抬成 agent 的常驻面。
+（改造中途曾把它放进 `llmCall` 闭包、"每次调模型 new 一次" ——
+那在多轮循环下是无谓分配，已改回每轮一次。）
 
 执行链随之塌缩：
 
