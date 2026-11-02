@@ -170,6 +170,8 @@ internal class Pasture(
                     when (event) {
                         is AgentEvent.Final -> dagLock.withLock { dag[taskId]?.result = event }
                         is AgentEvent.Failed -> failed = event
+                        // 取消终局：标 CANCELED（而非落进 else 被标 DONE——下游会拿到空结果）。
+                        is AgentEvent.Canceled -> handleTerminal(taskId, event.cause)
                         else -> bulletinBoard.progressEvent(TaskUpdate(taskId, event))
                     }
                 }
@@ -177,6 +179,11 @@ internal class Pasture(
             } catch (t: Throwable) {
                 handleTerminal(taskId, t)
                 if (t is CancellationException) throw t
+            } finally {
+                // Beast 是一次性 agent：collect 结束（终局完成/订阅被取消/异常）即作废。
+                // 「取消收集 job」由此恢复为「终止回合」的语义——
+                // handleCancellation 的 node.job?.cancel() 掐掉订阅，本 finally 杀在途回合。
+                beast.shutdown()
             }
         }
 
@@ -233,7 +240,8 @@ internal class Pasture(
 
     /**
      * 处理 Cancellation: PENDING/READY 直接标 CANCELED + handleTerminal;
-     * RUNNING 调用 job.cancel(); DONE/FAILED/CANCELED 幂等 no-op.
+     * RUNNING 直接标 CANCELED 再调用 job.cancel()（打断订阅；dispatch 的 finally 由
+     * beast.shutdown() 终止在途回合）；DONE/FAILED/CANCELED 幂等 no-op.
      */
     private suspend fun handleCancellation(e: Cancellation) {
         val node = dagLock.withLock { dag[e.taskId] } ?: return
