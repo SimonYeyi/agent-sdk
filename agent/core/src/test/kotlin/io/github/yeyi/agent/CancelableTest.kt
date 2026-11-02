@@ -426,4 +426,24 @@ class CancelableTest {
         assertEquals(1, a.count { it.isTerminal })
         assertEquals(1, b.count { it.isTerminal })
     }
+
+    /** shutdown 后：活跃回合收 Canceled("Agent is shut down")，run 抛 ISE，幂等。 */
+    @Test
+    fun `shutdown cancels the in-flight round with a shutdown-cause event and rejects further runs`() = runTest {
+        val llm = GatedLlm()
+        val agent = agentOf(llm)
+        val events = mutableListOf<AgentEvent>()
+        val job = launch { agent.run(AgentQuery.text("hi")).collect { events += it } }
+        llm.started.await()
+
+        agent.shutdown()
+        agent.shutdown() // 幂等
+        job.join()
+
+        val last = events.last()
+        assertTrue(last is AgentEvent.Canceled, "实际终局: ${events.map { it::class.simpleName }}")
+        assertTrue("Agent is shut down" in (last as AgentEvent.Canceled).cause.message.orEmpty())
+        val ex = assertFailsWith<IllegalStateException> { agent.run(AgentQuery.text("again")) }
+        assertTrue(ex.message!!.contains("Agent is shut down"))
+    }
 }

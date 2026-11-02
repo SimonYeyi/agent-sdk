@@ -17,6 +17,7 @@ import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.memory.addToMemory
 import io.github.yeyi.agent.memory.toChatMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -24,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import io.github.yeyi.agent.modality.ModalityAdapter
@@ -47,7 +49,7 @@ public class ReActAgent internal constructor(
     private val maxIterations: Int,
     private val hook: AgentHook = NoOpAgentHook,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
-) : Agent, Agent.Streamable, Agent.Steerable, Agent.Cancelable {
+) : Agent, Agent.Streamable, Agent.Steerable, Agent.Cancelable, Agent.Shutdownable {
     private val memory = RoundsBoundedMemory(RepairedMemory(memory), maxRounds, llmProvider)
 
     /**
@@ -57,6 +59,9 @@ public class ReActAgent internal constructor(
      * 仅供同模块测试注入 StandardTestDispatcher 保 runTest 虚拟时间；生产恒 Dispatchers.Default。
      */
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
+
+    /** 关闭信号，兼作关闭状态：isCompleted 即"已关闭"，complete 原子且幂等。 */
+    private val shutdownSignal = CompletableDeferred<Unit>()
 
     /**
      * 当前活跃轮次 —— 槽位按定义属于持有它的 agent。
@@ -135,6 +140,16 @@ public class ReActAgent internal constructor(
     }
 
     /**
+     * 永久关闭 Agent —— 终态操作。取消 [scope]：活跃回合以 NonCancellable 发完
+     * [AgentEvent.Canceled]（"Agent is shut down"）后退场，agent 私有执行域随之终止。
+     * 幂等：重复调用无副作用。之后 [run] 抛 [IllegalStateException]。
+     */
+    override fun shutdown() {
+        if (!shutdownSignal.complete(Unit)) return
+        scope.cancel(CancellationException("Agent is shut down"))
+    }
+
+    /**
      * 回合的公共骨架：占活跃槽位 → 在 agent scope 内启动执行体 → 返回广播流。
      * 启动即执行，收尾在执行体 finally —— 与订阅彻底解耦（孤儿回合语义）。
      *
@@ -145,6 +160,7 @@ public class ReActAgent internal constructor(
      * 经 [activeTurn] 观察到轮次的读者必能看到 job —— job 无需 @Volatile。
      */
     private fun runTurn(turn: AgentTurn): Flow<AgentEvent> {
+        check(!shutdownSignal.isCompleted) { "Agent is shut down" }
         val job = scope.launch(start = CoroutineStart.LAZY) {
             // 取消与 Final 不会双发：emit(Final) 之后到 job 结束之间没有挂起点
             // （retireTurn 只是 CAS / close / complete），job 不可能在此窗口被取消。
