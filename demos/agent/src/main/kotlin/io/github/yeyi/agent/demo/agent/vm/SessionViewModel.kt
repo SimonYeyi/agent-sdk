@@ -16,6 +16,7 @@ import io.github.yeyi.agent.session.AgentReference
 import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.session.SessionManager
 import io.github.yeyi.agent.tool.ToolExecutionResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -141,6 +142,8 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
             try {
                 val session = sessionManager.create(accountId, name, demoAgent)
                 loadSessions()
+                // 新会话 = 换 memory：旧 agent 作废，后续发送按新会话记忆重建
+                releaseAgent()
                 _uiState.value = _uiState.value.copy(
                     currentSession = session,
                     messages = emptyList()
@@ -232,6 +235,10 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                         }
                     }
                 }
+            } catch (e: CancellationException) {
+                // viewModelScope 取消（页面销毁）不是运行失败：原样抛出，
+                // 不把取消信息渲染成错误。
+                throw e
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     error = e.message,

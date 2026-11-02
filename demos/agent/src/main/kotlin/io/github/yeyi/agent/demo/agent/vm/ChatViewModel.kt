@@ -100,6 +100,7 @@ class ChatViewModel(
         // "New" 的语义是开新会话：先清空 UI，再作废旧 agent。
         // 旧 agent 必须 shutdown：架构 2 下回合跑在 agent 私有 scope，
         // 只掐收集会让执行体在无人观察时烧到自然终局。
+        // 订阅先掐断再 shutdown —— shutdown 后迟到的 Canceled 回放不再渲染。
         val oldAgent = agent
         runJob?.cancel()
         runJob = null
@@ -124,10 +125,19 @@ class ChatViewModel(
         // run() 调用即启动回合（架构 2）——计划在点击回调里同步启动，
         // 而不是等 viewModelScope 的协程被调度：清空/关闭页面若抢在协程开跑前
         // 引用旧 agent，这一轮就成了无人观察的在途回合。
-        val flow = when (_mode.value) {
-            RunMode.STREAM -> (agent as? Streamable)?.runStream(AgentQuery.text(text))
-                ?: agent.run(AgentQuery.text(text))
-            RunMode.BATCH -> agent.run(AgentQuery.text(text))
+        val flow = try {
+            when (_mode.value) {
+                RunMode.STREAM -> (agent as? Streamable)?.runStream(AgentQuery.text(text))
+                    ?: agent.run(AgentQuery.text(text))
+                RunMode.BATCH -> agent.run(AgentQuery.text(text))
+            }
+        } catch (_: IllegalStateException) {
+            // 旧 agent 已作废（"New" 之后、界面完成换用新 agent 之前的点击）——
+            // 终态语义下拒绝接受新轮次，按失败气泡呈现，不进入处理中状态。
+            _messages.update {
+                it + UiMessage.Error("会话已重置，请重新发送", id = nextUiId())
+            }
+            return
         }
         _isProcessing.value = true
 
