@@ -12,7 +12,6 @@ import io.github.yeyi.agent.demo.agent.demo.DemoAgentFactory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.tool.ToolExecutionResult
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -98,6 +97,10 @@ class ChatViewModel(
     }
 
     fun clearMessages() {
+        // "New" 的语义是开新会话：先清空 UI，再作废旧 agent。
+        // 旧 agent 必须 shutdown：架构 2 下回合跑在 agent 私有 scope，
+        // 只掐收集会让执行体在无人观察时烧到自然终局。
+        val oldAgent = agent
         runJob?.cancel()
         runJob = null
         _messages.value = emptyList()
@@ -105,6 +108,7 @@ class ChatViewModel(
         inProgressByCallId.clear()
         memory = io.github.yeyi.agent.memory.InMemoryMemory()
         agent = agentFactory(memory)
+        (oldAgent as? Agent.Shutdownable)?.shutdown()
     }
 
     /**
@@ -116,20 +120,21 @@ class ChatViewModel(
 
     fun sendUserInput(text: String) {
         if (text.isBlank() || _isProcessing.value) return
+
+        // run() 调用即启动回合（架构 2）——计划在点击回调里同步启动，
+        // 而不是等 viewModelScope 的协程被调度：清空/关闭页面若抢在协程开跑前
+        // 引用旧 agent，这一轮就成了无人观察的在途回合。
+        val flow = when (_mode.value) {
+            RunMode.STREAM -> (agent as? Streamable)?.runStream(AgentQuery.text(text))
+                ?: agent.run(AgentQuery.text(text))
+            RunMode.BATCH -> agent.run(AgentQuery.text(text))
+        }
         _isProcessing.value = true
 
         runJob = viewModelScope.launch {
             try {
                 // 流式是可选能力：Agent 未实现 Streamable 时降级为批式路径。
-                val flow = when (_mode.value) {
-                    RunMode.STREAM -> (agent as? Streamable)?.runStream(AgentQuery.text(text))
-                        ?: agent.run(AgentQuery.text(text))
-                    RunMode.BATCH -> agent.run(AgentQuery.text(text))
-                }
                 flow.collect { handleEvent(it) }
-            } catch (e: CancellationException) {
-                // 终局三选一里的第三种：回合被取消（清空消息 / 关闭页面）——
-                // 不是运行失败，不渲染错误气泡。
             } catch (t: Throwable) {
                 _messages.update {
                     it + UiMessage.Error(t.message ?: "Unknown error", id = nextUiId())
@@ -185,6 +190,14 @@ class ChatViewModel(
             is AgentEvent.Failed -> {
                 _messages.update {
                     it + UiMessage.Error(event.cause.message ?: "Unknown error", id = nextUiId())
+                }
+                _liveBubble.value = null
+            }
+            is AgentEvent.Canceled -> {
+                // 终局三选一里的第三种：回合被取消（清空消息 / 关闭页面）——
+                // 不是运行失败，渲染打断气泡。
+                _messages.update {
+                    it + UiMessage.Assistant("（已打断）", id = nextUiId())
                 }
                 _liveBubble.value = null
             }

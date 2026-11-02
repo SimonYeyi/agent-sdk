@@ -47,6 +47,11 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
 
     private val accountId = "test_user"
 
+    // 会话场景 agent 语义上就是长驻的：与 ChatViewModel 的单实例对齐，
+    // 不再逐条消息新建（每次新建会在架构 2 下遗留仍持有在途回合的私有 scope）。
+    // 换会话 = 换 memory，故切走前必须 shutdown 作废旧实例。
+    private var agent: io.github.yeyi.agent.Agent? = null
+
     private var nextUiId: Int = 0
     private fun nextUiId(): String = (++nextUiId).toString()
 
@@ -86,6 +91,8 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     public fun selectSession(sessionId: String) {
         viewModelScope.launch {
             try {
+                // 切会话 = 换 memory：旧 agent 绑的是上一个会话的记忆，必须作废
+                releaseAgent()
                 val session = sessionManager.get(accountId, sessionId)
                 val chatMessages = session.conversation.history(1)
                     .filter { entry ->
@@ -157,7 +164,8 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
 
         viewModelScope.launch {
             try {
-                val agent = DemoAgentFactory.create(session.memory, hookPipeline)
+                val agent = agent
+                    ?: DemoAgentFactory.create(session.memory, hookPipeline).also { agent = it }
                 // 会话 UI 依赖流式增量；Agent 未实现 Streamable 时降级为批式路径。
                 val eventFlow = (agent as? Streamable)?.runStream(AgentQuery.text(inputText))
                     ?: agent.run(AgentQuery.text(inputText))
@@ -209,6 +217,13 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                                 isToolExecutionPending = false
                             )
                         }
+                        is io.github.yeyi.agent.AgentEvent.Canceled -> {
+                            _uiState.value = _uiState.value.copy(
+                                error = "已打断",
+                                liveBubble = null,
+                                isToolExecutionPending = false
+                            )
+                        }
                         is AgentEvent.MemoryCompressing -> {
                             // 等待压缩完成
                         }
@@ -228,11 +243,20 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    /** 作废当前 agent：架构 2 下回合跑在 agent 私有 scope，不 shutdown 会留下无人观察的在途回合。 */
+    private fun releaseAgent() {
+        val old = agent
+        agent = null
+        (old as? io.github.yeyi.agent.Agent.Shutdownable)?.shutdown()
+    }
+
     public fun deleteSession(sessionId: String) {
         viewModelScope.launch {
             try {
                 sessionManager.delete(sessionManager.get(accountId, sessionId))
                 if (_uiState.value.currentSession?.id == sessionId) {
+                    // 当前会话被删 = memory 已作废：旧 agent 一并作废。
+                    releaseAgent()
                     _uiState.value = _uiState.value.copy(
                         currentSession = null,
                         messages = emptyList()

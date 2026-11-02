@@ -20,7 +20,6 @@ import io.github.yeyi.agent.session.SessionManager
 import io.github.yeyi.agent.team.BossAgent
 import io.github.yeyi.agent.team.TasksState
 import io.github.yeyi.agent.tool.ToolExecutionResult
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -171,6 +170,13 @@ class BossViewModel(
                 appendMessage("error", event.cause.message ?: event.cause.toString())
                 _isLoading.value = false
             }
+            is AgentEvent.Canceled -> {
+                // 终局三选一里的第三种：轮次被取消（session 重置 / boss 关闭）——
+                // 不是运行失败，不渲染错误气泡，只收尾轮次副作用。
+                clearStreamingDraft()
+                pendingText?.let { confirmPendingInput(it) }
+                _isLoading.value = false
+            }
             else -> {
                 // 其他事件（MemoryCompressing 等）不渲染
             }
@@ -221,6 +227,9 @@ class BossViewModel(
         if (text.isEmpty()) return
 
         val agent = _boss.value ?: return
+        // run() 调用即启动回合（架构 2）——在点击回调里同步启动，不等
+        // viewModelScope 调度，堵死「resetSession 抢在协程开跑前 shutdown」的竞态。
+        val flow = agent.run(AgentQuery.text(text))
 
         // 不立即渲染用户气泡：BossAgent 可能正处于任务报告轮次，指令进入
         // scheduler 队列待报告完成后才执行；立即显示会导致运行时顺序
@@ -232,12 +241,16 @@ class BossViewModel(
 
         viewModelScope.launch {
             try {
-                agent.run(AgentQuery.text(text)).collect { event ->
+                flow.collect { event ->
                     handleAgentEvent(event, pendingText = text)
                 }
-            } catch (e: CancellationException) {
-                // 终局三选一里的第三种：轮次被终止（session 重置 / boss 关闭）——
-                // 不是运行失败，只把 loading 归位，不渲染错误气泡。
+            } catch (e: IllegalStateException) {
+                // 与 resetSession 的竞态：本波点击拿到的 boss 在 run 之前已被 shutdown ——
+                // 该轮从未开始，不会以 Canceled 事件收尾，收尾副作用在此落地。
+                // 不落用户气泡：resetSession 已清空消息列表，气泡会挂在新会话里。
+                pendingQueue.confirm(text)
+                refreshPendingInputs()
+                clearStreamingDraft()
                 _isLoading.value = false
             }
         }
