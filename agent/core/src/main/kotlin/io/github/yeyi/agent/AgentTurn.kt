@@ -150,6 +150,8 @@ internal class TurnFlow {
     private val lock = Any()
     private var job: Job? = null
     private var canceled = false
+    /** 打断原因 —— 迟收集（取消后首次收集）路径携带给收集方。 */
+    private var canceledCause: String? = null
 
     /** 本轮的事件出口 —— 收集时装一次，此后发射走它。 */
     private var sink: (suspend (AgentEvent) -> Unit)? = null
@@ -170,8 +172,8 @@ internal class TurnFlow {
         when (attach(producer)) {
             Attach.Ok -> Unit
             // 本轮已被取消作废、且从未被收集 → 不再执行；以取消异常收尾，
-            // 收集方不会拿到"零事件 + 正常结束"的静默出口。
-            Attach.Canceled -> throw CancellationException("flow is canceled")
+            // 收集方不会拿到"零事件 + 正常结束"的静默出口。携带打断原因（若有）。
+            Attach.Canceled -> throw CancellationException(canceledCause ?: "flow is canceled")
             // 同一轮被重复收集（含跑完后再收集一次）—— 跑不起来的调用错误，不是运行时错误。
             Attach.Repeated -> throw RepeatedCollectionException()
         }
@@ -210,11 +212,16 @@ internal class TurnFlow {
     /**
      * 打断本轮执行体（对已结束的 job 是无害的空操作）。
      *
+     * 打断原因 [cause] 原样携带给收集方：in-flight 时作为 [Job.cancel] 的取消原因、
+     * 未收集时作为迟收集路径抛出的 [CancellationException] 原因 —— 两处对收集方
+     * 都表现为 [CancellationException]，只是原因不同（诊断用途，非消费契约）。
+     *
      * @return true = 取消成功，打断执行体；false = 取消失败，无执行体可取消
      */
-    fun cancel(): Boolean = synchronized(lock) {
+    fun cancel(cause: String? = null): Boolean = synchronized(lock) {
         canceled = true
-        return job?.let { it.cancel(); true } ?: false
+        canceledCause = cause
+        return job?.let { it.cancel(CancellationException(cause)); true } ?: false
     }
 }
 

@@ -17,8 +17,9 @@ import kotlinx.coroutines.flow.Flow
  * 调用方可通过 [kotlinx.coroutines.flow.first] 或 [kotlinx.coroutines.flow.last] 获取最终结果，
  * 也可全程订阅事件流实现实时 UI 反馈。
  *
- * 流式（[Streamable.runStream]）与在途指令注入（[Steerable.steer]）均为可选能力，分别由嵌套的
- * [Streamable] 与 [Steerable] 独立暴露——不实现该能力的 Agent 不承担对应契约。
+ * 流式（[Streamable.runStream]）、在途指令注入（[Steerable.steer]）、回合中断（[Cancelable.cancel]）与
+ * 整体关闭（[Shutdownable.shutdown]）均为可选能力，分别由嵌套的 [Streamable]、[Steerable]、[Cancelable] 与
+ * [Shutdownable] 独立暴露——不实现该能力的 Agent 不承担对应契约。
  */
 public interface Agent {
     /**
@@ -133,6 +134,12 @@ public interface Agent {
          * - 若在[cancel]之后被收集，将以 [CancellationException] 直接结束；
          * - 若回合已在执行，则打断其执行体，以 [CancellationException] 结束。
          *
+         * @param cause 打断原因（诊断用途）—— 收集方见到的 [CancellationException] 会携带该原因，
+         *   便于在日志中区分"shutdown 终止"与"用户打断"等不同来源。
+         *   注意：原因仅是可读的辅助信息，不是消费契约 —— 收集方仍应以取消异常的类型
+         *   判断流程分支（如 [Shutdownable] 的"shutdown 后再次 [Agent.run] 抛 [IllegalStateException]"），
+         *   不应嗅探原因字符串。为 null 时使用实现默认的取消原因。
+         *
          * @return 该轮收尾的句柄 —— 完成即代表该轮已彻底退场（槽位已还、信箱已关），
          *   此后调用方可安全地再次 [Agent.run]；无活跃回合时返回 null。
          *
@@ -148,7 +155,7 @@ public interface Agent {
          *   会立刻以 [CancellationException] 结束，而此时槽位可能还没还、
          *   旧轮可能还在收尾，"join 之后开新轮必定成功"的承诺随之失效。
          */
-        public fun cancel(): Job?
+        public fun cancel(cause: String? = null): Job?
     }
 
     /**
@@ -163,7 +170,7 @@ public interface Agent {
      * 之后调用 [Agent.run] 抛出 [IllegalStateException]（Agent 已关闭）；如需继续使用必须重新创建实例。
      * 幂等：可重复调用，第二次无副作用。
      *
-     * 关闭时需调用 [Cancelable.cancel] 确保轮次同时终止；
+     * 关闭时需调用 [Agent.Cancelable.cancel] 确保轮次同时终止；
      * 终态语义下已关闭的 Agent 不再接受任何操作（实现可抛 [IllegalStateException]）。
      *
      * 适用场景：会话/应用结束时的资源回收，以及任何带后台协程或外部资源的 Agent 的整体终止。

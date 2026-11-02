@@ -106,16 +106,19 @@ public class ReActAgent internal constructor(
      * 此时 cancel() 作废该轮（置已取消标志 + 关信箱）、把槽位还回去；该轮之后若被收集，
      * 以取消异常收尾（与运行中被打断同型）。
      *
+     * @param cause 打断原因（诊断用途）—— 收集方见到的 [CancellationException] 携带该原因；
+     *   为 null 时使用默认取消原因，见 [Agent.Cancelable.cancel]。
+     *
      * @return 该轮收尾的句柄 —— 完成即代表槽位已还、信箱已关，之后可安全地再次 run()；
      *   无活跃轮次时返回 null（幂等 no-op）。调用方可以 join 它等旧轮退场，
      *   也可以不等待 —— 不等待时收尾完成前再次 run() 仍可能撞上并发拒绝。
      *   句柄只用于"等"：不要 cancel 它（[Agent.Cancelable.cancel] 的 KDoc 有说明）。
      */
-    override fun cancel(): Job? {
+    override fun cancel(cause: String?): Job? {
         val turn = activeTurn.get() ?: return null // 无活跃轮次 → no-op（幂等）
         // true  ⟺ 该轮已被收集 ⟹ 打断已投递，槽位由该轮流的 onCompletion 认人归还。
         // false ⟺ 该轮从未被收集 ⟹ 没有 onCompletion 会来，槽位必须在此归还。
-        if (turn.flow.cancel()) return turn.terminated
+        if (turn.flow.cancel(cause)) return turn.terminated
         // 从未被收集的轮次：当场退场（还槽 + 关信箱 + 收尾信号）。
         // 该轮从未被收集 ⇒ 没有执行体 ⇒ 退场不必取闸。
         retireTurn(turn)

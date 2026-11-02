@@ -154,6 +154,32 @@ class CancelableTest {
     }
 
     @Test
+    fun `cancel reason surfaces to the collector of an in-flight run`() = runTest {
+        val llm = GatedLlm()
+        val agent = agentOf(llm)
+
+        val caught = CompletableDeferred<Throwable?>()
+        val job = launch {
+            try {
+                agent.run(AgentQuery.text("hi")).collect { }
+                caught.complete(null)
+            } catch (e: CancellationException) {
+                caught.complete(e)
+            }
+        }
+        llm.started.await()
+        agent.cancel("shut down by user")
+        job.join()
+
+        // 打断原因随取消异常送达收集方（诊断用途，非消费契约）。
+        val e = caught.await()
+        assertTrue(e is CancellationException)
+        assertTrue("shut down by user" in (e.message ?: ""), "实际消息: ${e.message}")
+        // 与普通 cancel 一致：收集方协程本身未被取消。
+        assertFalse(job.isCancelled)
+    }
+
+    @Test
     fun `cancel interrupts in-flight streaming run`() = runTest {
         val llm = GatedLlm()
         val agent = agentOf(llm)
@@ -190,6 +216,23 @@ class CancelableTest {
         // 绝不出现"零事件 + 正常结束"的静默出口，且不再调用 LLM。
         assertFailsWith<CancellationException> { flow.toList() }
         assertTrue(provider.recordedRequests.isEmpty())
+    }
+
+    @Test
+    fun `cancel reason is carried by the late collection of an abandoned round`() = runTest {
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = agentOf(provider)
+
+        val flow = agent.run(AgentQuery.text("hi"))
+        agent.cancel("abandoned by caller")
+
+        // 迟收集路径同样携带打断原因。
+        val e = assertFailsWith<CancellationException> { flow.toList() }
+        assertTrue("abandoned by caller" in (e.message ?: ""), "实际消息: ${e.message}")
     }
 
     @Test
