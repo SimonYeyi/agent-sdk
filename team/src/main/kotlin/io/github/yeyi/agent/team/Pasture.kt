@@ -171,6 +171,8 @@ internal class Pasture(
                         is AgentEvent.Final -> dagLock.withLock { dag[taskId]?.result = event }
                         is AgentEvent.Failed -> failed = event
                         // 取消终局：标 CANCELED（而非落进 else 被标 DONE——下游会拿到空结果）。
+                        // 注意 Canceled 后 collect 正常结束、本回合不抛；下方 catch 的 throw 只兜 collect 自身
+                        // 抛出的 CancellationException（如 node.job.cancel()）。
                         is AgentEvent.Canceled -> handleTerminal(taskId, event.cause)
                         else -> bulletinBoard.progressEvent(TaskUpdate(taskId, event))
                     }
