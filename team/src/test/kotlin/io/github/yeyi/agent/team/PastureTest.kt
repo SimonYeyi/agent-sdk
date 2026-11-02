@@ -14,8 +14,11 @@ import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.Toolset
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.FinishReason
+import io.github.yeyi.agent.llm.LlmProvider
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.filterIsInstance
@@ -23,8 +26,8 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.serialization.json.JsonElement
 import org.junit.Test
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 private val PASTURE_FINAL: ChatResponse = ChatResponse(
@@ -220,39 +223,37 @@ class PastureTest {
 
 class PastureCanceledTerminalTest {
 
-    /** beast 只发 Initial + Canceled 终局, 记录 shutdown 调用次数. */
-    private class CanceledBeast : Beast {
-        val shutdownCalls: AtomicInteger = AtomicInteger(0)
-        override fun run(query: AgentQuery): Flow<AgentEvent> = flow {
-            emit(AgentEvent.Initial(query))
-            emit(AgentEvent.Canceled(CancellationException("test cancel")))
-        }
-
-        override fun shutdown() {
-            shutdownCalls.incrementAndGet()
+    /** 每次 chat() 都抛 CancellationException —— 让真实 Ox 的回合以 Canceled 终局收场. */
+    private class CancelingLlm : LlmProvider {
+        override val name: String = "canceling"
+        override suspend fun chat(request: ChatRequest): ChatResponse =
+            throw CancellationException("test cancel")
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
+            throw CancellationException("test cancel")
         }
     }
 
-    private class FixedBeastAssembler(private val beast: Beast) : BeastAssembler(
-        llmProvider = FakeLlmProvider(nonStreamResponses = listOf(PASTURE_FINAL)),
-        toolRegistry = null,
-        lazyToolRegistry = null,
-        toolsetRegistry = null,
-        skillRegistry = null,
-        subagentRegistry = null,
-        maxIterations = 1,
-        maxRounds = 5,
-    ) {
-        override suspend fun assemble(selection: Selection): Beast = beast
+    /** 端到端: 真实 BeastAssembler + 真实 Ox, 不经任何测试缝. */
+    private fun setup(bb: BulletinBoard): CoroutineScope {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val assembler = BeastAssembler(
+            llmProvider = CancelingLlm(),
+            toolRegistry = null,
+            lazyToolRegistry = null,
+            toolsetRegistry = null,
+            skillRegistry = null,
+            subagentRegistry = null,
+            maxIterations = 1,
+            maxRounds = 5,
+        )
+        runBlocking { Pasture(assembler = assembler, scope = scope).observe(bb) }
+        return scope
     }
 
     @Test
-    fun `Canceled terminal marks task CANCELED not DONE and shuts beast down once`() = runBlocking {
+    fun `Canceled terminal marks task CANCELED not DONE and stays idempotent`() = runBlocking {
         val bb = BulletinBoard()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val beast = CanceledBeast()
-        val pasture = Pasture(assembler = FixedBeastAssembler(beast), scope = scope)
-        pasture.observe(bb)
+        val scope = setup(bb)
 
         // 与 publishAndAwaitFinal 同款: UNDISPATCHED 同步挂上 collector, 不丢首次 TaskUpdate.
         val canceled = async(start = CoroutineStart.UNDISPATCHED) {
@@ -260,21 +261,26 @@ class PastureCanceledTerminalTest {
                 bb.progressEvents.filterIsInstance<TaskUpdate>().first { it.event is AgentEvent.Failed }
             }
         }
+        // Selection.Tool("") 不存在 → assembleHorse 抛 ISE → 回退 buildOx, 复用同一 CancelingLlm.
         bb.publishEvent(TaskAssignments("query", listOf(TaskAssignment("t1", Selection.Tool(""), "task", null, emptyList()))))
 
         val update = canceled.await()
         assertEquals("t1", update.taskId)
-        // Pasture 对外统一把 CANCELED 表示为 Failed(CancellationException); 若被误标 DONE,
-        // CancellationException 会让 handleTerminal 里的 node.result!! 直接 NPE 抛出.
+        // Pasture 对外统一把 CANCELED 表示为 Failed(CancellationException); 若 Canceled 落进 else
+        // 被误标 DONE, handleTerminal 里的 node.result!! 会直接 NPE.
         val cause = (update.event as AgentEvent.Failed).cause
         assertTrue(cause is CancellationException, "expected CancellationException, got: $cause")
 
-        // job 已结束(collect 正常完成, 不带 CancellationException), finally 杀 beast 恰好一次.
-        // 后续若 Cancellation 再砸到该 taskId, handleCancellation 见终态直接 no-op, 不会二次 shutdown.
-        withTimeout(5000) { while (beast.shutdownCalls.get() == 0) delay(10) }
+        // 终态幂等: 再砸一次 Cancellation 不得翻状态、不得再发 TaskUpdate.
+        // bulletin 的 progress 流 replay=0, 故这里只可能收到新 emit —— 500ms 内无即证明无第二次.
+        val second = async(start = CoroutineStart.UNDISPATCHED) {
+            withTimeoutOrNull(500) {
+                bb.progressEvents.filterIsInstance<TaskUpdate>().first { it.taskId == "t1" }
+            }
+        }
         bb.publishEvent(Cancellation("t1"))
-        delay(100)
-        assertEquals(1, beast.shutdownCalls.get(), "beast.shutdown() should be called exactly once")
+        val again = second.await()
+        assertNull(again, "terminal task must not emit another TaskUpdate, got: ${again?.event}")
         scope.cancel()
     }
 }

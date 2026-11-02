@@ -9,7 +9,7 @@ import io.github.yeyi.agent.tool.ToolRegistry
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 
-internal open class BeastAssembler(
+internal class BeastAssembler(
     private val llmProvider: LlmProvider,
     private val toolRegistry: ToolRegistry?,
     private val lazyToolRegistry: LazyToolRegistry?,
@@ -22,7 +22,7 @@ internal open class BeastAssembler(
     private val basePersona: AgentPersona
         get() = AgentPersona("你是一个牛马，需努力完成任务，不可弄虚作假").personality("寡言少语")
 
-    open suspend fun assemble(selection: Selection): Beast {
+    suspend fun assemble(selection: Selection): Beast {
         return try {
             assembleHorse(selection)
         } catch (_: IllegalStateException) {
