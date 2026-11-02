@@ -28,15 +28,12 @@ import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.lazy_loading.LazyTool
 import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.Toolset
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonElement
 import org.junit.Test
@@ -418,55 +415,60 @@ class AgentScopeTest {
 
     @Test
     fun `spawnedAgent shutdown terminates in-flight run flow`() = runTest {
+        // agent 执行体跑在自己的私有 scope（Dispatchers.Default）上，与测试协程不同调度器；
+        // started 是真实挂起点，跨调度器同步成立，不依赖 runTest 的虚拟时间。
         val started = CompletableDeferred<Unit>()
         val gate = CompletableDeferred<Unit>()
-        // agent 执行体跑在私有 scope（Dispatchers.Default）上，由真实线程推进；
-        // 故用 runBlocking 构造 delegate 并收集，不占 runTest 的虚拟时间。
-        val spawned = runBlocking {
-            SpawnedAgent(
-                agent {
-                    llmProvider(GatedLlm(started, gate))
-                    memory(InMemoryMemory())
-                } as ReActAgent
-            )
-        }
+        val spawned = SpawnedAgent(
+            agent {
+                llmProvider(GatedLlm(started, gate))
+                memory(InMemoryMemory())
+            } as ReActAgent
+        )
 
-        val collector = launch {
-            // 迟到订阅：回合在 run() 时已启动、shutdown/cancel 时已被打断，此处只回放历史与终局。
-            val events = spawned.run(AgentQuery.text("ping")).toList()
-            assertTrue(events.last() is AgentEvent.Canceled, "shutdown must end the round with Canceled: $events")
-        }
+        // 收集进外部列表：断言留在测试协程上，避免 launch 内的断言失败被吞掉。
+        val events = mutableListOf<AgentEvent>()
+        val collector = launch { spawned.run(AgentQuery.text("ping")).toList(events) }
         started.await() // 确认 delegate 已挂起在 LLM 调用
         spawned.shutdown()
         collector.join()
+
+        assertTrue(events.last() is AgentEvent.Canceled, "shutdown must end the round with Canceled: $events")
+        assertEquals("Agent is shut down", (events.last() as AgentEvent.Canceled).cause.message)
     }
 
     @Test
     fun `spawnedAgent cancel interrupts in-flight run and stays usable`() = runTest {
         val started = CompletableDeferred<Unit>()
         val gate = CompletableDeferred<Unit>()
-        // agent 执行体跑在私有 scope（Dispatchers.Default）上，由真实线程推进；
-        // 故用 runBlocking 构造 delegate 并收集，不占 runTest 的虚拟时间。
-        val spawned = runBlocking {
-            SpawnedAgent(
-                agent {
-                    llmProvider(GatedLlm(started, gate))
-                    memory(InMemoryMemory())
-                } as ReActAgent
-            )
-        }
+        val spawned = SpawnedAgent(
+            agent {
+                llmProvider(GatedLlm(started, gate))
+                memory(InMemoryMemory())
+            } as ReActAgent
+        )
 
+        val events = mutableListOf<AgentEvent>()
+        var completed = false
         val collector = launch {
-            // 迟到订阅：回合在 run() 时已启动、shutdown/cancel 时已被打断，此处只回放历史与终局。
-            val events = spawned.run(AgentQuery.text("ping")).toList()
-            assertTrue(events.last() is AgentEvent.Canceled, "cancel must end the round with Canceled: $events")
+            spawned.run(AgentQuery.text("ping")).toList(events)
+            completed = true
         }
         started.await() // 确认 delegate 已挂起在 LLM 调用
         spawned.cancel("test cancel")
-        // cancel 是可恢复的中断 —— spawn 产物本身仍然可用
+        collector.join()
+
+        // 回合以 Canceled 收尾，但收集方协程不被取消：toList 正常返回（cancel 只杀执行体）。
+        // 注：job.isCancelled 检查的是收集方协程，它经 toList 的 finally 取消订阅后
+        // 本就会被置为 cancelled，故此处的"未被取消"以 toList 正常完成为准。
+        assertFalse(collector.isCancelled, "collector coroutine must complete normally")
+        assertTrue(completed, "collector must return normally after Canceled terminal")
+        assertTrue(events.last() is AgentEvent.Canceled, "cancel must end the round with Canceled: $events")
+        assertEquals("test cancel", (events.last() as AgentEvent.Canceled).cause.message)
+
+        // cancel 是可恢复的中断 —— spawn 产物本身仍然可用，直到 shutdown。
         spawned.shutdown()
         assertFailsWith<IllegalStateException> { spawned.run(AgentQuery.text("ping")) }
-        collector.join()
     }
 
     @Test
@@ -488,75 +490,72 @@ class AgentScopeTest {
     }
 
     @Test
-    fun `spawnedAgent run collected after shutdown does not start delegate`() = runTest {
-        // run() 在 shutdown 前调用、collect 在 shutdown 后——执行体已自行跑完回合（未被 cancel）。
-        // agent 执行体跑在私有 scope 上：用 runBlocking 构造（真实调度器），runTest 只做事件断言。
-        val llm = CountingLlm()
-        val spawned = runBlocking {
-            SpawnedAgent(
-                agent {
-                    llmProvider(llm)
-                    memory(InMemoryMemory())
-                } as ReActAgent
-            )
-        }
+    fun `spawnedAgent run collected after shutdown replays canceled terminal`() = runTest {
+        // run() 启动即执行：collect 是事后订阅，只能回放历史。回合在 shutdown 时仍在途，
+        // 回放序列以 Canceled 收尾；LLM 只被调用一次（订阅不触发第二次执行）。
+        val started = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val llm = GatedLlm(started, gate)
+        val spawned = SpawnedAgent(
+            agent {
+                llmProvider(llm)
+                memory(InMemoryMemory())
+            } as ReActAgent
+        )
 
-        val flow = spawned.run(AgentQuery.text("ping")).toList()
+        val flow = spawned.run(AgentQuery.text("ping"))
+        started.await()
         spawned.shutdown()
 
-        // 收集方稍后订阅，只回放历史：事件序列与冷流时代一致（Final 终局，不再追发 Canceled）
-        assertEquals(2, flow.size, "expected Initial + Final, got: $flow")
-        assertTrue(flow[0] is AgentEvent.Initial)
-        assertTrue(flow.last() is AgentEvent.Final)
+        val events = flow.toList()
+        assertTrue(events.last() is AgentEvent.Canceled, "late collect must end with Canceled: $events")
+        assertEquals("Agent is shut down", (events.last() as AgentEvent.Canceled).cause.message)
+        assertEquals(1, llm.calls, "round must execute exactly once")
     }
 
     @Test
     fun `spawnedAgent runStream terminates in-flight stream flow`() = runTest {
         val started = CompletableDeferred<Unit>()
         val gate = CompletableDeferred<Unit>()
-        // agent 执行体跑在私有 scope（Dispatchers.Default）上，由真实线程推进；
-        // 故用 runBlocking 构造 delegate 并收集，不占 runTest 的虚拟时间。
-        val spawned = runBlocking {
-            SpawnedAgent(
-                agent {
-                    llmProvider(GatedLlm(started, gate))
-                    memory(InMemoryMemory())
-                } as ReActAgent
-            )
-        }
+        val spawned = SpawnedAgent(
+            agent {
+                llmProvider(GatedLlm(started, gate))
+                memory(InMemoryMemory())
+            } as ReActAgent
+        )
 
-        val collector = launch {
-            // 迟到订阅：回合在 run() 时已启动、shutdown/cancel 时已被打断，此处只回放历史与终局。
-            val events = spawned.runStream(AgentQuery.text("ping")).toList()
-            assertTrue(events.last() is AgentEvent.Canceled, "shutdown must end the stream round with Canceled: $events")
-        }
-        started.await() // 确认 delegate 已挂起在 LLM 调用
+        val events = mutableListOf<AgentEvent>()
+        val collector = launch { spawned.runStream(AgentQuery.text("ping")).toList(events) }
+        started.await() // 确认 delegate 已挂起在流式 LLM 调用
         spawned.shutdown()
         collector.join()
+
+        assertTrue(events.last() is AgentEvent.Canceled, "shutdown must end the stream round with Canceled: $events")
+        assertEquals("Agent is shut down", (events.last() as AgentEvent.Canceled).cause.message)
     }
 
     @Test
-    fun `spawnedAgent runStream collected after shutdown does not start delegate`() = runTest {
-        // runStream() 发起回合后 collect 才开始。这里验证的是迟订阅能拿到终局：
-        // 回合在收集前就被 shutdown 打断 → 回放历史以 Canceled 收尾。
-        // delegate 是否被启动由上面的 run 版本用 CountingLlm.calls 守护。
+    fun `spawnedAgent runStream collected after shutdown replays canceled terminal`() = runTest {
+        // runStream() 启动即执行，collect 是事后订阅：回合在 shutdown 时仍在途，
+        // 回放序列以 Canceled 收尾；流式 LLM 只被调用一次。
         val started = CompletableDeferred<Unit>()
         val gate = CompletableDeferred<Unit>()
-        val spawned = runBlocking {
-            SpawnedAgent(
-                agent {
-                    llmProvider(GatedLlm(started, gate))
-                    memory(InMemoryMemory())
-                } as ReActAgent
-            )
-        }
+        val llm = GatedLlm(started, gate)
+        val spawned = SpawnedAgent(
+            agent {
+                llmProvider(llm)
+                memory(InMemoryMemory())
+            } as ReActAgent
+        )
 
         val flow = spawned.runStream(AgentQuery.text("ping"))
-        started.await() // 确认注入的 LLM 已被调用
+        started.await()
         spawned.shutdown()
 
-        val events = runBlocking { flow.toList() }
+        val events = flow.toList()
         assertTrue(events.last() is AgentEvent.Canceled, "late collect must end with Canceled: $events")
+        assertEquals("Agent is shut down", (events.last() as AgentEvent.Canceled).cause.message)
+        assertEquals(1, llm.calls, "round must execute exactly once")
     }
 
     @Test
@@ -578,14 +577,20 @@ class AgentScopeTest {
         // 与 ReActAgent "run 即占槽" 语义对齐：run() 返回后即使未收集，
         // delegate 槽位已被占用——steer() 返回 true 而非误判空闲，
         // 否则调用方按 KDoc 模式（steer()==false 触发 fallback run）会并发双 run。
-        val delegate = agent {
-            llmProvider(StubLlm)
-            memory(InMemoryMemory())
-        } as ReActAgent
-        val spawned = SpawnedAgent(delegate)
+        // GatedLlm 把回合钉在在途状态，避免回合先于 steer 自然终局导致 flaky。
+        val started = CompletableDeferred<Unit>()
+        val gate = CompletableDeferred<Unit>()
+        val spawned = SpawnedAgent(
+            agent {
+                llmProvider(GatedLlm(started, gate))
+                memory(InMemoryMemory())
+            } as ReActAgent
+        )
 
         spawned.run(AgentQuery.text("ping")) // 不 collect
+        started.await()
         assertTrue(spawned.steer(AgentQuery.text("ping")))
+        gate.complete(Unit)
     }
 
     // ===== SpawnedAgent 测试桩 =====
@@ -604,32 +609,22 @@ class AgentScopeTest {
         private val started: CompletableDeferred<Unit>,
         private val gate: CompletableDeferred<Unit>
     ) : LlmProvider {
+        /** 被调用次数（chat + chatStream），用于断言回合只执行一次。 */
+        var calls = 0
+            private set
         override val name: String = "gated"
         override suspend fun chat(request: ChatRequest): ChatResponse {
+            calls++
             started.complete(Unit)
             gate.await()
             return ChatResponse(message = ChatMessage.Assistant("done"), finishReason = FinishReason.Stop)
         }
 
         override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
+            calls++
             started.complete(Unit)
             gate.await()
             emit(ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop))
         }
-    }
-
-    /** 记录调用次数的 LLM，用于断言 delegate 是否被启动。 */
-    private class CountingLlm : LlmProvider {
-        var calls = 0
-            private set
-        override val name: String = "counting"
-        override suspend fun chat(request: ChatRequest): ChatResponse {
-            calls++
-            return ChatResponse(message = ChatMessage.Assistant("done"), finishReason = FinishReason.Stop)
-        }
-
-        // 始终挂起：执行体若真跑到流式 LLM 调用就无法自行终局，便于断言"被打断前一直在途"。
-        // （shutdown 的 cancel 仍能打断挂起的执行体 → 回合以 Canceled 收尾）
-        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { awaitCancellation() }
     }
 }

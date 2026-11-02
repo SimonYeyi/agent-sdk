@@ -184,11 +184,16 @@ public class BossAgent internal constructor(
      * 调用方负责在不再使用 boss 时调用本方法 (e.g., 在应用关闭时).
      *
      * 终止协议: 进行中及尚未被收集的 run flow 收集均以 [CancellationException] 结束 ——
-     * 不静默截断, 与 [Agent.Shutdownable] 的统一约定一致.
+     * 不静默截断, 与 [Agent.Shutdownable] 的统一约定一致. 内层 agent 同时被显式关闭
+     * （其执行域不再随 boss scope 级联）.
      * 关闭后调用 [run] 抛 [IllegalStateException].
      */
     public override fun shutdown() {
         shutdownHelper.release()
+        // 内层 agent 的执行域必须显式终止：架构 1 靠 scope.cancel() 的结构化并发
+        // 隐式级联杀死 inner 执行体；架构 2 下 inner 回合跑在自己的私有 scope，
+        // 该级联失效 —— 不显式 shutdown，boss 关闭后 inner 仍会烧 token 到自然终局。
+        (innerAgent as? Agent.Shutdownable)?.shutdown()
         scope.cancel()
         onShutdown()
     }
@@ -229,20 +234,29 @@ public class BossAgent internal constructor(
         try {
             // 用户轮使用流式运行：逐字输出，降低用户感知延迟
             innerAgent.runStream(AgentQuery.text(userRound.input))
-                .collect { e -> userRound.channel.send(e) }
+                .collect { e ->
+                    if (e is AgentEvent.Canceled) {
+                        // 轮次被取消（shutdown）：以取消异常关闭 channel ——
+                        // 收集方据此知道这一轮被终止，而非"截断但无终态"的静默收尾。
+                        throw e.cause
+                    }
+                    userRound.channel.send(e)
+                }
+        } catch (cause: IllegalStateException) {
+            // 与 shutdown 的竞态：轮次已受理但执行体尚未开跑，inner 已先被 shutdown →
+            // runStream 直接抛 ISE。对收集方呈现与事件路径同型（channel 带取消原因关闭，
+            // NonCancellable 兜底保证轮次真的还在进行中）。
+            withContext(NonCancellable) {
+                throw CancellationException(SHUTDOWN_MESSAGE, cause)
+            }
         } catch (cause: CancellationException) {
-            // 轮次被打断（scope 取消 / shutdown）：以取消异常终止收集 ——
-            // 收集方据此知道这一轮被终止，而不是看到"截断但无终态"的静默收尾。
-            // channel 带 cause 关闭后，收集端的迭代器会抛出该 cause。
+            // scope 取消（shutdown 级联）路径：channel 带 cause 关闭，
+            // 收集端迭代器抛出该 cause —— 与事件路径同型。
             userRound.channel.close(cause)
             throw cause
         } finally {
-            // 正常路径：普通关闭（无 cause）→ 收集方在收到 Final 后正常结束。
             userRound.channel.close()
-            // 轮次完成即移除，无人收集的 round 不滞留登记表
             shutdownHelper.remove(userRound)
-            // NonCancellable：取消路径上 finally 内的挂起调用会立即抛取消异常，
-            // 调度器必须落地回到 WAITING，否则后续轮次永远排队不执行。
             withContext(NonCancellable) { scheduler.roundFinished() }
         }
     }
@@ -252,9 +266,11 @@ public class BossAgent internal constructor(
             // 报告轮次同样流式运行：任务报告逐字输出，降低送达感知延迟。
             // 流式增量经 report SharedFlow 送达 UI，最终由 Final 权威完整文本兜底。
             // 终局三选一：正常以 Final 收尾，真实失败由内层 agent 自行发出 Failed，
-            // 取消（shutdown / scope 取消）不发事件 —— report 是热流，不因单轮取消而关闭。
+            // 取消以 Canceled 收尾但只在此消费、不转发 —— report 是热流，不因单轮取消而关闭。
             innerAgent.runStream(AgentQuery.text(result, label = REPORT_LABEL)).collect { e ->
-                (report as MutableSharedFlow).emit(e)
+                // Canceled 不转发到 report 热流 —— 单轮取消不关闭热流，
+                // 调度器在 finally 照常回到 WAITING。
+                if (e !is AgentEvent.Canceled) (report as MutableSharedFlow).emit(e)
             }
         } finally {
             // 轮次收尾（含取消异常路径）：调度器必须回到 WAITING，
