@@ -93,3 +93,7 @@ public sealed interface AgentEvent {
      */
     public data class TextDelta(public val text: String) : AgentEvent
 }
+
+/** 终局事件族（Final / Failed / Canceled）—— core 内部判定用。 */
+internal val AgentEvent.isTerminal: Boolean
+    get() = this is AgentEvent.Final || this is AgentEvent.Failed || this is AgentEvent.Canceled

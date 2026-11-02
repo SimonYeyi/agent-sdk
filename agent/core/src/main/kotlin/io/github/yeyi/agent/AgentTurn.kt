@@ -2,16 +2,10 @@ package io.github.yeyi.agent
 
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.buffer
-import kotlinx.coroutines.flow.channelFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
 import java.util.concurrent.Semaphore
 
 /**
@@ -24,7 +18,6 @@ import java.util.concurrent.Semaphore
  *
  * 两个成员直接公开：调用方用它们的机械能力（投递 / 排空 / 判空 / 关闭、登记 / 打断），
  * 不在 AgentTurn 上再铺一层转发方法 —— 转发只是把调用点搬家，没有多出语义。
- * （事件出口的发射同理：[TurnFlow.emit] 落在持有 channel 的那一侧。）
  *
  * 本轮的执行态也归它：初始查询、调模型的方式、迭代计数、工具调用记录 ——
  * 与轮次同生共死的东西不散成并列参数。
@@ -44,8 +37,8 @@ internal class AgentTurn(
     /**
      * 终局闸门 —— 互斥"抢占 Final"与"投递 steering"两个动作.
      *
-     * 用 [Semaphore] 而非 [java.util.concurrent.locks.ReentrantLock]: 终局窗口会跨越挂起点 ('emit' 是 suspend),
-     * 协程恢复后可能换线程; ReentrantLock 是线程亲和的, 换线程 unlock 会抛
+     * 用 [Semaphore] 而非 [java.util.concurrent.locks.ReentrantLock]: 终局窗口内的 [AgentHook]
+     * 回调与 `emit` 都是挂起点，协程恢复后可能换线程; ReentrantLock 是线程亲和的, 换线程 unlock 会抛
      * IllegalMonitorStateException —— 表现为 agent 在已发出 Final 之后又报 Failed。
      * Semaphore 的 permit 与线程无关, release 可由任意线程执行。
      *
@@ -54,8 +47,13 @@ internal class AgentTurn(
      */
     private val gate = Semaphore(1)
 
-    /** 本轮的流 —— 事件出口在它手里。 */
-    val flow = TurnFlow()
+    /**
+     * 本轮事件总线 —— 全历史回放广播（replay = Int.MAX_VALUE，惰性倍增，无预分配）。
+     *
+     * emit 永不挂起（无限缓冲）：执行体速度与订阅者彻底解耦，也断了终局闸
+     * 横跨挂起点的死锁窗口。任何时刻订阅都从 [AgentEvent.Initial] 开始收到完整序列。
+     */
+    val events = MutableSharedFlow<AgentEvent>(replay = Int.MAX_VALUE, extraBufferCapacity = 0)
 
     /** 本轮的在途信箱 —— 纯缓冲，不取闸。 */
     val steering = SteerInbox()
@@ -63,13 +61,13 @@ internal class AgentTurn(
     /**
      * 本轮收尾信号 —— 完成即代表"槽位已还、信箱已关"。
      *
-     * 由收尾路径完成（轮次流结束 / 放弃轮次），作为 [Agent.Cancelable.cancel] 的返回句柄：
+     * 由执行体的 finally 完成后作为 [Agent.Cancelable.cancel] 的返回句柄：
      * 调用方 [kotlinx.coroutines.Job.join] 它，即可确保旧轮彻底退场后再开新一轮。
-     *
-     * 完成点定在"还槽 + 关信箱"之后 —— 否则等待者醒来时槽位可能仍被占着，
-     * 紧接着的 [Agent.run] 会撞上并发拒绝。
      */
     val terminated = CompletableDeferred<Unit>()
+
+    /** 本轮执行体 job —— cancel() 的打断目标，runTurn 启动执行体时登记。 */
+    var job: kotlinx.coroutines.Job? = null
 
     /** 本轮迭代计数 —— 自产累积量，非输入，故不进构造器。 */
     var iterations: Int = 0
@@ -81,10 +79,6 @@ internal class AgentTurn(
      * 本轮当前迭代的上下文 —— 一轮迭代一份，迭代内所有钩子点共用同一个对象。
      *
      * 由 agent 在每轮迭代开始时刷新（`buildContext(turn.iterations)`）。
-     *
-     * 不能各自派生：[AgentContext.metadata] 是可变 map，KDoc 承诺"供后续 hooks 使用" ——
-     * 一旦一轮迭代里拆成多个对象，钩子之间就传不了数据了（重构前一轮迭代只有一个 context，
-     * 从 `beforeLlmCall` 一路传到 `onRunCompleted`）。
      */
     lateinit var iterationContext: AgentContext
 
@@ -129,120 +123,3 @@ internal class SteerInbox {
 
     fun close() = inbox.close()
 }
-
-/**
- * 可中断的执行容器 —— 把"在子协程里跑一段产生事件的逻辑，并允许外部打断"这套语义收在一处。
- *
- * 每轮一份 —— 执行体登记下沉到轮次，跨轮不再有可被顶掉的全局单槽。
- *
- * 本类同时是本轮**事件出口的持有者**：出口留在拥有 channel 的这一侧，
- * 发射方（`turn.flow.emit(...)`）不必经手轮次，也不必等外部回填。
- *
- * 设计要点：
- * - 执行体跑在收集方的 scope 里（[channelFlow] 的子协程），因此收集方被取消时，
- *   结构化并发照旧向下传导，执行体一并停止；
- * - [cancel] 只取消这一个子协程 —— 协程取消向下传播、不向上，收集方协程本身不被取消，
- *   但收集会因 [CancellationException] 而结束，沿用"collect 外围 try/catch 取消异常"的既有用法；
- */
-internal class TurnFlow {
-    private enum class Attach { Ok, Canceled, Repeated }
-
-    private val lock = Any()
-    private var job: Job? = null
-    private var canceled = false
-    /** 打断原因 —— 迟收集（取消后首次收集）路径携带给收集方。 */
-    private var canceledCause: String? = null
-
-    /** 本轮的事件出口 —— 收集时装一次，此后发射走它。 */
-    private var sink: (suspend (AgentEvent) -> Unit)? = null
-
-    /**
-     * 启动本轮执行体。
-     *
-     * 出口在收集时装进本流（[sink]），执行体随后才开始跑 —— 保证执行体启动时
-     * 本轮出口必已就位。
-     *
-     * [Attach.Repeated] 抛出的 [RepeatedCollectionException] 是"这次收集不是拥有者"的
-     * 内部信号 —— 轮次收尾据此跳过，避免重复收集提前释放仍在运行的轮次的槽位与信箱。
-     */
-    fun start(body: suspend () -> Unit): Flow<AgentEvent> = channelFlow {
-        // LAZY 启动：执行体在 await() 之前不运行 —— 一旦开始收集，执行体必已登记进本轮，
-        // 此后的 cancel() 不会落空。
-        val producer = async(start = CoroutineStart.LAZY) { body() }
-        when (attach(producer)) {
-            Attach.Ok -> Unit
-            // 本轮已被取消作废、且从未被收集 → 不再执行；以取消异常收尾，
-            // 收集方不会拿到"零事件 + 正常结束"的静默出口。携带打断原因（若有）。
-            Attach.Canceled -> throw CancellationException(canceledCause ?: "flow is canceled")
-            // 同一轮被重复收集（含跑完后再收集一次）—— 跑不起来的调用错误，不是运行时错误。
-            Attach.Repeated -> throw RepeatedCollectionException()
-        }
-        sink = { e -> send(e) }
-        // 取消异常原样上抛：打断与"执行体自身被取消"对收集方是同一种信号，
-        // 调用方沿用 collect 外围 try/catch(CancellationException) 即可。
-        producer.await()
-    }.buffer(Channel.RENDEZVOUS)
-
-    /**
-     * 向本轮的事件出口发一个事件 —— **不需要轮次**，出口就在本流手里。
-     *
-     * 未收集即调用是内部不变式违规 —— 明确抛 [IllegalStateException]，
-     * 不静默丢弃（静默吞事件会表现为"事件凭空消失"，是最难查的一类故障）。
-     */
-    suspend fun emit(event: AgentEvent) {
-        checkNotNull(sink) { "turn flow is not started yet" }.invoke(event)
-    }
-
-    /**
-     * 登记执行体 —— 与打断同锁，二者必有其一先发生：
-     * 登记先于打断 ⟹ 打断拿到执行体并取消它；打断先于登记 ⟹ 流已取消，登记被拒。
-     */
-    private fun attach(job: Job): Attach = synchronized(lock) {
-        when {
-            // 曾收集过 —— 含已跑完后再收集一次。
-            this.job != null -> Attach.Repeated
-            // 被 cancel 作废、从未收集 → 迟收集。
-            canceled -> Attach.Canceled
-            else -> {
-                this.job = job; Attach.Ok
-            }
-        }
-    }
-
-    /**
-     * 打断本轮执行体（对已结束的 job 是无害的空操作）。
-     *
-     * 打断原因 [cause] 原样携带给收集方：in-flight 时作为 [Job.cancel] 的取消原因、
-     * 未收集时作为迟收集路径抛出的 [CancellationException] 原因 —— 两处对收集方
-     * 都表现为 [CancellationException]，只是原因不同（诊断用途，非消费契约）。
-     *
-     * @return true = 取消成功，打断执行体；false = 取消失败，无执行体可取消
-     */
-    fun cancel(cause: String? = null): Boolean = synchronized(lock) {
-        canceled = true
-        canceledCause = cause
-        return job?.let { it.cancel(CancellationException(cause)); true } ?: false
-    }
-}
-
-/**
- * 同一轮次被重复收集 —— 调用方错误。
- *
- * **抛出时机**：不是 [Agent.run] / [Agent.Streamable.runStream] 调用时，而是**收集时** ——
- * 违规的那一次 collect 一进入流就收到本异常。重复收集只有到收集时才会被发现：
- * `run()` 只建轮、不碰执行体，调用它本身不会抛本异常。
- * （`run()` 调用时确实可能抛 [IllegalStateException] —— 那是"已有活跃轮次"的并发拒绝，
- * 与重复收集无关。）
- *
- * **不转 [AgentEvent.Failed]**：Failed 的唯一产地是轮次执行体内部的失败路径，
- * 而重复收集发生在执行体启动之前（执行体 LAZY，从未运行）—— 这一轮没有产出任何
- * 事件，也就没有失败可言。正在运行的那一轮的收集者同样收不到这条失败：
- * 失败事件发在这一轮共享的流上，若因第二次收集伪造一条，污染的正是真正的收集者。
- *
- * 继承 [IllegalStateException]：对外仍表现为"调用方错误"，但内部可以精确识别 ——
- * 轮次收尾据此判断"这次收集是不是拥有者"，非拥有者的收集不得触碰仍在运行的轮次
- * 的槽位与信箱；用专属类型而非笼统的 ISE，是为了不和收集方自己抛出的
- * [IllegalStateException] 混淆。
- */
-internal class RepeatedCollectionException :
-    IllegalStateException("a turn flow may only be collected once")

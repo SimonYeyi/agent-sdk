@@ -8,13 +8,15 @@ import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import io.github.yeyi.agent.tool.ToolRegistry
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 
 class ReActAgentMultimodalTest {
 
-    private fun makeAgent(provider: FakeLlmProvider): Agent {
+    private fun TestScope.makeAgent(provider: FakeLlmProvider): Agent {
         val memory = InMemoryMemory()
         return ReActAgent(
             persona = AgentPersona("you are helpful"),
@@ -23,7 +25,8 @@ class ReActAgentMultimodalTest {
             memory = memory,
             modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
-            maxIterations = 5
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
     }
 

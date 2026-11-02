@@ -17,8 +17,13 @@ import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.memory.addToMemory
 import io.github.yeyi.agent.memory.toChatMessage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.tool.AsyncTool
@@ -26,7 +31,7 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolRegistry
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.onCompletion
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import java.util.concurrent.atomic.AtomicReference
@@ -40,8 +45,17 @@ public class ReActAgent internal constructor(
     private val maxRounds: Int,
     private val maxIterations: Int,
     private val hook: AgentHook = NoOpAgentHook,
+    dispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) : Agent, Agent.Streamable, Agent.Steerable, Agent.Cancelable {
     private val memory = RoundsBoundedMemory(RepairedMemory(memory), maxRounds, llmProvider)
+
+    /**
+     * agent 私有执行 scope —— 回合生命周期归 agent，订阅只是观察。
+     *
+     * SupervisorJob：单回合失败只杀本轮 job，不废 agent。dispatcher 是 internal 注入口，
+     * 仅供同模块测试注入 StandardTestDispatcher 保 runTest 虚拟时间；生产恒 Dispatchers.Default。
+     */
+    private val scope = CoroutineScope(SupervisorJob() + dispatcher)
 
     /**
      * 当前活跃轮次 —— 槽位按定义属于持有它的 agent。
@@ -50,16 +64,14 @@ public class ReActAgent internal constructor(
      */
     private val activeTurn = AtomicReference<AgentTurn?>(null)
 
-    override fun run(query: AgentQuery): Flow<AgentEvent> {
-        val turn = AgentTurn(query) { req -> llmProvider.chat(req) }
-        return runTurn(turn)
-    }
+    override fun run(query: AgentQuery): Flow<AgentEvent> =
+        runTurn(AgentTurn(query) { req -> llmProvider.chat(req) })
 
     override fun runStream(query: AgentQuery): Flow<AgentEvent> {
         val streaming = StreamingRunner(llmProvider)
         lateinit var turn: AgentTurn
         turn = AgentTurn(query) { req ->
-            streaming.run(req) { turn.flow.emit(AgentEvent.TextDelta(it)) }
+            streaming.run(req) { turn.events.emit(AgentEvent.TextDelta(it)) }
         }
         return runTurn(turn)
     }
@@ -99,14 +111,13 @@ public class ReActAgent internal constructor(
     }
 
     /**
-     * 打断当前回合 —— 只终止 agent 自身的执行，收集方协程不受影响。
+     * 打断当前回合 —— 只终止 agent 自身的执行，收集方协程不受影响
+     * （回合以 [AgentEvent.Canceled] 终局事件收尾，收集方照常结束）。
      *
-     * 回合从未被收集时（run() 已返回、流被放弃）：没有执行体可打断，而槽位也无人回收
-     * —— agent 会被永久锁死，之后每次 run() 都抛 "Concurrent run not supported"。
-     * 此时 cancel() 作废该轮（置已取消标志 + 关信箱）、把槽位还回去；该轮之后若被收集，
-     * 以取消异常收尾（与运行中被打断同型）。
+     * 启动即执行：cancel 恒打断在途执行体。回合若恰好已自然终局（job 已完成），
+     * cancel 是无害空操作 —— 终局仍以 Final/Failed 呈现，不会伪造 Canceled。
      *
-     * @param cause 打断原因（诊断用途）—— 收集方见到的 [CancellationException] 携带该原因；
+     * @param cause 打断原因（诊断用途）—— [AgentEvent.Canceled] 载荷携带该原因；
      *   为 null 时使用默认取消原因，见 [Agent.Cancelable.cancel]。
      *
      * @return 该轮收尾的句柄 —— 完成即代表槽位已还、信箱已关，之后可安全地再次 run()；
@@ -116,40 +127,45 @@ public class ReActAgent internal constructor(
      */
     override fun cancel(cause: String?): Job? {
         val turn = activeTurn.get() ?: return null // 无活跃轮次 → no-op（幂等）
-        // true  ⟺ 该轮已被收集 ⟹ 打断已投递，槽位由该轮流的 onCompletion 认人归还。
-        // false ⟺ 该轮从未被收集 ⟹ 没有 onCompletion 会来，槽位必须在此归还。
-        if (turn.flow.cancel(cause)) return turn.terminated
-        // 从未被收集的轮次：当场退场（还槽 + 关信箱 + 收尾信号）。
-        // 该轮从未被收集 ⇒ 没有执行体 ⇒ 退场不必取闸。
-        retireTurn(turn)
+        // 收尾句柄是 turn.terminated，不是 job：job 完成时订阅者可能还没收到终局，
+        // terminated 在「还槽 + 关信箱」之后才完成 —— join 它才能安全开新轮。
+        turn.job?.cancel(CancellationException(cause))
         return turn.terminated
     }
 
     /**
-     * 回合的公共骨架：占活跃槽位 → 交由可中断容器执行 → 无论何种终态都释放槽位。
+     * 回合的公共骨架：占活跃槽位 → 在 agent scope 内启动执行体 → 返回广播流。
+     * 启动即执行，收尾在执行体 finally —— 与订阅彻底解耦（孤儿回合语义）。
      */
     private fun runTurn(turn: AgentTurn): Flow<AgentEvent> {
         // eager 占据活跃 run 槽位：调用即建轮，杜绝 "run 返回但未收集" 间隙里
         // steer() 误判空闲导致并发双 run。已有活跃 run 时抛并发异常。
-        if (!activeTurn.compareAndSet(null, turn))
-            error("Concurrent run not supported: another run is active")
-        return turn.flow.start { loop(turn) }.onCompletion { cause ->
-            // 非拥有者的收集（重复收集）不得收尾：认人 CAS 会命中仍在运行的轮次，
-            // 把它的槽位提前释放（可开出并发双跑），并关掉它的信箱（steer() 对活着的轮返回 false）。
-            if (cause is RepeatedCollectionException) return@onCompletion
-            // 轮次退场：流已结束，没有执行体在跑 —— 退场不必取闸。
-            retireTurn(turn)
-        }
+        check(activeTurn.compareAndSet(null, turn)) { "Concurrent run not supported: another run is active" }
+        scope.launch {
+            // 取消与 Final 不会双发：emit(Final) 之后到 job 结束之间没有挂起点
+            // （retireTurn 只是 CAS / close / complete），job 不可能在此窗口被取消。
+            try { loop(turn) }
+            catch (e: CancellationException) {
+                withContext(NonCancellable) { turn.events.emit(AgentEvent.Canceled(e)) }
+            }
+            catch (e: Throwable) { turn.events.emit(AgentEvent.Failed(e)) }
+            finally { retireTurn(turn) }
+        }.also { turn.job = it }
+        return turn.events.transformWhile { event -> emit(event); !event.isTerminal }
     }
 
     /**
      * 轮次退场 —— 还槽（认人）+ 关信箱 + 完成收尾信号。
      *
+     * **幂等**，调用两处：
+     * - [finalize] 在闸内调它（发完 Final 之后）—— 投递被挡在闸外，
+     *   故 `steer() == false` 蕴含"终局已入回放、信箱已关"；
+     * - 执行体外壳的 finally 调它 —— 兜住取消 / 失败 / 意外路径中 [finalize] 没跑的情形。
+     * 三件事各自幂等（认人 CAS、信箱 close、`terminated.complete`），二次调用无害。
+     *
      * **不必在闸内**：闸护的是"终局裁决"与"投递"互斥，而退场时执行体已结束，
      * 唯一可能并发的只有投递 —— 两步之间被挤进一个投递，代价只是那轮 steer
      * 对已死的轮返回 true（与"cancel 之后 steer 仍可能返回 true"同一语义）。
-     * 终局路径（[finalize]）顺手在闸内调它（它本就持闸跨越终态发射），
-     * 那里的投递会被挡在闸外 → 对已死的轮返回 false。
      *
      * 先还槽、后关信箱：恒有「信箱已关 ⟹ 槽位已空」——
      * steer() 的重试循环靠这条必然推进，也保证「false ⟹ 可安全开新轮」。
@@ -172,10 +188,10 @@ public class ReActAgent internal constructor(
             // 循环内每轮迭代由 loopOnce 刷新成当轮的上下文。
             turn.iterationContext = buildContext(turn.iterations)
 
-            turn.flow.emit(AgentEvent.Initial(turn.query))
+            turn.events.emit(AgentEvent.Initial(turn.query))
 
             memory.attachHook(
-                MemoryCompressProxyHook(hook) { turn.flow.emit(it) },
+                MemoryCompressProxyHook(hook) { turn.events.emit(it) },
                 turn.iterationContext
             )
             modalityAdapter.archive(ChatMessage.User(turn.query.parts))
@@ -199,7 +215,7 @@ public class ReActAgent internal constructor(
             ChatMessage.Assistant(cause.message ?: cause.toString()).addToMemory(memory, "error")
             // 失败路径携带原始 Throwable,不再包成 AgentException —— 让上层自由判型。
             hook.safeInvoke { onRunFailed(turn.iterationContext, cause) }
-            turn.flow.emit(AgentEvent.Failed(cause))
+            turn.events.emit(AgentEvent.Failed(cause))
         }
     }
 
@@ -247,7 +263,7 @@ public class ReActAgent internal constructor(
     }
 
     private suspend fun callTools(turn: AgentTurn, response: ChatResponse, allAsync: Boolean) {
-        turn.flow.emit(
+        turn.events.emit(
             AgentEvent.ToolCallExplanation(
                 text = response.message.content?.takeIf { it != "" },
                 toolCalls = response.message.toolCalls,
@@ -256,7 +272,7 @@ public class ReActAgent internal constructor(
         )
 
         for (call in response.message.toolCalls) {
-            turn.flow.emit(AgentEvent.ToolCallStart(call))
+            turn.events.emit(AgentEvent.ToolCallStart(call))
             val synthetic = hook.safeInvoke { beforeToolCall(turn.iterationContext, call) }
             val startMs = System.currentTimeMillis()
             val raw = synthetic?.copy(isError = true) ?: toolRegistry.dispatch(
@@ -286,12 +302,12 @@ public class ReActAgent internal constructor(
                 )
             ).addToMemory(memory)
 
-            turn.flow.emit(AgentEvent.ToolCallEnd(call, final))
+            turn.events.emit(AgentEvent.ToolCallEnd(call, final))
         }
     }
 
     /**
-     * 终局协议：steer 检查点 → onRunCompleted → Final → destroy。
+     * 终局协议：steer 检查点 → onRunCompleted → Final → 退场。
      * 正常收敛与 [AsyncTool] 短路共用，保证协议一致性。
      * 若在途指令 (steer) 非空，放弃终局返回 null，强制再跑一轮让 LLM 带着指令重新作答。
      */
@@ -312,12 +328,12 @@ public class ReActAgent internal constructor(
         )
         hook.safeInvoke { onRunCompleted(turn.iterationContext, result) }
         try {
-            turn.flow.emit(AgentEvent.Final(result))
+            turn.events.emit(AgentEvent.Final(result))
             // 终局：终态发射 → 还槽 + 关门，全程持闸。
             // 闸门释放之后 steer() 拿到的 false 才意味着"可安全开新 run"——
-            // 若把 emit(Final) 放闸外，缝隙里 steer()==false 触发的 fallback run
-            // 会先发 Initial，旧 run 的 Final 后到，混流。
-            retireTurn(turn)   // 还槽 + 关信箱 + 收尾信号（闸内核心，与退场路径同一件事）
+            // 若把 emit(Final) 与 retireTurn 放到闸外，缝隙里 steer() 会命中仍开着的信箱、
+            // 对已死的轮返回 true，指令被静默丢弃。
+            retireTurn(turn)   // 还槽 + 关信箱 + 收尾信号（外壳 finally 的二次调用幂等）
         } finally {
             // 闸门用 Semaphore: release 可由任意线程执行 —— emit 是挂起点,
             // 协程恢复后可能换线程, 线程亲和锁在此 unlock 会抛 IllegalMonitorStateException。

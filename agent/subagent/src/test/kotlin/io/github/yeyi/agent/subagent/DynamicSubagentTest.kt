@@ -42,10 +42,18 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class DynamicSubagentTest {
 
+    /**
+     * 按顺序回放脚本响应。
+     *
+     * 动态子代理在 async 中并发调用 chat，谁先取到响应不保证；顺序回放会让"任务 ↔ 结果"
+     * 配对依赖调度顺序（断言据此偶发失败）。给出 [assign] 后按请求内容分派：
+     * 每个任务稳定拿到自己脚本化的那条，回放顺序不再影响配对。
+     */
     private class StubLlmProvider(
         private val responses: List<ChatResponse> = listOf(
             ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
-        )
+        ),
+        private val assign: ((request: ChatRequest, response: ChatResponse) -> Boolean)? = null,
     ) : LlmProvider {
         override val name: String = "stub"
         val chatRequests: MutableList<ChatRequest> = mutableListOf()
@@ -53,6 +61,9 @@ class DynamicSubagentTest {
 
         override suspend fun chat(request: ChatRequest): ChatResponse {
             chatRequests += request
+            if (assign != null) {
+                return responses.first { assign(request, it) }
+            }
             check(index < responses.size) {
                 "StubLlmProvider: chat() called ${index + 1} times, but only ${responses.size} responses scripted"
             }
@@ -199,9 +210,13 @@ class DynamicSubagentTest {
 
     @Test
     fun `execute runs N agents concurrently and aggregates in order with task tags`() = runTest {
+        // 并发调用下响应顺序不定：按任务文本分派，结果才能与任务一一对上
         val llm = StubLlmProvider(
             listOf(chatResponse("result-A"), chatResponse("result-B"), chatResponse("result-C"))
-        )
+        ) { request, response ->
+            val suffix = response.message.content?.last() ?: return@StubLlmProvider true
+            request.messages.filterIsInstance<ChatMessage.User>().any { "task $suffix" in it.parts.text }
+        }
         val tool = DynamicSubagentTool()
         val ctx = toolCtx(stubAgentContext(llm))
         val args = buildJsonObject {

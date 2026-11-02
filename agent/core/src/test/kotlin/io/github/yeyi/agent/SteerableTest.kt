@@ -26,6 +26,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonNull
@@ -128,7 +129,8 @@ class SteerableTest {
             memory = mem,
             modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
-            maxIterations = 5
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         assertFalse(agent.steer(AgentQuery.text("should not be delivered")))
     }
@@ -148,7 +150,8 @@ class SteerableTest {
             memory = mem,
             modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
-            maxIterations = 5
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         agent.run(AgentQuery.text("hi")).awaitResult()
         assertFalse(agent.steer(AgentQuery.text("too late")))
@@ -180,7 +183,8 @@ class SteerableTest {
             memory = mem,
             modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
-            maxIterations = 5
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
 
         backgroundScope.launch {
@@ -229,7 +233,8 @@ class SteerableTest {
             memory = mem,
             modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
-            maxIterations = 5
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
 
         backgroundScope.launch {
@@ -278,7 +283,8 @@ class SteerableTest {
             memory = mem,
             modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
-            maxIterations = 5
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
 
         backgroundScope.launch {
@@ -321,7 +327,8 @@ class SteerableTest {
             memory = mem,
             modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
-            maxIterations = 5
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
 
         backgroundScope.launch {
@@ -374,7 +381,8 @@ class SteerableTest {
             memory = mem,
             modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
-            maxIterations = 5
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
 
         // 第一次 run() 返回 flow，但尚未 collect —— eager create 已占据槽位
@@ -414,7 +422,8 @@ class SteerableTest {
             memory = mem,
             modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
-            maxIterations = 5
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
 
         val events = mutableListOf<AgentEvent>()
@@ -450,7 +459,8 @@ class SteerableTest {
             memory = mem,
             modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
-            maxIterations = 5
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
 
         backgroundScope.launch {
@@ -552,7 +562,8 @@ class SteerableTest {
             memory = mem,
             modalityAdapter = DefaultModalityAdapter(null),
             maxRounds = 20,
-            maxIterations = 5
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
 
         // run1

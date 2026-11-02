@@ -20,6 +20,7 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -81,7 +82,8 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals(
@@ -115,7 +117,8 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         agent.runStream(AgentQuery.text("hi")).awaitResult()
         assertEquals(
@@ -148,6 +151,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
 
         agent.run(AgentQuery.text("hi")).awaitResult()
@@ -187,6 +191,7 @@ class AgentHookTest {
         val agent = ReActAgent(
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(),
             memory = memory, modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals(
@@ -215,7 +220,8 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("ok", result.message.content)
@@ -241,7 +247,8 @@ class AgentHookTest {
         )
         // maxIterations=1,浼氱珛鍒?emit Failed(MaxIterations)
         val agent = ReActAgent(
-            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 1, hook = errorHook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 1, hook = errorHook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         agent.run(AgentQuery.text("hi")).toList()
         assertTrue(errorHook.errors.size == 1)
@@ -260,7 +267,8 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("ok", result.message.content)
@@ -291,7 +299,8 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
-            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("final", result.message.content)
@@ -314,9 +323,11 @@ class AgentHookTest {
             override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
-            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = errorHook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = errorHook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
-        agent.run(AgentQuery.text("hi")).toList()
+        val events = agent.run(AgentQuery.text("hi")).toList()
+        assertTrue(events.last() is AgentEvent.Failed, "LLM throw must end with Failed: $events")
         assertEquals(1, errorHook.errors.size)
         assertSame(boom, errorHook.errors[0])
     }
@@ -337,11 +348,11 @@ class AgentHookTest {
             override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
-            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = errorHook
+            persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = errorHook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
-        try { agent.run(AgentQuery.text("hi")).toList() } catch (t: Throwable) {
-            assertTrue(t is kotlinx.coroutines.CancellationException)
-        }
+        val events = agent.run(AgentQuery.text("hi")).toList()
+        assertTrue(events.last() is AgentEvent.Canceled, "cancel must end with Canceled: $events")
         // onRunFailed MUST NOT be called for cancellation
         assertEquals(0, errorHook.errors.size)
     }
@@ -367,7 +378,8 @@ class AgentHookTest {
         )
         val agent = ReActAgent(
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
-            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
+            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         val events2 = agent.run(AgentQuery.text("hi")).toList()
         // Short-circuited call still emits ToolCallStart/ToolCallEnd for event stream integrity.
@@ -394,7 +406,8 @@ class AgentHookTest {
         )
         val agent = ReActAgent(
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
-            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
+            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         // The synthetic result MUST land in toolCalls (so AgentResult consumers see the call)
@@ -422,7 +435,8 @@ class AgentHookTest {
         )
         val agent = ReActAgent(
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
-            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
+            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         // The agent still completes (no throw). The synthetic error result is what the LLM saw.
@@ -457,7 +471,8 @@ class AgentHookTest {
         )
         val agent = ReActAgent(
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
-            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
+            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals(1, result.toolCalls.size)
@@ -485,7 +500,8 @@ class AgentHookTest {
         )
         val agent = ReActAgent(
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
-            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
+            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         // exception in beforeToolCall 鈫?tool runs as if no hook short-circuited
@@ -515,7 +531,8 @@ class AgentHookTest {
         )
         val agent = ReActAgent(
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(),
-            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
+            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("value", capturedMetadata?.get("key"))
@@ -575,7 +592,8 @@ class AgentHookTest {
         )
         val agent = ReActAgent(
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
-            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook
+            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
+            dispatcher = StandardTestDispatcher(testScheduler)
         )
         agent.run(AgentQuery.text("hi")).awaitResult()
 

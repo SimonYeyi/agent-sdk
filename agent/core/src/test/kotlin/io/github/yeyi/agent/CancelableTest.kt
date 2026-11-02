@@ -18,6 +18,9 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlin.test.Test
@@ -31,8 +34,8 @@ import kotlin.test.assertTrue
 /**
  * 回合中断（[Agent.Cancelable]）的行为约定：
  * - 打断只终止 agent 自身的执行，收集方协程不受影响；
- * - 被打断的回合以 [kotlinx.coroutines.CancellationException] 结束收集 ——
- *   不发终态事件，也不以"零事件 + 正常结束"收尾（终局三选一：Final / Failed / 取消异常）；
+ * - 被打断的回合以 [AgentEvent.Canceled] 终局事件收尾 —— 不发 [AgentEvent.Failed]；
+ * - 取消订阅只掐观察，回合照常执行（孤儿回合）；
  * - 打断不消耗 agent 的可用性——后续回合照常执行。
  */
 class CancelableTest {
@@ -45,6 +48,8 @@ class CancelableTest {
         var callCount = 0
             private set
 
+        fun release() = gate.complete(Unit)
+
         override suspend fun chat(request: ChatRequest): ChatResponse {
             callCount++
             if (callCount == 1) {
@@ -63,27 +68,6 @@ class CancelableTest {
                 started.complete(Unit)
                 gate.await()
             }
-            emit(ChatResponseEvent.ContentDelta("done"))
-            emit(ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop))
-        }
-    }
-
-    /** 每次 chat() 都挂起 —— 用于构造"运行中的轮次"，可反复打断。 */
-    private class AlwaysGatedLlm : LlmProvider {
-        override val name: String = "always-gated"
-        val started = CompletableDeferred<Unit>()
-        private val gate = CompletableDeferred<Unit>()
-
-        override suspend fun chat(request: ChatRequest): ChatResponse {
-            if (!started.isCompleted) started.complete(Unit)
-            gate.await()
-            return ChatResponse(
-                message = ChatMessage.Assistant(content = "done"),
-                finishReason = FinishReason.Stop
-            )
-        }
-
-        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
             emit(ChatResponseEvent.ContentDelta("done"))
             emit(ChatResponseEvent.Done(usage = null, finishReason = FinishReason.Stop))
         }
@@ -115,7 +99,7 @@ class CancelableTest {
         }
     }
 
-    private fun agentOf(provider: LlmProvider) = ReActAgent(
+    private fun TestScope.agentOf(provider: LlmProvider) = ReActAgent(
         persona = AgentPersona(""),
         llmProvider = provider,
         toolRegistry = registryOf(),
@@ -123,7 +107,12 @@ class CancelableTest {
         modalityAdapter = DefaultModalityAdapter(null),
         maxRounds = 20,
         maxIterations = 5,
+        dispatcher = StandardTestDispatcher(testScheduler),
     )
+
+    /** 一条良构的非流式脚本响应。 */
+    private fun okResponse() =
+        ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
 
     @Test
     fun `cancel interrupts in-flight run and the collector sees the cancellation`() = runTest {
@@ -131,22 +120,16 @@ class CancelableTest {
         val agent = agentOf(llm)
         val events = mutableListOf<AgentEvent>()
 
-        val caught = CompletableDeferred<Throwable?>()
         val job = launch {
-            try {
-                agent.run(AgentQuery.text("hi")).collect { events += it }
-                caught.complete(null)
-            } catch (e: CancellationException) {
-                caught.complete(e)
-            }
+            agent.run(AgentQuery.text("hi")).collect { events += it }
         }
         llm.started.await()
         agent.cancel()
         job.join()
 
-        // 取消异常原样上抛 —— 调用方沿用 collect 外围 try/catch 的既有用法。
-        assertTrue(caught.await() is CancellationException)
-        // 打断的回合没有终态事件。
+        // 终局是 Canceled 事件（不是取消异常，也不是静默零事件）。
+        assertTrue(events.last() is AgentEvent.Canceled)
+        // 打断的回合没有其他终态事件。
         assertTrue(events.none { it is AgentEvent.Final })
         assertTrue(events.none { it is AgentEvent.Failed })
         // 收集方协程本身未被取消。
@@ -157,24 +140,18 @@ class CancelableTest {
     fun `cancel reason surfaces to the collector of an in-flight run`() = runTest {
         val llm = GatedLlm()
         val agent = agentOf(llm)
+        val events = mutableListOf<AgentEvent>()
 
-        val caught = CompletableDeferred<Throwable?>()
         val job = launch {
-            try {
-                agent.run(AgentQuery.text("hi")).collect { }
-                caught.complete(null)
-            } catch (e: CancellationException) {
-                caught.complete(e)
-            }
+            agent.run(AgentQuery.text("hi")).collect { events += it }
         }
         llm.started.await()
         agent.cancel("shut down by user")
         job.join()
 
-        // 打断原因随取消异常送达收集方（诊断用途，非消费契约）。
-        val e = caught.await()
-        assertTrue(e is CancellationException)
-        assertTrue("shut down by user" in (e.message ?: ""), "实际消息: ${e.message}")
+        // 打断原因随 Canceled 事件送达收集方（诊断用途，非消费契约）。
+        val canceled = events.last() as AgentEvent.Canceled
+        assertTrue("shut down by user" in (canceled.cause.message ?: ""), "实际消息: ${canceled.cause.message}")
         // 与普通 cancel 一致：收集方协程本身未被取消。
         assertFalse(job.isCancelled)
     }
@@ -183,105 +160,21 @@ class CancelableTest {
     fun `cancel interrupts in-flight streaming run`() = runTest {
         val llm = GatedLlm()
         val agent = agentOf(llm)
+        val events = mutableListOf<AgentEvent>()
 
-        val caught = CompletableDeferred<Throwable?>()
         val job = launch {
-            try {
-                agent.runStream(AgentQuery.text("hi")).collect { }
-                caught.complete(null)
-            } catch (e: CancellationException) {
-                caught.complete(e)
-            }
+            agent.runStream(AgentQuery.text("hi")).collect { events += it }
         }
         llm.started.await()
         agent.cancel()
         job.join()
 
-        assertTrue(caught.await() is CancellationException)
-    }
-
-    @Test
-    fun `cancel before the round starts abandons the round`() = runTest {
-        val provider = FakeLlmProvider(
-            nonStreamResponses = listOf(
-                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
-            )
-        )
-        val agent = agentOf(provider)
-
-        val flow = agent.run(AgentQuery.text("hi"))
-        agent.cancel()
-
-        // 回合从未被收集 → cancel 放弃该回合：收集时以取消异常收尾（与"运行中被打断"同型），
-        // 绝不出现"零事件 + 正常结束"的静默出口，且不再调用 LLM。
-        assertFailsWith<CancellationException> { flow.toList() }
-        assertTrue(provider.recordedRequests.isEmpty())
-    }
-
-    @Test
-    fun `cancel reason is carried by the late collection of an abandoned round`() = runTest {
-        val provider = FakeLlmProvider(
-            nonStreamResponses = listOf(
-                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
-            )
-        )
-        val agent = agentOf(provider)
-
-        val flow = agent.run(AgentQuery.text("hi"))
-        agent.cancel("abandoned by caller")
-
-        // 迟收集路径同样携带打断原因。
-        val e = assertFailsWith<CancellationException> { flow.toList() }
-        assertTrue("abandoned by caller" in (e.message ?: ""), "实际消息: ${e.message}")
-    }
-
-    @Test
-    fun `cancel releases the slot of a round that was never collected`() = runTest {
-        val provider = FakeLlmProvider(
-            nonStreamResponses = listOf(
-                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
-            )
-        )
-        val agent = agentOf(provider)
-
-        // run() 即占槽，但流从未被收集 —— 没有 cancel 的话槽位永远不会被回收。
-        agent.run(AgentQuery.text("hi"))
-        agent.cancel()
-
-        // 槽位已释放 → 下一轮不再撞上 "Concurrent run not supported"。
-        val events = agent.run(AgentQuery.text("hi again")).toList()
-        assertEquals(1, events.filterIsInstance<AgentEvent.Final>().size)
-    }
-
-    @Test
-    fun `the abandoned round does not destroy the next round's mailbox`() = runTest {
-        val provider = FakeLlmProvider(
-            nonStreamResponses = listOf(
-                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
-            )
-        )
-        val agent = agentOf(provider)
-
-        // 第一轮被放弃：信箱销毁、槽位还回。
-        val abandoned = agent.run(AgentQuery.text("hi"))
-        agent.cancel()
-        // 第二轮占槽，信箱就位。
-        agent.run(AgentQuery.text("hi again"))
-
-        // 第一轮此时才被收集：以取消异常收尾，其兜底释放认人 —— 不得销毁第二轮的信箱。
-        assertFailsWith<CancellationException> { abandoned.toList() }
-        // 第二轮的信箱仍在 → steer 仍可注入。
-        assertTrue(agent.steer(AgentQuery.text("later")))
+        assertTrue(events.last() is AgentEvent.Canceled)
     }
 
     @Test
     fun `cancel without an active round does not affect the next round`() = runTest {
-        val provider = FakeLlmProvider(
-            nonStreamResponses = listOf(
-                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
-            )
-        )
-        val agent = agentOf(provider)
+        val agent = agentOf(FakeLlmProvider(nonStreamResponses = listOf(okResponse())))
 
         agent.cancel()
 
@@ -289,8 +182,9 @@ class CancelableTest {
         assertEquals(1, events.filterIsInstance<AgentEvent.Final>().size)
     }
 
+    /** 取消订阅只终止该订阅；回合在 agent scope 中继续执行，槽位由执行体照常归还。 */
     @Test
-    fun `cancelling the collector ends the round with a cancellation and releases the slot`() = runTest {
+    fun `cancelling the collector only cancels the subscription`() = runTest {
         val llm = GatedLlm()
         val agent = agentOf(llm)
 
@@ -307,9 +201,19 @@ class CancelableTest {
         job.cancel() // 外部取消收集方协程
         job.join()
 
-        // 收集方拿到取消异常（不是静默零事件），槽位由该轮流的 onCompletion 认人释放。
+        // 收集方自身的 collect 以取消异常结束（标准协程语义，不属于终局事件）。
         assertTrue(caught.await() is CancellationException)
-        val events = agent.run(AgentQuery.text("hi again")).toList()
+
+        // 回合不受影响：仍在 LLM 上挂着 —— 槽位未还，此刻开新轮撞并发拒绝。
+        val ex = assertFailsWith<IllegalStateException> {
+            agent.run(AgentQuery.text("again")).toList()
+        }
+        assertTrue(ex.message!!.contains("Concurrent run not supported"))
+
+        // 释放 gate 后回合自然终结，槽位由执行体 finally 归还 → 新轮照常执行。
+        llm.release()
+        advanceUntilIdle()
+        val events = agent.run(AgentQuery.text("again")).toList()
         assertEquals(1, events.filterIsInstance<AgentEvent.Final>().size)
     }
 
@@ -319,10 +223,7 @@ class CancelableTest {
         val agent = agentOf(llm)
 
         val job = launch {
-            try {
-                agent.run(AgentQuery.text("hi")).collect { }
-            } catch (_: CancellationException) {
-            }
+            agent.run(AgentQuery.text("hi")).collect { }
         }
         llm.started.await()
         agent.cancel()
@@ -333,61 +234,18 @@ class CancelableTest {
     }
 
     /**
-     * 回归：迟收集的废弃轮次不得夺走运行中轮次的执行体登记。
-     *
-     * 登记若挂在 agent 级全局单槽上，废弃轮次一被收集就会顶掉运行中轮的登记 ——
-     * 此后运行中轮永远打断不掉，槽位还会被提前放掉。
-     */
-    @Test
-    fun `late collection of an abandoned round must not steal the running round's cancel slot`() = runTest {
-        val llm = AlwaysGatedLlm()
-        val agent = agentOf(llm)
-
-        // 第一轮：创建但不收集 → cancel 放弃 → 槽位归还
-        val abandoned = agent.run(AgentQuery.text("first"))
-        agent.cancel()
-
-        // 第二轮：开跑并被收集（挂在 LLM 上）
-        val caught = CompletableDeferred<Throwable?>()
-        val job = launch {
-            try {
-                agent.run(AgentQuery.text("second")).collect { }
-                caught.complete(null)
-            } catch (e: CancellationException) {
-                caught.complete(e)
-            }
-        }
-        llm.started.await()
-
-        // 关键：此时才收集已被放弃的第一轮
-        assertFailsWith<CancellationException> { abandoned.toList() }
-
-        // 期望：cancel() 打断的仍是正在运行的第二轮
-        agent.cancel()
-        job.join()
-
-        assertTrue(
-            caught.await() is CancellationException,
-            "运行中的第二轮应被 cancel() 打断 —— 实际结果: ${caught.await()}"
-        )
-    }
-
-    /**
      * 回归：收尾期间的第二次 cancel() 不得释放槽位。
      *
      * 打断只投递取消，执行体还可能跑着一段收尾 —— 此刻放掉槽位，新一轮就能与
      * 正在死去的旧轮并发。
      */
     @Test
-    fun `second cancel must not free the slot while the cancelled round is still unwinding`() = runTest {
+    fun `second cancel while unwinding does not free the slot early`() = runTest {
         val llm = SlowUnwindLlm()
         val agent = agentOf(llm)
 
         val job = launch {
-            try {
-                agent.run(AgentQuery.text("first")).collect { }
-            } catch (_: CancellationException) {
-            }
+            agent.run(AgentQuery.text("first")).collect { }
         }
         llm.started.await()
 
@@ -402,27 +260,17 @@ class CancelableTest {
         job.join()
     }
 
-    /**
-     * 回归：收集方自己抛出的异常不得让轮次收尾被跳过。
-     *
-     * 收尾按"这次收集是不是拥有者"判定，依据是内部专用的重复收集信号 ——
-     * 不能按笼统的 IllegalStateException 判定：收集方代码里的 ISE 同样会终止整条流，
-     * 若据此跳过收尾，槽位将永久泄漏，agent 从此再也不能 run。
-     */
+    /** 收集方自己的异常只终止该订阅；回合照常跑完、槽位照常归还。 */
     @Test
     fun `an exception thrown by the collector must not skip the round's release`() = runTest {
-        val provider = FakeLlmProvider(
-            nonStreamResponses = listOf(
-                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop),
-                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
-            )
-        )
+        val provider = FakeLlmProvider(nonStreamResponses = listOf(okResponse(), okResponse()))
         val agent = agentOf(provider)
 
-        // 收集方自己的代码抛异常（消费端 bug）—— 流被终止，但轮次必须照常收尾。
+        // 收集方自己的代码抛异常（消费端 bug）—— 订阅被终止，但回合并不知道。
         runCatching {
             agent.run(AgentQuery.text("hi")).collect { throw IllegalStateException("consumer bug") }
         }
+        advanceUntilIdle()
 
         // 槽位已归还 → 下一轮照常执行。
         val events = agent.run(AgentQuery.text("hi again")).toList()
@@ -430,42 +278,9 @@ class CancelableTest {
     }
 
     /**
-     * 回归：被拒绝的重复收集不得动活跃轮次的槽位与信箱。
-     *
-     * 轮次收尾若挂在流级 onCompletion 上，被拒绝的第二次收集也会执行它 ——
-     * 认人 CAS 命中仍在运行的轮次 → 槽位提前释放（可开出并发双跑、两个 loop 并发写记忆），
-     * 且活跃轮的信箱被关 → steer() 对活着的轮返回 false。
-     */
-    @Test
-    fun `a rejected repeated collection must not release the running round's slot`() = runTest {
-        val llm = GatedLlm()
-        val agent = agentOf(llm)
-
-        val flow = agent.run(AgentQuery.text("hi"))
-        val job = launch { runCatching { flow.toList() } }
-        llm.started.await()
-
-        // 同一 flow 第二次收集 → 重复收集是调用方错误
-        assertFailsWith<IllegalStateException> { flow.toList() }
-
-        // 槽位仍在 → 不能开出并发第二轮
-        val ex = assertFailsWith<IllegalStateException> {
-            agent.run(AgentQuery.text("second")).toList()
-        }
-        assertTrue(ex.message!!.contains("Concurrent run not supported"))
-
-        // 活跃轮的信箱仍在 → steer 仍可注入
-        assertTrue(agent.steer(AgentQuery.text("later")))
-
-        agent.cancel()
-        job.join()
-    }
-
-    /**
      * 打断后重开：等收尾句柄 → 旧轮彻底退场 → 新轮必定能起来。
      *
-     * 不等句柄时槽位可能仍被占着（收尾发生在收集方侧），此刻开新轮撞并发拒绝；
-     * join 之后槽位已还、信箱已关，新轮稳起。
+     * 句柄在「还槽 + 关信箱」之后完成 —— join 之后新轮稳起。
      */
     @Test
     fun `joining the cancel handle makes the next round startable`() = runTest {
@@ -473,10 +288,7 @@ class CancelableTest {
         val agent = agentOf(llm)
 
         val job = launch {
-            try {
-                agent.run(AgentQuery.text("hi")).collect { }
-            } catch (_: CancellationException) {
-            }
+            agent.run(AgentQuery.text("hi")).collect { }
         }
         llm.started.await()
 
@@ -494,32 +306,124 @@ class CancelableTest {
     /** 无活跃轮次时打断是幂等 no-op —— 没有句柄可给。 */
     @Test
     fun `cancel without an active round returns no handle`() = runTest {
-        val provider = FakeLlmProvider(
-            nonStreamResponses = listOf(
-                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
-            )
-        )
-        val agent = agentOf(provider)
+        val agent = agentOf(FakeLlmProvider(nonStreamResponses = listOf(okResponse())))
 
         assertNull(agent.cancel())
     }
 
-    /** 被放弃的轮次（从未收集）同步还槽 —— 句柄当场完成，无需等待。 */
+    // ===== 架构 2 新语义 =====
+
+    /** run 后不 collect，回合照常执行、槽位照常归还。 */
     @Test
-    fun `the handle of an abandoned round is already completed`() = runTest {
-        val provider = FakeLlmProvider(
-            nonStreamResponses = listOf(
-                ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop)
-            )
-        )
+    fun `run without collection still executes and retires the slot`() = runTest {
+        val provider = FakeLlmProvider(nonStreamResponses = listOf(okResponse(), okResponse()))
         val agent = agentOf(provider)
 
-        agent.run(AgentQuery.text("hi")) // 从不收集
-        val handle = assertNotNull(agent.cancel())
-        assertTrue(handle.isCompleted)
+        agent.run(AgentQuery.text("hi")) // 不 collect
+        advanceUntilIdle()
 
-        // 槽位已还 → 新轮照常执行
+        assertEquals(1, provider.recordedRequests.size, "run 即执行，无需订阅")
+        // 终局已入回放：迟收集拿到 Initial → Final 完整序列。
         val events = agent.run(AgentQuery.text("hi again")).toList()
         assertEquals(1, events.filterIsInstance<AgentEvent.Final>().size)
+        assertEquals(2, provider.recordedRequests.size, "第二轮照常执行（槽位已还）")
+    }
+
+    /** 取消订阅不终止回合（孤儿回合）——回合仍完成，重新收集可取到完整历史与终局。 */
+    @Test
+    fun `unsubscribing does not terminate the orphan round`() = runTest {
+        val llm = GatedLlm()
+        val agent = agentOf(llm)
+        val flow = agent.run(AgentQuery.text("hi"))
+        val job = launch { runCatching { flow.collect { } } }
+        llm.started.await()
+        job.cancel() // 只取消订阅
+        llm.release() // 释放 gate，回合全速跑完
+
+        val events = mutableListOf<AgentEvent>()
+        flow.collect { events += it } // 重新订阅：回放全历史 + 终局
+        assertTrue(events.first() is AgentEvent.Initial)
+        assertTrue(events.last() is AgentEvent.Final)
+        job.join()
+    }
+
+    /** 同一条公共流第二次 collect：完整历史 + 终局，不重复执行。 */
+    @Test
+    fun `collecting the same flow twice replays history without re-execution`() = runTest {
+        val provider = FakeLlmProvider(nonStreamResponses = listOf(okResponse()))
+        val agent = agentOf(provider)
+        val flow = agent.run(AgentQuery.text("hi"))
+
+        val first = flow.toList()
+        advanceUntilIdle()
+        val second = flow.toList()
+
+        assertEquals(first, second)
+        assertEquals(1, provider.recordedRequests.size, "不得重复执行")
+    }
+
+    /** 两个订阅者各自收到完整序列 —— 广播不分流。 */
+    @Test
+    fun `two subscribers each receive the complete sequence`() = runTest {
+        val llm = GatedLlm()
+        val agent = agentOf(llm)
+        val flow = agent.run(AgentQuery.text("hi"))
+        val a = mutableListOf<AgentEvent>()
+        val b = mutableListOf<AgentEvent>()
+        val subA = launch { flow.collect { a += it } }
+        llm.started.await()
+        val subB = launch { flow.collect { b += it } } // 中途订阅
+        llm.release()
+
+        subA.join(); subB.join()
+        assertEquals(a, b, "两个订阅者序列同构（b 为回放段 + live 段）")
+        assertTrue(a.first() is AgentEvent.Initial)
+        assertTrue(a.last() is AgentEvent.Final)
+    }
+
+    /** 迟到订阅必见 Initial —— 回放从回合第一个事件开始。 */
+    @Test
+    fun `late subscriber sees Initial first`() = runTest {
+        val llm = GatedLlm()
+        val agent = agentOf(llm)
+        val flow = agent.run(AgentQuery.text("hi"))
+        val early = launch { flow.collect { } }
+        llm.started.await()
+        llm.release()
+        early.join() // 回合已终局
+
+        val events = mutableListOf<AgentEvent>()
+        flow.collect { events += it }
+        assertTrue(events.first() is AgentEvent.Initial, "终局后订阅仍从 Initial 开始")
+        assertTrue(events.last() is AgentEvent.Final)
+    }
+
+    /** steer()==false 后立刻 run 必定成功（顺序收集零交错）。 */
+    @Test
+    fun `run immediately after steer returns false always starts`() = runTest {
+        val provider = FakeLlmProvider(nonStreamResponses = listOf(okResponse(), okResponse()))
+        val agent = agentOf(provider)
+
+        agent.run(AgentQuery.text("one")).toList() // 终局后 steer 必 false
+        assertFalse(agent.steer(AgentQuery.text("late")))
+        assertEquals(1, agent.run(AgentQuery.text("two")).toList().filterIsInstance<AgentEvent.Final>().size)
+    }
+
+    /** 终局唯一：取消与 Final 竞态下每个订阅者恰好看到一个终局事件。 */
+    @Test
+    fun `each subscriber sees exactly one terminal event`() = runTest {
+        val llm = GatedLlm()
+        val agent = agentOf(llm)
+        val flow = agent.run(AgentQuery.text("hi"))
+        val a = mutableListOf<AgentEvent>()
+        val b = mutableListOf<AgentEvent>()
+        val subA = launch { flow.collect { a += it } }
+        val subB = launch { flow.collect { b += it } }
+        llm.started.await()
+        agent.cancel()
+        subA.join(); subB.join()
+
+        assertEquals(1, a.count { it.isTerminal })
+        assertEquals(1, b.count { it.isTerminal })
     }
 }
