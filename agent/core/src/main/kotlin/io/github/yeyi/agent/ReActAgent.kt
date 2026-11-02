@@ -171,8 +171,8 @@ public class ReActAgent internal constructor(
             catch (e: Throwable) { turn.events.emit(AgentEvent.Failed(e)) }
             finally { retireTurn(turn) }
         }
-        // eager 占据活跃 run 槽位：调用即建轮，杜绝 "run 返回但未收集" 间隙里
-        // steer() 误判空闲导致并发双 run。已有活跃 run 时抛并发异常。
+        // 启动即执行：run 即建轮并挂上执行体 job，steer() 按 activeTurn 判定活跃。
+        // 已有活跃 run 时抛并发异常。
         if (!activeTurn.compareAndSet(null, turn)) {
             job.cancel() // 体尚未启动，cancel 即丢弃
             error("Concurrent run not supported: another run is active")

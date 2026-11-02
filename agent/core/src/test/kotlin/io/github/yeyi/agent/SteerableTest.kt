@@ -359,12 +359,12 @@ class SteerableTest {
     }
 
     /**
-     * 回归：run() 调用即 eager 占据槽位，杜绝 "run 返回但未收集" 间隙的并发双 run。
+     * 回归：run() 调用即建轮并挂上执行体 job，steer() 按 activeTurn 判定活跃。
      *
      * 场景：if (!steer()) { run.collect {} } 首次执行后，在 flow 尚未 collect 前
-     * 重复执行同一惯用法。若 create() 惰性在 flow body 内，第二次 steer() 仍 false，
-     * 会再起一个 run → 双 flow 并发 → 第二个 create() 抛并发异常。
-     * 修复：create() 在 run() 函数体 eager 执行，调用即占槽，steer() 立即 true。
+     * 重复执行同一惯用法。若轮次延到收集时才建，第二次 steer() 仍 false，
+     * 会再起一个 run → 双 flow 并发 → 第二个 run() 抛并发异常。
+     * 修复：run() 函数体内即占槽并启动执行体，steer() 立即 true。
      */
     @Test
     fun `run call eagerly occupies slot before collection to prevent fallback double-run`() = runTest {
@@ -385,7 +385,7 @@ class SteerableTest {
             dispatcher = StandardTestDispatcher(testScheduler)
         )
 
-        // 第一次 run() 返回 flow，但尚未 collect —— eager create 已占据槽位
+        // 第一次 run() 返回 flow，但尚未 collect —— 轮次已占槽、执行体已启动
         val flow = agent.run(AgentQuery.text("one"))
 
         // 此刻重复执行 fallback 惯用法：steer 必须返回 true，不触发第二次 run

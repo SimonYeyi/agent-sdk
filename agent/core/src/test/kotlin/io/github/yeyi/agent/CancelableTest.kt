@@ -323,7 +323,7 @@ class CancelableTest {
         advanceUntilIdle()
 
         assertEquals(1, provider.recordedRequests.size, "run 即执行，无需订阅")
-        // 终局已入回放：迟收集拿到 Initial → Final 完整序列。
+        // 新一轮照常执行，收集拿到 Initial → Final 完整序列。
         val events = agent.run(AgentQuery.text("hi again")).toList()
         assertEquals(1, events.filterIsInstance<AgentEvent.Final>().size)
         assertEquals(2, provider.recordedRequests.size, "第二轮照常执行（槽位已还）")

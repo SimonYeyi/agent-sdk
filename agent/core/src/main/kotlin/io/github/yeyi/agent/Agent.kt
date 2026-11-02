@@ -108,7 +108,7 @@ public interface Agent {
      * 消费方按事件分支处理，不再 catch 取消异常。
      *
      * **打断后想立刻重开，要等 [cancel] 返回的句柄**：打断只投递取消，
-     * 旧轮的收尾（槽位归还、信箱关闭）在收集方侧进行 —— [cancel] 返回时往往还没收完，
+     * 旧轮的收尾（槽位归还、信箱关闭）在 agent 私有 scope 侧进行 —— [cancel] 返回时往往还没收完，
      * 此刻开新轮会撞上 [IllegalStateException]（"Concurrent run not supported"）。
      * [kotlinx.coroutines.Job.join] 该句柄后再开新轮则必定成功。
      *
