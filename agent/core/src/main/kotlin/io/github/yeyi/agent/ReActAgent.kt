@@ -19,6 +19,7 @@ import io.github.yeyi.agent.memory.toChatMessage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
@@ -136,12 +137,15 @@ public class ReActAgent internal constructor(
     /**
      * 回合的公共骨架：占活跃槽位 → 在 agent scope 内启动执行体 → 返回广播流。
      * 启动即执行，收尾在执行体 finally —— 与订阅彻底解耦（孤儿回合语义）。
+     *
+     * job 必须先登记到 [AgentTurn.job]、再让轮次出现在 [activeTurn]：否则并发
+     * [cancel] 读到活跃轮次却解引用到 null job，成了静默 no-op，该轮逃过取消。
+     * 故用 [CoroutineStart.LAZY] 建 job（体不启动）→ CAS 占槽 → 登记 job → start()。
+     * CAS 成功即建立 happens-before：写 job 先于写槽位（AtomicReference），
+     * 经 [activeTurn] 观察到轮次的读者必能看到 job —— job 无需 @Volatile。
      */
     private fun runTurn(turn: AgentTurn): Flow<AgentEvent> {
-        // eager 占据活跃 run 槽位：调用即建轮，杜绝 "run 返回但未收集" 间隙里
-        // steer() 误判空闲导致并发双 run。已有活跃 run 时抛并发异常。
-        check(activeTurn.compareAndSet(null, turn)) { "Concurrent run not supported: another run is active" }
-        scope.launch {
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             // 取消与 Final 不会双发：emit(Final) 之后到 job 结束之间没有挂起点
             // （retireTurn 只是 CAS / close / complete），job 不可能在此窗口被取消。
             try { loop(turn) }
@@ -150,7 +154,15 @@ public class ReActAgent internal constructor(
             }
             catch (e: Throwable) { turn.events.emit(AgentEvent.Failed(e)) }
             finally { retireTurn(turn) }
-        }.also { turn.job = it }
+        }
+        // eager 占据活跃 run 槽位：调用即建轮，杜绝 "run 返回但未收集" 间隙里
+        // steer() 误判空闲导致并发双 run。已有活跃 run 时抛并发异常。
+        if (!activeTurn.compareAndSet(null, turn)) {
+            job.cancel() // 体尚未启动，cancel 即丢弃
+            error("Concurrent run not supported: another run is active")
+        }
+        turn.job = job
+        job.start()
         return turn.events.transformWhile { event -> emit(event); !event.isTerminal }
     }
 
