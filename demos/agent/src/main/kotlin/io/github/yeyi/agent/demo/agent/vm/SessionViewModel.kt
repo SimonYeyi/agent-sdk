@@ -221,8 +221,9 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                             )
                         }
                         is io.github.yeyi.agent.AgentEvent.Canceled -> {
+                            // Canceled 唯一来源是切/删会话的 releaseAgent——
+                            // 用户已切走，不渲染打断横幅，只清回合中的临时 UI 状态。
                             _uiState.value = _uiState.value.copy(
-                                error = "已打断",
                                 liveBubble = null,
                                 isToolExecutionPending = false
                             )
