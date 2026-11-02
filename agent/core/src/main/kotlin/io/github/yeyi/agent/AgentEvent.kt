@@ -3,6 +3,7 @@ package io.github.yeyi.agent
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.tool.ToolExecutionResult
+import kotlinx.coroutines.CancellationException
 
 /**
  * Agent 事件流模型。
@@ -10,14 +11,16 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
  * 所有事件在流式/非流式模式下行为一致，非流式模式的事件序列是流式模式的子集。
  * 流式模式额外提供 [TextDelta] 增量文本事件，用于实时预览。
  *
+ * 事件序列：`Initial → [...增量/工具事件...] → Final | Failed | Canceled`（终局三选一）。
+ *
  * **非流式模式（run）：**
  * ```
- * Initial → [ToolCallExplanation → ToolCallStart → ToolCallEnd]? → Final
+ * Initial → [ToolCallExplanation → ToolCallStart → ToolCallEnd]? → Final | Failed | Canceled
  * ```
  *
  * **流式模式（runStream）：**
  * ```
- * Initial → [TextDelta* → ToolCallExplanation → ToolCallStart → ToolCallEnd]? → TextDelta* → Final
+ * Initial → [TextDelta* → ToolCallExplanation → ToolCallStart → ToolCallEnd]? → TextDelta* → Final | Failed | Canceled
  * ```
  *
  * - 一次 run(Stream) 可能包含多个 [ToolCallExplanation] → [ToolCallStart] → [ToolCallEnd] 事件循环（多轮工具调用）
@@ -69,6 +72,15 @@ public sealed interface AgentEvent {
      * 调用方拿到 [cause] 后自行决定是否按 [AgentException] 判型——不再由 SDK 边界强制包装。
      */
     public data class Failed(public val cause: Throwable) : AgentEvent
+
+    /**
+     * 终态事件：回合被取消后发出（如 [Agent.Cancelable] 打断 / [Agent.Shutdownable] 关闭）。
+     *
+     * 取消不是失败：失败的正确默认动作是重试/告警，取消是停止/提示打断。
+     * 载荷用 [CancellationException] —— `awaitResult` 可直接抛出而不被协程框架
+     * 误判为失败；message 承载取消原因（诊断用途，如 "Agent is shut down" 与用户打断的区分）。
+     */
+    public data class Canceled(public val cause: CancellationException) : AgentEvent
 
     public data class MemoryCompressing(public val summaries: List<Summary>) : AgentEvent
 

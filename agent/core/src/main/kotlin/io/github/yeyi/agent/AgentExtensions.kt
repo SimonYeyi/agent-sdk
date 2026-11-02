@@ -33,17 +33,19 @@ public fun Tool.toDefinition(): ToolDefinition {
  * 终局三选一（与 [Agent.run] 的契约一致）：
  * - [AgentEvent.Final] → 返回其 [AgentEvent.Final.result]
  * - [AgentEvent.Failed] → 抛出其 [AgentEvent.Failed.cause]（原始异常，不重新包装）
- * - [kotlinx.coroutines.CancellationException] → 原样上抛（回合被打断或 Agent 已关闭），
- *   不包装、不吞掉 —— 调用方沿用"catch 取消异常"的既有用法即可。
+ * - [AgentEvent.Canceled] → 抛出其 [AgentEvent.Canceled.cause]（载荷本就是
+ *   [kotlinx.coroutines.CancellationException]，抛出不误判失败、不重新包装）——
+ *   保持「取消即异常」的返回形态，衔接既有调用方心智。
  *
  * 其他 [AgentEvent] 子类型被忽略。
  * Flow 自身异常按 Flow 协议传播。
  */
 public suspend fun Flow<AgentEvent>.awaitResult(): AgentResult {
-    val terminal = filter { it is AgentEvent.Final || it is AgentEvent.Failed }.first()
+    val terminal = filter { it is AgentEvent.Final || it is AgentEvent.Failed || it is AgentEvent.Canceled }.first()
     return when (terminal) {
         is AgentEvent.Final -> terminal.result
         is AgentEvent.Failed -> throw terminal.cause
-        else -> error("unreachable: filter restricts to Final|Failed, got ${terminal::class.simpleName}")
+        is AgentEvent.Canceled -> throw terminal.cause
+        else -> error("unreachable: filter restricts to Final|Failed|Canceled, got ${terminal::class.simpleName}")
     }
 }

@@ -10,9 +10,10 @@ import kotlinx.coroutines.flow.Flow
  * [run] 通过 [AgentEvent] Flow 向调用方推送中间状态，终局**三选一**：
  * - [AgentEvent.Final] —— 正常终结，携带最终结果；
  * - [AgentEvent.Failed] —— 运行失败，携带原始异常；
- * - [kotlinx.coroutines.CancellationException] —— 回合被取消（如：[Agent.Cancelable]）
+ * - [AgentEvent.Canceled] —— 回合被取消（如：[Agent.Cancelable] 打断、[Agent.Shutdownable] 关闭），
+ *   携带 [kotlinx.coroutines.CancellationException] 载荷。
  *
- * 三者互斥且必有其一：一次收集不会以"零事件 + 正常结束"收尾。
+ * 三者互斥且必有其一：一次收集以终局事件收尾。
  *
  * 调用方可通过 [kotlinx.coroutines.flow.first] 或 [kotlinx.coroutines.flow.last] 获取最终结果，
  * 也可全程订阅事件流实现实时 UI 反馈。
@@ -31,11 +32,9 @@ public interface Agent {
      *
      * 适用场景：响应速度优先、无需流式输出。
      *
-     * **轮次语义**：返回的 [Flow] 代表一个轮次，**只允许收集一次**——重复收集是调用方错误。
-     *
-     * 实现 [Agent.Cancelable] 的 Agent 在本方法
-     * 调用时即占用活跃轮次：若最终不收集该流，必须调用 [Agent.Cancelable.cancel] 释放占用，
-     * 否则 agent 停留在"已有活跃轮次"，后续 [run] 抛 [IllegalStateException]。
+     * **轮次语义**：调用即启动回合并立即执行（非 suspend、不等收集）——返回的 [Flow] 只是
+     * 观察窗口，订阅不驱动执行。同一回合的流可多次收集（广播回放：从 [AgentEvent.Initial]
+     * 起的完整历史 + 终局）；取消订阅不终止回合（孤儿回合），终止回合须 [Agent.Cancelable.cancel]。
      */
     public fun run(query: AgentQuery): Flow<AgentEvent>
 
@@ -51,7 +50,7 @@ public interface Agent {
      *
      * 适用场景：需要实时展示 LLM 输出文字、工具调用进度等。
      *
-     * 轮次语义与 [run] 一致（**只允许收集一次**、不收集须 [Agent.Cancelable.cancel] 释放占用）——
+     * 轮次语义与 [run] 一致（调用即启动、广播回放、取消订阅不终止回合）——
      * 两者是同一个"轮次"的两种执行方式，不能对同一轮既 [run] 又 [runStream]。
      */
     public interface Streamable {
@@ -105,8 +104,8 @@ public interface Agent {
      * `agent is Agent.Cancelable` 探测能力，而非无条件调用 [cancel]。
      *
      * [cancel] 只作用于当前回合，不改变 Agent 自身状态：打断后 Agent 仍可再次 [Agent.run]。
-     * 终止协议与 [Shutdownable] 一致：进行中的 [Agent.run] flow 收集以 [CancellationException] 结束，
-     * 调用方沿用"collect 外围 try/catch 取消异常"的既有用法即可。
+     * 终止协议：在途回合以 [AgentEvent.Canceled] 终局事件收尾（载荷携带 [cause]），
+     * 消费方按事件分支处理，不再 catch 取消异常。
      *
      * **打断后想立刻重开，要等 [cancel] 返回的句柄**：打断只投递取消，
      * 旧轮的收尾（槽位归还、信箱关闭）在收集方侧进行 —— [cancel] 返回时往往还没收完，
@@ -115,10 +114,6 @@ public interface Agent {
      *
      * 与 [Shutdownable] 的分工：[cancel] 是可恢复的中断（回合结束，Agent 继续可用）；
      * [Shutdownable.shutdown] 是终态操作（Agent 作废，之后调用 [Agent.run] 抛 [IllegalStateException]）。
-     *
-     * **未收集轮次的释放义务**：实现本能力的 Agent 通常在 [Agent.run] 调用时即占用活跃轮次 ——
-     * 若返回的流最终不被收集，必须调用 [cancel] 作废该轮并释放占用，
-     * 否则 agent 停留在"已有活跃轮次"，后续 [Agent.run] 抛 [IllegalStateException]。
      *
      * **已关闭的 Agent**：[Shutdownable.shutdown] 之后调用 [cancel] 的行为由实现定义 ——
      * 终态语义下已关闭的 Agent 不再接受任何操作（实现可抛 [IllegalStateException]）。
@@ -130,13 +125,13 @@ public interface Agent {
          * 打断当前正在执行的回合。
          *
          * 无活跃回合时为 no-op（幂等）；
-         * 若回合已通过[Agent.run] 或 [Streamable.runStream] 创建，则 [Flow.collect] 以 [CancellationException] 结束
-         * - 若在[cancel]之后被收集，将以 [CancellationException] 直接结束；
-         * - 若回合已在执行，则打断其执行体，以 [CancellationException] 结束。
+         * [cancel] 只作用于当前回合，不改变 Agent 自身状态：打断后 Agent 仍可再次 [Agent.run]。
+         * 终止协议：在途回合以 [AgentEvent.Canceled] 终局事件收尾（载荷携带 [cause]），
+         * 消费方按事件分支处理，不再 catch 取消异常。
          *
-         * @param cause 打断原因（诊断用途）—— 收集方见到的 [CancellationException] 会携带该原因，
+         * @param cause 打断原因（诊断用途）—— [AgentEvent.Canceled] 载荷携带该原因，
          *   便于在日志中区分"shutdown 终止"与"用户打断"等不同来源。
-         *   注意：原因仅是可读的辅助信息，不是消费契约 —— 收集方仍应以取消异常的类型
+         *   注意：原因仅是可读的辅助信息，不是消费契约 —— 收集方仍应以终局事件的类型
          *   判断流程分支（如 [Shutdownable] 的"shutdown 后再次 [Agent.run] 抛 [IllegalStateException]"），
          *   不应嗅探原因字符串。为 null 时使用实现默认的取消原因。
          *
@@ -165,8 +160,7 @@ public interface Agent {
      * 探测能力，而非无条件调用 [shutdown]。
      *
      * [shutdown] 是终态操作：停止 Agent 的后台活动、终止进行中的 [Agent.run] flow 并回收其持有的
-     * 外部资源（如 MCP 子进程）。终止协议统一：进行中的 [Agent.run] flow 收集以 [CancellationException]
-     * 结束（尚未被收集的 flow 在收集时同样以 [CancellationException] 结束，不静默零事件）；
+     * 外部资源（如 MCP 子进程）。终止协议统一：进行中回合以 [AgentEvent.Canceled]（"Agent is shut down"）终局事件收尾；
      * 之后调用 [Agent.run] 抛出 [IllegalStateException]（Agent 已关闭）；如需继续使用必须重新创建实例。
      * 幂等：可重复调用，第二次无副作用。
      *
