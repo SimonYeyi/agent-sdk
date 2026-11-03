@@ -152,7 +152,7 @@ public class ReActAgent internal constructor(
      *
      * job 必须先登记到 [AgentTurn.job]、再让轮次出现在 [activeTurn]：否则并发
      * [cancel] 读到活跃轮次却解引用到 null job，成了静默 no-op，该轮逃过取消。
-     * 故用 [CoroutineStart.LAZY] 建 job（体不启动）→ CAS 占槽 → 登记 job → start()。
+     * 故用 [CoroutineStart.LAZY] 建 job（体不启动）→ 登记 job → CAS 占槽 → start()。
      * CAS 成功即建立 happens-before：写 job 先于写槽位（AtomicReference），
      * 经 [activeTurn] 观察到轮次的读者必能看到 job —— job 无需 @Volatile。
      * 顺序不可颠倒：CAS 之后才写 job，并发 [cancel] 会在窗口里读到 null job 静默落空。
@@ -187,27 +187,22 @@ public class ReActAgent internal constructor(
                 retireTurn(turn)
             }
         }
-        // 启动即执行：run 即建轮并挂上执行体 job，steer() 按 activeTurn 判定活跃。
-        // 已有活跃 run 时抛并发异常。
+        // 先登记 job、再 CAS 占槽：写 job 先于写槽位，经 activeTurn 观察到轮次的读者
+        // 必能看到 job（并发 cancel 不会解引用到 null）；CAS 失败即并发，job 尚未 start，cancel 即丢弃。
         turn.job = job
         if (!activeTurn.compareAndSet(null, turn)) {
-            job.cancel() // 体尚未启动，cancel 即丢弃
+            job.cancel()
             error("Concurrent run not supported: another run is active")
         }
-        // born-cancelled 兜底：shutdown 的 scope.cancel() 若抢在本轮执行体派发生效之前
-        //（窗口横跨 start 前后，start 同步返回挡不住「已取消但体未跑」的交错），
-        // LAZY 执行体永不运行 —— 终局不发、finally 不跑，收集方将永久挂起（要排除的静默失败）。
-        // 执行体跑过的全部路径都先发终局、再经 finally 还槽 —— 槽位仍是本回合
-        // 就说明执行体从未收尾（born-cancelled），补发终局 + 补退场；与 finally 的
-        // retireTurn 幂等不冲突，不会双发终局。
+        // born-cancelled 兜底：shutdown 的 scope.cancel() 若抢在执行体派发生效之前，
+        // LAZY 执行体永不运行 —— 终局不发、finally 不跑，收集方将永久挂起。
+        // 槽位仍是本回合 ⟺ 执行体从未启动：补发终局 + retireTurn 退场；
+        // 正常路径槽已还，判别名不成立即跳过，不会双发终局。
+        // 从未启动的 LAZY job 唯一完成方式是被取消，cause 必为取消异常——
+        // 用 as 而非 is 分支，不变量被破坏时立即 CCE fail-fast，而非伪装成 Failed。
         job.invokeOnCompletion { cause ->
             if (activeTurn.get() !== turn) return@invokeOnCompletion
-            turn.events.tryEmit(
-                if (cause is CancellationException) AgentEvent.Canceled(cause)
-                else AgentEvent.Failed(
-                    cause ?: CancellationException("Agent execution did not start")
-                )
-            )
+            turn.events.tryEmit(AgentEvent.Canceled(cause as CancellationException))
             retireTurn(turn)
         }
         job.start()
