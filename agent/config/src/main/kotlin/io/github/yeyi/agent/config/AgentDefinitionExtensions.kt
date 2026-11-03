@@ -102,9 +102,13 @@ public class SpawnedAgent internal constructor(
     /** 永久关闭 Agent 并回收资源（MCP 子进程等）。幂等，可重复调用。 */
     override fun shutdown() {
         if (!shutdownSignal.complete(Unit)) return
-        // delegate.shutdown()：scope.cancel() 让活跃回合以 NonCancellable 发完
-        // Canceled 后退场 —— 先等执行域终止、再拆 MCP，杜绝「在途工具调用拿到
-        // 已死 client」的竞态（cancel 只投递、收尾异步，立即 unregisterAll 会踩进窗口）。
+        // delegate.shutdown()：scope.cancel() 是投递语义 —— 立即返回，活跃回合在 agent
+        // scope 里异步收尾（NonCancellable 发完 Canceled）。这里不等它，紧跟的
+        // unregisterAll() 是安全的：它只同步从 registry 删名（纯 Map 操作），在途工具
+        // 调用手里已持有 client 引用，不受影响；真正的连接关闭在后台协程里执行且会跑完
+        // （runCatching 吞异常、子进程被 destroy），无资源泄漏。且 scope.cancel 之后
+        // 下游挂起点立即抛取消，在途调用基本走不到「检查连接已关」那一步。
+        // 若将来 MCP 客户端改成「拆卸时同步中断在途请求」，此处的先后顺序需要重新审视。
         delegate.shutdown()
         mcpRegistry?.unregisterAll()
     }

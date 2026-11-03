@@ -312,7 +312,8 @@ override fun shutdown() {
 
 - `run` / `runStream` / `steer` 在关闭后同步抛 `IllegalStateException`，与 `SpawnedAgent` 现有口径一致。
 - shutdown 是**唯一**终止 scope 的路径。
-- **`SpawnedAgent.shutdown()` 改为 `delegate.shutdown()`（时序修复）**：现实现「`delegate.cancel(msg)` 后立即 `mcpRegistry.unregisterAll()`」在架构 2 下有竞态——cancel 只投递、回合在 agent scope 异步收尾，MCP 子进程会在回合仍存活时被拆掉，在途工具调用拿到已死的 client。改走 `delegate.shutdown()`（内部 `scope.cancel()`，活跃回合以 `NonCancellable` 发完 `Canceled`）并等待收尾后再 `unregisterAll()`。
+- **`SpawnedAgent.shutdown()` 改为 `delegate.shutdown()`**：现实现用 `delegate.cancel(msg)`，只打断当前回合、agent 本身仍可用；改为 `delegate.shutdown()`（内部 `scope.cancel()`，活跃回合以 `NonCancellable` 发完 `Canceled`，之后 `run` 拒绝），与整体作废的语义一致，随后 `unregisterAll()`。
+- **`unregisterAll()` 不等回合收尾**（明确不做等待）：`delegate.shutdown()` 是投递语义、立即返回，回合在 agent scope 里异步收尾。紧随的 `unregisterAll()` 只**同步**从 registry 删名（纯 Map 操作），在途工具调用手里已持有 client 引用，不受影响；真正的连接关闭在后台协程执行且会跑完（`runCatching` 兜底、子进程被 destroy），无资源泄漏。且 `scope.cancel` 之后下游挂起点立即抛取消，在途调用基本走不到「检查连接已关」。若将来 MCP 客户端改成「拆卸时同步中断在途请求」，此处顺序需重新审视。
 - **`Beast`（`Ox` / `Horse`）是同一模式的第二处**：它们每次 dispatch 新建 `ReActAgent`，声明为一次性 agent（`Beast : Agent.Shutdownable`，能力显式），由订阅处（Pasture）在收集结束的 `finally` 中显式 `shutdown()`（详见 §10）。
 
 ## 10. 消费端适配
@@ -360,7 +361,7 @@ override fun shutdown() {
 - 终局唯一：任何取消/终局竞态下每个订阅者恰好看到一个终局事件；
 - `steer()==false` 后立刻 run 必定成功（顺序收集零交错）；
 - `ReActAgent.shutdown()` 后 `run` 抛 ISE，活跃回合收到 `Canceled("Agent is shut down")`。
-- `SpawnedAgent.shutdown()`：活跃回合收到 `Canceled`，且 `unregisterAll()` 在回合退场之后执行（MCP 不会被中途拆掉）。
+- `SpawnedAgent.shutdown()`：活跃回合收到 `Canceled`；`unregisterAll()` 随即同步移除 registry 条目（在途调用持有 client，不受影响），连接关闭异步完成，不等待回合并被验证为安全。
 - `Pasture` 取消链路（现有 `handleCancellation` 不改）：RUNNING 任务 `node.job?.cancel()` → dispatch 的 `finally` → `beast.shutdown()`，在途回合被杀；节点终态为 `CANCELED`（不是 `DONE`），且取消后延迟到达的 `Canceled` 终局被 `handleTerminal` 幂等忽略。
 - `Beast` 的 inner 生命周期：`collect` 正常完成后 `beast.shutdown()` 被调用；`collect` 被取消（`handleCancellation` 或 bossScope 取消）时同样触发，在途回合被杀。断言点：shutdown 后 inner `run` 抛 ISE，且被中断的回合不以 `Final` 写回 `node.result`。
 

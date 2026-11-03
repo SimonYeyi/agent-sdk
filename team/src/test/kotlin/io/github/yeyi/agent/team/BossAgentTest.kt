@@ -161,8 +161,12 @@ class BossAgentTest {
     }
 
     /**
-     * 回归：shutdown 终止在途 run flow 时，收集必须以取消异常收尾 —— 不是静默截断。
+     * 回归：shutdown 终止在途 run flow 时，收集方以取消异常收尾 —— 不是静默截断。
      *
+     * 这是架构 2 下的真实呈现方式，不是架构 1 的「catch 异常判取消」：BossAgent 的回合流
+     * 是 channel 支撑的，shutdown 以 cause 关闭 channel，collect 随之抛出该 cause
+     * （close-cause）。消费端据此只做收尾，不靠异常类型推断轮次结果 —— 轮次结果由
+     * 终局事件（Final/Failed/Canceled）承载。
      * 静默收尾（channel 无 cause 关闭）会让收集方看到"正常结束但没有终态事件"，
      * 违反 [io.github.yeyi.agent.Agent.Shutdownable] 的统一终止协议。
      */
