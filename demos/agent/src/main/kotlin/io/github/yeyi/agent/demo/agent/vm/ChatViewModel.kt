@@ -12,7 +12,6 @@ import io.github.yeyi.agent.demo.agent.demo.DemoAgentFactory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.tool.ToolExecutionResult
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -123,36 +122,23 @@ class ChatViewModel(
     fun sendUserInput(text: String) {
         if (text.isBlank() || _isProcessing.value) return
 
-        // run() 调用即启动回合（架构 2）——计划在点击回调里同步启动，
+        // run() 调用即启动回合（架构 2）——在点击回调里同步启动，
         // 而不是等 viewModelScope 的协程被调度：清空/关闭页面若抢在协程开跑前
         // 引用旧 agent，这一轮就成了无人观察的在途回合。
-        val flow = try {
-            when (_mode.value) {
-                RunMode.STREAM -> (agent as? Streamable)?.runStream(AgentQuery.text(text))
-                    ?: agent.run(AgentQuery.text(text))
-                RunMode.BATCH -> agent.run(AgentQuery.text(text))
-            }
-        } catch (_: IllegalStateException) {
-            // 旧 agent 已作废（"New" 之后、界面完成换用新 agent 之前的点击）——
-            // 终态语义下拒绝接受新轮次，按失败气泡呈现，不进入处理中状态。
-            _messages.update {
-                it + UiMessage.Error("会话已重置，请重新发送", id = nextUiId())
-            }
-            return
+        // 流式是可选能力：Agent 未实现 Streamable 时降级为批式路径。
+        val flow = when (_mode.value) {
+            RunMode.STREAM -> (agent as? Streamable)?.runStream(AgentQuery.text(text))
+                ?: agent.run(AgentQuery.text(text))
+            RunMode.BATCH -> agent.run(AgentQuery.text(text))
         }
         _isProcessing.value = true
 
         runJob = viewModelScope.launch {
+            // 回合内一切失败/取消都是领域事件（Final/Failed/Canceled），collect 不抛；
+            // 订阅协程被取消（clearMessages）时取消自然传播，无需 catch 放行。
+            // finally 只做状态归位：isProcessing 不归位会让 VM 永久拒绝新输入。
             try {
-                // 流式是可选能力：Agent 未实现 Streamable 时降级为批式路径。
                 flow.collect { handleEvent(it) }
-            } catch (e: CancellationException) {
-                // clearMessages 会 cancel 本协程：取消是正常控制流，不渲染成错误气泡。
-                throw e
-            } catch (t: Throwable) {
-                _messages.update {
-                    it + UiMessage.Error(t.message ?: "Unknown error", id = nextUiId())
-                }
             } finally {
                 _liveBubble.value = null
                 inProgressByCallId.clear()
