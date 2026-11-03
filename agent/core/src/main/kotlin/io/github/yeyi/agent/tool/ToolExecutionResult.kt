@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.tool
 
 import io.github.yeyi.agent.llm.ContentPart
+import io.github.yeyi.agent.llm.toReadableString
 
 /**
  * 工具执行结果的返回值。
@@ -19,6 +20,9 @@ public data class ToolExecutionResult(
     public val parts: List<ContentPart>,
     public val isError: Boolean
 ) {
+    override fun toString(): String =
+        "ToolExecutionResult(parts=${parts.toReadableString()}, isError=$isError)"
+
     public companion object {
         /** 快捷构造：纯文本成功结果 */
         public fun success(content: String): ToolExecutionResult =

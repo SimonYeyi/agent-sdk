@@ -49,6 +49,8 @@ public sealed interface ChatMessage {
         }
 
         override val role: Role = Role.User
+
+        override fun toString(): String = "ChatMessage.User(parts=${parts.toReadableString()})"
     }
 
     /**
@@ -83,6 +85,10 @@ public sealed interface ChatMessage {
         public val isError: Boolean = false
     ) : ChatMessage {
         override val role: Role = Role.Tool
+
+        override fun toString(): String =
+            "ChatMessage.ToolResult(toolCallId=$toolCallId, toolName=$toolName, " +
+                "parts=${parts.toReadableString()}, isError=$isError)"
     }
 }
 
@@ -237,7 +243,8 @@ internal fun ChatMessage.toTextMessage(): ChatMessage {
     }
 }
 
-internal fun List<ContentPart>.readable(): String {
+internal fun List<ContentPart>.toReadableString(): String {
+    if (isEmpty()) return "[]"
     return (ChatMessage.User(this)
         .toTextMessage() as ChatMessage.User).parts.toString()
 }

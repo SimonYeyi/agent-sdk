@@ -1,7 +1,7 @@
 package io.github.yeyi.agent
 
 import io.github.yeyi.agent.llm.ContentPart
-import io.github.yeyi.agent.llm.readable
+import io.github.yeyi.agent.llm.toReadableString
 import kotlinx.serialization.Serializable
 
 /**
@@ -22,7 +22,7 @@ public data class AgentQuery(
         require(parts.isNotEmpty()) { "AgentQuery.parts must not be empty" }
     }
 
-    override fun toString(): String = "AgentQuery(parts=${parts.readable()})"
+    override fun toString(): String = "AgentQuery(parts=${parts.toReadableString()})"
 
     public companion object {
         /** 纯文本便捷入口。 */
