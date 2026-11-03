@@ -134,8 +134,7 @@ public class ReActAgent internal constructor(
         val turn = activeTurn.get() ?: return null // 无活跃轮次 → no-op（幂等）
         // 收尾句柄就是执行体 job：活跃轮次的 job 恒非 null（先建 job 再 CAS 占槽），
         // join(job) 返回即执行体（含 finally 收尾）彻底结束 —— 槽位已还、信箱已关。
-        turn.job?.cancel(CancellationException(cause))
-        return turn.job
+        return turn.job?.also { it.cancel(CancellationException(cause)) }
     }
 
     /**
@@ -167,12 +166,15 @@ public class ReActAgent internal constructor(
         val job = scope.launch(start = CoroutineStart.LAZY) {
             // 取消与 Final 不会双发：emit(Final) 之后到 job 结束之间没有挂起点
             // （retireTurn 只是 CAS / close），job 不可能在此窗口被取消。
-            try { loop(turn) }
-            catch (e: CancellationException) {
+            try {
+                loop(turn)
+            } catch (e: CancellationException) {
                 withContext(NonCancellable) { turn.events.emit(AgentEvent.Canceled(e)) }
+            } catch (e: Throwable) {
+                turn.events.emit(AgentEvent.Failed(e))
+            } finally {
+                retireTurn(turn)
             }
-            catch (e: Throwable) { turn.events.emit(AgentEvent.Failed(e)) }
-            finally { retireTurn(turn) }
         }
         // 启动即执行：run 即建轮并挂上执行体 job，steer() 按 activeTurn 判定活跃。
         // 已有活跃 run 时抛并发异常。
@@ -191,7 +193,9 @@ public class ReActAgent internal constructor(
             if (activeTurn.get() !== turn) return@invokeOnCompletion
             turn.events.tryEmit(
                 if (cause is CancellationException) AgentEvent.Canceled(cause)
-                else AgentEvent.Failed(cause ?: CancellationException("Agent execution did not start"))
+                else AgentEvent.Failed(
+                    cause ?: CancellationException("Agent execution did not start")
+                )
             )
             retireTurn(turn)
         }
