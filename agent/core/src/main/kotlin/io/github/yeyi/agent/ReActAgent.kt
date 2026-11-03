@@ -166,11 +166,22 @@ public class ReActAgent internal constructor(
         val job = scope.launch(start = CoroutineStart.LAZY) {
             // 取消与 Final 不会双发：emit(Final) 之后到 job 结束之间没有挂起点
             // （retireTurn 只是 CAS / close），job 不可能在此窗口被取消。
+            // 回合级异常处理只此一层：loop 纯逻辑不自包 try-catch，
+            // 取消/错误统一在此收口并事件化。
             try {
                 loop(turn)
             } catch (e: CancellationException) {
-                withContext(NonCancellable) { turn.events.emit(AgentEvent.Canceled(e)) }
+                // 取消：修复孤儿记忆后以 Canceled 事件送达（NonCancellable 屏蔽取消态）。
+                withContext(NonCancellable) {
+                    RepairedMemory.repairOrphans(memory, RepairedMemory.CANCELLED)
+                    turn.events.emit(AgentEvent.Canceled(e))
+                }
             } catch (e: Throwable) {
+                // 错误伪装成 Assistant 消息写入记忆：错误发生在助手侧执行链路，模型第二轮
+                // 看到的是「我上一轮输出了错误」，可据此重试/澄清；UI 按 "error" label 渲染错误气泡。
+                ChatMessage.Assistant(e.message ?: e.toString()).addToMemory(memory, "error")
+                // 失败路径携带原始 Throwable,不再包成 AgentException —— 让上层自由判型。
+                hook.safeInvoke { onRunFailed(turn.iterationContext, e) }
                 turn.events.emit(AgentEvent.Failed(e))
             } finally {
                 retireTurn(turn)
@@ -228,43 +239,28 @@ public class ReActAgent internal constructor(
     }
 
     private suspend fun loop(turn: AgentTurn) {
-        try {
-            // 本轮上下文：循环外的第 0 次 —— 第一次迭代之前就得有一个可读的。
-            // 记忆压缩钩子挂在轮次开头，紧随其后的 query 归档写入就可能触发压缩
-            // （老对话已超 maxRounds 时是常事），钩子要拿 context；
-            // 失败路径同理 —— 迭代之前就失败时 onRunFailed 也要有。
-            // 循环内每轮迭代由 loopOnce 刷新成当轮的上下文。
-            turn.iterationContext = buildContext(turn.iterations)
+        // 本轮上下文：循环外的第 0 次 —— 第一次迭代之前就得有一个可读的。
+        // 记忆压缩钩子挂在轮次开头，紧随其后的 query 归档写入就可能触发压缩
+        // （老对话已超 maxRounds 时是常事），钩子要拿 context；
+        // 失败路径同理 —— 迭代之前就失败时 onRunFailed 也要有。
+        // 循环内每轮迭代由 loopOnce 刷新成当轮的上下文。
+        turn.iterationContext = buildContext(turn.iterations)
 
-            turn.events.emit(AgentEvent.Initial(turn.query))
+        turn.events.emit(AgentEvent.Initial(turn.query))
 
-            memory.attachHook(
-                MemoryCompressProxyHook(hook) { turn.events.emit(it) },
-                turn.iterationContext
-            )
-            modalityAdapter.archive(ChatMessage.User(turn.query.parts))
-                .addToMemory(memory, turn.query.label)
+        memory.attachHook(
+            MemoryCompressProxyHook(hook) { turn.events.emit(it) },
+            turn.iterationContext
+        )
+        modalityAdapter.archive(ChatMessage.User(turn.query.parts))
+            .addToMemory(memory, turn.query.label)
 
-            while (turn.iterations < maxIterations) {
-                turn.iterations++
-                loopOnce(turn)?.let { return }
-            }
-
-            throw AgentException.MaxIterations(maxIterations)
-        } catch (cause: Throwable) {
-            if (cause is CancellationException) {
-                withContext(NonCancellable) {
-                    RepairedMemory.repairOrphans(memory, RepairedMemory.CANCELLED)
-                }
-                throw cause
-            }
-            // 错误伪装成 Assistant 消息写入记忆：错误发生在助手侧执行链路，模型第二轮
-            // 看到的是「我上一轮输出了错误」，可据此重试/澄清；UI 按 "error" label 渲染错误气泡。
-            ChatMessage.Assistant(cause.message ?: cause.toString()).addToMemory(memory, "error")
-            // 失败路径携带原始 Throwable,不再包成 AgentException —— 让上层自由判型。
-            hook.safeInvoke { onRunFailed(turn.iterationContext, cause) }
-            turn.events.emit(AgentEvent.Failed(cause))
+        while (turn.iterations < maxIterations) {
+            turn.iterations++
+            loopOnce(turn)?.let { return }
         }
+
+        throw AgentException.MaxIterations(maxIterations)
     }
 
     private suspend fun loopOnce(turn: AgentTurn): AgentResult? {
