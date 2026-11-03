@@ -139,10 +139,10 @@ public class ReActAgent internal constructor(
     /**
      * 永久关闭 Agent —— 终态操作。取消 [scope]：活跃回合以 NonCancellable 发完
      * [AgentEvent.Canceled]（"Agent is shut down"）后退场，agent 私有执行域随之终止。
-     * 幂等：重复调用无副作用。之后 [run] 抛 [IllegalStateException]。
+     * 幂等：重复调用无副作用。之后 [run]、[runStream] 抛 [ShutdownError]。
      */
     override fun shutdown() {
-        scope.cancel(CancellationException(Agent.Shutdownable.ShutdownError().message)) // 幂等：重复调用无副作用
+        scope.cancel(CancellationException(null, Agent.Shutdownable.ShutdownError())) // 幂等：重复调用无副作用
     }
 
     /**
