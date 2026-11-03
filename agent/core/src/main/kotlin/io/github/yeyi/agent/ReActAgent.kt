@@ -143,7 +143,7 @@ public class ReActAgent internal constructor(
      * 幂等：重复调用无副作用。之后 [run] 抛 [IllegalStateException]。
      */
     override fun shutdown() {
-        scope.cancel(CancellationException("Agent is shut down")) // 幂等：重复调用无副作用
+        scope.cancel(CancellationException(Agent.Shutdownable.ShutdownError().message)) // 幂等：重复调用无副作用
     }
 
     /**
@@ -162,7 +162,7 @@ public class ReActAgent internal constructor(
      * 调度执行之前，shutdown 仍可能抢先取消 job，见方法体。
      */
     private fun runTurn(turn: AgentTurn): Flow<AgentEvent> {
-        check(scope.isActive) { "Agent is shut down" }
+        if (!scope.isActive) throw Agent.Shutdownable.ShutdownError()
         val job = scope.launch(start = CoroutineStart.LAZY) {
             // 取消与 Final 不会双发：emit(Final) 之后到 job 结束之间没有挂起点
             // （retireTurn 只是 CAS / close），job 不可能在此窗口被取消。

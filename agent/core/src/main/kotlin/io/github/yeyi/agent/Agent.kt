@@ -11,7 +11,7 @@ import kotlinx.coroutines.flow.Flow
  * - [AgentEvent.Final] —— 正常终结，携带最终结果；
  * - [AgentEvent.Failed] —— 运行失败，携带原始异常；
  * - [AgentEvent.Canceled] —— 回合被取消（如：[Agent.Cancelable] 打断、[Agent.Shutdownable] 关闭），
- *   携带 [kotlinx.coroutines.CancellationException] 载荷。
+ *   携带 [CancellationException] 载荷。
  *
  * 三者互斥且必有其一：一次收集以终局事件收尾。
  *
@@ -104,13 +104,13 @@ public interface Agent {
      * `agent is Agent.Cancelable` 探测能力，而非无条件调用 [cancel]。
      *
      * [cancel] 只作用于当前回合，不改变 Agent 自身状态：打断后 Agent 仍可再次 [Agent.run]。
-     * 终止协议：在途回合以 [AgentEvent.Canceled] 终局事件收尾（载荷携带 [cause]），
+     * 终止协议：在途回合以 [AgentEvent.Canceled] 终局事件收尾（载荷携带 'cause'），
      * 消费方按事件分支处理，不再 catch 取消异常。
      *
      * **打断后想立刻重开，要等 [cancel] 返回的句柄**：打断只投递取消，
      * 旧轮的收尾（槽位归还、信箱关闭）在 agent 私有 scope 侧进行 —— [cancel] 返回时往往还没收完，
      * 此刻开新轮会撞上 [IllegalStateException]（"Concurrent run not supported"）。
-     * [kotlinx.coroutines.Job.join] 该句柄后再开新轮则必定成功。
+     * [Job.join] 该句柄后再开新轮则必定成功。
      *
      * 与 [Shutdownable] 的分工：[cancel] 是可恢复的中断（回合结束，Agent 继续可用）；
      * [Shutdownable.shutdown] 是终态操作（Agent 作废，之后调用 [Agent.run] 抛 [IllegalStateException]）。
@@ -140,13 +140,13 @@ public interface Agent {
          *
          *   **等或不等，由调用方决定**：不等待时，[cancel] 只投递打断，旧轮仍在收尾，
          *   此刻开新轮仍会撞上 [IllegalStateException]（"Concurrent run not supported"）；
-         *   [kotlinx.coroutines.Job.join] 该句柄再开新轮则必定成功。
+         *   [Job.join] 该句柄再开新轮则必定成功。
          *
          *   纪律：严禁在收集回调内 join 该句柄 —— （自等自，死锁）。
          *
          *   纪律：**不要 cancel 该句柄**。它是一个只读的"退场完成"信号，
          *   实现上是一个 [kotlinx.coroutines.CompletableDeferred]，
-         *   而 [Job.cancel] 是公开方法 —— 一旦被取消，[kotlinx.coroutines.Job.join]
+         *   而 [Job.cancel] 是公开方法 —— 一旦被取消，[Job.join]
          *   会立刻以 [CancellationException] 结束，而此时槽位可能还没还、
          *   旧轮可能还在收尾，"join 之后开新轮必定成功"的承诺随之失效。
          */
@@ -170,6 +170,11 @@ public interface Agent {
      * 适用场景：会话/应用结束时的资源回收，以及任何带后台协程或外部资源的 Agent 的整体终止。
      */
     public interface Shutdownable {
+        /** 关闭后拒绝运行的统一异常 —— 实现调用 [shutdown] 后再调用 [run] 应抛本类型，
+         *  调用方可按类型探测而非文案匹配；其 [message] 亦作取消原因
+         *  （[kotlinx.coroutines.CancellationException]）文案，保证全部实现共享同一契约。 */
+        public class ShutdownError : IllegalStateException("Agent is shut down")
+
         /** 永久关闭 Agent 并回收资源。幂等，可重复调用。 */
         public fun shutdown()
     }

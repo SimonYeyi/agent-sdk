@@ -85,9 +85,6 @@ public class BossAgent internal constructor(
         /** 系统报告标签 — 任务完成汇报以 `AgentQuery.text(result, label = REPORT_LABEL)` 注入 innerAgent，
          *  随记忆条目持久化，UI 可据此渲染"系统"气泡，模型侧通过 `report: content` 前缀感知。 */
         public const val REPORT_LABEL: String = "report"
-
-        /** 已关闭时的报错消息 —— 关闭后拒绝再运行 / 再登记轮次时使用。 */
-        private const val SHUTDOWN_MESSAGE: String = "Agent is shut down"
     }
 
     // ===== 任务追踪 =====
@@ -168,7 +165,7 @@ public class BossAgent internal constructor(
         if (!shutdownHelper.record(userRound)) {
             // 已关闭 —— 按终态语义抛 ISE。flow 尚未交给调用方（throw 在 return 之前），
             // 这一轮的 channel 无人可达，无需关闭。
-            throw IllegalStateException(SHUTDOWN_MESSAGE)
+            throw Agent.Shutdownable.ShutdownError()
         }
         scope.launch { scheduler.submitUserRound(userRound) }
         // 注销不在此处做：调用方可能 run 后不 collect（flow 惰性），
@@ -189,7 +186,7 @@ public class BossAgent internal constructor(
      * 关闭后调用 [run] 抛 [IllegalStateException].
      */
     public override fun shutdown() {
-        val cause = CancellationException(SHUTDOWN_MESSAGE)
+        val cause = CancellationException(Agent.Shutdownable.ShutdownError().message)
         shutdownHelper.release(cause)
         // 内层 agent 的执行域必须显式终止：架构 1 靠 scope.cancel() 的结构化并发
         // 隐式级联杀死 inner 执行体；架构 2 下 inner 回合跑在自己的私有 scope，
