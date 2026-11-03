@@ -169,9 +169,7 @@ public interface Agent {
      * 适用场景：会话/应用结束时的资源回收，以及任何带后台协程或外部资源的 Agent 的整体终止。
      */
     public interface Shutdownable {
-        /** 关闭后拒绝运行的统一异常 —— 实现调用 [shutdown] 后再调用 [run] 应抛本类型，
-         *  调用方可按类型探测而非文案匹配；其 [message] 亦作取消原因
-         *  （[kotlinx.coroutines.CancellationException]）文案，保证全部实现共享同一契约。 */
+        /** 关闭后拒绝运行的统一异常 —— 实现调用 [shutdown] 后再调用 [run]、[Streamable.runStream] 应抛本类型 */
         public class ShutdownError : IllegalStateException("Agent is shut down")
 
         /** 永久关闭 Agent 并回收资源。幂等，可重复调用。 */

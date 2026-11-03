@@ -147,16 +147,16 @@ class BossAgentTest {
 
     /**
      * Streamable 包装：第一次 runStream（用户轮）正常委托，
-     * 第二次 runStream（报告轮）直接抛 ISE —— 模拟「报告轮已受理但 inner 已先被 shutdown」。
+     * 第二次 runStream（报告轮）直接抛 ShutdownError —— 模拟「报告轮已受理但 inner 已先被 shutdown」。
      */
-    private class IseOnSecondRunStream(
+    private class ShutdownErrorOnSecondRunStream(
         private val delegate: Agent.Streamable,
     ) : Agent.Streamable by delegate {
         private val callCount = java.util.concurrent.atomic.AtomicInteger()
 
         override fun runStream(query: AgentQuery): Flow<AgentEvent> {
             if (callCount.getAndIncrement() == 0) return delegate.runStream(query)
-            throw IllegalStateException("inner agent already shut down")
+            throw Agent.Shutdownable.ShutdownError()
         }
     }
 
@@ -445,8 +445,8 @@ class BossAgentTest {
     }
 
     /**
-     * 回归：报告轮已受理但 inner 已先被关闭（runStream 抛 ISE）时，
-     * report 热流必须收到 Canceled 终结事件 —— 与 runUserRound 的 ISE catch 语义对齐，
+     * 回归：报告轮已受理但 inner 已先被关闭（runStream 抛 ShutdownError）时，
+     * report 热流必须收到 Canceled 终结事件 —— 与 runUserRound 的 ShutdownError catch 语义对齐，
      * 覆盖「执行体开跑前 inner 已关闭」的窄窗口，绝不静默截断。
      */
     @Test
@@ -466,7 +466,7 @@ class BossAgentTest {
             memory(InMemoryMemory(), 20)
             maxIterations(1)
         }
-        val boss = BossAgent(IseOnSecondRunStream(innerAgent as Streamable), scope)
+        val boss = BossAgent(ShutdownErrorOnSecondRunStream(innerAgent as Streamable), scope)
         val bb = BulletinBoard()
         runBlocking { boss.attach(bb) }
 
@@ -497,7 +497,7 @@ class BossAgentTest {
             boss.report.collect { report.add(it) }
         }
 
-        // 终态 TaskUpdate → 触发报告轮（第二次 runStream 抛 ISE，模拟 inner 已先关闭）
+        // 终态 TaskUpdate → 触发报告轮（第二次 runStream 抛 ShutdownError，模拟 inner 已先关闭）
         bb.progressEvent(
             TaskUpdate(taskId, AgentEvent.Final(AgentResult(ChatMessage.Assistant("done"), 1, emptyList(), null)))
         )

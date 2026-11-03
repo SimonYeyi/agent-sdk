@@ -183,7 +183,7 @@ public class BossAgent internal constructor(
      * 终止协议: 进行中及尚未被收集的 run flow 收集均以 [CancellationException] 结束 ——
      * 不静默截断, 与 [Agent.Shutdownable] 的统一约定一致. 内层 agent 同时被显式关闭
      * （其执行域不再随 boss scope 级联）.
-     * 关闭后调用 [run] 抛 [IllegalStateException].
+     * 关闭后调用 [run] 抛 [Agent.Shutdownable.ShutdownError].
      */
     public override fun shutdown() {
         val cause = CancellationException(Agent.Shutdownable.ShutdownError().message)
@@ -238,15 +238,15 @@ public class BossAgent internal constructor(
                 }
                 userRound.channel.send(e)
             }
-        } catch (_: IllegalStateException) {
+        } catch (_: Agent.Shutdownable.ShutdownError) {
             // 与 shutdown 的竞态：轮次已受理但执行体尚未开跑，inner 已先被 shutdown →
-            // runStream 直接抛 ISE（或 channel 已由 release() 关闭后 send 抛 ClosedSendChannelException，
-            // 同属 ISE 子类）。channel 已由 shutdownHelper.release() 带取消原因关闭，
-            // 收集方已收到取消信号 —— 此处无需补发或重抛，仅确认该轮以取消语义终止。
+            // inner.runStream 直接抛 ShutdownError。channel 已由 shutdownHelper.release()
+            // 带取消原因关闭，收集方已收到取消信号 —— 此处无需补发或重抛，
+            // 仅确认该轮以取消语义终止。
         } catch (_: CancellationException) {
             // 取消唯一来源是 shutdown（release() → inner.shutdown() → scope.cancel()），
             // release() 第一步已同步带取消原因关闭 channel，收集方已收到取消信号 ——
-            // 与 ISE catch 同理，无需在此补发或重抛，仅确认该轮以取消语义终止。
+            // 与 ShutdownError catch 同理，无需在此补发或重抛，仅确认该轮以取消语义终止。
         } finally {
             userRound.channel.close()
             shutdownHelper.remove(userRound)
@@ -263,11 +263,12 @@ public class BossAgent internal constructor(
             innerAgent.runStream(AgentQuery.text(result, label = REPORT_LABEL)).collect { e ->
                 (report as MutableSharedFlow).emit(e)
             }
-        } catch (e: IllegalStateException) {
+        } catch (e: Agent.Shutdownable.ShutdownError) {
             // 与 shutdown 的竞态：报告轮已受理（RUNNING 已置位）但执行体尚未开跑，
-            // inner 已先被 shutdown → runStream 直接抛 ISE。与 runUserRound 的 ISE catch
-            // 语义对齐：对 report 订阅方呈现与事件路径同型，补发 Canceled 终态，
-            // 并按取消语义向上传播（包装为 CancellationException），绝不静默截断。
+            // inner 已先被 shutdown → runStream 直接抛 ShutdownError。与 runUserRound 的
+            // ShutdownError catch 语义对齐：对 report 订阅方呈现与事件路径同型，
+            // 补发 Canceled 终态，并按取消语义向上传播（包装为 CancellationException），
+            // 绝不静默截断。
             withContext(NonCancellable) {
                 (report as MutableSharedFlow).emit(
                     AgentEvent.Canceled(CancellationException(null, e))
