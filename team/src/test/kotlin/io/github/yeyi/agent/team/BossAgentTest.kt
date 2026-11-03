@@ -2,6 +2,7 @@
 
 package io.github.yeyi.agent.team
 
+import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
@@ -141,6 +142,21 @@ class BossAgentTest {
                 emit(ChatResponseEvent.ToolCallDelta(call.id, call.name, call.arguments.toString()))
             }
             emit(ChatResponseEvent.Done(response.usage, response.finishReason))
+        }
+    }
+
+    /**
+     * Streamable 包装：第一次 runStream（用户轮）正常委托，
+     * 第二次 runStream（报告轮）直接抛 ISE —— 模拟「报告轮已受理但 inner 已先被 shutdown」。
+     */
+    private class IseOnSecondRunStream(
+        private val delegate: Agent.Streamable,
+    ) : Agent.Streamable by delegate {
+        private val callCount = java.util.concurrent.atomic.AtomicInteger()
+
+        override fun runStream(query: AgentQuery): Flow<AgentEvent> {
+            if (callCount.getAndIncrement() == 0) return delegate.runStream(query)
+            throw IllegalStateException("inner agent already shut down")
         }
     }
 
@@ -424,6 +440,74 @@ class BossAgentTest {
         reportJob.cancel()
 
         // 兜底与事件路径互斥：无论竞态赢家是谁，report 只收到一次 Canceled，绝不双发
+        assertEquals(1, report.count { it is AgentEvent.Canceled }, "Canceled must be emitted exactly once: $report")
+        assertTrue(report.last() is AgentEvent.Canceled, "report must end with Canceled: $report")
+    }
+
+    /**
+     * 回归：报告轮已受理但 inner 已先被关闭（runStream 抛 ISE）时，
+     * report 热流必须收到 Canceled 终结事件 —— 与 runUserRound 的 ISE catch 语义对齐，
+     * 覆盖「执行体开跑前 inner 已关闭」的窄窗口，绝不静默截断。
+     */
+    @Test
+    fun `report round with pre-closed inner ends with Canceled`() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val innerAgent = agent {
+            llmProvider(
+                FakeLlmProvider(
+                    nonStreamResponses = listOf(
+                        ChatResponse(
+                            message = ChatMessage.Assistant(content = "init"),
+                            finishReason = FinishReason.Stop,
+                        )
+                    )
+                )
+            )
+            memory(InMemoryMemory(), 20)
+            maxIterations(1)
+        }
+        val boss = BossAgent(IseOnSecondRunStream(innerAgent as Streamable), scope)
+        val bb = BulletinBoard()
+        runBlocking { boss.attach(bb) }
+
+        // 先 run 一轮初始化 currentRound（第一次 runStream 正常委托）
+        val initJob = launch { boss.run(AgentQuery.text("init")).collect { } }
+        withTimeout(5000) { initJob.join() }
+
+        // 直接 publish 一个 taskId 的 TaskAssignment (跳过 PublishTaskTool)
+        val taskId = "ise-report-task"
+        bb.publishEvent(
+            TaskAssignments(
+                query = "init",
+                tasks = listOf(
+                    TaskAssignment(
+                        taskId = taskId,
+                        selection = Selection.Tool("dummy"),
+                        task = "do something",
+                        context = null,
+                        dependsOn = emptyList(),
+                    )
+                )
+            )
+        )
+
+        // 用 launch(UNDISPATCHED) 同步挂上 boss.report collector
+        val report = mutableListOf<AgentEvent>()
+        val reportJob = launch(start = CoroutineStart.UNDISPATCHED) {
+            boss.report.collect { report.add(it) }
+        }
+
+        // 终态 TaskUpdate → 触发报告轮（第二次 runStream 抛 ISE，模拟 inner 已先关闭）
+        bb.progressEvent(
+            TaskUpdate(taskId, AgentEvent.Final(AgentResult(ChatMessage.Assistant("done"), 1, emptyList(), null)))
+        )
+
+        // 报告轮必须以 Canceled 终结 —— 不静默截断
+        withTimeout(5000) {
+            while (report.none { it is AgentEvent.Canceled }) delay(50)
+        }
+        reportJob.cancel()
+
         assertEquals(1, report.count { it is AgentEvent.Canceled }, "Canceled must be emitted exactly once: $report")
         assertTrue(report.last() is AgentEvent.Canceled, "report must end with Canceled: $report")
     }

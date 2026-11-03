@@ -189,12 +189,13 @@ public class BossAgent internal constructor(
      * 关闭后调用 [run] 抛 [IllegalStateException].
      */
     public override fun shutdown() {
-        shutdownHelper.release()
+        val cause = CancellationException(SHUTDOWN_MESSAGE)
+        shutdownHelper.release(cause)
         // 内层 agent 的执行域必须显式终止：架构 1 靠 scope.cancel() 的结构化并发
         // 隐式级联杀死 inner 执行体；架构 2 下 inner 回合跑在自己的私有 scope，
         // 该级联失效 —— 不显式 shutdown，boss 关闭后 inner 仍会烧 token 到自然终局。
         (innerAgent as? Agent.Shutdownable)?.shutdown()
-        scope.cancel(); onShutdown()
+        scope.cancel(cause); onShutdown()
     }
 
     // ========== 内部: 任务事件处理 ==========
@@ -232,27 +233,23 @@ public class BossAgent internal constructor(
     private suspend fun runUserRound(userRound: UserRound) {
         try {
             // 用户轮使用流式运行：逐字输出，降低用户感知延迟
-            innerAgent.runStream(AgentQuery.text(userRound.input))
-                .collect { e ->
-                    if (e is AgentEvent.Canceled) {
-                        // 轮次被取消（shutdown）：以取消异常关闭 channel ——
-                        // 收集方据此知道这一轮被终止，而非"截断但无终态"的静默收尾。
-                        throw e.cause
-                    }
-                    userRound.channel.send(e)
+            innerAgent.runStream(AgentQuery.text(userRound.input)).collect { e ->
+                if (e is AgentEvent.Canceled) {
+                    // 轮次被取消（shutdown）：以取消异常关闭 channel ——
+                    // 收集方据此知道这一轮被终止，而非"截断但无终态"的静默收尾。
+                    throw e.cause
                 }
-        } catch (cause: IllegalStateException) {
-            // 与 shutdown 的竞态：轮次已受理但执行体尚未开跑，inner 已先被 shutdown →
-            // runStream 直接抛 ISE。对收集方呈现与事件路径同型（channel 带取消原因关闭，
-            // NonCancellable 兜底保证轮次真的还在进行中）。
-            withContext(NonCancellable) {
-                throw CancellationException(SHUTDOWN_MESSAGE, cause)
+                userRound.channel.send(e)
             }
-        } catch (cause: CancellationException) {
-            // scope 取消（shutdown 级联）路径：channel 带 cause 关闭，
-            // 收集端迭代器抛出该 cause —— 与事件路径同型。
-            userRound.channel.close(cause)
-            throw cause
+        } catch (_: IllegalStateException) {
+            // 与 shutdown 的竞态：轮次已受理但执行体尚未开跑，inner 已先被 shutdown →
+            // runStream 直接抛 ISE（或 channel 已由 release() 关闭后 send 抛 ClosedSendChannelException，
+            // 同属 ISE 子类）。channel 已由 shutdownHelper.release() 带取消原因关闭，
+            // 收集方已收到取消信号 —— 此处无需补发或重抛，仅确认该轮以取消语义终止。
+        } catch (_: CancellationException) {
+            // 取消唯一来源是 shutdown（release() → inner.shutdown() → scope.cancel()），
+            // release() 第一步已同步带取消原因关闭 channel，收集方已收到取消信号 ——
+            // 与 ISE catch 同理，无需在此补发或重抛，仅确认该轮以取消语义终止。
         } finally {
             userRound.channel.close()
             shutdownHelper.remove(userRound)
@@ -269,15 +266,22 @@ public class BossAgent internal constructor(
             innerAgent.runStream(AgentQuery.text(result, label = REPORT_LABEL)).collect { e ->
                 (report as MutableSharedFlow).emit(e)
             }
+        } catch (e: IllegalStateException) {
+            // 与 shutdown 的竞态：报告轮已受理（RUNNING 已置位）但执行体尚未开跑，
+            // inner 已先被 shutdown → runStream 直接抛 ISE。与 runUserRound 的 ISE catch
+            // 语义对齐：对 report 订阅方呈现与事件路径同型，补发 Canceled 终态，
+            // 并按取消语义向上传播（包装为 CancellationException），绝不静默截断。
+            withContext(NonCancellable) {
+                (report as MutableSharedFlow).emit(
+                    AgentEvent.Canceled(CancellationException(null, e))
+                )
+            }
         } catch (e: CancellationException) {
             // 取消竞态兜底：boss.shutdown() 的 scope.cancel() 可能在内层 Canceled 事件送达
             // collect 之前抢先取消本收集协程 —— 事件未及转发即被取消，report 订阅方会看到
             // 一轮被截断却无终态。在 NonCancellable 下补发 Canceled，保证报告轮无论走哪条
             // 取消路径都以终结事件收尾，绝不静默截断。
-            withContext(NonCancellable) {
-                (report as MutableSharedFlow).emit(AgentEvent.Canceled(e))
-            }
-            throw e
+            withContext(NonCancellable) { (report as MutableSharedFlow).emit(AgentEvent.Canceled(e)) }
         } finally {
             // 轮次收尾（含取消异常路径）：调度器必须回到 WAITING，
             // 否则后续轮次永远排队不执行 —— boss 静默僵死。
@@ -438,9 +442,9 @@ public class BossAgent internal constructor(
 
         fun remove(round: UserRound) = synchronized(lock) { userRounds -= round }
 
-        fun release() = synchronized(lock) {
+        fun release(cause: CancellationException) = synchronized(lock) {
             released = true
-            userRounds.forEach { it.channel.close(CancellationException(SHUTDOWN_MESSAGE)) }
+            userRounds.forEach { it.channel.close(cause) }
             userRounds.clear()
         }
     }
