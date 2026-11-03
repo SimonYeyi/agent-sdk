@@ -192,7 +192,7 @@ public class ReActAgent internal constructor(
         turn.job = job
         if (!activeTurn.compareAndSet(null, turn)) {
             job.cancel()
-            error("Concurrent run not supported: another run is active")
+            error("Concurrent run not supported: another run is active, rejected: ${turn.query}")
         }
         // born-cancelled 兜底：shutdown 的 scope.cancel() 若抢在执行体派发生效之前，
         // LAZY 执行体永不运行 —— 终局不发、finally 不跑，收集方将永久挂起。

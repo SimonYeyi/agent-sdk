@@ -237,6 +237,11 @@ internal fun ChatMessage.toTextMessage(): ChatMessage {
     }
 }
 
+internal fun List<ContentPart>.readable(): String {
+    return (ChatMessage.User(this)
+        .toTextMessage() as ChatMessage.User).parts.toString()
+}
+
 /** 集合中的文本部分，多段以换行拼接；媒体块不参与。 */
 public val Collection<ContentPart>.text: String
     get() = filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
