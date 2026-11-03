@@ -17,7 +17,6 @@ import io.github.yeyi.agent.memory.Summary
 import io.github.yeyi.agent.memory.addToMemory
 import io.github.yeyi.agent.memory.toChatMessage
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -26,6 +25,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import io.github.yeyi.agent.modality.ModalityAdapter
@@ -55,13 +55,12 @@ public class ReActAgent internal constructor(
     /**
      * agent 私有执行 scope —— 回合生命周期归 agent，订阅只是观察。
      *
-     * SupervisorJob：单回合失败只杀本轮 job，不废 agent。dispatcher 是 internal 注入口，
-     * 仅供同模块测试注入 StandardTestDispatcher 保 runTest 虚拟时间；生产恒 Dispatchers.Default。
+     * SupervisorJob：单回合失败只杀本轮 job，不废 agent；同时兼任关闭信号 ——
+     * isActive 即"未关闭"，cancel 原子幂等触发关闭，无需独立 shutdownSignal 字段。
+     * dispatcher 是 internal 注入口，仅供同模块测试注入 StandardTestDispatcher 保
+     * runTest 虚拟时间；生产恒 Dispatchers.Default。
      */
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
-
-    /** 关闭信号，兼作关闭状态：isCompleted 即"已关闭"，complete 原子且幂等。 */
-    private val shutdownSignal = CompletableDeferred<Unit>()
 
     /**
      * 当前活跃轮次 —— 槽位按定义属于持有它的 agent。
@@ -145,8 +144,7 @@ public class ReActAgent internal constructor(
      * 幂等：重复调用无副作用。之后 [run] 抛 [IllegalStateException]。
      */
     override fun shutdown() {
-        if (!shutdownSignal.complete(Unit)) return
-        scope.cancel(CancellationException("Agent is shut down"))
+        scope.cancel(CancellationException("Agent is shut down")) // 幂等：重复调用无副作用
     }
 
     /**
@@ -165,7 +163,7 @@ public class ReActAgent internal constructor(
      * 调度执行之前，shutdown 仍可能抢先取消 job，见方法体。
      */
     private fun runTurn(turn: AgentTurn): Flow<AgentEvent> {
-        check(!shutdownSignal.isCompleted) { "Agent is shut down" }
+        check(scope.isActive) { "Agent is shut down" }
         val job = scope.launch(start = CoroutineStart.LAZY) {
             // 取消与 Final 不会双发：emit(Final) 之后到 job 结束之间没有挂起点
             // （retireTurn 只是 CAS / close / complete），job 不可能在此窗口被取消。

@@ -454,7 +454,7 @@ class CancelableTest {
     /**
      * 回归：run 与 shutdown 的窄窗口不得产生「无终局」流。
      *
-     * runTurn 的 `check(!shutdownSignal.isCompleted)` 通过之后、执行体 job 被调度之前，
+     * runTurn 的 `check(scope.isActive)` 通过之后、执行体 job 被调度之前，
      * 若 shutdown 的 scope.cancel() 抢先执行，LAZY job 变成 born-cancelled：执行体不跑、
      * 终局不发 → 收集方永久挂起（静默失败，架构 2 明确要排除的模式）。
      *
