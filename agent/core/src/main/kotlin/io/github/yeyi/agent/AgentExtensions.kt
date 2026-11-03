@@ -41,11 +41,11 @@ public fun Tool.toDefinition(): ToolDefinition {
  * Flow 自身异常按 Flow 协议传播。
  */
 public suspend fun Flow<AgentEvent>.awaitResult(): AgentResult {
-    val terminal = filter { it is AgentEvent.Final || it is AgentEvent.Failed || it is AgentEvent.Canceled }.first()
-    return when (terminal) {
-        is AgentEvent.Final -> terminal.result
-        is AgentEvent.Failed -> throw terminal.cause
-        is AgentEvent.Canceled -> throw terminal.cause
-        else -> error("unreachable: filter restricts to Final|Failed|Canceled, got ${terminal::class.simpleName}")
+    val terminated = filter { it.isTerminal }.first()
+    return when (terminated) {
+        is AgentEvent.Final -> terminated.result
+        is AgentEvent.Failed -> throw terminated.cause
+        is AgentEvent.Canceled -> throw terminated.cause
+        else -> error("unreachable: filter restricts to Final|Failed|Canceled, got ${terminated::class.simpleName}")
     }
 }
