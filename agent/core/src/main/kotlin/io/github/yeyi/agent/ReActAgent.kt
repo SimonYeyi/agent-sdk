@@ -125,17 +125,17 @@ public class ReActAgent internal constructor(
      * @param cause 打断原因（诊断用途）—— [AgentEvent.Canceled] 载荷携带该原因；
      *   为 null 时使用默认取消原因，见 [Agent.Cancelable.cancel]。
      *
-     * @return 该轮收尾的句柄 —— 完成即代表槽位已还、信箱已关，之后可安全地再次 run()；
+     * @return 该轮执行体 job —— join 它即等旧轮退场（槽位已还、信箱已关），之后可安全地再次 run()；
      *   无活跃轮次时返回 null（幂等 no-op）。调用方可以 join 它等旧轮退场，
      *   也可以不等待 —— 不等待时收尾完成前再次 run() 仍可能撞上并发拒绝。
      *   句柄只用于"等"：不要 cancel 它（[Agent.Cancelable.cancel] 的 KDoc 有说明）。
      */
     override fun cancel(cause: String?): Job? {
         val turn = activeTurn.get() ?: return null // 无活跃轮次 → no-op（幂等）
-        // 收尾句柄是 turn.terminated，不是 job：job 完成时订阅者可能还没收到终局，
-        // terminated 在「还槽 + 关信箱」之后才完成 —— join 它才能安全开新轮。
+        // 收尾句柄就是执行体 job：活跃轮次的 job 恒非 null（先建 job 再 CAS 占槽），
+        // join(job) 返回即执行体（含 finally 收尾）彻底结束 —— 槽位已还、信箱已关。
         turn.job?.cancel(CancellationException(cause))
-        return turn.terminated
+        return turn.job
     }
 
     /**
@@ -166,7 +166,7 @@ public class ReActAgent internal constructor(
         check(scope.isActive) { "Agent is shut down" }
         val job = scope.launch(start = CoroutineStart.LAZY) {
             // 取消与 Final 不会双发：emit(Final) 之后到 job 结束之间没有挂起点
-            // （retireTurn 只是 CAS / close / complete），job 不可能在此窗口被取消。
+            // （retireTurn 只是 CAS / close），job 不可能在此窗口被取消。
             try { loop(turn) }
             catch (e: CancellationException) {
                 withContext(NonCancellable) { turn.events.emit(AgentEvent.Canceled(e)) }
@@ -184,10 +184,11 @@ public class ReActAgent internal constructor(
         // born-cancelled 兜底：shutdown 的 scope.cancel() 若抢在本轮执行体派发生效之前
         //（窗口横跨 start 前后，start 同步返回挡不住「已取消但体未跑」的交错），
         // LAZY 执行体永不运行 —— 终局不发、finally 不跑，收集方将永久挂起（要排除的静默失败）。
-        // 执行体跑过的全部路径都经 finally 完成 [AgentTurn.terminated]，此处据此跳过 ——
-        // 与 finally 的 retireTurn 幂等不冲突，不会双发终局。
+        // 执行体跑过的全部路径都先发终局、再经 finally 还槽 —— 槽位仍是本回合
+        // 就说明执行体从未收尾（born-cancelled），补发终局 + 补退场；与 finally 的
+        // retireTurn 幂等不冲突，不会双发终局。
         job.invokeOnCompletion { cause ->
-            if (turn.terminated.isCompleted) return@invokeOnCompletion
+            if (activeTurn.get() !== turn) return@invokeOnCompletion
             turn.events.tryEmit(
                 if (cause is CancellationException) AgentEvent.Canceled(cause)
                 else AgentEvent.Failed(cause ?: CancellationException("Agent execution did not start"))
@@ -199,13 +200,13 @@ public class ReActAgent internal constructor(
     }
 
     /**
-     * 轮次退场 —— 还槽（认人）+ 关信箱 + 完成收尾信号。
+     * 轮次退场 —— 还槽（认人）+ 关信箱。
      *
      * **幂等**，调用两处：
      * - [finalize] 在闸内调它（发完 Final 之后）—— 投递被挡在闸外，
      *   故 `steer() == false` 蕴含"终局已入回放、信箱已关"；
      * - 执行体外壳的 finally 调它 —— 兜住取消 / 失败 / 意外路径中 [finalize] 没跑的情形。
-     * 三件事各自幂等（认人 CAS、信箱 close、`terminated.complete`），二次调用无害。
+     * 两件事各自幂等（认人 CAS、信箱 close），二次调用无害。
      *
      * **不必在闸内**：闸护的是"终局裁决"与"投递"互斥，而退场时执行体已结束，
      * 唯一可能并发的只有投递 —— 两步之间被挤进一个投递，代价只是那轮 steer
@@ -220,7 +221,6 @@ public class ReActAgent internal constructor(
     private fun retireTurn(turn: AgentTurn) {
         activeTurn.compareAndSet(turn, null) // 还槽（认人）：槽位若已是新一轮则空操作
         turn.steering.close()                   // 关信箱（幂等）
-        turn.terminated.complete(Unit)           // 收尾信号：等待者醒来即可安全开新轮
     }
 
     private suspend fun loop(turn: AgentTurn) {

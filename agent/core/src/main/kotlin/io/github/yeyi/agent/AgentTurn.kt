@@ -2,7 +2,6 @@ package io.github.yeyi.agent
 
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -55,18 +54,10 @@ internal class AgentTurn(
      */
     val events = MutableSharedFlow<AgentEvent>(replay = Int.MAX_VALUE, extraBufferCapacity = 0)
 
-    /** 本轮的在途信箱 —— 纯缓冲，不取闸。 */
+    /** 本轮在途信箱 —— 纯缓冲，不取闸。 */
     val steering = SteerInbox()
 
-    /**
-     * 本轮收尾信号 —— 完成即代表"槽位已还、信箱已关"。
-     *
-     * 由执行体的 finally 完成后作为 [Agent.Cancelable.cancel] 的返回句柄：
-     * 调用方 [kotlinx.coroutines.Job.join] 它，即可确保旧轮彻底退场后再开新一轮。
-     */
-    val terminated = CompletableDeferred<Unit>()
-
-    /** 本轮执行体 job —— cancel() 的打断目标，runTurn 启动执行体时登记。 */
+    /** 本轮执行体 job —— cancel() 的打断目标与收尾句柄，runTurn 启动执行体时登记。 */
     var job: kotlinx.coroutines.Job? = null
 
     /** 本轮迭代计数 —— 自产累积量，非输入，故不进构造器。 */
