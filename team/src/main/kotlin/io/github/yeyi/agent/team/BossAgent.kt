@@ -3,6 +3,7 @@ package io.github.yeyi.agent.team
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
+import io.github.yeyi.agent.isTerminal
 import io.github.yeyi.agent.llm.ContentPart
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
@@ -40,7 +41,7 @@ private class UserRound(
  * @property taskId 任务 ID
  * @property task 任务描述文本
  * @property events 任务收到的事件列表，通过 [AgentEvent] 类型区分状态
- * @property terminal 是否处于终态（收到 Final 或 Failed 事件）
+ * @property terminated 是否处于终态（收到 Final 或 Failed 事件）
  */
 public data class TaskState(
     public val taskId: String,
@@ -50,8 +51,7 @@ public data class TaskState(
     internal val createdAt: Long,
     public val events: MutableList<AgentEvent> = mutableListOf(),
 ) {
-    public val terminal: Boolean
-        get() = events.lastOrNull() is AgentEvent.Final || events.lastOrNull() is AgentEvent.Failed
+    public val terminated: Boolean get() = events.lastOrNull()?.isTerminal == true
 }
 
 /**
@@ -61,7 +61,7 @@ public data class TaskState(
  * @property query 该 round 的用户意图
  * @property createdAt 任务组创建时间，用于 UI 排序
  * @property tasks 该 round 内所有任务的 [TaskState] 列表
- * @property terminal 是否所有任务都处于终态
+ * @property terminated 是否所有任务都处于终态
  * @property latestChanged 最新有状态变化的任务
  */
 public data class TasksState(
@@ -71,7 +71,7 @@ public data class TasksState(
     public val tasks: List<TaskState>,
     public val latestChanged: TaskState
 ) {
-    public val terminal: Boolean get() = tasks.all { it.terminal }
+    public val terminated: Boolean get() = tasks.all { it.terminated }
 }
 
 // ===== BossAgent =====
@@ -311,7 +311,7 @@ public class BossAgent internal constructor(
         suspend fun apply(update: TaskUpdate): String? = lock.withLock {
             val task = tasks[update.taskId]!!
             task.events += update.event
-            val terminal = task.terminal
+            val terminated = task.terminated
             val roundTasks = tasks.values.filter { it.roundId == task.roundId }
 
             roundTasks
@@ -319,7 +319,7 @@ public class BossAgent internal constructor(
                 .let { TasksState(task.roundId, task.query, task.createdAt, it, task) }
                 .let { states.tryEmit(it) }
 
-            if (!terminal || roundTasks.any { !it.terminal }) return null
+            if (!terminated || roundTasks.any { !it.terminated }) return null
 
             roundTasks.forEach { tasks.remove(it.taskId) }
 

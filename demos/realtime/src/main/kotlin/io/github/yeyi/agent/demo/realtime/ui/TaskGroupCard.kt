@@ -47,7 +47,7 @@ fun TaskGroupCard(
             .fillMaxWidth()
             .clickable { showDetail = true },
         colors = CardDefaults.cardColors(
-            containerColor = if (groupState.terminal) {
+            containerColor = if (groupState.terminated) {
                 MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
             } else {
                 MaterialTheme.colorScheme.surfaceVariant
@@ -126,9 +126,9 @@ private fun TaskGroupBody(
 
         // Terminal status
         Text(
-            text = if (groupState.terminal) "✅ 已完成" else "⏳ 进行中",
+            text = if (groupState.terminated) "✅ 已完成" else "⏳ 进行中",
             style = MaterialTheme.typography.labelSmall,
-            color = if (groupState.terminal) {
+            color = if (groupState.terminated) {
                 MaterialTheme.colorScheme.tertiary
             } else {
                 MaterialTheme.colorScheme.primary
