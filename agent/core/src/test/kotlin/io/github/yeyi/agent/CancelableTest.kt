@@ -12,17 +12,21 @@ import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.yield
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -445,5 +449,56 @@ class CancelableTest {
         assertTrue("Agent is shut down" in (last as AgentEvent.Canceled).cause.message.orEmpty())
         val ex = assertFailsWith<IllegalStateException> { agent.run(AgentQuery.text("again")) }
         assertTrue(ex.message!!.contains("Agent is shut down"))
+    }
+
+    /**
+     * 回归：run 与 shutdown 的窄窗口不得产生「无终局」流。
+     *
+     * runTurn 的 `check(!shutdownSignal.isCompleted)` 通过之后、执行体 job 被调度之前，
+     * 若 shutdown 的 scope.cancel() 抢先执行，LAZY job 变成 born-cancelled：执行体不跑、
+     * 终局不发 → 收集方永久挂起（静默失败，架构 2 明确要排除的模式）。
+     *
+     * 该窗口无法在单线程测试调度器上确定性钉住（run 内建 job 即入队、start 同步生效），
+     * 故用多线程 runBlocking + 真实竞态：另一线程插入 shutdown，断言任何一次 run
+     * 返回的流都在有限时间内以唯一终局收尾。未修复时，shutdown 落进窗口的轮次
+     * 会以 withTimeout 超时暴露（实测未修复代码上稳定失败）。
+     */
+    @Test
+    fun `run racing with shutdown always terminates the returned flow`() = runBlocking(Dispatchers.Default) {
+        val iterations = 500
+        for (i in 0 until iterations) {
+            val agent = ReActAgent(
+                persona = AgentPersona(""),
+                llmProvider = FakeLlmProvider(nonStreamResponses = List(iterations) { okResponse() }),
+                toolRegistry = registryOf(),
+                memory = InMemoryMemory(),
+                modalityAdapter = DefaultModalityAdapter(null),
+                maxRounds = 20,
+                maxIterations = 5,
+                dispatcher = Dispatchers.Default,
+            )
+            // 另起一线程 shutdown，与主线程的 run 抢「check 之后、执行体生效之前」的窗口。
+            val killer = launch {
+                repeat(i % 4) { yield() } // 交替偏移，制造不同交错点
+                agent.shutdown()
+            }
+
+            // killer 若先到，run 同步抛 ISE 是契约行为（该轮从未开始，无流可收）。
+            val flow = runCatching { agent.run(AgentQuery.text("hi")) }.getOrElse {
+                assertTrue(it is IllegalStateException && "shut down" in it.message.orEmpty(), "非预期异常: $it")
+                killer.join()
+                continue
+            }
+
+            val events = mutableListOf<AgentEvent>()
+            withTimeout(5_000) { flow.collect { events += it } }
+            killer.join()
+
+            assertTrue(
+                events.lastOrNull()?.isTerminal == true,
+                "第 $i 次：shutdown 抢在启动窗口时流必须仍以终局事件收尾，实际: ${events.map { e -> e::class.simpleName }}"
+            )
+            assertEquals(1, events.count { e -> e.isTerminal }, "第 $i 次：终局唯一")
+        }
     }
 }

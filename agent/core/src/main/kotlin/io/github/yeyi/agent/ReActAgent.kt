@@ -158,6 +158,11 @@ public class ReActAgent internal constructor(
      * 故用 [CoroutineStart.LAZY] 建 job（体不启动）→ CAS 占槽 → 登记 job → start()。
      * CAS 成功即建立 happens-before：写 job 先于写槽位（AtomicReference），
      * 经 [activeTurn] 观察到轮次的读者必能看到 job —— job 无需 @Volatile。
+     * 顺序不可颠倒：CAS 之后才写 job，并发 [cancel] 会在窗口里读到 null job 静默落空。
+     * CAS 失败路径无害：job 尚未 start，cancel 即丢弃。
+     *
+     * born-cancelled 兜底：窗口不止存在于 start 之前 —— start 同步返回后、执行体被
+     * 调度执行之前，shutdown 仍可能抢先取消 job，见方法体。
      */
     private fun runTurn(turn: AgentTurn): Flow<AgentEvent> {
         check(!shutdownSignal.isCompleted) { "Agent is shut down" }
@@ -173,11 +178,24 @@ public class ReActAgent internal constructor(
         }
         // 启动即执行：run 即建轮并挂上执行体 job，steer() 按 activeTurn 判定活跃。
         // 已有活跃 run 时抛并发异常。
+        turn.job = job
         if (!activeTurn.compareAndSet(null, turn)) {
             job.cancel() // 体尚未启动，cancel 即丢弃
             error("Concurrent run not supported: another run is active")
         }
-        turn.job = job
+        // born-cancelled 兜底：shutdown 的 scope.cancel() 若抢在本轮执行体派发生效之前
+        //（窗口横跨 start 前后，start 同步返回挡不住「已取消但体未跑」的交错），
+        // LAZY 执行体永不运行 —— 终局不发、finally 不跑，收集方将永久挂起（要排除的静默失败）。
+        // 执行体跑过的全部路径都经 finally 完成 [AgentTurn.terminated]，此处据此跳过 ——
+        // 与 finally 的 retireTurn 幂等不冲突，不会双发终局。
+        job.invokeOnCompletion { cause ->
+            if (turn.terminated.isCompleted) return@invokeOnCompletion
+            turn.events.tryEmit(
+                if (cause is CancellationException) AgentEvent.Canceled(cause)
+                else AgentEvent.Failed(cause ?: CancellationException("Agent execution did not start"))
+            )
+            retireTurn(turn)
+        }
         job.start()
         return turn.events.transformWhile { event -> emit(event); !event.isTerminal }
     }
