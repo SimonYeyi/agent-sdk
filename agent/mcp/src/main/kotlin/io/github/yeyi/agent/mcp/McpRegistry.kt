@@ -59,10 +59,14 @@ public class McpRegistry(private val clientInfo: ClientInfo) {
      * 从存储(=共享本体)按名移除所有 Mcp 条目,普通 Toolset 不受影响;然后异步关闭
      * 所有连接。返回关闭协程的 [Job],调用方可 `join()` 等待。移除同步完成 ——
      * 返回后 `load_toolset` / 派发路径均查不到已注销的 Mcp,无重新激活可能。
+     *
+     * 幂等:首次调用已把注册表清空,后续重复调用 `all()` 为空,直接返回已完成的
+     * no-op [Job],不重复启动关闭协程。
      */
     @OptIn(DelicateCoroutinesApi::class)
     public fun unregisterAll(): Job {
         val snapshot = all()
+        if (snapshot.isEmpty()) return Job().also { it.complete() }
         snapshot.forEach { toolsetRegistry.unregister(it.name) }
         return GlobalScope.launch {
             snapshot.forEach { runCatching { it.client.close() } }

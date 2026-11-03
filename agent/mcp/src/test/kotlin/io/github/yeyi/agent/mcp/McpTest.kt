@@ -392,6 +392,31 @@ class McpTest {
         assertEquals(0, registry.all().size)
     }
 
+    @Test
+    fun `unregisterAll is idempotent - repeated calls do not re-close clients`() {
+        val closed = mutableListOf<String>()
+        fun makeMcp(name: String): Mcp = object : Mcp() {
+            override val name: String = name
+            override val description: String = "d"
+            override val client: McpClient = McpClient(object : McpTransport {
+                override suspend fun send(request: JsonRpcRequest<JsonElement>) = error("not used")
+                override suspend fun sendNotification(notification: JsonRpcNotification<JsonElement>) = Unit
+                override val notifications: Flow<JsonRpcNotification<JsonElement>> = emptyFlow()
+                override suspend fun close() { closed += name }
+            })
+        }
+        val registry = McpRegistry(ClientInfo("", ""))
+        registry.register(makeMcp("a"))
+
+        kotlinx.coroutines.runBlocking {
+            registry.unregisterAll().join()
+            registry.unregisterAll().join()
+            registry.unregisterAll().join()
+        }
+
+        assertEquals(listOf("a"), closed, "clients must be closed exactly once")
+    }
+
     // ---------- mergeInto / shared storage ----------
 
     @Test

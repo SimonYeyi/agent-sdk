@@ -559,8 +559,9 @@ class AgentScopeTest {
     }
 
     @Test
-    fun `spawnedAgent runStream and steer after shutdown throw`() = runTest {
-        // 已关闭的 Agent 调用 runStream/steer 直接抛 ISE（与 run 一致，而非透传 delegate）。
+    fun `spawnedAgent runStream throws and steer follows delegate after shutdown`() = runTest {
+        // 已关闭的 Agent 调用 runStream 抛 ISE（经 delegate 的 runTurn 守卫）;
+        // steer 跟随 delegate 原生语义返回 false（无活跃回合可注入）。
         val delegate = agent {
             llmProvider(StubLlm)
             memory(InMemoryMemory())
@@ -569,7 +570,7 @@ class AgentScopeTest {
         spawned.shutdown()
 
         assertFailsWith<IllegalStateException> { spawned.runStream(AgentQuery.text("ping")) }
-        assertFailsWith<IllegalStateException> { spawned.steer(AgentQuery.text("ping")) }
+        assertFalse(spawned.steer(AgentQuery.text("ping")))
     }
 
     @Test
