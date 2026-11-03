@@ -194,8 +194,7 @@ public class BossAgent internal constructor(
         // 隐式级联杀死 inner 执行体；架构 2 下 inner 回合跑在自己的私有 scope，
         // 该级联失效 —— 不显式 shutdown，boss 关闭后 inner 仍会烧 token 到自然终局。
         (innerAgent as? Agent.Shutdownable)?.shutdown()
-        scope.cancel()
-        onShutdown()
+        scope.cancel(); onShutdown()
     }
 
     // ========== 内部: 任务事件处理 ==========
@@ -265,13 +264,20 @@ public class BossAgent internal constructor(
         try {
             // 报告轮次同样流式运行：任务报告逐字输出，降低送达感知延迟。
             // 流式增量经 report SharedFlow 送达 UI，最终由 Final 权威完整文本兜底。
-            // 终局三选一：正常以 Final 收尾，真实失败由内层 agent 自行发出 Failed，
-            // 取消以 Canceled 收尾但只在此消费、不转发 —— report 是热流，不因单轮取消而关闭。
+            // 终局三选一全部转发：Final 正常收尾，Failed 真实失败，Canceled（唯一的取消
+            // 途径是 shutdown）也照常转发 —— 与 run 流一致，每轮必以终结事件收尾。
             innerAgent.runStream(AgentQuery.text(result, label = REPORT_LABEL)).collect { e ->
-                // Canceled 不转发到 report 热流 —— 单轮取消不关闭热流，
-                // 调度器在 finally 照常回到 WAITING。
-                if (e !is AgentEvent.Canceled) (report as MutableSharedFlow).emit(e)
+                (report as MutableSharedFlow).emit(e)
             }
+        } catch (e: CancellationException) {
+            // 取消竞态兜底：boss.shutdown() 的 scope.cancel() 可能在内层 Canceled 事件送达
+            // collect 之前抢先取消本收集协程 —— 事件未及转发即被取消，report 订阅方会看到
+            // 一轮被截断却无终态。在 NonCancellable 下补发 Canceled，保证报告轮无论走哪条
+            // 取消路径都以终结事件收尾，绝不静默截断。
+            withContext(NonCancellable) {
+                (report as MutableSharedFlow).emit(AgentEvent.Canceled(e))
+            }
+            throw e
         } finally {
             // 轮次收尾（含取消异常路径）：调度器必须回到 WAITING，
             // 否则后续轮次永远排队不执行 —— boss 静默僵死。

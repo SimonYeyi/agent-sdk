@@ -66,6 +66,45 @@ class BossAgentTest {
     }
 
     /**
+     * Fake LLM provider where the chatStream call at [delayIndex] suspends for [delayMs] ms
+     * before streaming the scripted response; other calls return immediately.
+     * Used to keep a specific round (e.g. the report round) in-flight long enough
+     * to interleave boss.shutdown() with its execution.
+     */
+    private class SlowCallIndexLlmProvider(
+        private val responses: List<ChatResponse>,
+        private val delayIndex: Int,
+        private val delayMs: Long,
+    ) : LlmProvider {
+        override val name: String = "slow-call-index"
+        private var index = 0
+
+        override suspend fun chat(request: ChatRequest): ChatResponse {
+            val i = index++
+            check(i < responses.size) {
+                "SlowCallIndexLlmProvider: chat() called ${i + 1} times, but only ${responses.size} responses scripted"
+            }
+            if (i == delayIndex) delay(delayMs)
+            return responses[i]
+        }
+
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
+            val i = index++
+            check(i < responses.size) {
+                "SlowCallIndexLlmProvider: chatStream() called ${i + 1} times, but only ${responses.size} responses scripted"
+            }
+            if (i == delayIndex) delay(delayMs)
+            val response = responses[i]
+            response.message.content?.takeIf { it.isNotEmpty() }
+                ?.let { emit(ChatResponseEvent.ContentDelta(it)) }
+            response.message.toolCalls.forEach { call ->
+                emit(ChatResponseEvent.ToolCallDelta(call.id, call.name, call.arguments.toString()))
+            }
+            emit(ChatResponseEvent.Done(response.usage, response.finishReason))
+        }
+    }
+
+    /**
      * Fake LLM provider where the first [chat] call suspends for [firstCallDelayMs] ms
      * before returning the first scripted response; subsequent calls return the next
      * scripted response immediately. Used by the supersede test to keep the first run's
@@ -320,5 +359,72 @@ class BossAgentTest {
 
         assertTrue(report.isNotEmpty(), "report was empty")
         assertTrue(report.any { it is AgentEvent.Final })
+    }
+
+    /**
+     * 回归：报告轮在途被 shutdown 时，report 热流必须收到 Canceled 终结事件。
+     *
+     * 报告轮唯一的取消途径是 shutdown —— 取消不能静默截断：与 run 流一致，
+     * 每轮必以终结事件（Final / Failed / Canceled）收尾，订阅方据此区分
+     * "被终止"与"正常结束"，而非看到一轮被截断却无终态。
+     */
+    @Test
+    fun `shutdown during report round forwards Canceled to report`() = runBlocking {
+        // 第 2 个 chatStream 调用（报告轮）延迟 500ms，保证 shutdown 时报告轮仍在途
+        val (boss, bb) = createBossAgent(
+            provider = SlowCallIndexLlmProvider(
+                responses = listOf(
+                    ChatResponse(message = ChatMessage.Assistant(content = "init"), finishReason = FinishReason.Stop),
+                    ChatResponse(message = ChatMessage.Assistant(content = "report"), finishReason = FinishReason.Stop),
+                ),
+                delayIndex = 1,
+                delayMs = 500,
+            )
+        )
+
+        // 先 run 一轮初始化 currentRound，否则 handleTaskAssignments 会因 currentRound 未初始化而失败
+        val initJob = launch { boss.run(AgentQuery.text("init")).collect { } }
+        withTimeout(5000) { initJob.join() }
+
+        // 直接 publish 一个 taskId 的 TaskAssignment (跳过 PublishTaskTool)
+        val taskId = "report-task"
+        bb.publishEvent(
+            TaskAssignments(
+                query = "init",
+                tasks = listOf(
+                    TaskAssignment(
+                        taskId = taskId,
+                        selection = Selection.Tool("dummy"),
+                        task = "do something",
+                        context = null,
+                        dependsOn = emptyList(),
+                    )
+                )
+            )
+        )
+
+        // 用 launch(UNDISPATCHED) 同步挂上 boss.report collector
+        val report = mutableListOf<AgentEvent>()
+        val reportJob = launch(start = CoroutineStart.UNDISPATCHED) {
+            boss.report.collect { report.add(it) }
+        }
+
+        // 终态 TaskUpdate → 触发报告轮（第 2 个 chatStream 调用，进入延迟窗口）
+        bb.progressEvent(
+            TaskUpdate(taskId, AgentEvent.Final(AgentResult(ChatMessage.Assistant("done"), 1, emptyList(), null)))
+        )
+        delay(50) // 等报告轮开跑并挂起在延迟窗口
+
+        boss.shutdown()
+
+        // 报告轮必须以 Canceled 终结 —— 不静默截断
+        withTimeout(5000) {
+            while (report.none { it is AgentEvent.Canceled }) delay(50)
+        }
+        reportJob.cancel()
+
+        // 兜底与事件路径互斥：无论竞态赢家是谁，report 只收到一次 Canceled，绝不双发
+        assertEquals(1, report.count { it is AgentEvent.Canceled }, "Canceled must be emitted exactly once: $report")
+        assertTrue(report.last() is AgentEvent.Canceled, "report must end with Canceled: $report")
     }
 }
