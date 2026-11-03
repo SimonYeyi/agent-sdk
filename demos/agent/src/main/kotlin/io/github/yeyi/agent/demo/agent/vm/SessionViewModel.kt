@@ -16,10 +16,10 @@ import io.github.yeyi.agent.session.AgentReference
 import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.session.SessionManager
 import io.github.yeyi.agent.tool.ToolExecutionResult
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -166,13 +166,20 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
         )
 
         viewModelScope.launch {
-            try {
-                val agent = agent
-                    ?: DemoAgentFactory.create(session.memory, hookPipeline).also { agent = it }
-                // 会话 UI 依赖流式增量；Agent 未实现 Streamable 时降级为批式路径。
-                val eventFlow = (agent as? Streamable)?.runStream(AgentQuery.text(inputText))
-                    ?: agent.run(AgentQuery.text(inputText))
-                eventFlow.collect { event ->
+            // agent 构建失败发生在回合建立之前，没有事件通道可用，只能在此兜住。
+            val agent = runCatching {
+                agent ?: DemoAgentFactory.create(session.memory, hookPipeline).also { agent = it }
+            }.getOrElse { e ->
+                _uiState.value = _uiState.value.copy(error = e.message, isLoading = false)
+                return@launch
+            }
+            // 会话 UI 依赖流式增量；Agent 未实现 Streamable 时降级为批式路径。
+            val eventFlow = (agent as? Streamable)?.runStream(AgentQuery.text(inputText))
+                ?: agent.run(AgentQuery.text(inputText))
+            eventFlow
+                // 轮次收尾挂在流的完成上：终局事件后流完成、订阅被取消，两者都会执行。
+                .onCompletion { _uiState.value = _uiState.value.copy(isLoading = false) }
+                .collect { event ->
                     when (event) {
                         is io.github.yeyi.agent.AgentEvent.Initial -> {
                             _uiState.value = _uiState.value.copy(
@@ -236,18 +243,6 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                         }
                     }
                 }
-            } catch (e: CancellationException) {
-                // viewModelScope 取消（页面销毁）不是运行失败：原样抛出，
-                // 不把取消信息渲染成错误。
-                throw e
-            } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    error = e.message,
-                    liveBubble = null
-                )
-            } finally {
-                _uiState.value = _uiState.value.copy(isLoading = false)
-            }
         }
     }
 

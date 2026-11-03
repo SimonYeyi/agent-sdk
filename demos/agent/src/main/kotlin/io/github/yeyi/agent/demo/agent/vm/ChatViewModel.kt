@@ -13,6 +13,7 @@ import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
@@ -108,6 +109,8 @@ class ChatViewModel(
         _liveBubble.value = null
         inProgressByCallId.clear()
         memory = io.github.yeyi.agent.memory.InMemoryMemory()
+        // 换 agent 在同一主线程回调里完成，run() 读不到「旧 agent 已 shutdown、
+        // 字段尚未替换」的中间态——并发 run 的 ISE 拒绝由此不可达。
         agent = agentFactory(memory)
         (oldAgent as? Agent.Shutdownable)?.shutdown()
     }
@@ -134,16 +137,14 @@ class ChatViewModel(
         _isProcessing.value = true
 
         runJob = viewModelScope.launch {
-            // 回合内一切失败/取消都是领域事件（Final/Failed/Canceled），collect 不抛；
-            // 订阅协程被取消（clearMessages）时取消自然传播，无需 catch 放行。
-            // finally 只做状态归位：isProcessing 不归位会让 VM 永久拒绝新输入。
-            try {
-                flow.collect { handleEvent(it) }
-            } finally {
+            // 回合内一切失败/取消都是领域事件，collect 不抛。轮次收尾挂在流的完成上：
+            // 终局事件后流完成、订阅被取消（clearMessages），onCompletion 都会执行——
+            // 后者收不到终局事件，靠它归位 isProcessing（不归位 VM 永久拒绝新输入）。
+            flow.onCompletion {
                 _liveBubble.value = null
                 inProgressByCallId.clear()
                 _isProcessing.value = false
-            }
+            }.collect { handleEvent(it) }
         }
     }
 
