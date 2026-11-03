@@ -227,31 +227,38 @@ class BossViewModel(
         if (text.isEmpty()) return
 
         val agent = _boss.value ?: return
-        // run() 调用即启动回合（架构 2）——在点击回调里同步启动，不等
-        // viewModelScope 调度，堵死「resetSession 抢在协程开跑前 shutdown」的竞态。
-        val flow = agent.run(AgentQuery.text(text))
 
         // 不立即渲染用户气泡：BossAgent 可能正处于任务报告轮次，指令进入
         // scheduler 队列待报告完成后才执行；立即显示会导致运行时顺序
         // （指令→报告）与重启后记忆恢复顺序（报告→指令）颠倒。
         // 指令先入待确认队列，收到对应 Initial 事件后再落为用户气泡。
+        // 入队先于启动：run 抛 ISE（本轮未开始）时，收尾可以直接 confirm 出队。
         addPendingInput(text)
         _inputText.value = ""
+
+        // run() 调用即启动回合（架构 2）——在点击回调里同步启动，不等
+        // viewModelScope 调度，堵死「resetSession 抢在协程开跑前 shutdown」的竞态。
+        // 但 shutdown 若是抢先一步完成，这里会同步抛 ISE —— 必须接住，
+        // 否则异常从点击回调逃逸导致崩溃。
+        val flow = try {
+            agent.run(AgentQuery.text(text))
+        } catch (e: IllegalStateException) {
+            // 与 resetSession 的竞态：本波点击拿到的 boss 在 run 之前已被 shutdown ——
+            // 该轮从未开始，不会以 Canceled 事件收尾，收尾副作用在此落地。
+            // 不落用户气泡：resetSession 已清空消息列表，气泡会挂在新会话里。
+            pendingQueue.confirm(text)
+            refreshPendingInputs()
+            clearStreamingDraft()
+            _isLoading.value = false
+            return
+        }
         _isLoading.value = true
 
+        // 取消不走异常：BossAgent 的回合流以 Canceled 终局事件收尾（channel close-cause
+        // 仅在不带终局事件的中断路径出现），故 collect 无异常分支，收尾全靠事件处理。
         viewModelScope.launch {
-            try {
-                flow.collect { event ->
-                    handleAgentEvent(event, pendingText = text)
-                }
-            } catch (e: IllegalStateException) {
-                // 与 resetSession 的竞态：本波点击拿到的 boss 在 run 之前已被 shutdown ——
-                // 该轮从未开始，不会以 Canceled 事件收尾，收尾副作用在此落地。
-                // 不落用户气泡：resetSession 已清空消息列表，气泡会挂在新会话里。
-                pendingQueue.confirm(text)
-                refreshPendingInputs()
-                clearStreamingDraft()
-                _isLoading.value = false
+            flow.collect { event ->
+                handleAgentEvent(event, pendingText = text)
             }
         }
     }

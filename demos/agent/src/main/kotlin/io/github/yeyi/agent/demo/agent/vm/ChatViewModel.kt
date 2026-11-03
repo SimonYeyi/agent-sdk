@@ -12,6 +12,7 @@ import io.github.yeyi.agent.demo.agent.demo.DemoAgentFactory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.tool.ToolExecutionResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -145,6 +146,9 @@ class ChatViewModel(
             try {
                 // 流式是可选能力：Agent 未实现 Streamable 时降级为批式路径。
                 flow.collect { handleEvent(it) }
+            } catch (e: CancellationException) {
+                // clearMessages 会 cancel 本协程：取消是正常控制流，不渲染成错误气泡。
+                throw e
             } catch (t: Throwable) {
                 _messages.update {
                     it + UiMessage.Error(t.message ?: "Unknown error", id = nextUiId())
