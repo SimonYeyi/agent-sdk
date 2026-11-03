@@ -7,6 +7,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.onSubscription
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -164,29 +165,22 @@ internal class Pasture(
 
         // 3) launch job
         val job = scope.launch {
-            try {
-                var failed: AgentEvent.Failed? = null
-                beast.run(AgentQuery.text(userInput)).collect { event ->
+            beast.run(AgentQuery.text(userInput))
+                .onCompletion { beast.shutdown() }
+                .collect { event ->
                     when (event) {
-                        is AgentEvent.Final -> dagLock.withLock { dag[taskId]?.result = event }
-                        is AgentEvent.Failed -> failed = event
+                        is AgentEvent.Final -> {
+                            dagLock.withLock { dag[taskId]?.result = event }
+                            handleTerminal(taskId, null)
+                        }
+                        is AgentEvent.Failed -> handleTerminal(taskId, event.cause)
                         // 取消终局：标 CANCELED（而非落进 else 被标 DONE——下游会拿到空结果）。
-                        // 注意 Canceled 后 collect 正常结束、本回合不抛；下方 catch 的 throw 只兜 collect 自身
-                        // 抛出的 CancellationException（如 node.job.cancel()）。
+                        // Canceled 后 collect 正常结束、本回合不抛；node.job.cancel() 掐订阅时
+                        // 抛出的 CancellationException 直接上抛，job 以取消收尾，无需 catch。
                         is AgentEvent.Canceled -> handleTerminal(taskId, event.cause)
                         else -> bulletinBoard.progressEvent(TaskUpdate(taskId, event))
                     }
                 }
-                handleTerminal(taskId, failed?.cause)
-            } catch (t: Throwable) {
-                handleTerminal(taskId, t)
-                if (t is CancellationException) throw t
-            } finally {
-                // Beast 是一次性 agent：collect 结束（终局完成/订阅被取消/异常）即作废。
-                // 「取消收集 job」由此恢复为「终止回合」的语义——
-                // handleCancellation 的 node.job?.cancel() 掐掉订阅，本 finally 杀在途回合。
-                beast.shutdown()
-            }
         }
 
         dagLock.withLock {
@@ -204,8 +198,8 @@ internal class Pasture(
     /**
      * 处理 task 终态: 标 Status, emit TaskUpdate 给 BossAgent.
      */
-    private suspend fun handleTerminal(taskId: String, throwable: Throwable? = null) {
-        val newStatus = when (throwable) {
+    private suspend fun handleTerminal(taskId: String, e: Throwable? = null) {
+        val newStatus = when (e) {
             null -> Status.DONE
             is CancellationException -> Status.CANCELED
             else -> Status.FAILED
@@ -216,10 +210,10 @@ internal class Pasture(
             if (node.status == Status.DONE || node.status == Status.FAILED || node.status == Status.CANCELED) return
             dag[taskId] = node.also {
                 it.status = newStatus
-                if (throwable != null) it.error = throwable
+                if (e != null) it.error = e
             }
-            if (throwable == null) node.result!!
-            else AgentEvent.Failed(throwable)
+            if (e == null) node.result!!
+            else AgentEvent.Failed(e)
         }
         bulletinBoard.progressEvent(TaskUpdate(taskId, event))
     }
