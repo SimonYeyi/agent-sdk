@@ -454,10 +454,15 @@ public class BossAgent internal constructor(
 
         fun remove(round: UserRound) = synchronized(lock) { userRounds -= round }
 
-        fun release(cause: CancellationException) = synchronized(lock) {
-            released = true
-            userRounds.forEach { it.emit(AgentEvent.Canceled(cause)) }
-            userRounds.clear()
+        fun release(cause: CancellationException) {
+            // 快照出锁再逐个 emit：锁内只做登记表清理。当前 tryEmit 在 Int.MAX_VALUE 容量下
+            // 恒成功不挂起，但"锁内 emit 永不挂起"是脆弱前提 —— 未来容量收紧或改用挂起 emit
+            // 会在持 JVM 监视器锁时挂起，让 shutdown 死锁。与 record/remove 的锁纪律解耦。
+            val rounds = synchronized(lock) {
+                released = true
+                userRounds.toList().also { userRounds.clear() }
+            }
+            rounds.forEach { it.emit(AgentEvent.Canceled(cause)) }
         }
     }
 }
