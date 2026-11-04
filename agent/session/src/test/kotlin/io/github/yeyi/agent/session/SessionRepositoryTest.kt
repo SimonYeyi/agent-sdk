@@ -38,7 +38,7 @@ class SessionRepositoryTest {
     }
 
     @Test
-    fun `createSession creates per-session directory with three siblings`() {
+    fun `createSession creates per-session directory with three siblings`() = runTest {
         val session = repo.createSession("alice", "chat1", AgentReference("test"))
         val sessionDir = File(File(tempDir, "agent/sessions/alice"), session.id)
         assertTrue(sessionDir.isDirectory)
@@ -80,7 +80,7 @@ class SessionRepositoryTest {
     }
 
     @Test
-    fun `hydrateSession builds JsonlMemory as the memory and JsonlConversation as paged view`() {
+    fun `hydrateSession builds JsonlMemory as the memory and JsonlConversation as paged view`() = runTest {
         val session = repo.createSession("alice", "chat1", AgentReference("test"))
 
         // session.memory 是 JsonlMemory —— 直接暴露 MediaArchivable 供 AgentBuilder
@@ -145,7 +145,7 @@ class SessionRepositoryTest {
     }
 
     @Test
-    fun `findSession returns null after deleteSession`() {
+    fun `findSession returns null after deleteSession`() = runTest {
         val session = repo.createSession("alice", "chat1", AgentReference("test"))
         assertNotNull(repo.findSession("alice", session.id))
 

@@ -1,5 +1,7 @@
 package io.github.yeyi.agent.session
 
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.datetime.Clock
 import kotlinx.serialization.json.Json
 import java.io.File
@@ -61,21 +63,26 @@ internal class SessionRepository(baseDir: File) {
      * @param sessionId 可选指定 ID，不传则自动生成 UUID
      * @throws IllegalArgumentException sessionId 已存在
      */
-    fun createSession(accountId: String, sessionName: String, agent: AgentReference, sessionId: String? = null): Session {
-        val now = Clock.System.now()
-        val id = sessionId ?: UUID.randomUUID().toString()
-        require(findSession(accountId, id) == null) { "Session already exists: $id" }
-        val session = Session(
-            id = id,
-            accountId = accountId,
-            name = sessionName.take(50),
-            agent = agent,
-            createdAt = now,
-            lastActiveAt = now
-        ).let { hydrateSession(it) }
-        saveSession(session)
-        return session
-    }
+    suspend fun createSession(
+        accountId: String,
+        sessionName: String,
+        agent: AgentReference,
+        sessionId: String? = null
+    ): Session =
+        withContext(Dispatchers.IO) {
+            val now = Clock.System.now()
+            val id = sessionId ?: UUID.randomUUID().toString()
+            require(findSession(accountId, id) == null) { "Session already exists: $id" }
+            val session = Session(
+                id = id,
+                accountId = accountId,
+                name = sessionName.take(50),
+                agent = agent,
+                createdAt = now,
+                lastActiveAt = now
+            ).let { hydrateSession(it) }
+            session.also { saveSession(it) }
+        }
 
     /**
      * 构造:JsonlConversation 提供分页读视图([Session.conversation]);
@@ -101,13 +108,17 @@ internal class SessionRepository(baseDir: File) {
     }
 
     /** 列出账号下所有 session。 */
-    fun findSessions(accountId: String): List<Session> {
-        return readSessionsFromFile(accountId).map { hydrateSession(it) }
+    suspend fun findSessions(accountId: String): List<Session> {
+        return withContext(Dispatchers.IO) {
+            readSessionsFromFile(accountId).map { hydrateSession(it) }
+        }
     }
 
     /** 按 ID 查找 session，找不到返回 null。 */
-    fun findSession(accountId: String, sessionId: String): Session? {
-        return findSessions(accountId).find { it.id == sessionId }
+    suspend fun findSession(accountId: String, sessionId: String): Session? {
+        return withContext(Dispatchers.IO) {
+            findSessions(accountId).find { it.id == sessionId }
+        }
     }
 
     private fun saveSession(session: Session) {
@@ -131,21 +142,23 @@ internal class SessionRepository(baseDir: File) {
      * 快照未 hydrate,访问其 [Session.memory]/[Session.conversation] 会抛
      * `IllegalStateException` —— 目录已删,这是预期行为而非缺陷
      */
-    fun deleteSession(accountId: String, sessionId: String): Session? {
-        val sessions = readSessionsFromFile(accountId)
-        val toDelete = sessions.firstOrNull { it.id == sessionId } ?: return null
-        val remaining = sessions.filterNot { it.id == sessionId }
+    suspend fun deleteSession(accountId: String, sessionId: String): Session? {
+        return withContext(Dispatchers.IO) {
+            val sessions = readSessionsFromFile(accountId)
+            val toDelete = sessions.firstOrNull { it.id == sessionId } ?: return@withContext null
+            val remaining = sessions.filterNot { it.id == sessionId }
 
-        val sessionsFile = getSessionsFile(accountId)
-        sessionsFile.writeText(remaining.joinToString("\n") { json.encodeToString(it) })
+            val sessionsFile = getSessionsFile(accountId)
+            sessionsFile.writeText(remaining.joinToString("\n") { json.encodeToString(it) })
 
-        val sessionDir = getSessionDir(accountId, sessionId)
-        if (sessionDir.exists()) {
-            sessionDir.deleteRecursively()
+            val sessionDir = getSessionDir(accountId, sessionId)
+            if (sessionDir.exists()) {
+                sessionDir.deleteRecursively()
+            }
+
+            // 返回删除前的快照(transient memory/conversation 仍为 null —— session 已删,
+            // 不重新 hydrate 避免 mkdirs() 复活 session 目录)
+            toDelete
         }
-
-        // 返回删除前的快照(transient memory/conversation 仍为 null —— session 已删,
-        // 不重新 hydrate 避免 mkdirs() 复活 session 目录)
-        return toDelete
     }
 }

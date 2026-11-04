@@ -2,8 +2,10 @@ package io.github.yeyi.agent.session
 
 import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.memory.MediaArchive
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Base64
 import java.util.UUID
@@ -37,20 +39,24 @@ internal class FilesystemMediaArchive(private val rootDir: File) : MediaArchive 
      * Bytes 写入异常 (IOException) 正常传播,不包装 —— 与 [resolve] 行为一致。
      */
     override suspend fun store(data: MediaSource.Data): MediaSource.Local = mutex.withLock {
-        rootDir.mkdirs()
-        val fileId = UUID.randomUUID().toString()
-        File(rootDir, fileId).writeBytes(Base64.getDecoder().decode(data.base64))
-        MediaSource.Local(fileId, data.mimeType)
+        withContext(Dispatchers.IO) {
+            rootDir.mkdirs()
+            val fileId = UUID.randomUUID().toString()
+            File(rootDir, fileId).writeBytes(Base64.getDecoder().decode(data.base64))
+            MediaSource.Local(fileId, data.mimeType)
+        }
     }
 
     override suspend fun resolve(local: MediaSource.Local): MediaSource.Data = mutex.withLock {
-        val file = File(rootDir, local.fileId)
-        if (!file.exists()) throw IllegalStateException(
-            "MediaArchive missing fileId=${local.fileId}",
-        )
-        MediaSource.Data(
-            mimeType = local.mimeType,
-            base64 = Base64.getEncoder().encodeToString(file.readBytes()),
-        )
+        withContext(Dispatchers.IO) {
+            val file = File(rootDir, local.fileId)
+            if (!file.exists()) throw IllegalStateException(
+                "MediaArchive missing fileId=${local.fileId}",
+            )
+            MediaSource.Data(
+                mimeType = local.mimeType,
+                base64 = Base64.getEncoder().encodeToString(file.readBytes()),
+            )
+        }
     }
 }

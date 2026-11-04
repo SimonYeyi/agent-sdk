@@ -56,9 +56,8 @@ internal class JsonlConversation(
      * 由 [JsonlMemory.add] 作为副作用调用,不直接对外暴露。
      */
     internal suspend fun append(entry: MemoryEntry) {
-        ensureInitialized()
-
         withContext(Dispatchers.IO) {
+            ensureInitialized()
             val file = currentFile()
             if (file.length() >= pageSizeThreshold) {
                 maxPage++

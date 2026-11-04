@@ -4,6 +4,10 @@ import io.github.yeyi.agent.memory.MediaArchive
 import io.github.yeyi.agent.memory.MediaArchivable
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.nio.file.Files
@@ -30,28 +34,37 @@ internal class JsonlMemory(
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    private val cacheMutex = Mutex()
+
     @Volatile
     private var cachedEntries: MutableList<MemoryEntry>? = null
 
-    private fun loadToCache(): MutableList<MemoryEntry> {
-        if (cachedEntries != null) return cachedEntries!!
-        val entries = if (file.exists()) {
-            file.readLines()
-                .filter { it.isNotBlank() }
-                .mapNotNull { runCatching { json.decodeFromString<MemoryEntry>(it) }.getOrNull() }
-                .toMutableList()
-        } else {
-            mutableListOf()
+    // 阻塞文件 IO 一律在 Dispatchers.IO 上执行 —— caller 可能从 Default 池
+    // （如 ReActAgent 回合）调进来，不能指望调用方替我们让出线程。
+    private suspend fun loadToCache(): MutableList<MemoryEntry> {
+        cachedEntries?.let { return it }
+        return withContext(Dispatchers.IO) {
+            cachedEntries ?: run {
+                val entries = if (file.exists()) {
+                    file.readLines()
+                        .filter { it.isNotBlank() }
+                        .mapNotNull { runCatching { json.decodeFromString<MemoryEntry>(it) }.getOrNull() }
+                        .toMutableList()
+                } else {
+                    mutableListOf()
+                }
+                entries.also { cachedEntries = it }
+            }
         }
-        cachedEntries = entries
-        return entries
     }
 
     override suspend fun add(entry: MemoryEntry) {
-        val entries = loadToCache()
-        synchronized(this) {
-            file.appendText(json.encodeToString(entry) + "\n")
-            entries.add(entry)
+        withContext(Dispatchers.IO) {
+            val entries = loadToCache()
+            cacheMutex.withLock {
+                file.appendText(json.encodeToString(entry) + "\n")
+                entries.add(entry)
+            }
         }
         conversation?.append(entry)
     }
@@ -61,18 +74,20 @@ internal class JsonlMemory(
     }
 
     override suspend fun rebuild(entries: List<MemoryEntry>) {
-        synchronized(this) {
-            val tmpFile = File(file.parentFile, file.name + ".tmp")
-            try {
-                tmpFile.writeText("")
-                entries.forEach { entry ->
-                    tmpFile.appendText(json.encodeToString(entry) + "\n")
+        withContext(Dispatchers.IO) {
+            cacheMutex.withLock {
+                val tmpFile = File(file.parentFile, file.name + ".tmp")
+                try {
+                    tmpFile.writeText("")
+                    entries.forEach { entry ->
+                        tmpFile.appendText(json.encodeToString(entry) + "\n")
+                    }
+                    Files.move(tmpFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
+                    cachedEntries = entries.toMutableList()
+                } catch (e: Exception) {
+                    tmpFile.delete()
+                    throw e
                 }
-                Files.move(tmpFile.toPath(), file.toPath(), StandardCopyOption.REPLACE_EXISTING)
-                cachedEntries = entries.toMutableList()
-            } catch (e: Exception) {
-                tmpFile.delete()
-                throw e
             }
         }
     }
