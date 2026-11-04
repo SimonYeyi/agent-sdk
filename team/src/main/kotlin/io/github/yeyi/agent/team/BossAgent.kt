@@ -15,25 +15,47 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.onSubscription
+import kotlinx.coroutines.flow.transformWhile
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicBoolean
 
 // ===== Types =====
 
 private enum class BossState { WAITING, RUNNING }
 
+/**
+ * 单个用户轮次 —— 持有本轮事件总线与终局闸。
+ *
+ * 事件总线用全量回放广播（replay = Int.MAX_VALUE，无限缓冲，emit 永不挂起），
+ * 与 ReActAgent 的 [io.github.yeyi.agent.AgentTurn.events] 同构：任何时刻订阅
+ * 都从 [AgentEvent.Initial] 收到完整序列，多订阅天然支持 —— 替代旧的
+ * Channel 点对点队列（单消费者、close(cause) 只能抛异常无法送达领域终态）。
+ *
+ * 终局闸保证终态事件（Final/Failed/Canceled）恰好写入一次：所有终态写入路径
+ * （正常转发 / 取消兜底 / shutdown 补发）汇聚 [emit] CAS 抢占，
+ * 抢占成功者负责 emit，其余路径静默放弃 —— 终局事件全局唯一。
+ */
 private class UserRound(
     val id: String,
     val input: String,
     val createdAt: Long,
-    val channel: Channel<AgentEvent>,
-)
+) {
+    val events: Flow<AgentEvent> = MutableSharedFlow(Int.MAX_VALUE, 0)
+
+    private val terminal = AtomicBoolean(false)
+
+    fun emit(event: AgentEvent): Boolean {
+        if (event.isTerminal && !terminal.compareAndSet(false, true)) return false
+        (events as MutableSharedFlow).tryEmit(event) // 无限缓冲下恒成功，无需挂起
+        return true
+    }
+}
 
 /**
  * 单个任务的状态快照.
@@ -157,36 +179,37 @@ public class BossAgent internal constructor(
             UUID.randomUUID().toString(),
             queryText,
             System.currentTimeMillis(),
-            Channel(Channel.UNLIMITED)
         )
         // 关闭检查与登记合并为一道闸 —— record 在已 shutdown 时拒绝。
         // 单独用 "scope 是否还活着" 判断不够：shutdown 若恰好插在检查与登记之间，
-        // 登记进去的轮次既无执行者（scope 已取消）也无人关它的 channel，收集方永久挂起。
+        // 登记进去的轮次既无执行者（scope 已取消）也无人补发终局事件，收集方永久挂起。
         if (!shutdownHelper.record(userRound)) {
             // 已关闭 —— 按终态语义抛 ISE。flow 尚未交给调用方（throw 在 return 之前），
-            // 这一轮的 channel 无人可达，无需关闭。
+            // 这一轮的事件总线无人可达，无需补发终局。
             throw Agent.Shutdownable.ShutdownError()
         }
         scope.launch { scheduler.submitUserRound(userRound) }
-        // 注销不在此处做：调用方可能 run 后不 collect（flow 惰性），
-        // 由 runUserRound 完成时注销，未跑到的轮次由 shutdown 兜底 clear。
-        return flow { for (e in userRound.channel) emit(e) }
+        // 轮次流 = 事件总线的 transformWhile 包装：终态事件（自身被发射）即流边界，
+        // collect 方必然收到三选一领域事件且流随之完成；全量回放保证多订阅者各自
+        // 从 Initial 收到完整序列。注销不在此处做：调用方可能 run 后不 collect（流惰性），
+        // 由 runUserRound 完成时注销，未跑到的轮次由 shutdown 兜底补发终局。
+        return userRound.events.transformWhile { event -> emit(event); !event.isTerminal }
     }
 
     /**
      * 关闭 BossAgent — 取消 [scope], 停止所有 boss/pasture 的后台任务,
-     * 并关闭所有未结束 round 的 channel 终止进行中的 run flow.
+     * 并对所有未结束 round 补发 [AgentEvent.Canceled] 终局事件终止进行中的 run flow.
      * 之后 boss LLM 不会再被新事件触发; pasture 的 running jobs 也会被取消.
      * 最后触发 [onShutdown] 钩子 (由构造方注入, 用于关闭外部资源如 MCP 连接).
      * 调用方负责在不再使用 boss 时调用本方法 (e.g., 在应用关闭时).
      *
-     * 终止协议: 进行中及尚未被收集的 run flow 收集均以 [CancellationException] 结束 ——
+     * 终止协议: 进行中及尚未被收集的 run flow 均以 [AgentEvent.Canceled] 领域事件收尾 ——
      * 不静默截断, 与 [Agent.Shutdownable] 的统一约定一致. 内层 agent 同时被显式关闭
      * （其执行域不再随 boss scope 级联）.
      * 关闭后调用 [run] 抛 [Agent.Shutdownable.ShutdownError].
      */
     public override fun shutdown() {
-        val cause = CancellationException(Agent.Shutdownable.ShutdownError().message)
+        val cause = CancellationException(null, Agent.Shutdownable.ShutdownError())
         shutdownHelper.release(cause)
         // 内层 agent 的执行域必须显式终止：架构 1 靠 scope.cancel() 的结构化并发
         // 隐式级联杀死 inner 执行体；架构 2 下 inner 回合跑在自己的私有 scope，
@@ -230,39 +253,33 @@ public class BossAgent internal constructor(
     private suspend fun runUserRound(userRound: UserRound) {
         try {
             // 用户轮使用流式运行：逐字输出，降低用户感知延迟
-            innerAgent.runStream(AgentQuery.text(userRound.input)).collect { e ->
-                if (e is AgentEvent.Canceled) {
-                    // 轮次被取消（shutdown）：以取消异常关闭 channel ——
-                    // 收集方据此知道这一轮被终止，而非"截断但无终态"的静默收尾。
-                    throw e.cause
-                }
-                userRound.channel.send(e)
-            }
-        } catch (_: Agent.Shutdownable.ShutdownError) {
+            innerAgent.runStream(AgentQuery.text(userRound.input))
+                .collect { e -> userRound.emit(e) }
+        } catch (e: Agent.Shutdownable.ShutdownError) {
             // 与 shutdown 的竞态：轮次已受理但执行体尚未开跑，inner 已先被 shutdown →
-            // inner.runStream 直接抛 ShutdownError。channel 已由 shutdownHelper.release()
-            // 带取消原因关闭，收集方已收到取消信号 —— 此处无需补发或重抛，
-            // 仅确认该轮以取消语义终止。
-        } catch (_: CancellationException) {
+            // inner.runStream 直接抛 ShutdownError。补发 Canceled 终态 —— 终局闸 CAS
+            // 保证与 shutdownHelper.release() 的补发不重复，收集方不会双收终局。
+            userRound.emit(AgentEvent.Canceled(CancellationException(null, e)))
+        } catch (e: CancellationException) {
             // 取消唯一来源是 shutdown（release() → inner.shutdown() → scope.cancel()），
-            // release() 第一步已同步带取消原因关闭 channel，收集方已收到取消信号 ——
-            // 与 ShutdownError catch 同理，无需在此补发或重抛，仅确认该轮以取消语义终止。
+            // release() 第一步已同步对登记轮次补发 Canceled —— 此处仅兜底"已受理但
+            // inner 终局转发被 scope.cancel 抢先截断"的窄窗口，终局闸 CAS 保证不双发。
+            userRound.emit(AgentEvent.Canceled(e))
         } finally {
-            userRound.channel.close()
             shutdownHelper.remove(userRound)
             withContext(NonCancellable) { scheduler.roundFinished() }
         }
     }
 
     private suspend fun runResultRound(result: String) {
+        val report = report as MutableSharedFlow
         try {
             // 报告轮次同样流式运行：任务报告逐字输出，降低送达感知延迟。
             // 流式增量经 report SharedFlow 送达 UI，最终由 Final 权威完整文本兜底。
             // 终局三选一全部转发：Final 正常收尾，Failed 真实失败，Canceled（唯一的取消
             // 途径是 shutdown）也照常转发 —— 与 run 流一致，每轮必以终结事件收尾。
-            innerAgent.runStream(AgentQuery.text(result, label = REPORT_LABEL)).collect { e ->
-                (report as MutableSharedFlow).emit(e)
-            }
+            innerAgent.runStream(AgentQuery.text(result, label = REPORT_LABEL))
+                .collect { e -> report.emit(e) }
         } catch (e: Agent.Shutdownable.ShutdownError) {
             // 与 shutdown 的竞态：报告轮已受理（RUNNING 已置位）但执行体尚未开跑，
             // inner 已先被 shutdown → runStream 直接抛 ShutdownError。与 runUserRound 的
@@ -270,16 +287,14 @@ public class BossAgent internal constructor(
             // 补发 Canceled 终态，并按取消语义向上传播（包装为 CancellationException），
             // 绝不静默截断。
             withContext(NonCancellable) {
-                (report as MutableSharedFlow).emit(
-                    AgentEvent.Canceled(CancellationException(null, e))
-                )
+                report.emit(AgentEvent.Canceled(CancellationException(null, e)))
             }
         } catch (e: CancellationException) {
             // 取消竞态兜底：boss.shutdown() 的 scope.cancel() 可能在内层 Canceled 事件送达
             // collect 之前抢先取消本收集协程 —— 事件未及转发即被取消，report 订阅方会看到
             // 一轮被截断却无终态。在 NonCancellable 下补发 Canceled，保证报告轮无论走哪条
             // 取消路径都以终结事件收尾，绝不静默截断。
-            withContext(NonCancellable) { (report as MutableSharedFlow).emit(AgentEvent.Canceled(e)) }
+            withContext(NonCancellable) { report.emit(AgentEvent.Canceled(e)) }
         } finally {
             // 轮次收尾（含取消异常路径）：调度器必须回到 WAITING，
             // 否则后续轮次永远排队不执行 —— boss 静默僵死。
@@ -413,16 +428,15 @@ public class BossAgent internal constructor(
     // ========== 内部类: 关闭辅助域 ==========
 
     /**
-     * 关闭辅助 — 登记所有已创建但尚未结束的 round，为 [shutdown] 兜底关闭服务.
+     * 关闭辅助 — 登记所有已创建但尚未结束的 round，为 [shutdown] 兜底补发终局事件.
      *
-     * 正常流程中轮次完成时由 [runUserRound] 的 finally 关闭自身 channel 并注销;
-     * 但排队未启动的轮次没有执行者关闭 channel, 若不兜底其收集方会永久挂起.
-     * 因此 shutdown 时统一关闭登记表中所有未结束 round 的 channel（close 幂等）.
-     *
-     * channel 带取消异常关闭 —— 收集方看到的是"这一轮被终止", 而非静默截断.
+     * 正常流程中轮次完成时由 [runUserRound] 的 finally 注销自身;
+     * 但排队未启动的轮次没有执行者转发事件, 若不兜底其收集方会永久挂起.
+     * 因此 shutdown 时统一对登记表中所有未结束 round 补发 [AgentEvent.Canceled] 终局事件
+     * （经 [UserRound.emit] CAS, 与正常转发/取消兜底路径互斥, 终局全局唯一）.
      *
      * [record] 与 [release] 互斥: shutdown 之后不再登记任何 round ——
-     * 否则会出现"shutdown 已扫过登记表、之后才登记的 round 永远没人执行、channel 永不关闭"
+     * 否则会出现"shutdown 已扫过登记表、之后才登记的 round 永远没人执行、终局永不补发"
      * 的窗口, 收集方永久挂起.
      */
     private class ShutdownHelper {
@@ -442,7 +456,7 @@ public class BossAgent internal constructor(
 
         fun release(cause: CancellationException) = synchronized(lock) {
             released = true
-            userRounds.forEach { it.channel.close(cause) }
+            userRounds.forEach { it.emit(AgentEvent.Canceled(cause)) }
             userRounds.clear()
         }
     }

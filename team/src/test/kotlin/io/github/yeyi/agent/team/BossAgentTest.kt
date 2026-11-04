@@ -168,6 +168,28 @@ class BossAgentTest {
         assertTrue(events.isNotEmpty())
     }
 
+    /**
+     * 契约：run flow 支持多订阅 —— 同一 flow 被多个订阅者独立收集，
+     * 各自从 Initial 收到完整序列并收到终局事件（SharedFlow 全量回放中继）。
+     */
+    @Test
+    fun `run flow supports multiple subscribers`() = runBlocking {
+        val (boss, _) = createBossAgent()
+
+        val flow = boss.run(AgentQuery.text("hello"))
+        val a = mutableListOf<AgentEvent>()
+        val b = mutableListOf<AgentEvent>()
+        val jobA = launch { flow.collect { a.add(it) } }
+        val jobB = launch { flow.collect { b.add(it) } }
+        jobA.join()
+        jobB.join()
+
+        assertTrue(a.first() is AgentEvent.Initial, "订阅者 A 应从 Initial 开始: ${a.first()}")
+        assertTrue(b.first() is AgentEvent.Initial, "订阅者 B 应从 Initial 开始: ${b.first()}")
+        assertTrue(a.last() is AgentEvent.Final, "订阅者 A 应以 Final 收尾: ${a.last()}")
+        assertTrue(b.last() is AgentEvent.Final, "订阅者 B 应以 Final 收尾: ${b.last()}")
+    }
+
     @Test
     fun `report is a valid SharedFlow`() {
         val (boss, _) = createBossAgent()
@@ -192,8 +214,8 @@ class BossAgentTest {
 
     @Test
     fun `shutdown terminates queued run flows`() = runBlocking {
-        // run1 挂起在首个 LLM 调用时，run2 处于排队（未启动，无执行者关闭其 channel）。
-        // shutdown 必须兜底关闭所有 round channel，否则 run2 的收集方永久挂起。
+        // run1 挂起在首个 LLM 调用时，run2 处于排队（未启动，无执行者转发终局事件）。
+        // shutdown 必须兜底为所有登记 round 补发 Canceled 终局，否则 run2 的收集方永久挂起。
         val (boss, _) = createBossAgent(
             provider = SlowFirstLlmProvider(
                 responses = listOf(
@@ -216,13 +238,13 @@ class BossAgentTest {
     }
 
     /**
-     * 回归：shutdown 终止在途 run flow 时，收集方以取消异常收尾 —— 不是静默截断。
+     * 回归：shutdown 终止在途 run flow 时，收集方收到 [AgentEvent.Canceled] 领域事件 ——
+     * 不是静默截断，也不是异常截断。
      *
-     * 这是架构 2 下的真实呈现方式，不是架构 1 的「catch 异常判取消」：BossAgent 的回合流
-     * 是 channel 支撑的，shutdown 以 cause 关闭 channel，collect 随之抛出该 cause
-     * （close-cause）。消费端据此只做收尾，不靠异常类型推断轮次结果 —— 轮次结果由
-     * 终局事件（Final/Failed/Canceled）承载。
-     * 静默收尾（channel 无 cause 关闭）会让收集方看到"正常结束但没有终态事件"，
+     * BossAgent 的回合流是 SharedFlow 全量回放中继的，shutdown 时经终局闸补发 Canceled，
+     * collect 以领域事件收尾（架构 2 终局三选一契约）；消费端据此只做收尾，不靠异常类型
+     * 推断轮次结果 —— 轮次结果由终局事件（Final/Failed/Canceled）承载。
+     * 静默收尾（无终局事件）会让收集方看到"正常结束但没有终态事件"，
      * 违反 [io.github.yeyi.agent.Agent.Shutdownable] 的统一终止协议。
      */
     @Test
@@ -236,29 +258,25 @@ class BossAgentTest {
             )
         )
 
-        val caught = CompletableDeferred<Throwable?>()
+        val terminal = CompletableDeferred<AgentEvent?>()
         val job = launch {
-            try {
-                boss.run(AgentQuery.text("one")).toList()
-                caught.complete(null)
-            } catch (e: CancellationException) {
-                caught.complete(e)
-            }
+            val events = boss.run(AgentQuery.text("one")).toList()
+            terminal.complete(events.lastOrNull())
         }
         delay(50) // run 已被调度并挂起在 LLM
         boss.shutdown()
         withTimeout(1000) { job.join() }
 
         assertTrue(
-            caught.await() is CancellationException,
-            "shutdown 应以取消异常终止在途 flow —— 实际结果: ${caught.await()}"
+            terminal.await() is AgentEvent.Canceled,
+            "shutdown 应以 Canceled 领域事件终止在途 flow —— 实际结果: ${terminal.await()}"
         )
-        // 收集方协程本身未被取消（异常由 collect 外围捕获）。
+        // 收集方协程本身未被取消（终局以领域事件送达，collect 正常返回）。
         assertFalse(job.isCancelled)
     }
 
     /**
-     * 回归：shutdown 后才被收集的 flow 同样以取消异常收尾 —— 不静默零事件。
+     * 回归：shutdown 后才被收集的 flow 同样以 Canceled 领域事件收尾 —— 不静默零事件。
      */
     @Test
     fun `run flow collected after shutdown ends with cancellation`() = runBlocking {
@@ -267,24 +285,27 @@ class BossAgentTest {
         val flow = boss.run(AgentQuery.text("hello"))
         boss.shutdown()
 
-        val e = assertFailsWith<CancellationException> { flow.toList() }
-        // 关闭原因透传到收集方：调用方据此区分"已关闭"与其它取消。
-        assertTrue(e.message.orEmpty().contains("shut down"))
+        val events = flow.toList()
+        // 全量回放：shutdown 补发的 Canceled 在 replay 缓存中，迟订阅也能收到终局。
+        val last = events.lastOrNull()
+        assertTrue(last is AgentEvent.Canceled, "迟订阅 flow 应以 Canceled 收尾 —— 实际: $last")
+        // 关闭原因透传到收集方：诊断信息由 cause 链上的 ShutdownError（"Agent is shut down"）承载。
+        assertTrue((last as AgentEvent.Canceled).cause.cause is Agent.Shutdownable.ShutdownError)
     }
 
     /**
-     * 回归：shutdown 与 run 并发时，新轮不得成为"无人执行、channel 永不关闭"的孤儿 ——
-     * 收集方要么收到取消异常，要么 run 直接抛终态异常，绝不永久挂起。
+     * 回归：shutdown 与 run 并发时，新轮不得成为"无人执行、终局永不补发"的孤儿 ——
+     * 收集方要么收到终局事件，要么 run 直接抛终态异常，绝不永久挂起。
      *
      * 孤儿窗口：run 通过"scope 仍活跃"检查后、登记进登记表之前，shutdown 扫过登记表 ——
-     * 之后登记的轮次既没有执行者，也没人关它的 channel。
+     * 之后登记的轮次既没有执行者，也没人为它补发终局事件。
      */
     @Test
     fun `concurrent run and shutdown never leaves a collector hanging`() = runBlocking {
         repeat(20) {
             val (boss, _) = createBossAgent()
             val collector = launch {
-                // run 既可能正常跑完、也可能抛终态异常、也可能被取消 —— 都可接受，
+                // run 既可能正常跑完、也可能收到终局事件、也可能直接抛终态异常 —— 都可接受，
                 // 唯一不可接受的是永远不结束。
                 runCatching { boss.run(AgentQuery.text("hello")).toList() }
             }
