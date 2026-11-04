@@ -46,7 +46,7 @@ private class UserRound(
     val input: String,
     val createdAt: Long,
 ) {
-    val events: Flow<AgentEvent> = MutableSharedFlow(Int.MAX_VALUE, 0)
+    val events: Flow<AgentEvent> = MutableSharedFlow(replay = Int.MAX_VALUE)
 
     private val terminal = AtomicBoolean(false)
 
@@ -138,10 +138,15 @@ public class BossAgent internal constructor(
      * 报告事件流 (hot SharedFlow) — 任务结果触发的 round 事件都流到这里.
      * 与 [run] 互补: `run` 是用户驱动的单次 round 流, `report` 是任务驱动的多 round 流.
      * 调用方订阅一次即可收所有报告 (UI + logger 多消费者支持).
+     *
+     * 投递语义: 不回放（replay = 0，订阅者只收订阅后的事件）——正因如此,
+     * **订阅后发射的事件不丢**：缓冲（extra 256）满时 emit 挂起等待订阅者消费
+     * （SUSPEND），绝不 DROP。代价是背压：慢订阅者会把报告轮次的 collect 协程
+     * 挂起，进而拖住轮次调度——这是"订阅后不丢"的必然取舍。缓冲取 256 贴合
+     * 一轮流式报告（TextDelta 增量）的体量，瞬时消费抖动在阈值内消化，
+     * 挂起实际触发概率极低。
      */
-    public val report: Flow<AgentEvent> = MutableSharedFlow(
-        replay = 0, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST,
-    )
+    public val report: Flow<AgentEvent> = MutableSharedFlow(extraBufferCapacity = 256)
 
     /**
      * 启动后台 collect 协程, 订阅 [bb] 的原始 [BulletinBoard.events] 统一流, 内部 when 区分
