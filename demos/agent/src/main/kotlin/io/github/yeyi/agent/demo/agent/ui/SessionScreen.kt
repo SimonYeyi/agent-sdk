@@ -204,14 +204,14 @@ private fun ChatArea(
 
     // 会话切换或新消息时滚动到底部（加载更多完成时保持位置）
     val currentSessionId = uiState.currentSession?.id
-    LaunchedEffect(currentSessionId, uiState.liveBubble?.text, displayItems.size, uiState.isToolExecutionPending, uiState.isLoadingMore) {
+    LaunchedEffect(currentSessionId, uiState.liveBubble?.text, displayItems.size, uiState.isLoading, uiState.isLoadingMore) {
         if (displayItems.isNotEmpty()) {
             // 加载更多完成后（isLoadingMore: true → false）不滚动，保持在当前位置
             if (loadMoreTriggered) {
                 loadMoreTriggered = false
                 return@LaunchedEffect
             }
-            val lastIndex = if (uiState.isToolExecutionPending) displayItems.size else displayItems.size - 1
+            val lastIndex = if (uiState.isLoading) displayItems.size else displayItems.size - 1
             listState.scrollToItem(lastIndex, Int.MAX_VALUE)
         }
     }
@@ -247,7 +247,7 @@ private fun ChatArea(
                     MessageBubble(message)
                 }
 
-                if (uiState.isToolExecutionPending) {
+                if (uiState.isLoading) {
                     item(key = "loading-indicator") {
                         LoadingBubble()
                     }

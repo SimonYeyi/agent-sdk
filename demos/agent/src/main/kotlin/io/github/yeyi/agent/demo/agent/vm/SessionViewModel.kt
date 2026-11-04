@@ -28,12 +28,12 @@ public data class SessionUiState(
     val currentSession: Session? = null,
     val messages: List<UiMessage> = emptyList(),
     val inputText: String = "",
+    /** 轮次进行中：发送即置位，终态事件替换 LoadingBubble 时复位。 */
     val isLoading: Boolean = false,
     val error: String? = null,
     val liveBubble: LiveBubble? = null,
     val pendingMessage: String? = null,
     val isNewSessionPending: Boolean = false,
-    val isToolExecutionPending: Boolean = false,
     val currentPage: Int = 1,
     val hasMorePages: Boolean = true,
     val isLoadingMore: Boolean = false
@@ -107,7 +107,8 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                     messages = chatMessages,
                     currentPage = 1,
                     hasMorePages = true,
-                    isLoadingMore = false
+                    isLoadingMore = false,
+                    isLoading = false
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(error = e.message)
@@ -146,7 +147,8 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                 releaseAgent()
                 _uiState.value = _uiState.value.copy(
                     currentSession = session,
-                    messages = emptyList()
+                    messages = emptyList(),
+                    isLoading = false
                 )
                 val pending = _uiState.value.pendingMessage
                 if (pending != null) {
@@ -178,7 +180,10 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                 ?: agent.run(AgentQuery.text(inputText))
             eventFlow
                 // 轮次收尾挂在流的完成上：终局事件后流完成、订阅被取消，两者都会执行。
-                .onCompletion { _uiState.value = _uiState.value.copy(isLoading = false) }
+                // isLoading 兜底复位，防止异常路径残留 LoadingBubble。
+                .onCompletion {
+                    _uiState.value = _uiState.value.copy(isLoading = false)
+                }
                 .collect { event ->
                     when (event) {
                         is io.github.yeyi.agent.AgentEvent.Initial -> {
@@ -187,16 +192,14 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                                     text = event.query.parts.text,
                                     id = nextUiId(),
                                 ),
-                                liveBubble = null,
-                                isToolExecutionPending = false
+                                liveBubble = null
                             )
                         }
                         is io.github.yeyi.agent.AgentEvent.ToolCallExplanation -> {
                             event.text?.let { text ->
                                 _uiState.value = _uiState.value.copy(
                                     messages = _uiState.value.messages + UiMessage.Assistant(text, id = nextUiId()),
-                                    liveBubble = null,
-                                    isToolExecutionPending = true
+                                    liveBubble = null
                                 )
                             }
                         }
@@ -204,27 +207,33 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                             _uiState.value = _uiState.value.copy(
                                 liveBubble = _uiState.value.liveBubble?.let {
                                     it.copy(text = it.text + event.text)
-                                } ?: LiveBubble(nextUiId(), event.text),
-                                isToolExecutionPending = false
+                                } ?: LiveBubble(nextUiId(), event.text)
                             )
                         }
                         is io.github.yeyi.agent.AgentEvent.ToolCallStart -> {
-                            // 信号，不做消息提交
+                            // 信号，不提交消息：执行指示由 LoadingBubble（轮次进行中）统一呈现
                         }
                         is io.github.yeyi.agent.AgentEvent.ToolCallEnd -> {
-                            // Do nothing, wait for next text delta
+                            _uiState.value = _uiState.value.copy(
+                                messages = _uiState.value.messages + UiMessage.ToolExecution(
+                                    callId = event.toolCall.id,
+                                    toolName = event.toolCall.name,
+                                    result = event.result,
+                                )
+                            )
                         }
                         is io.github.yeyi.agent.AgentEvent.Final -> {
                             _uiState.value = _uiState.value.copy(
                                 messages = _uiState.value.messages + UiMessage.Assistant(event.result.message.content ?: "", id = nextUiId()),
-                                liveBubble = null
+                                liveBubble = null,
+                                isLoading = false
                             )
                         }
                         is io.github.yeyi.agent.AgentEvent.Failed -> {
                             _uiState.value = _uiState.value.copy(
                                 messages = _uiState.value.messages + UiMessage.Error(event.cause.message ?: "Unknown error", id = nextUiId()),
                                 liveBubble = null,
-                                isToolExecutionPending = false
+                                isLoading = false
                             )
                         }
                         is io.github.yeyi.agent.AgentEvent.Canceled -> {
@@ -232,7 +241,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                             // 用户已切走，不渲染打断横幅，只清回合中的临时 UI 状态。
                             _uiState.value = _uiState.value.copy(
                                 liveBubble = null,
-                                isToolExecutionPending = false
+                                isLoading = false
                             )
                         }
                         is AgentEvent.MemoryCompressing -> {
@@ -262,7 +271,8 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                     releaseAgent()
                     _uiState.value = _uiState.value.copy(
                         currentSession = null,
-                        messages = emptyList()
+                        messages = emptyList(),
+                        isLoading = false
                     )
                 }
                 loadSessions()
