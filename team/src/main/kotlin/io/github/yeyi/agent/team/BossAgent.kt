@@ -4,7 +4,6 @@ import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.isTerminal
-import io.github.yeyi.agent.llm.ContentPart
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -43,7 +42,7 @@ private enum class BossState { WAITING, RUNNING }
  */
 private class UserRound(
     val id: String,
-    val input: String,
+    val query: AgentQuery,
     val createdAt: Long,
 ) {
     val events: Flow<AgentEvent> = MutableSharedFlow(replay = Int.MAX_VALUE)
@@ -179,11 +178,9 @@ public class BossAgent internal constructor(
     // ========== Public API ==========
 
     override fun run(query: AgentQuery): Flow<AgentEvent> {
-        val queryText = (query.parts.firstOrNull() as? ContentPart.Text)?.text
-            ?: query.parts.joinToString(" ") { it.toString() }
         val userRound = UserRound(
             UUID.randomUUID().toString(),
-            queryText,
+            query,
             System.currentTimeMillis(),
         )
         // 关闭检查与登记合并为一道闸 —— record 在已 shutdown 时拒绝。
@@ -261,7 +258,7 @@ public class BossAgent internal constructor(
      * finally 注销轮次登记。
      */
     private suspend fun runUserRound(userRound: UserRound) = runRound(
-        query = AgentQuery.text(userRound.input),
+        query = userRound.query,
         emit = { userRound.emit(it) },
         onFinish = { shutdownHelper.remove(userRound) },
     )
