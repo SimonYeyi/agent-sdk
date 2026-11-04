@@ -17,13 +17,10 @@ import androidx.compose.ui.Modifier
 import io.github.yeyi.agent.demo.agent.ui.ChatScreen
 import io.github.yeyi.agent.demo.agent.ui.SessionScreen
 import io.github.yeyi.agent.demo.agent.vm.ChatViewModel
-import io.github.yeyi.agent.demo.agent.vm.SessionViewModel
 
 class MainActivity : ComponentActivity() {
 
     private val chatViewModel: ChatViewModel by viewModels()
-
-    private val sessionViewModel: SessionViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -33,8 +30,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     MainApp(
-                        chatViewModel = chatViewModel,
-                        sessionViewModel = sessionViewModel
+                        chatViewModel = chatViewModel
                     )
                 }
             }
@@ -52,8 +48,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun MainApp(
-    chatViewModel: ChatViewModel,
-    sessionViewModel: SessionViewModel
+    chatViewModel: ChatViewModel
 ) {
     var currentScreen by remember { mutableStateOf("chat") }
 
@@ -66,8 +61,9 @@ private fun MainApp(
         }
 
         "session" -> {
+            // SessionViewModel 由 SessionScreen 组合内自建（生命周期 = 屏幕生命周期），
+            // 不再由 Activity 创建长驻。
             SessionScreen(
-                viewModel = sessionViewModel,
                 onBack = { currentScreen = "chat" }
             )
         }

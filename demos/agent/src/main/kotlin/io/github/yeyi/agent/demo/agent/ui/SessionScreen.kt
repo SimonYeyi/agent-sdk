@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.demo.agent.ui
 
+import android.app.Application
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -15,6 +16,7 @@ import androidx.compose.runtime.*
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.yeyi.agent.demo.agent.vm.UiMessage
 import io.github.yeyi.agent.demo.agent.vm.SessionUiState
@@ -25,9 +27,18 @@ import kotlinx.coroutines.launch
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 public fun SessionScreen(
-    viewModel: SessionViewModel,
     onBack: () -> Unit
 ) {
+    // ViewModel 生命周期 = 屏幕生命周期：组合内创建，离开组合（返回 chat）时
+    // 由 DisposableEffect 触发 onCleared 作废 agent，不再挂靠 Activity 长驻。
+    val context = LocalContext.current
+    val viewModel = remember {
+        SessionViewModel(context.applicationContext as Application)
+    }
+    DisposableEffect(Unit) {
+        onDispose { viewModel.onCleared() }
+    }
+
     val uiState by viewModel.uiState.collectAsState()
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -48,6 +59,7 @@ public fun SessionScreen(
         if (drawerState.isOpen) {
             scope.launch { drawerState.close() }
         } else {
+            // 返回 chat：组合销毁，DisposableEffect onDispose 触发 onCleared 清理 agent
             onBack()
         }
     }

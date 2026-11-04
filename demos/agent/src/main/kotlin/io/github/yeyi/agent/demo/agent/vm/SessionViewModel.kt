@@ -262,6 +262,17 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
         (old as? io.github.yeyi.agent.Agent.Shutdownable)?.shutdown()
     }
 
+    /**
+     * 作废当前 agent（ViewModel 终结时的唯一清理动作）。
+     *
+     * 触发路径有二：组合销毁（返回 chat）时由 Screen 的 DisposableEffect 显式调用；
+     * Activity finish 时由框架在 ViewModelStore 清理时调用。两条路径都保证
+     * 在途回合以 [io.github.yeyi.agent.AgentEvent.Canceled] 终局收尾，订阅随之断开。
+     */
+    public override fun onCleared() {
+        releaseAgent()
+    }
+
     public fun deleteSession(sessionId: String) {
         viewModelScope.launch {
             try {
