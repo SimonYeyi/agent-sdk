@@ -259,12 +259,18 @@ public class BossAgent internal constructor(
             // 与 shutdown 的竞态：轮次已受理但执行体尚未开跑，inner 已先被 shutdown →
             // inner.runStream 直接抛 ShutdownError。补发 Canceled 终态 —— 终局闸 CAS
             // 保证与 shutdownHelper.release() 的补发不重复，收集方不会双收终局。
-            userRound.emit(AgentEvent.Canceled(CancellationException(null, e)))
+            // NonCancellable：取消协程中的兜底补发必须落地，与 runResultRound 对应路径对齐。
+            withContext(NonCancellable) {
+                userRound.emit(AgentEvent.Canceled(CancellationException(null, e)))
+            }
         } catch (e: CancellationException) {
             // 取消唯一来源是 shutdown（release() → inner.shutdown() → scope.cancel()），
             // release() 第一步已同步对登记轮次补发 Canceled —— 此处仅兜底"已受理但
             // inner 终局转发被 scope.cancel 抢先截断"的窄窗口，终局闸 CAS 保证不双发。
-            userRound.emit(AgentEvent.Canceled(e))
+            // NonCancellable：取消协程中挂起调用会立即失效，包一层确保兜底补发落地。
+            withContext(NonCancellable) {
+                userRound.emit(AgentEvent.Canceled(e))
+            }
         } finally {
             shutdownHelper.remove(userRound)
             withContext(NonCancellable) { scheduler.roundFinished() }
