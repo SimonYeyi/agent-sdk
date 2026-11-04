@@ -2,20 +2,22 @@ package io.github.yeyi.agent.modality
 
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
+import io.github.yeyi.agent.memory.MemoryEntry
 
 internal class ToolResultAdapter {
     /**
-     * 遍历 messages，把所有含 media 的 [ChatMessage.ToolResult] 拆成
-     * text-only ToolResult + 合成 User；其余消息原样返回。
+     * 遍历 entries，把所有含 media 的 [ChatMessage.ToolResult] 拆成
+     * text-only ToolResult + 合成 User；其余条目原样返回。
      *
      * 只在请求边界做这个拆分, memory 始终保留原始多模态信息。
      */
-    fun adapt(messages: List<ChatMessage>): List<ChatMessage> {
-        return messages.flatMap {
-            if (it is ChatMessage.ToolResult) {
-                it.adaptModality()
+    fun adapt(entries: List<MemoryEntry>): List<MemoryEntry> {
+        return entries.flatMap { entry ->
+            val message = entry.message
+            if (message is ChatMessage.ToolResult) {
+                message.adaptModality().map { entry.copy(message = it) }
             } else {
-                listOf(it)
+                listOf(entry)
             }
         }
     }

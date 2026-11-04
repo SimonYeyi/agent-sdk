@@ -4,6 +4,7 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.llm.toTextMessage
 import io.github.yeyi.agent.memory.MediaArchive
+import io.github.yeyi.agent.memory.MemoryEntry
 
 /**
  * 多模态适配器 — 在 LLM 请求边界做媒体可见性策略与 ToolResult 拆分。
@@ -55,54 +56,60 @@ public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive?)
         archiveAdapter?.archive(message, freshDataState) ?: message
 
     /**
-     * Read 边:把 messages 渲染成"可直接喂 LLM"的形态。
+     * Read 边:把 memory 条目渲染成"可直接喂 LLM"的形态。
      *
      * 流程:先 [FreshDataState.consume] 拿到同轮 archive 写入的 fileId → Data 快照并清空,
-     * 再调用子类 [resolve](messages, resolver) 处理每条消息(Local→Data 或占位),
+     * 再调用子类 [resolve](entries, resolver) 处理每条条目(Local→Data 或占位),
      * 最后由 [ToolResultAdapter] 把含 media 的 [ChatMessage.ToolResult] 拆成
-     * text-only ToolResult + 合成的 [ChatMessage.User]。
+     * text-only ToolResult + 合成的 [ChatMessage.User](拆出的两条沿用原条目元数据)。
      *
      * 无归档能力([mediaArchive] 为 null)时 resolver 不做解码,消息原样透传,
      * ToolResult 拆分仍执行。
      *
-     * @param messages memory 中的消息(按时间顺序)
-     * @return 处理后的消息列表
+     * @param entries memory 中的条目(按时间顺序)
+     * @return 处理后的条目列表
      */
-    internal suspend fun resolve(messages: List<ChatMessage>): List<ChatMessage> {
+    internal suspend fun resolve(entries: List<MemoryEntry>): List<MemoryEntry> {
         val snapshot = freshDataState.consume()
-        return resolve(messages) { message, visible ->
-            if (visible) resolveAdapter?.resolve(message, snapshot) ?: message else message.toTextMessage()
+        return resolve(entries) { entry, visible ->
+            entry.copy(
+                message = if (visible) {
+                    resolveAdapter?.resolve(entry.message, snapshot) ?: entry.message
+                } else {
+                    entry.message.toTextMessage()
+                },
+            )
         }.run {
             toolResultAdapter.adapt(this)
         }
     }
 
     /**
-     * 把 [messages] 渲染成"可直接喂 LLM"的形态。
+     * 把 [entries] 渲染成"可直接喂 LLM"的形态。
      *
-     * **契约**:实现必须对 [messages] 中**每一个**元素调用一次 [resolver],
+     * **契约**:实现必须对 [entries] 中**每一个**元素调用一次 [resolver],
      * 并按原顺序组成新列表返回 — 不允许跳过、合并或重排。
      *
-     * @param messages memory 中的消息(按时间顺序)
-     * @param resolver 每条消息的处理入口,封装了基于 `visible` 解码(Local→Data)/占位的处理
-     * @return 处理后的消息列表,长度等于 [messages].size
+     * @param entries memory 中的条目(按时间顺序)
+     * @param resolver 每条条目的处理入口,封装了基于 `visible` 解码(Local→Data)/占位的处理
+     * @return 处理后的条目列表,长度等于 [entries].size
      */
     protected abstract suspend fun resolve(
-        messages: List<ChatMessage>,
+        entries: List<MemoryEntry>,
         resolver: Resolver
-    ): List<ChatMessage>
+    ): List<MemoryEntry>
 
     public fun interface Resolver {
         /**
-         * 对单条消息应用 resolve 策略。
+         * 对单条条目应用 resolve 策略。
          *
-         * @param message 待处理的消息
+         * @param entry 待处理的条目(策略可读其 [MemoryEntry.label] 等元数据)
          * @param visible 是否"可见":
          *  - `true`: 解码 Local→Data,供 LLM 直接消费 media
          *  - `false`: 不解码,把消息转为占位文本(让模型仍知道历史上有 media)
-         * @return 处理后的消息
+         * @return 处理后的条目
          */
-        public suspend fun resolve(message: ChatMessage, visible: Boolean): ChatMessage
+        public suspend fun resolve(entry: MemoryEntry, visible: Boolean): MemoryEntry
     }
 }
 
@@ -120,21 +127,21 @@ public abstract class ModalityAdapter(protected val mediaArchive: MediaArchive?)
 internal class DefaultModalityAdapter(mediaArchive: MediaArchive?) : ModalityAdapter(mediaArchive) {
 
     /**
-     * 渲染 messages: 保留最后一轮消息（图/音/视频），其余转文本占位。
+     * 渲染 entries: 保留最后一轮消息（图/音/视频），其余转文本占位。
      *
      * "最后一轮" = 末条 User 及其之后所有消息（含 ToolResult）。
      * Local 类型需要转 Data 才被支持，其余类型（Data/Http/FileId/Text）直接保留。
      */
     override suspend fun resolve(
-        messages: List<ChatMessage>,
+        entries: List<MemoryEntry>,
         resolver: Resolver
-    ): List<ChatMessage> {
-        val lastUserIdx = messages.indexOfLast { it is ChatMessage.User }
-        return messages.mapIndexed { i, message ->
+    ): List<MemoryEntry> {
+        val lastUserIdx = entries.indexOfLast { it.message is ChatMessage.User }
+        return entries.mapIndexed { i, entry ->
             if (i >= lastUserIdx) {
-                resolver.resolve(message, true)
+                resolver.resolve(entry, true)
             } else {
-                resolver.resolve(message, false)
+                resolver.resolve(entry, false)
             }
         }
     }

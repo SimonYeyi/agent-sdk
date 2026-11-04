@@ -10,6 +10,7 @@ import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.ReActAgent
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ChatResponseEvent
@@ -65,9 +66,9 @@ class AgentScopeTest {
 
     private fun createPassthroughModalityAdapter() = object : ModalityAdapter(null) {
         override suspend fun resolve(
-            messages: List<ChatMessage>,
+            entries: List<MemoryEntry>,
             resolver: Resolver
-        ): List<ChatMessage> = messages.map { resolver.resolve(it, true) }
+        ): List<MemoryEntry> = entries.map { resolver.resolve(it, true) }
     }
 
 

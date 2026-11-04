@@ -404,8 +404,7 @@ public class ReActAgent internal constructor(
     }
 
     private suspend fun buildRequest(): ChatRequest {
-        val history = memory.history().map { it.toChatMessage() }
-        val messages = modalityAdapter.resolve(history)
+        val messages = modalityAdapter.resolve(memory.history()).map { it.toChatMessage() }
         return ChatRequest(
             messages = buildList {
                 add(ChatMessage.System(persona.toString()))

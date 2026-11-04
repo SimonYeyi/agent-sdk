@@ -4,6 +4,7 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.memory.MediaArchive
+import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.modality.ToolResultAdapter
@@ -27,6 +28,9 @@ class ModalityAdapterTest {
     private val localPart = ContentPart.Image(
         MediaSource.Local(fileId = "550e8400-e29b-41d4-a716-446655440000", mimeType = "image/jpeg"),
     )
+
+    private fun entries(vararg messages: ChatMessage): List<MemoryEntry> =
+        messages.map { MemoryEntry(it) }
 
     /** 记录 store/resolve 次数, resolve 时按 fileId 找 base64 */
     private class SpyArchive(
@@ -140,10 +144,10 @@ class ModalityAdapterTest {
         val local = MediaSource.Local("550e8400...", "image/jpeg")
         val lastUser = ChatMessage.User(listOf(ContentPart.Image(local)))
 
-        val out = adapter.resolve(listOf(lastUser))
+        val out = adapter.resolve(entries(lastUser))
 
         assertEquals(1, out.size)
-        val user = out[0] as ChatMessage.User
+        val user = out[0].message as ChatMessage.User
         assertEquals(2, user.parts.size)
         val ref = user.parts[0] as ContentPart.Text
         assertEquals("[local] fileId=550e8400...", ref.text)
@@ -158,10 +162,10 @@ class ModalityAdapterTest {
         val adapter = DefaultModalityAdapter(archive)
         val lastUser = ChatMessage.User(listOf(dataPart, httpPart, fileIdPart))
 
-        val out = adapter.resolve(listOf(lastUser))
+        val out = adapter.resolve(entries(lastUser))
 
         assertEquals(1, out.size)
-        val user = out[0] as ChatMessage.User
+        val user = out[0].message as ChatMessage.User
         assertEquals(listOf(dataPart, httpPart, fileIdPart), user.parts)
         assertEquals(0, archive.resolveCount)
     }
@@ -173,10 +177,10 @@ class ModalityAdapterTest {
         val history = ChatMessage.User(listOf(localPart))    // 跨 round (i < lastUserIdx)
         val current = ChatMessage.User(listOf(ContentPart.Text("next question")))
 
-        val out = adapter.resolve(listOf(history, current))
+        val out = adapter.resolve(entries(history, current))
 
         assertEquals(2, out.size)
-        val crossRound = out[0] as ChatMessage.User
+        val crossRound = out[0].message as ChatMessage.User
         val ph = crossRound.parts[0] as ContentPart.Text
         assertTrue(ph.text.startsWith("[image] local fileId=550e8400"))
         assertEquals(0, archive.resolveCount)  // 跨 round 不读盘
@@ -201,16 +205,16 @@ class ModalityAdapterTest {
             ),
         )
 
-        val out = adapter.resolve(messages)
+        val out = adapter.resolve(entries(*messages.toTypedArray()))
 
         // 全链路后: 5 条 (User 占位, User 透传, Assistant 透传, textOnly TR, synthetic User)
         assertEquals(5, out.size)
-        assertEquals(ContentPart.Text("old"), (out[0] as ChatMessage.User).parts.single())
-        assertEquals(ContentPart.Text("current"), (out[1] as ChatMessage.User).parts.single())
-        assertEquals(ChatMessage.Assistant("thought"), out[2])
+        assertEquals(ContentPart.Text("old"), (out[0].message as ChatMessage.User).parts.single())
+        assertEquals(ContentPart.Text("current"), (out[1].message as ChatMessage.User).parts.single())
+        assertEquals(ChatMessage.Assistant("thought"), out[2].message)
 
         // textOnly TR: 原 Image 已剥离, 只剩 [local] fileId 文本 part
-        val textOnlyTr = out[3] as ChatMessage.ToolResult
+        val textOnlyTr = out[3].message as ChatMessage.ToolResult
         assertEquals(1, textOnlyTr.parts.size)
         assertEquals(
             "[local] fileId=550e8400...",
@@ -218,7 +222,7 @@ class ModalityAdapterTest {
         )
 
         // synthetic User 拿到 resolved Data — 证明 resolve 链路打通了
-        val synthetic = out[4] as ChatMessage.User
+        val synthetic = out[4].message as ChatMessage.User
         assertEquals(2, synthetic.parts.size)
         assertEquals("[from fetch]", (synthetic.parts[0] as ContentPart.Text).text)
         val data = (synthetic.parts[1] as ContentPart.Image).source as MediaSource.Data
@@ -245,10 +249,10 @@ class ModalityAdapterTest {
             ChatMessage.User(listOf(ContentPart.Text("current"))),  // last User
         )
 
-        val out = adapter.resolve(messages)
+        val out = adapter.resolve(entries(*messages.toTypedArray()))
 
         // 跨 round ToolResult(1): text 保留, Image 转占位文本 (走 toTextMessage)
-        val tr = out[1] as ChatMessage.ToolResult
+        val tr = out[1].message as ChatMessage.ToolResult
         assertEquals(2, tr.parts.size)
         assertEquals("old result:", (tr.parts[0] as ContentPart.Text).text)
         val placeholder = (tr.parts[1] as ContentPart.Text).text
@@ -273,9 +277,9 @@ class ModalityAdapterTest {
             ),
         )
 
-        val out = adapter.resolve(listOf(lastUser))
+        val out = adapter.resolve(entries(lastUser))
 
-        val user = out[0] as ChatMessage.User
+        val user = out[0].message as ChatMessage.User
         assertEquals(4, user.parts.size)
         assertEquals("caption", (user.parts[0] as ContentPart.Text).text)
         assertEquals("[local] fileId=id1", (user.parts[1] as ContentPart.Text).text)
@@ -296,12 +300,12 @@ class ModalityAdapterTest {
             ChatMessage.User(listOf(dataPart)),  // last User, 不动
         )
 
-        val out = adapter.resolve(messages)
+        val out = adapter.resolve(entries(*messages.toTypedArray()))
 
         assertEquals(3, out.size)
-        assertEquals(ChatMessage.System("you are helpful"), out[0])
-        assertEquals(ChatMessage.Assistant("ok"), out[1])
-        assertEquals(messages[2], out[2])
+        assertEquals(ChatMessage.System("you are helpful"), out[0].message)
+        assertEquals(ChatMessage.Assistant("ok"), out[1].message)
+        assertEquals(messages[2], out[2].message)
     }
 
     @Test
@@ -316,7 +320,7 @@ class ModalityAdapterTest {
         val lastUser = ChatMessage.User(listOf(ContentPart.Image(local)))
 
         assertFailsWith<IllegalStateException> {
-            adapter.resolve(listOf(lastUser))
+            adapter.resolve(entries(lastUser))
         }
     }
 
@@ -331,12 +335,12 @@ class ModalityAdapterTest {
         val fileId = ((archived.parts.single() as ContentPart.Image).source as MediaSource.Local).fileId
 
         // resolve 同一轮内, freshData 命中, MediaArchive.resolve 不该被调
-        val out = adapter.resolve(listOf(archived))
+        val out = adapter.resolve(entries(archived))
         assertEquals(0, archive.resolveCount)
         assertEquals(1, archive.storeCount)
 
         // 拿到的是 fresh Data, 而不是 SpyArchive backing 的默认值
-        val user = out[0] as ChatMessage.User
+        val user = out[0].message as ChatMessage.User
         assertEquals(2, user.parts.size)
         assertEquals("[local] fileId=$fileId", (user.parts[0] as ContentPart.Text).text)
         val resolved = (user.parts[1] as ContentPart.Image).source as MediaSource.Data
@@ -349,9 +353,9 @@ class ModalityAdapterTest {
         // 全 visible adapter: 一次 resolve 同时验证多个 freshData entry 都命中
         val adapter = object : ModalityAdapter(archive) {
             override suspend fun resolve(
-                messages: List<ChatMessage>,
+                entries: List<MemoryEntry>,
                 resolver: ModalityAdapter.Resolver,
-            ): List<ChatMessage> = messages.map { resolver.resolve(it, true) }
+            ): List<MemoryEntry> = entries.map { resolver.resolve(it, true) }
         }
 
         val d1 = "X".repeat(2048)
@@ -366,11 +370,11 @@ class ModalityAdapterTest {
         assertEquals(2, archive.storeCount)
 
         // 一次 resolve 处理两条消息, freshData 两个 entry 都命中
-        val out = adapter.resolve(listOf(a1, a2))
+        val out = adapter.resolve(entries(a1, a2))
 
         assertEquals(0, archive.resolveCount)
-        val r1 = ((out[0] as ChatMessage.User).parts[1] as ContentPart.Image).source as MediaSource.Data
-        val r2 = ((out[1] as ChatMessage.User).parts[1] as ContentPart.Image).source as MediaSource.Data
+        val r1 = ((out[0].message as ChatMessage.User).parts[1] as ContentPart.Image).source as MediaSource.Data
+        val r2 = ((out[1].message as ChatMessage.User).parts[1] as ContentPart.Image).source as MediaSource.Data
         assertEquals(d1, r1.base64)
         assertEquals(d2, r2.base64)
     }
@@ -385,13 +389,13 @@ class ModalityAdapterTest {
         ) as ChatMessage.User
 
         // Turn 1: resolve 命中 freshData, MediaArchive.resolve 不该被调
-        adapter.resolve(listOf(archived))
+        adapter.resolve(entries(archived))
         assertEquals(0, archive.resolveCount)
 
         // Turn 2: freshData 已 clear, 走 MediaArchive.resolve 兜底
-        val out = adapter.resolve(listOf(archived))
+        val out = adapter.resolve(entries(archived))
         assertEquals(1, archive.resolveCount)
-        val data = ((out[0] as ChatMessage.User).parts[1] as ContentPart.Image).source as MediaSource.Data
+        val data = ((out[0].message as ChatMessage.User).parts[1] as ContentPart.Image).source as MediaSource.Data
         assertEquals(original, data.base64)
     }
 
@@ -405,14 +409,14 @@ class ModalityAdapterTest {
             parts = listOf(ContentPart.Text("result:"), httpPart),
         )
 
-        val out = ToolResultAdapter().adapt(listOf(tr))
+        val out = ToolResultAdapter().adapt(entries(tr))
 
         assertEquals(2, out.size)
         // 1. text-only ToolResult
-        val textOnly = out[0] as ChatMessage.ToolResult
+        val textOnly = out[0].message as ChatMessage.ToolResult
         assertEquals(listOf<ContentPart>(ContentPart.Text("result:")), textOnly.parts)
         // 2. 合成 User 是最后 User, 后续由 resolve 处理
-        val synthetic = out[1] as ChatMessage.User
+        val synthetic = out[1].message as ChatMessage.User
         assertEquals(2, synthetic.parts.size)
         assertEquals("[from echo]", (synthetic.parts[0] as ContentPart.Text).text)
         assertEquals(httpPart, synthetic.parts[1])
@@ -426,10 +430,10 @@ class ModalityAdapterTest {
             parts = listOf(ContentPart.Text("just text")),
         )
 
-        val out = ToolResultAdapter().adapt(listOf(tr))
+        val out = ToolResultAdapter().adapt(entries(tr))
 
         assertEquals(1, out.size)
-        assertEquals(tr, out[0])
+        assertEquals(tr, out[0].message)
     }
 
     @Test
@@ -441,15 +445,15 @@ class ModalityAdapterTest {
         )
         val user = ChatMessage.User(listOf(ContentPart.Text("next")))
 
-        val out = ToolResultAdapter().adapt(listOf(tr, user))
+        val out = ToolResultAdapter().adapt(entries(tr, user))
 
         // 所有含 media 的 ToolResult 都会被拆分，不再区分是否末尾
         // tr (Image+Http) → text-only ToolResult + synthetic User(Image)
         assertEquals(3, out.size)
-        assertTrue(out[0] is ChatMessage.ToolResult)
-        val textOnlyTr = out[0] as ChatMessage.ToolResult
+        assertTrue(out[0].message is ChatMessage.ToolResult)
+        val textOnlyTr = out[0].message as ChatMessage.ToolResult
         assertTrue(textOnlyTr.parts.all { (it as? ContentPart.Text) != null })
-        assertTrue(out[1] is ChatMessage.User)
-        assertEquals(user, out[2])
+        assertTrue(out[1].message is ChatMessage.User)
+        assertEquals(user, out[2].message)
     }
 }
