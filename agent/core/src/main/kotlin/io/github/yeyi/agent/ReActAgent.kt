@@ -128,7 +128,6 @@ public class ReActAgent internal constructor(
      * @return 该轮执行体 job —— join 它即等旧轮退场（槽位已还、信箱已关），之后可安全地再次 run()；
      *   无活跃轮次时返回 null（幂等 no-op）。调用方可以 join 它等旧轮退场，
      *   也可以不等待 —— 不等待时收尾完成前再次 run() 仍可能撞上并发拒绝。
-     *   句柄只用于"等"：不要 cancel 它（[Agent.Cancelable.cancel] 的 KDoc 有说明）。
      */
     override fun cancel(cause: String?): Job? {
         val turn = activeTurn.get() ?: return null // 无活跃轮次 → no-op（幂等）
