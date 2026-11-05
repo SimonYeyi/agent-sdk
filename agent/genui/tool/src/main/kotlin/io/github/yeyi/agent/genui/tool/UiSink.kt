@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.genui.tool
 
 import io.github.yeyi.agent.genui.ir.CardIr
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -15,8 +16,12 @@ import kotlinx.coroutines.flow.asSharedFlow
  */
 public class UiSink {
 
-    /** replay=0（默认）不保留历史；小缓冲兜住活动订阅者暂未就绪的短暂窗口；缓冲积压满（64 张未消费）时 [emit] 挂起等待而非丢弃，无订阅者时直接丢弃。 */
-    private val _cards = MutableSharedFlow<CardIr>(extraBufferCapacity = 64)
+    /**
+     * replay=0（默认）不保留历史，无订阅者时直接丢弃；
+     * 缓冲 1 张兜住活动订阅者暂未就绪的短暂窗口；积压超 1 张时丢最旧保最新（[BufferOverflow.DROP_OLDEST]）。
+     * 卡片产生频率极低（每回合产一张），该容量已充分覆盖正常调度窗口；[emit] 恒不挂起，绝不阻塞工具执行与 agent 回合。
+     */
+    private val _cards = MutableSharedFlow<CardIr>(extraBufferCapacity = 1, onBufferOverflow = BufferOverflow.DROP_OLDEST)
 
     /**
      * 外部监听入口：demo 直接 collect 渲染。
@@ -25,7 +30,7 @@ public class UiSink {
      */
     public val cards: SharedFlow<CardIr> = _cards.asSharedFlow()
 
-    /** 挂起发射：仅 genui 模块内部收口调用（UiGenTool.execute 接线）；外部只有订阅权，无发卡权，杜绝伪造卡片流。正常场景立即返回，仅当缓冲积压满时挂起等待，保证活动订阅者卡片不丢。 */
+    /** 非挂起发射：仅 genui 模块内部收口调用（UiGenTool.execute 接线）；外部只有订阅权，无发卡权，杜绝伪造卡片流。立即返回，无订阅者直接丢弃，订阅者消费滞后时溢出丢弃旧卡，绝不阻塞 agent 回合。 */
     internal suspend fun emit(card: CardIr) {
         _cards.emit(card)
     }
