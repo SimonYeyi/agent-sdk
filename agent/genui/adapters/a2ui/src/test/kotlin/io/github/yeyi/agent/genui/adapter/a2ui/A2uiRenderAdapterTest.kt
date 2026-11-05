@@ -8,10 +8,10 @@ import androidx.a2ui.model.protocol.A2uiClientDataModel
 import androidx.a2ui.model.protocol.A2uiClientEventMessage
 import androidx.a2ui.model.schema.A2uiObjectSchema
 import androidx.a2ui.model.schema.A2uiSchema
-import io.github.yeyi.agent.genui.Action
-import io.github.yeyi.agent.genui.CardIr
-import io.github.yeyi.agent.genui.TreeNode
-import io.github.yeyi.agent.genui.UiActionEvent
+import io.github.yeyi.agent.genui.ir.Action
+import io.github.yeyi.agent.genui.ir.CardIr
+import io.github.yeyi.agent.genui.ir.TreeNode
+import io.github.yeyi.agent.genui.ir.ActionEvent
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -37,7 +37,7 @@ class A2uiRenderAdapterTest {
     fun projectCreatesSurfaceAndMapsActionReflow() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val adapter = A2uiRenderAdapter(TestCatalog(), scope)
-        val events = mutableListOf<UiActionEvent>()
+        val events = mutableListOf<ActionEvent>()
         try {
             adapter.project(
                 CardIr(
@@ -75,7 +75,7 @@ class A2uiRenderAdapterTest {
     fun nodeActionOutsideWhitelistIsNotBound() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val adapter = A2uiRenderAdapter(TestCatalog(), scope)
-        val events = mutableListOf<UiActionEvent>()
+        val events = mutableListOf<ActionEvent>()
         try {
             adapter.project(
                 CardIr(
@@ -102,7 +102,7 @@ class A2uiRenderAdapterTest {
     fun invalidWhitelistDegradesWholeCardToDisplayOnly() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val adapter = A2uiRenderAdapter(TestCatalog(), scope)
-        val events = mutableListOf<UiActionEvent>()
+        val events = mutableListOf<ActionEvent>()
         try {
             adapter.project(
                 CardIr(
@@ -130,8 +130,8 @@ class A2uiRenderAdapterTest {
     fun repeatedProjectIsIdempotentAndUpdatesCallback() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val adapter = A2uiRenderAdapter(TestCatalog(), scope)
-        val events = mutableListOf<UiActionEvent>()
-        val replaced = mutableListOf<UiActionEvent>()
+        val events = mutableListOf<ActionEvent>()
+        val replaced = mutableListOf<ActionEvent>()
         try {
             val card = CardIr(
                 instanceId = "card-4",

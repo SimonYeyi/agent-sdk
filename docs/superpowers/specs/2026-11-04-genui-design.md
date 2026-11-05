@@ -5,37 +5,39 @@
 让 Agent 在对话中产出可交互的卡片式 UI（天气卡、导航卡、统计报表等），用户点击卡片动作后事件回流 Agent 继续推理。
 
 **目标**：
-- 在 `agent/genui` 下新增 `core/` 与 `adapters/` 两级目录：`core` 为 `:agent:genui:genui-core`（叶级项目名唯一，规避与 `:agent:core` 同名导致的 Gradle 依赖解析混淆；projectDir 指向 `agent/genui/core`）纯 JVM（协议、校验、自研渲染底座，包名 `io.github.yeyi.agent.genui` 不带 core 后缀）；`adapters` 为 Android 适配层，下分 `api/`（插槽接口）、`default/`（自研后端）、`a2ui/`（A2UI 后端）三个独立子模块，现有模块零改动（含 core）
-- core 保持纯 JVM、零平台依赖：协议、校验、自研渲染底座都不绑定任何 UI 框架
+- 在 `agent/genui` 下新增 `ir/`、`tool/` 与 `adapters/` 结构：`ir` 为 `:agent:genui:ir`（叶级项目名唯一，规避与 `:agent:core` 同名导致的 Gradle 依赖解析混淆；projectDir 指向 `agent/genui/ir`）纯 JVM 协议层（序列化 IR + 校验器，包名 `io.github.yeyi.agent.genui.ir`）；`tool` 为 `:agent:genui:tool`（projectDir 指向 `agent/genui/tool`）旁路通道与工具基类（UiSink/UiGenTool，包名 `io.github.yeyi.agent.genui.tool`）；`adapters` 为 Android 适配层，下分 `api/`（插槽接口）、`default/`（自研后端）、`a2ui/`（A2UI 后端）三个独立子模块，现有模块零改动（含 ir/tool）
+- ir 保持纯 JVM、零平台依赖、退化为纯协议层：序列化 IR、校验器不绑定任何 UI 框架；通道（UiSink）与工具基类（UiGenTool）独立进 tool 模块
 - 渲染后端可插拔：自研渲染与三方协议（A2UI）以统一适配器接口平级接入，demo 组装一次选择，业务代码无感
 - v1 先覆盖「绑定原生工具的卡片」：数据与卡片逻辑内聚在同一工具内，工具执行时对外发卡片
 
 **非目标**（v1 不做）：
-- 无工具场景（模型自由渲染）——v1 不在 core/协议层加结构化输出字段，见「v2 演进」
+- 无工具场景（模型自由渲染）——v1 不在 ir/协议层加结构化输出字段，见「v2 演进」
 - 协议适配（A2UI 官方渲染器接入）——作为可插拔后端的一个实现，`A2uiRenderAdapter` 已交付投影 + 引擎状态机 + 回流映射；官方 Compose 渲染制品（A2uiSurface）待 androidx.a2ui.compose 发布后接入
 - 编排层集中编译——本 SDK 无编排层，采用工具内嵌旁路通道
 
 ## 约束
 
-1. 新增 `agent/genui/core` 子模块（纯 JVM）与 `agent/genui/adapters` 目录（内含 `api/`、`default/`、`a2ui/` 三个独立子模块），现有模块零改动（含 core）
-2. core 纯 JVM、零平台依赖：协议/校验/引擎不引入 Compose 等平台类型；core 源码包名 `io.github.yeyi.agent.genui`，不带 core 后缀
-3. 平台类型（`@Composable`、androidx.a2ui）只允许出现在 genui adapters 及其子模块，不污染 core
-4. 渲染后端可插拔：自研（RenderEngine）与三方协议（A2UI）以统一适配器接口平级接入，demo 组装点一次性选择
+1. 新增 `agent/genui/ir`（纯 JVM 协议层）与 `agent/genui/tool`（旁路通道与工具基类）两个子模块，以及 `agent/genui/adapters` 目录（内含 `api/`、`default/`、`a2ui/` 三个独立子模块），现有模块零改动（含 ir/tool）
+2. ir 纯 JVM、零平台依赖、退化为纯协议层：协议 IR/校验不引入 Compose 等平台类型，也不承载渲染实现（组件注册绑定平台 @Composable，留不到 ir），更不依赖 agent 内核（`:agent:core` 零依赖）；ir 源码包名 `io.github.yeyi.agent.genui.ir`
+3. 平台类型（`@Composable`、androidx.a2ui）只允许出现在 genui adapters 及其子模块，不污染 ir
+4. 渲染后端可插拔：自研（DefaultRenderAdapter）与三方协议（A2UI）以统一适配器接口平级接入，demo 组装点一次性选择
 5. demo 只组装（注册组件实现 + 选择后端 + 回流桥），不写适配器实现
+6. tool 模块承载依赖 agent 内核的类型（UiGenTool 实现 `Tool`），包名 `io.github.yeyi.agent.genui.tool`；ir 与 tool 的模块语义完全进包名，跨模块无包名混淆
 
 ## 核心决策
 
 | 决策点 | 结论 |
 |---|---|
-| 模块归属 | 嵌套结构：`:agent:genui:genui-core`（纯 JVM：`kotlin.jvm` + `kotlin.serialization`，`api(project(":agent:core"))`）→ adapters 下三个独立子模块：`:agent:genui:adapters:api`（Android：`com.android.library` + Compose，`api(project(":agent:genui:genui-core"))`，承载 `UiRenderAdapter` 插槽接口）→ `:agent:genui:adapters:default`（自研后端）与 `:agent:genui:adapters:a2ui`（A2UI 后端，依赖 androidx.a2ui），两者平级依赖 api |
+| 模块归属 | 嵌套结构：`:agent:genui:ir`（纯 JVM：`kotlin.jvm` + `kotlin.serialization`，零 agent 依赖，只依赖 kotlinx-serialization）承载协议 IR（CardIr/TreeNode/Action/UiActionEvent）+ 校验器（CardIrValidator）；`:agent:genui:tool`（纯 JVM，`api(project(":agent:genui:ir"))` + `api(project(":agent:core"))`）承载旁路通道与工具基类（UiSink/UiGenTool）→ adapters 下三个独立子模块：`:agent:genui:adapters:api`（Android：`com.android.library` + Compose，`api(project(":agent:genui:ir"))`，承载 `UiRenderAdapter` 插槽接口）→ `:agent:genui:adapters:default`（自研后端）与 `:agent:genui:adapters:a2ui`（A2UI 后端，依赖 androidx.a2ui），两者平级依赖 api |
+| 协议与工具分层 | ir 只承载序列化 IR 与校验器（零平台、零 agent 依赖）；UiSink/UiGenTool 单独进 tool 模块（UiGenTool 依赖 agent 内核 `Tool` 接口），依赖方向单向：tool → ir → 无，跨模块无包名混淆 |
 | UI 事件通道 | 旁路 `UiSink`（普通类，按实例注入：demo/会话持有实例注入工具并订阅 `cards: SharedFlow<CardIr>`，`emit` 挂起发射）+ `UiGenTool` 抽象基类（实现 Tool，`uiSink` 构造器必传注入，`execute` final 模板接线） |
 | 卡片记忆策略 | 卡片 IR 完全绕过记忆，工具回执文本照常进记忆，避免 token 污染 |
 | IR 形态 | 统一组件树（TREE），模板概念下沉为「工具内代码复用」，IR 层不做模板注册表 |
 | 动作契约 | 动作集合在卡片 IR 内静态声明（白名单），任何渲染后端只绑定白名单内动作 |
 | 校验归属 | 白名单/降级校验独立为公开校验器 `CardIrValidator`（协议层语义收口），自研后端与投影后端共用；A2UI 官方校验不覆盖 genui 动作白名单语义 |
-| 渲染后端插槽 | genui adapters 的 `api` 子模块定义平台版 `UiRenderAdapter`（@Composable）插槽接口，实现分两个并列后端子模块：`adapters:default` 的 `DefaultRenderAdapter`（包装 RenderEngine）与 `adapters:a2ui` 的 `A2uiRenderAdapter`（CardIr→A2UI 投影 + androidx.a2ui 官方引擎状态机 + 回流映射）；demo 组装点一次性选择，业务代码统一走 `adapter.RenderCard(card, onAction)` 无感 |
-| 自研渲染 | `Renderer` 命令式契约 + `RenderEngine`（注册表/树遍历/降级/动作绑定）作为自研底座，以 `DefaultRenderAdapter` 适配器形态出场，与其他后端平级 |
-| 组件契约 | 自研后端用 RenderEngine 注册表；A2UI 后端用 catalog（目录即契约），投影时组件名映射到目录内组件 |
+| 渲染后端插槽 | genui adapters 的 `api` 子模块定义平台版 `UiRenderAdapter`（@Composable）插槽接口，实现分两个并列后端子模块：`adapters:default` 的 `DefaultRenderAdapter`（自研声明式后端，组件注册绑定平台 @Composable，渲染底座整体落于适配器）与 `adapters:a2ui` 的 `A2uiRenderAdapter`（CardIr→A2UI 投影 + androidx.a2ui 官方引擎状态机 + 回流映射）；demo 组装点一次性选择，业务代码统一走 `adapter.RenderCard(card, onAction)` 无感 |
+| 自研渲染 | 组件注册绑定平台渲染实现（@Composable），注定留不在纯 JVM 的 ir——ir 退化为纯协议层（序列化 IR + 校验），渲染底座整体并入 `DefaultRenderAdapter`（@Composable 注册表 + 声明式递归渲染），与其他后端平级 |
+| 组件契约 | 自研后端用 @Composable 组件注册表（DefaultRenderAdapter）；A2UI 后端用 catalog（目录即契约），投影时组件名映射到目录内组件 |
 | 回流路径 | 卡片动作事件 → demo 组装 AgentQuery → 新一轮推理（BossAgent input / ReActAgent 新 run） |
 | 会话恢复 | `CardIr.instanceId` = 工具 `toolCallId`，demo 本地卡片记录按锚点归位 |
 | ReActAgent / BossAgent 接入 | 零改动：工具是外部注入的，demo 订阅 agent 事件流 + UI 流自行合并 |
@@ -45,16 +47,18 @@
 ```
 agent/genui（两级嵌套）                       demos/agent（消费端）
 ─────────────────────                     ──────────────────────────────
-core/（纯 JVM，零平台依赖，                 genui/GenUi（组装点：一次性选择后端）
-  包名 io.github.yeyi.agent.genui）            组件渲染实现注册（自研场景）
+ir/（纯 JVM 协议层，零 agent 依赖，         genui/GenUi（组装点：一次性选择后端）
+  包名 io.github.yeyi.agent.genui.ir）        组件渲染实现注册（自研场景）
   CardIr / TreeNode / Action /                回流桥：UiActionEvent → AgentQuery
     UiActionEvent（协议 IR，@Serializable）
-  UiSink（旁路通道，实例注入）  ────────▶
   CardIrValidator（白名单/降级校验）
-  Renderer + RenderEngine（自研底座）
+tool/（纯 JVM，依赖 ir + :agent:core，
+  包名 io.github.yeyi.agent.genui.tool）
+  UiSink（旁路通道，实例注入）  ────────▶
+  UiGenTool（抽象工具基类，实现 Tool）
 adapters/（Android 适配层，三个独立子模块）
   ├─ api/：UiRenderAdapter（@Composable 插槽接口）
-  ├─ default/：DefaultRenderAdapter（包装 RenderEngine）
+  ├─ default/：DefaultRenderAdapter（自研声明式后端）
   └─ a2ui/：A2uiRenderAdapter（投影 + androidx.a2ui 引擎）
 
 工具侧（外部注入）                           UI 使用（无感）
@@ -158,7 +162,7 @@ public abstract class UiGenTool(
 
 ### 节 3 — 校验（CardIrValidator）
 
-白名单/降级校验独立为公开校验器，从 RenderEngine 剥离，协议层语义收口：
+白名单/降级校验独立为公开校验器，协议层语义收口：
 
 ```kotlin
 /** 动作白名单校验：动作 id 非空且唯一。 */
@@ -175,46 +179,42 @@ public class CardIrValidator {
 ```
 
 - **归属 genui（协议层）**：动作 id 非空唯一、节点动作命中白名单、白名单非法整卡降级——是 genui 的安全红线，任何渲染后端都必须遵守
-- **自研后端**：RenderEngine 渲染前调用
+- **自研后端**：DefaultRenderAdapter 渲染前调用
 - **A2UI 投影后端**：投影 CardIr→A2UI 前调用（A2UI 官方校验只认目录 schema，不覆盖 genui 动作白名单语义）
 - 校验失败不抛异常，降级为纯展示（无动作），保证 UI 流永不中断
 
-### 节 4 — 自研渲染底座：Renderer + RenderEngine
+### 节 4 — 自研渲染后端：DefaultRenderAdapter（声明式）
 
-引擎逻辑全部在 genui 模块，框架无关（不依赖 Compose）。组件渲染实现由 demo 注册。
+组件注册绑定平台渲染实现（@Composable），注定留不在纯 JVM 的 ir——渲染底座整体落于 `adapters:default`，ir 退化为纯协议层。
 
 ```kotlin
-public fun interface Renderer {
-    /**
-     * 组件渲染实现：框架无关，实现方可调起任意 UI 框架（Compose、View 等）。
-     *
-     * @param node 当前节点，实现方读取 [TreeNode.bindings] 渲染内容
-     * @param action 已通过白名单校验的动作规格；null 表示该节点不可点击，实现方应渲染为静态内容
-     * @param emit 触发动作回流：仅当 [action] 非 null 时可用，由引擎自动构造 [UiActionEvent]，实现方零组装
-     */
-    public fun render(node: TreeNode, action: Action?, emit: () -> Unit)
-}
+// agent/genui/adapters/default —— 自研后端子模块（DefaultRenderAdapter.kt，包名 …/genui/adapter/default）
+/** Compose 组件渲染实现签名： */
+public typealias UiComponentRenderer = @Composable (node: TreeNode, action: Action?, emit: () -> Unit) -> Unit
 
-public class RenderEngine {
-    private val registry: MutableMap<String, Renderer> = HashMap()
-    private var fallback: Renderer = Renderer { _, _, _ -> }
+/** 自研后端：声明式组件树递归渲染（@Composable 注册表），白名单校验复用 ir 的 CardIrValidator。 */
+public class DefaultRenderAdapter(
+    private val validator: CardIrValidator = CardIrValidator(),
+) : UiRenderAdapter {
+    public fun register(component: String, renderer: UiComponentRenderer)
+    public fun registerFallback(renderer: UiComponentRenderer)
 
-    public fun register(component: String, renderer: Renderer)
-    public fun registerFallback(renderer: Renderer)
-
-    /** 校验动作白名单后递归渲染整棵组件树（先序）。 */
-    public fun render(card: CardIr, emit: (UiActionEvent) -> Unit)
+    @Composable
+    override fun RenderCard(card: CardIr, onAction: (UiActionEvent) -> Unit) {
+        val whitelist = validator.validateActions(card.actions)
+        Column { RenderNode(card, card.root, whitelist, onAction) }  // 声明式先序递归
+    }
 }
 ```
 
-- 组件注册表、树遍历、未知组件降级、动作绑定（`node.action` 必须命中 `card.actions` 白名单，否则渲染为静态内容）由引擎收口
-- `UiActionEvent` 由引擎构造（`instanceId` 取自 card，`actionId`/`payload` 取自节点与绑定数据），实现方零组装
-- **定位：自研渲染底座**。对外不直接暴露为渲染入口，以 `DefaultRenderAdapter` 适配器形态接入 `UiRenderAdapter` 插槽
-- **命令式→声明式桥**（SubcomposeLayout 等）只存在于 `adapters:default` 的 `DefaultRenderAdapter` 内部，不进公共入口
+- 注册表、树遍历、未知组件降级、动作绑定（`node.action` 必须命中 `card.actions` 白名单，否则渲染为静态内容）由适配器收口
+- `UiActionEvent` 由适配器构造（`instanceId` 取自 card，`actionId`/`payload` 取自节点与绑定数据），实现方零组装
+- **声明式递归**：以 @Composable 组件树替代命令式推模型，天然贴合 Compose 组合模型与布局系统（SubcomposeLayout 桥需在 measure 阶段手算坐标，会丢失声明式嵌套布局能力）
+- **ir/tool 退化为协议 + 工具分层**：ir 只承载协议 IR（CardIr/TreeNode/Action/UiActionEvent）+ CardIrValidator，零平台、零 agent 依赖；UiSink/UiGenTool 归 tool 模块（依赖 agent 内核 `Tool`）；组件注册与渲染是平台行为（绑定 @Composable），全部收敛在适配器
 
 ### 节 5 — 渲染后端插槽：UiRenderAdapter（genui adapters）
 
-**平台边界**：`UiRenderAdapter` 带 `@Composable`（平台类型），定义在 genui adapters 的 `api` 子模块（插槽接口），实现分两个并列后端子模块 `adapters:default` 与 `adapters:a2ui`——core 承诺「协议和语义」的平台无关，adapters 承诺「渲染」的平台相关。
+**平台边界**：`UiRenderAdapter` 带 `@Composable`（平台类型），定义在 genui adapters 的 `api` 子模块（插槽接口），实现分两个并列后端子模块 `adapters:default` 与 `adapters:a2ui`——ir 承诺「协议和语义」的平台无关，adapters 承诺「渲染」的平台相关。
 
 ```kotlin
 // agent/genui/adapters/api —— 插槽接口子模块（UiRenderAdapter.kt，包名 io.github.yeyi.agent.genui.adapter）
@@ -224,8 +224,8 @@ interface UiRenderAdapter {
 }
 
 // agent/genui/adapters/default —— 自研后端子模块（DefaultRenderAdapter.kt，包名 …/genui/adapter/default）
-/** 自研后端：桥接 RenderEngine + @Composable 组件渲染实现注册（含命令式→声明式桥）。 */
-class DefaultRenderAdapter(private val engine: RenderEngine) : UiRenderAdapter {
+/** 自研后端：声明式组件树递归渲染（@Composable 注册表），白名单校验复用 ir 的 CardIrValidator。 */
+class DefaultRenderAdapter(private val validator: CardIrValidator = CardIrValidator()) : UiRenderAdapter {
     fun register(component: String, renderer: UiComponentRenderer) { ... }
     override fun RenderCard(card: CardIr, onAction: (UiActionEvent) -> Unit) { ... }
 }
@@ -249,13 +249,11 @@ data class GenUi(val sink: UiSink, val adapter: UiRenderAdapter)
 
 fun createGenUi(): GenUi {
     val sink = UiSink()
-    val adapter: UiRenderAdapter = DefaultRenderAdapter(
-        RenderEngine().apply {
-            register("Text") { node, _, _ -> Text(...) }
-            register("Button") { node, action, emit -> ... }
-            registerFallback { ... }
-        }
-    ) // 或 A2uiRenderAdapter(MaterialA2uiCatalog()) —— 换后端只改这一行
+    val adapter: UiRenderAdapter = DefaultRenderAdapter().apply {
+        register("Text") { node, _, _ -> Text(node.bindings["content"]?.jsonPrimitive?.content ?: "") }
+        register("Button") { node, action, emit -> if (action == null) Text(node.label()) else Button(onClick = emit) { Text(action.label) } }
+        registerFallback { _ -> }
+    } // 或 A2uiRenderAdapter(MaterialA2uiCatalog(), scope) —— 换后端只改这一行
     return GenUi(sink, adapter)
 }
 ```
@@ -308,20 +306,22 @@ public data class UiActionEvent(
 
 两处接入均为零代码改动：
 
-- **ReActAgent**：工具外部注入（构造时无需感知通道），core 不感知卡片；demo 订阅 agent 事件流（气泡排序）+ UI 流（`sink.cards` 卡片渲染）自行合并
+- **ReActAgent**：工具外部注入（构造时无需感知通道），内核不感知卡片；demo 订阅 agent 事件流（气泡排序）+ UI 流（`sink.cards` 卡片渲染）自行合并
 - **BossAgent**：同上；卡片回流经 `AgentQuery` 进入新轮次，报告轮次语义不受影响
 
 ## 目录结构
 
 ```
 agent/genui/
-├── core/                                          ← :agent:genui:genui-core（纯 JVM，零平台依赖）
-│   └── src/main/kotlin/io/github/yeyi/agent/genui/   ← 包名不带 core
+├── ir/                                                             ← :agent:genui:ir（纯 JVM 协议层，零平台、零 agent 依赖）
+│   └── src/main/kotlin/io/github/yeyi/agent/genui/ir/               ← 包名带 ir 后缀
 │       ├── CardIr.kt / TreeNode.kt / Action.kt / UiActionEvent.kt   ← 协议 IR
-│       ├── UiSink.kt / UiGenTool.kt                                  ← 旁路通道与工具基类
-│       ├── CardIrValidator.kt                                        ← 白名单/降级校验（独立公开）
-│       └── Renderer.kt / RenderEngine.kt                             ← 自研渲染底座
-└── adapters/                                                      ← Android 适配层（平台类型）
+│       └── CardIrValidator.kt                                       ← 白名单/降级校验（独立公开）
+├── tool/                                                            ← :agent:genui:tool（纯 JVM，依赖 ir + :agent:core）
+│   └── src/main/kotlin/io/github/yeyi/agent/genui/tool/             ← 包名带 tool 后缀
+│       ├── UiSink.kt                                                ← 旁路通道（实例注入）
+│       └── UiGenTool.kt                                             ← 工具抽象基类（实现 Tool）
+└── adapters/                                                        ← Android 适配层（平台类型）
     ├── api/                                                      ← :agent:genui:adapters:api（插槽接口）
     │   └── src/main/kotlin/io/github/yeyi/agent/genui/adapter/UiRenderAdapter.kt
     ├── default/                                                  ← :agent:genui:adapters:default（自研后端）
@@ -332,14 +332,15 @@ agent/genui/
 demos/agent/.../genui/GenUi.kt               ← 组装点（一次性选择后端，组件实现注册）
 ```
 
-- 平台边界钉死：core 承诺「协议和语义」的平台无关，adapters 承诺「渲染」的平台相关；api 只承载 Compose 平台版插槽接口，default/a2ui 分别依赖 api 提供各自后端实现
-- 每平台一份 adapters 层（api 定义平台版 `UiRenderAdapter`，default/a2ui 提供该平台的后端实现），core 与 RenderEngine 跨平台复用零改动
-- 叶级项目名规避：genui 下 core 子项目名为 `genui-core`（projectDir 指向 `agent/genui/core`），避免与 `:agent:core` 同名导致 Gradle 依赖解析混淆（任务级循环依赖）
+- 平台边界钉死：ir 退化为纯协议层（序列化 IR + 校验），tool 承载旁路通道与工具基类，adapters 承诺「渲染」的平台相关；api 只承载 Compose 平台版插槽接口，default/a2ui 分别依赖 api 提供各自后端实现
+- 每平台一份 adapters 层（api 定义平台版 `UiRenderAdapter`，default/a2ui 提供该平台的后端实现），ir 协议与校验跨平台复用零改动
+- 叶级项目名规避：ir/tool 子项目名 `ir`/`tool` 全局唯一（projectDir 分别指向 `agent/genui/ir`、`agent/genui/tool`），避免与 `:agent:core` 同名导致 Gradle 依赖解析混淆（任务级循环依赖）；模块语义完全进包名（`…genui.ir` / `…genui.tool`），跨模块无包名混淆
 
 ## v1 范围与 v2 演进
 
 **v1（本次）**：
-- `:agent:genui:genui-core`：`CardIr` / `TreeNode` / `Action` / `UiActionEvent` / `UiSink`（实例通道）/ `UiGenTool` / `CardIrValidator` / `Renderer` + `RenderEngine`
+- `:agent:genui:ir`：`CardIr` / `TreeNode` / `Action` / `UiActionEvent` / `CardIrValidator`（纯协议层，零渲染实现、零 agent 依赖）
+- `:agent:genui:tool`：`UiSink`（实例通道）/ `UiGenTool`（抽象工具基类）
 - `:agent:genui:adapters:api`：`UiRenderAdapter` 插槽接口
 - `:agent:genui:adapters:default`：`DefaultRenderAdapter`（自研后端）
 - `:agent:genui:adapters:a2ui`：`A2uiRenderAdapter`（CardIr→A2UI 投影 + 官方引擎状态机 + 回流映射）
@@ -348,11 +349,11 @@ demos/agent/.../genui/GenUi.kt               ← 组装点（一次性选择后�
 
 **v2（演进方向，本次不动）**：
 - A2UI 官方 Compose 渲染制品（A2uiSurface）接入：投影 + 引擎状态机 + 回流映射已交付，渲染入口待 androidx.a2ui.compose 发布后接入，换后端只改 `GenUi` 一行
-- 模型自由渲染：Assistant 输出增加可选结构化字段，与 content 分离——需改 core 协议，违背 v1 约束，延后
+- 模型自由渲染：Assistant 输出增加可选结构化字段，与 content 分离——需改 ir 协议，违背 v1 约束，延后
 - 生成式路径：brief → 专职 UI 模型 → 三重校验 → 降级链（oui-1 接入点，经 LLM 网关 provider 变体）
 - 确认卡（CONFIRM）与多工具汇总卡：合成工具或协议层出口
 
 ## 测试策略
 
-- core 模块（JVM）：`CardIr` 序列化/反序列化、`CardIrValidator` 白名单校验（空/重复/降级）、未知组件降级、`RenderEngine` 树遍历顺序与 `UiActionEvent` 构造、`UiSink` 发射与订阅时序（订阅后 emit 可见 / 无订阅不阻塞不缓存）、`UiGenTool` execute 接线（getResult → buildCard → emit 与回执语义、buildCard 返回 null 不发射）
+- ir 模块（JVM）：`CardIr` 序列化/反序列化、`CardIrValidator` 白名单校验（空/重复/降级）；tool 模块（JVM）：`UiSink` 发射与订阅时序（订阅后 emit 可见 / 无订阅不阻塞不缓存）、`UiGenTool` execute 接线（getData → buildCard → emit 与回执语义、buildCard 返回 null 不发射）
 - adapters 侧：`DefaultRenderAdapter`（default）渲染与点击回流；`A2uiRenderAdapter`（a2ui）引擎层纯 JVM 状态机独立验证——投影落地（createSurface + updateComponents 后 activeSurfaces 出现对应 surface）、动作回流映射（客户端事件消息 → UiActionEvent）、白名单外节点不绑定动作、白名单非法整卡降级、重复投影幂等且仅更新回调；demo 锚点恢复用本地卡片记录 + 记忆 ToolResult 模拟

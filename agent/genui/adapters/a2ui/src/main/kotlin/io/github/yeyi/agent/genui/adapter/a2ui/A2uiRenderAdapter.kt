@@ -12,11 +12,11 @@ import androidx.a2ui.model.protocol.A2uiDataPath
 import androidx.a2ui.model.protocol.A2uiException
 import androidx.a2ui.model.protocol.A2uiUpdateComponentsMessage
 import androidx.compose.runtime.Composable
-import io.github.yeyi.agent.genui.Action
-import io.github.yeyi.agent.genui.CardIr
-import io.github.yeyi.agent.genui.CardIrValidator
-import io.github.yeyi.agent.genui.TreeNode
-import io.github.yeyi.agent.genui.UiActionEvent
+import io.github.yeyi.agent.genui.ir.Action
+import io.github.yeyi.agent.genui.ir.CardIr
+import io.github.yeyi.agent.genui.ir.CardIrValidator
+import io.github.yeyi.agent.genui.ir.TreeNode
+import io.github.yeyi.agent.genui.ir.ActionEvent
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
@@ -40,7 +40,7 @@ import java.util.concurrent.ConcurrentHashMap
  * 协议消息流（createSurface + updateComponents 扁平邻接表），由官方引擎维护 surface 状态。
  *
  * 动作回流：用户点击命中白名单的动作节点后，官方渲染器回调引擎 dispatchAction，
- * 引擎经 outboundEvents 发射 [A2uiClientEventMessage]，本适配器将其映射回 [UiActionEvent]
+ * 引擎经 outboundEvents 发射 [A2uiClientEventMessage]，本适配器将其映射回 [ActionEvent]
  * 并转发给卡片对应的 onAction 回调，demo 侧与自研后端收口完全一致。
  *
  * 注：androidx.a2ui.compose 下的官方 Compose 渲染制品（A2uiSurface）在公开 Google Maven
@@ -82,9 +82,9 @@ public class A2uiRenderAdapter(
      * 同一 [CardIr.instanceId] 只投影一次（引擎消息与节点映射幂等），重复调用仅更新动作回调。
      *
      * @param card 待渲染的卡片 IR
-     * @param onAction 动作回流出口：用户点击命中白名单的动作节点时，映射为 [UiActionEvent] 并经此回调
+     * @param onAction 动作回流出口：用户点击命中白名单的动作节点时，映射为 [ActionEvent] 并经此回调
      */
-    public fun project(card: CardIr, onAction: (UiActionEvent) -> Unit) {
+    public fun project(card: CardIr, onAction: (ActionEvent) -> Unit) {
         val session = sessions.computeIfAbsent(card.instanceId) { CardSession(card.instanceId) }
         session.onAction = onAction
         if (!session.projected.compareAndSet(false, true)) return
@@ -107,7 +107,7 @@ public class A2uiRenderAdapter(
     }
 
     @Composable
-    override fun RenderCard(card: CardIr, onAction: (UiActionEvent) -> Unit) {
+    override fun RenderCard(card: CardIr, onAction: (ActionEvent) -> Unit) {
         project(card, onAction)
     }
 
@@ -152,7 +152,7 @@ public class A2uiRenderAdapter(
     internal fun dispatchClientEvent(message: A2uiClientEventMessage) {
         val session = sessions[message.surfaceId] ?: return
         val ref = session.nodeActions[message.componentId] ?: return
-        session.onAction?.invoke(UiActionEvent(session.instanceId, ref.actionId, ref.payload))
+        session.onAction?.invoke(ActionEvent(session.instanceId, ref.actionId, ref.payload))
     }
 
     private class CardSession(
@@ -162,7 +162,7 @@ public class A2uiRenderAdapter(
         val nodeActions: MutableMap<String, NodeActionRef> = ConcurrentHashMap()
 
         @Volatile
-        var onAction: ((UiActionEvent) -> Unit)? = null
+        var onAction: ((ActionEvent) -> Unit)? = null
     }
 
     private class NodeActionRef(

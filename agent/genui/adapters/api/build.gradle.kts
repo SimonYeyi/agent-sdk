@@ -28,7 +28,7 @@ android {
 }
 
 dependencies {
-    api(project(":agent:genui:genui-core"))
+    api(project(":agent:genui:ir"))
 
     api(platform(libs.compose.bom))
     api(libs.compose.runtime)

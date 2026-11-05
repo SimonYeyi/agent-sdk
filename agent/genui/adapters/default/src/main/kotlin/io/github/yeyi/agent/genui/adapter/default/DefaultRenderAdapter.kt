@@ -2,12 +2,11 @@ package io.github.yeyi.agent.genui.adapter.default
 
 import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
-import io.github.yeyi.agent.genui.Action
-import io.github.yeyi.agent.genui.CardIr
-import io.github.yeyi.agent.genui.CardIrValidator
-import io.github.yeyi.agent.genui.RenderEngine
-import io.github.yeyi.agent.genui.TreeNode
-import io.github.yeyi.agent.genui.UiActionEvent
+import io.github.yeyi.agent.genui.ir.Action
+import io.github.yeyi.agent.genui.ir.CardIr
+import io.github.yeyi.agent.genui.ir.CardIrValidator
+import io.github.yeyi.agent.genui.ir.TreeNode
+import io.github.yeyi.agent.genui.ir.ActionEvent
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
 import kotlinx.serialization.json.JsonObject
 
@@ -17,13 +16,13 @@ public typealias UiComponentRenderer = @Composable (node: TreeNode, action: Acti
 /**
  * 自研后端适配器：以 [UiRenderAdapter] 插槽形态出场，与 A2UI 后端平级接入。
  *
- * 本适配器承载 Compose 平台的自研渲染实现（组件渲染实现注册 + 组件树递归渲染），
- * 白名单/降级校验复用 [RenderEngine.validator]（[CardIrValidator]），与 core 自研底座共用同一安全语义。
+ * 组件注册绑定平台渲染实现（@Composable），故渲染底座整体落在本适配器，ir 模块退化为纯协议层；
+ * 白名单/降级校验复用协议层 [CardIrValidator]，与 A2UI 投影后端共用同一安全语义。
  *
- * 组件渲染实现以 @Composable 形态注册（区别于 core 的命令式 [io.github.yeyi.agent.genui.Renderer]，
- * 后者为框架无关底座，供非 Compose 场景直接使用）；消费方只需注册实现后调用 [RenderCard]，后端差异无感。
+ * 组件渲染实现以 @Composable 形态注册；消费方只需注册实现后调用 [RenderCard]，后端差异无感。
  */
-public class DefaultRenderAdapter(private val engine: RenderEngine) : UiRenderAdapter {
+public class DefaultRenderAdapter(private val validator: CardIrValidator = CardIrValidator()) :
+    UiRenderAdapter {
 
     private val registry: MutableMap<String, UiComponentRenderer> = HashMap()
 
@@ -46,8 +45,8 @@ public class DefaultRenderAdapter(private val engine: RenderEngine) : UiRenderAd
      * 白名单本身非法（动作 id 为空或重复）时全卡降级为纯展示；节点动作未命中白名单时该节点渲染为静态内容。
      */
     @Composable
-    override fun RenderCard(card: CardIr, onAction: (UiActionEvent) -> Unit) {
-        val whitelist = engine.validator.validateActions(card.actions)
+    override fun RenderCard(card: CardIr, onAction: (ActionEvent) -> Unit) {
+        val whitelist = validator.validateActions(card.actions)
         Column {
             RenderNode(card, card.root, whitelist, onAction)
         }
@@ -58,11 +57,11 @@ public class DefaultRenderAdapter(private val engine: RenderEngine) : UiRenderAd
         card: CardIr,
         node: TreeNode,
         whitelist: Map<String, Action>?,
-        onAction: (UiActionEvent) -> Unit,
+        onAction: (ActionEvent) -> Unit,
     ) {
         val action = node.action?.let { whitelist?.get(it) }
         val nodeEmit: () -> Unit = if (action != null) {
-            { onAction(UiActionEvent(card.instanceId, action.id, JsonObject(node.bindings))) }
+            { onAction(ActionEvent(card.instanceId, action.id, JsonObject(node.bindings))) }
         } else {
             {} // 不可点击：空操作，杜绝白名单外动作被绑定
         }
