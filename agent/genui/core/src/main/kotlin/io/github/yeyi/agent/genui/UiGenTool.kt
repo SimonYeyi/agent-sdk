@@ -8,14 +8,14 @@ import kotlinx.serialization.json.JsonElement
 /**
  * 声明「本工具产出可交互卡片」的抽象基类，实现 [Tool]。
  *
- * 子类只需实现 [getResult] 业务逻辑，[buildCard] 完成 UI 映射；
+ * 子类只需实现 [getData] 业务逻辑，[buildCard] 完成 UI 映射；
  * 发射接线由 final [execute] 统一收口，卡片落在工具调用的 ToolCallStart/End 区间内，锚点天然对齐。
  *
  * @param uiSink 卡片旁路通道，构造器必传注入：持有者（demo/会话）显式决定卡片流作用域；仅由基类 execute 收口使用，不发卡权下放给子类
  */
 public abstract class UiGenTool(private val uiSink: UiSink) : Tool {
 
-    protected abstract fun getResult(
+    protected abstract fun getData(
         arguments: JsonElement,
         context: ToolExecutionContext
     ): JsonElement
@@ -37,7 +37,7 @@ public abstract class UiGenTool(private val uiSink: UiSink) : Tool {
         arguments: JsonElement,
         context: ToolExecutionContext,
     ): ToolExecutionResult {
-        val result = getResult(arguments, context)
+        val result = getData(arguments, context)
         buildCard(result, context)?.let { uiSink.emit(it) }
         return ToolExecutionResult.success(result.toString())
     }

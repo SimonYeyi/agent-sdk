@@ -6,8 +6,9 @@ import kotlinx.serialization.json.JsonObject
  * 渲染引擎：收口组件注册表、树遍历、未知组件降级与动作白名单绑定，框架无关。
  *
  * 组件渲染实现由外部（demo）注册，消费方只需注册实现后调用 [render]。
+ * 白名单校验委托给 [CardIrValidator]，与投影后端（A2UI）共用同一安全语义。
  */
-public class RenderEngine {
+public class RenderEngine(private val validator: CardIrValidator = CardIrValidator()) {
 
     private val registry: MutableMap<String, Renderer> = HashMap()
 
@@ -33,7 +34,7 @@ public class RenderEngine {
      * @param emit 动作回流出口：用户点击命中白名单的动作节点时，引擎构造 [UiActionEvent] 并经此转发
      */
     public fun render(card: CardIr, emit: (UiActionEvent) -> Unit) {
-        val whitelist = validateActions(card.actions)
+        val whitelist = validator.validateActions(card.actions)
         renderNode(card, card.root, whitelist, emit)
     }
 
@@ -53,19 +54,5 @@ public class RenderEngine {
         for (child in node.children) {
             renderNode(card, child, whitelist, emit)
         }
-    }
-
-    /**
-     * 校验动作白名单：动作 id 非空且唯一。
-     *
-     * @return 白名单 id 到动作规格的映射；白名单非法（id 为空或重复）时返回 null，全卡降级为纯展示。
-     */
-    private fun validateActions(actions: List<Action>): Map<String, Action>? {
-        val byId = HashMap<String, Action>()
-        for (action in actions) {
-            if (action.id.isBlank()) return null
-            if (byId.put(action.id, action) != null) return null
-        }
-        return byId
     }
 }

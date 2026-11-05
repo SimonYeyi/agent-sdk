@@ -32,18 +32,18 @@ class UiGenToolTest {
         private val card: CardIr?,
         uiSink: UiSink,
     ) : UiGenTool(uiSink) {
-        var getResultArguments: JsonElement? = null
+        var getDataArguments: JsonElement? = null
         var buildCardData: JsonElement? = null
 
         override val name: String = "fake_tool"
         override val description: String = "fake"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-        override fun getResult(
+        override fun getData(
             arguments: JsonElement,
             context: ToolExecutionContext,
         ): JsonElement {
-            getResultArguments = arguments
+            getDataArguments = arguments
             return data
         }
 
@@ -78,7 +78,7 @@ class UiGenToolTest {
         JsonObject(mapOf("city" to JsonPrimitive("上海")))
 
     @Test
-    fun `execute 接线 getResult 结果进 buildCard 并发射卡片`() = runTest {
+    fun `execute 接线 getData 结果进 buildCard 并发射卡片`() = runTest {
         val sink = UiSink()
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         val card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text"))
@@ -92,8 +92,8 @@ class UiGenToolTest {
         runCurrent() // 处理订阅者恢复任务，确保卡片已投递
 
         job.join()
-        assertEquals(arguments, tool.getResultArguments)
-        // buildCard 收到的是 getResult 整理后的结构化数据
+        assertEquals(arguments, tool.getDataArguments)
+        // buildCard 收到的是 getData 整理后的结构化数据
         assertEquals(data, tool.buildCardData)
         assertEquals(listOf(card), received)
     }
