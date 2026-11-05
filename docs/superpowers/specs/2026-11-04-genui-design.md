@@ -28,7 +28,7 @@
 
 | 决策点 | 结论 |
 |---|---|
-| 模块归属 | 嵌套结构：`:agent:genui:ir`（纯 JVM：`kotlin.jvm` + `kotlin.serialization`，零 agent 依赖，只依赖 kotlinx-serialization）承载协议 IR（CardIr/TreeNode/Action/UiActionEvent）+ 校验器（CardIrValidator）；`:agent:genui:tool`（纯 JVM，`api(project(":agent:genui:ir"))` + `api(project(":agent:core"))`）承载旁路通道与工具基类（UiSink/UiGenTool）→ adapters 下三个独立子模块：`:agent:genui:adapters:api`（Android：`com.android.library` + Compose，`api(project(":agent:genui:ir"))`，承载 `UiRenderAdapter` 插槽接口）→ `:agent:genui:adapters:default`（自研后端）与 `:agent:genui:adapters:a2ui`（A2UI 后端，依赖 androidx.a2ui），两者平级依赖 api |
+| 模块归属 | 嵌套结构：`:agent:genui:ir`（纯 JVM：`kotlin.jvm` + `kotlin.serialization`，零 agent 依赖，只依赖 kotlinx-serialization）承载协议 IR（CardIr/TreeNode/Action/ActionEvent）+ 校验器（CardIrValidator）；`:agent:genui:tool`（纯 JVM，`api(project(":agent:genui:ir"))` + `api(project(":agent:core"))`）承载旁路通道与工具基类（UiSink/UiGenTool）→ adapters 下三个独立子模块：`:agent:genui:adapters:api`（Android：`com.android.library` + Compose，`api(project(":agent:genui:ir"))`，承载 `UiRenderAdapter` 插槽接口）→ `:agent:genui:adapters:default`（自研后端）与 `:agent:genui:adapters:a2ui`（A2UI 后端，依赖 androidx.a2ui），两者平级依赖 api |
 | 协议与工具分层 | ir 只承载序列化 IR 与校验器（零平台、零 agent 依赖）；UiSink/UiGenTool 单独进 tool 模块（UiGenTool 依赖 agent 内核 `Tool` 接口），依赖方向单向：tool → ir → 无，跨模块无包名混淆 |
 | UI 事件通道 | 旁路 `UiSink`（普通类，按实例注入：demo/会话持有实例注入工具并订阅 `cards: SharedFlow<CardIr>`，`emit` 挂起发射）+ `UiGenTool` 抽象基类（实现 Tool，`uiSink` 构造器必传注入，`execute` final 模板接线） |
 | 卡片记忆策略 | 卡片 IR 完全绕过记忆，工具回执文本照常进记忆，避免 token 污染 |
@@ -49,8 +49,8 @@ agent/genui（两级嵌套）                       demos/agent（消费端）
 ─────────────────────                     ──────────────────────────────
 ir/（纯 JVM 协议层，零 agent 依赖，         genui/GenUi（组装点：一次性选择后端）
   包名 io.github.yeyi.agent.genui.ir）        组件渲染实现注册（自研场景）
-  CardIr / TreeNode / Action /                回流桥：UiActionEvent → AgentQuery
-    UiActionEvent（协议 IR，@Serializable）
+  CardIr / TreeNode / Action /                回流桥：ActionEvent → AgentQuery
+    ActionEvent（协议 IR，@Serializable）
   CardIrValidator（白名单/降级校验）
 tool/（纯 JVM，依赖 ir + :agent:core，
   包名 io.github.yeyi.agent.genui.tool）
@@ -64,7 +64,7 @@ adapters/（Android 适配层，三个独立子模块）
 工具侧（外部注入）                           UI 使用（无感）
 继承 UiGenTool（构造器注入 sink）：            sink.cards.collect { card ->
 getResult 业务执行 → buildCard 映射 →            adapter.RenderCard(card) { event ->
-  sink.emit，回执照常进记忆                          UiActionEvent → AgentQuery → 新一轮推理
+  sink.emit，回执照常进记忆                          ActionEvent → AgentQuery → 新一轮推理
 ```
 
 链路：工具只写 CardIr → UiSink 旁路 → 消费端统一入口 `adapter.RenderCard(card, onAction)`；换后端只改组装点一行，工具、UI、回流全不动。
@@ -91,8 +91,8 @@ public data class TreeNode(
 
 @Serializable
 public data class Action(
-    public val id: String,                // 动作唯一 id，回流事件携带
-    public val label: String              // 按钮/可点击区域文案
+    public val id: String,                // 动作唯一 id，回流事件携带（程序用，不需可读）
+    public val label: String              // 按钮/可点击区域文案（用户可见），随事件回流供模型共读
 )
 ```
 
@@ -200,7 +200,7 @@ public class DefaultRenderAdapter(
     public fun registerFallback(renderer: UiComponentRenderer)
 
     @Composable
-    override fun RenderCard(card: CardIr, onAction: (UiActionEvent) -> Unit) {
+    override fun RenderCard(card: CardIr, onAction: (ActionEvent) -> Unit) {
         val whitelist = validator.validateActions(card.actions)
         Column { RenderNode(card, card.root, whitelist, onAction) }  // 声明式先序递归
     }
@@ -208,9 +208,9 @@ public class DefaultRenderAdapter(
 ```
 
 - 注册表、树遍历、未知组件降级、动作绑定（`node.action` 必须命中 `card.actions` 白名单，否则渲染为静态内容）由适配器收口
-- `UiActionEvent` 由适配器构造（`instanceId` 取自 card，`actionId`/`payload` 取自节点与绑定数据），实现方零组装
+- `ActionEvent` 由适配器构造（`instanceId` 取自 card，`actionId`/`payload` 取自节点与绑定数据），实现方零组装
 - **声明式递归**：以 @Composable 组件树替代命令式推模型，天然贴合 Compose 组合模型与布局系统（SubcomposeLayout 桥需在 measure 阶段手算坐标，会丢失声明式嵌套布局能力）
-- **ir/tool 退化为协议 + 工具分层**：ir 只承载协议 IR（CardIr/TreeNode/Action/UiActionEvent）+ CardIrValidator，零平台、零 agent 依赖；UiSink/UiGenTool 归 tool 模块（依赖 agent 内核 `Tool`）；组件注册与渲染是平台行为（绑定 @Composable），全部收敛在适配器
+- **ir/tool 退化为协议 + 工具分层**：ir 只承载协议 IR（CardIr/TreeNode/Action/ActionEvent）+ CardIrValidator，零平台、零 agent 依赖；UiSink/UiGenTool 归 tool 模块（依赖 agent 内核 `Tool`）；组件注册与渲染是平台行为（绑定 @Composable），全部收敛在适配器
 
 ### 节 5 — 渲染后端插槽：UiRenderAdapter（genui adapters）
 
@@ -220,14 +220,14 @@ public class DefaultRenderAdapter(
 // agent/genui/adapters/api —— 插槽接口子模块（UiRenderAdapter.kt，包名 io.github.yeyi.agent.genui.adapter）
 interface UiRenderAdapter {
     @Composable
-    fun RenderCard(card: CardIr, onAction: (UiActionEvent) -> Unit)
+    fun RenderCard(card: CardIr, onAction: (ActionEvent) -> Unit)
 }
 
 // agent/genui/adapters/default —— 自研后端子模块（DefaultRenderAdapter.kt，包名 …/genui/adapter/default）
 /** 自研后端：声明式组件树递归渲染（@Composable 注册表），白名单校验复用 ir 的 CardIrValidator。 */
 class DefaultRenderAdapter(private val validator: CardIrValidator = CardIrValidator()) : UiRenderAdapter {
     fun register(component: String, renderer: UiComponentRenderer) { ... }
-    override fun RenderCard(card: CardIr, onAction: (UiActionEvent) -> Unit) { ... }
+    override fun RenderCard(card: CardIr, onAction: (ActionEvent) -> Unit) { ... }
 }
 
 // agent/genui/adapters/a2ui —— A2UI 后端子模块（A2uiRenderAdapter.kt，包名 …/genui/adapter/a2ui）
@@ -236,8 +236,8 @@ class A2uiRenderAdapter(
     val catalog: A2uiCoreCatalog,
     val scope: CoroutineScope,
 ) : UiRenderAdapter {
-    fun project(card: CardIr, onAction: (UiActionEvent) -> Unit) { ... }
-    override fun RenderCard(card: CardIr, onAction: (UiActionEvent) -> Unit) = project(card, onAction)
+    fun project(card: CardIr, onAction: (ActionEvent) -> Unit) { ... }
+    override fun RenderCard(card: CardIr, onAction: (ActionEvent) -> Unit) = project(card, onAction)
 }
 ```
 
@@ -264,7 +264,7 @@ fun createGenUi(): GenUi {
 sink.cards.collect { card ->
     adapter.RenderCard(card, onAction = vm::onCardAction) // 后端无感
 }
-// onCardAction: UiActionEvent → AgentQuery → 新一轮推理（与后端无关）
+// onCardAction: ActionEvent → AgentQuery → 新一轮推理（与后端无关）
 ```
 
 - **插槽语义**：适配层定义、实现可插拔、组装点一次性选择；业务代码只接触 `sink.cards` 与 `adapter.RenderCard(card, onAction)`
@@ -275,9 +275,9 @@ sink.cards.collect { card ->
 
 ```kotlin
 @Serializable
-public data class UiActionEvent(
+public data class ActionEvent(
     public val instanceId: String,
-    public val actionId: String,
+    public val action: Action,                 // 命中的白名单声明（id 程序标识，label 模型共读）
     public val payload: JsonObject = JsonObject(emptyMap())
 )
 ```
@@ -286,14 +286,15 @@ public data class UiActionEvent(
 
 ```
 用户点击卡片按钮
-  → UiActionEvent(instanceId, actionId, payload)
-  → demo 组装 AgentQuery（如 "用户点击了【选择此路线】"）
+  → ActionEvent(instanceId, action, payload)
+  → demo 组装 AgentQuery（如 "用户点击了卡片按钮『是』"）
   → BossAgent input 新轮次 / ReActAgent 新 run
-  → 模型感知用户选择，继续推理
+  → 模型结合卡片与工具调用上下文理解意图，继续推理
 ```
 
-- 动作语义由工具作者在卡片 IR 中声明，回流事件是结构化数据，不依赖模型转述
-- 回流事件构造由渲染后端负责（自研引擎 / A2UI action 回调），demo 统一收 `UiActionEvent`，后端无感
+- **意图由工具调用层承载，卡片是其可视化呈现**：模型调用 `deleteOrder(orderId)` 即表达意图，卡片标题 + 按钮 label（"是/取消"）是给人和模型共读的自然语言，模型无需专用意图描述
+- `action` 携带完整白名单声明：`action.id` 是程序标识（渲染绑定与回流路由），`action.label` 是可读文案（模型共读）；`payload` 是对象参数（orderId、city 等）——三者分工，模型从卡片 + 历史自然理解意图
+- 回流事件构造由渲染后端负责（自研引擎 / A2UI action 回调），demo 统一收 `ActionEvent`，后端无感
 
 ### 节 7 — 记忆清洁与锚点恢复
 
@@ -315,7 +316,7 @@ public data class UiActionEvent(
 agent/genui/
 ├── ir/                                                             ← :agent:genui:ir（纯 JVM 协议层，零平台、零 agent 依赖）
 │   └── src/main/kotlin/io/github/yeyi/agent/genui/ir/               ← 包名带 ir 后缀
-│       ├── CardIr.kt / TreeNode.kt / Action.kt / UiActionEvent.kt   ← 协议 IR
+│       ├── CardIr.kt / TreeNode.kt / Action.kt / ActionEvent.kt   ← 协议 IR
 │       └── CardIrValidator.kt                                       ← 白名单/降级校验（独立公开）
 ├── tool/                                                            ← :agent:genui:tool（纯 JVM，依赖 ir + :agent:core）
 │   └── src/main/kotlin/io/github/yeyi/agent/genui/tool/             ← 包名带 tool 后缀
@@ -339,7 +340,7 @@ demos/agent/.../genui/GenUi.kt               ← 组装点（一次性选择后�
 ## v1 范围与 v2 演进
 
 **v1（本次）**：
-- `:agent:genui:ir`：`CardIr` / `TreeNode` / `Action` / `UiActionEvent` / `CardIrValidator`（纯协议层，零渲染实现、零 agent 依赖）
+- `:agent:genui:ir`：`CardIr` / `TreeNode` / `Action` / `ActionEvent` / `CardIrValidator`（纯协议层，零渲染实现、零 agent 依赖）
 - `:agent:genui:tool`：`UiSink`（实例通道）/ `UiGenTool`（抽象工具基类）
 - `:agent:genui:adapters:api`：`UiRenderAdapter` 插槽接口
 - `:agent:genui:adapters:default`：`DefaultRenderAdapter`（自研后端）
@@ -356,4 +357,4 @@ demos/agent/.../genui/GenUi.kt               ← 组装点（一次性选择后�
 ## 测试策略
 
 - ir 模块（JVM）：`CardIr` 序列化/反序列化、`CardIrValidator` 白名单校验（空/重复/降级）；tool 模块（JVM）：`UiSink` 发射与订阅时序（订阅后 emit 可见 / 无订阅不阻塞不缓存）、`UiGenTool` execute 接线（getData → buildCard → emit 与回执语义、buildCard 返回 null 不发射）
-- adapters 侧：`DefaultRenderAdapter`（default）渲染与点击回流；`A2uiRenderAdapter`（a2ui）引擎层纯 JVM 状态机独立验证——投影落地（createSurface + updateComponents 后 activeSurfaces 出现对应 surface）、动作回流映射（客户端事件消息 → UiActionEvent）、白名单外节点不绑定动作、白名单非法整卡降级、重复投影幂等且仅更新回调；demo 锚点恢复用本地卡片记录 + 记忆 ToolResult 模拟
+- adapters 侧：`DefaultRenderAdapter`（default）渲染与点击回流；`A2uiRenderAdapter`（a2ui）引擎层纯 JVM 状态机独立验证——投影落地（createSurface + updateComponents 后 activeSurfaces 出现对应 surface）、动作回流映射（客户端事件消息 → ActionEvent）、白名单外节点不绑定动作、白名单非法整卡降级、重复投影幂等且仅更新回调；demo 锚点恢复用本地卡片记录 + 记忆 ToolResult 模拟

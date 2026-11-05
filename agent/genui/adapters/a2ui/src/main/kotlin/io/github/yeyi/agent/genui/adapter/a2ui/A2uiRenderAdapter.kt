@@ -138,7 +138,7 @@ public class A2uiRenderAdapter(
                     A2UI_KEY_CONTEXT to emptyMap<String, Any>(),
                 ),
             )
-            session.nodeActions[componentId] = NodeActionRef(action.id, JsonObject(node.bindings))
+            session.nodeActions[componentId] = NodeActionRef(action, JsonObject(node.bindings))
         }
         out.add(A2uiComponentPayload(componentId, node.component, properties))
     }
@@ -152,7 +152,7 @@ public class A2uiRenderAdapter(
     internal fun dispatchClientEvent(message: A2uiClientEventMessage) {
         val session = sessions[message.surfaceId] ?: return
         val ref = session.nodeActions[message.componentId] ?: return
-        session.onAction?.invoke(ActionEvent(session.instanceId, ref.actionId, ref.payload))
+        session.onAction?.invoke(ActionEvent(session.instanceId, ref.action, ref.payload))
     }
 
     private class CardSession(
@@ -166,7 +166,7 @@ public class A2uiRenderAdapter(
     }
 
     private class NodeActionRef(
-        val actionId: String,
+        val action: Action,
         val payload: JsonObject,
     )
 

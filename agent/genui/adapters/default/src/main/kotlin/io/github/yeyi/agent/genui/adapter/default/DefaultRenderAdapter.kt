@@ -60,12 +60,12 @@ public class DefaultRenderAdapter(private val validator: CardIrValidator = CardI
         onAction: (ActionEvent) -> Unit,
     ) {
         val action = node.action?.let { whitelist?.get(it) }
-        val nodeEmit: () -> Unit = if (action != null) {
-            { onAction(ActionEvent(card.instanceId, action.id, JsonObject(node.bindings))) }
+        val actionEmit: () -> Unit = if (action != null) {
+            { onAction(ActionEvent(card.instanceId, action, JsonObject(node.bindings))) }
         } else {
             {} // 不可点击：空操作，杜绝白名单外动作被绑定
         }
-        (registry[node.component] ?: fallback)(node, action, nodeEmit)
+        (registry[node.component] ?: fallback)(node, action, actionEmit)
         for (child in node.children) {
             RenderNode(card, child, whitelist, onAction)
         }

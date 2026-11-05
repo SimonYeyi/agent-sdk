@@ -60,11 +60,11 @@ class A2uiRenderAdapterTest {
             withTimeout(5_000) { adapter.processor.activeSurfaces.first { it.isNotEmpty() } }
             assertEquals("card-1", adapter.processor.activeSurfaces.value.single().id)
 
-            // 回流：Button 子节点按先序编号为 node-2（Text=node-1），命中白名单动作，映射回 UiActionEvent
+            // 回流：Button 子节点按先序编号为 node-2（Text=node-1），命中白名单动作，映射回 ActionEvent
             adapter.dispatchClientEvent(eventMessage("card-1", "node-2"))
             assertEquals(1, events.size)
             assertEquals("card-1", events[0].instanceId)
-            assertEquals("choose", events[0].actionId)
+            assertEquals("choose", events[0].action.id)
             assertEquals(JsonPrimitive("r1"), events[0].payload["route"])
         } finally {
             scope.cancel()
@@ -144,7 +144,7 @@ class A2uiRenderAdapterTest {
             adapter.dispatchClientEvent(eventMessage("card-4", "root"))
             assertTrue(events.isEmpty())
             assertEquals(1, replaced.size)
-            assertEquals("choose", replaced[0].actionId)
+            assertEquals("choose", replaced[0].action.id)
         } finally {
             scope.cancel()
         }

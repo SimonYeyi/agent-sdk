@@ -37,8 +37,8 @@ class CardIrTest {
     }
 
     @Test
-    fun `UiActionEvent 默认 payload 序列化`() {
-        val event = ActionEvent(instanceId = "call_1", actionId = "refresh")
+    fun `ActionEvent 默认 payload 序列化`() {
+        val event = ActionEvent(instanceId = "call_1", action = Action(id = "refresh", label = "刷新"))
 
         val json = Json.encodeToString(event)
         assertEquals(event, Json.decodeFromString<ActionEvent>(json))
