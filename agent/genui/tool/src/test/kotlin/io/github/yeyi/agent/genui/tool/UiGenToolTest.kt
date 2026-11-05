@@ -126,14 +126,19 @@ class UiGenToolTest {
     @Test
     fun `execute 回执为结构化数据文本`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
+        val sink = UiSink()
         val tool = FakeUiGenTool(
             data,
             CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            registeredRegistry(UiSink()),
+            registeredRegistry(sink),
         )
+        val job = backgroundScope.launch { sink.cards.collect { } }
+        runCurrent() // 排空调度队列，确保订阅注册后再执行
 
         val returned = tool.execute(arguments, context())
+        runCurrent()
 
+        job.cancel()
         assertEquals(ToolExecutionResult.success(data.toString()), returned)
     }
 
