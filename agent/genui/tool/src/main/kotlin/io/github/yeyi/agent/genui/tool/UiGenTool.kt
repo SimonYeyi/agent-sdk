@@ -50,9 +50,10 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
      * 模板接线：业务执行 → 产卡路由发射 → 回执。
      *
      * 固定执行顺序保证卡片发射时序位于 ToolCallStart/End 区间内；回执文本照常返回进记忆，卡片走旁路。
-     * 卡片发射需同时满足：buildCard 返回非空 且 registry 中已登记当前 agent（agentId 恒非空）——
-     * 任一缺失即降级不产卡，仅返回回执文本（agent 未登记 sink 属合法配置，不视为失败）。
-     * [getData]/[buildCard] 抛出异常时向上传播（registry 统一转错误回执），
+     * [buildCard] 返回 null（数据异常/为空）是合法降级，本轮不产卡仅返回回执文本；
+     * 但 [buildCard] 返回非空卡片时，当前 agent 必须在 registry 中已登记 sink——未登记属装配配置
+     * 错误（产卡工具要求使用方先为 agent 登记 sink），直接抛 [IllegalStateException] fail-fast
+     * 暴露，绝不静默丢弃卡片；异常向上传播由 registry 统一转错误回执，
      * [finalizable] 收到错误回执后拒绝终结，模型下一轮感知失败并重试。
      */
     final override suspend fun execute(
@@ -61,7 +62,13 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
     ): ToolExecutionResult {
         val result = getData(arguments, context)
         val card = buildCard(result, context)
-        if (card != null) registry.resolve(context.agentContext.agentId)?.emit(card)
+        if (card != null) {
+            val agentId = context.agentContext.agentId
+            val sink = checkNotNull(registry.resolve(agentId)) {
+                "$name is UiGenTool, must emit a card, but agent [$agentId] has no UiSink registered in UiSinkRegistry. Register a sink for any agent using a card-emitting tool."
+            }
+            sink.emit(card)
+        }
         return ToolExecutionResult.success(result.toString())
     }
 }

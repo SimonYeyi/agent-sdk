@@ -126,7 +126,11 @@ class UiGenToolTest {
     @Test
     fun `execute 回执为结构化数据文本`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        val tool = FakeUiGenTool(data, CardIr(instanceId = "call_1", root = TreeNode(component = "Text")), UiSinkRegistry())
+        val tool = FakeUiGenTool(
+            data,
+            CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
+            registeredRegistry(UiSink()),
+        )
 
         val returned = tool.execute(arguments, context())
 
@@ -162,25 +166,16 @@ class UiGenToolTest {
     }
 
     @Test
-    fun `agentId 未登记时降级不产卡`() = runTest {
-        val sink = UiSink()
-        // 空 registry：即使 context 携带 agentId，也未登记 sink
+    fun `agentId 未登记时抛异常暴露配置缺失`() = runTest {
+        // 空 registry：即使 context 携带 agentId，也未登记 sink——产卡工具装配配置缺失应 fail-fast
         val tool = FakeUiGenTool(
             data = JsonObject(mapOf("city" to JsonPrimitive("北京"))),
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
             registry = UiSinkRegistry(),
         )
 
-        var cardCount = 0
-        val job = backgroundScope.launch { sink.cards.collect { cardCount++ } }
-        runCurrent() // 排空调度队列，确保订阅注册后再执行
-
-        val returned = tool.execute(arguments, context(agentId = "agent_9"))
-        runCurrent() // 处理订阅者恢复任务，确认无卡片投递
-
-        job.cancel()
-        assertEquals(0, cardCount)
-        assertEquals(ToolExecutionResult.success(JsonObject(mapOf("city" to JsonPrimitive("北京"))).toString()), returned)
+        val e = assertFailsWith<IllegalStateException> { tool.execute(arguments, context(agentId = "agent_9")) }
+        assertTrue(e.message!!.contains("agent_9"))
     }
 
     @Test

@@ -27,6 +27,6 @@ public class UiSinkRegistry {
         sinks.remove(agentId)
     }
 
-    /** 解析标识对应的 sink；未登记返回 null，调用方降级处理（不产卡）。 */
+    /** 解析标识对应的 sink；未登记返回 null，产卡工具视为装配配置缺失，fail-fast 抛异常暴露。 */
     public fun resolve(agentId: String): UiSink? = sinks[agentId]
 }
