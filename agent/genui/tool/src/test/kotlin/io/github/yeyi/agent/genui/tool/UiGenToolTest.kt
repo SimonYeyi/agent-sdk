@@ -40,6 +40,7 @@ class UiGenToolTest {
     ) : UiGenTool(registry) {
         var getDataArguments: JsonElement? = null
         var buildCardData: JsonElement? = null
+        var buildCardArguments: JsonElement? = null
 
         override val name: String = "fake_tool"
         override val description: String = "fake"
@@ -53,8 +54,13 @@ class UiGenToolTest {
             return data
         }
 
-        override fun buildCard(data: JsonElement, context: ToolExecutionContext): CardIr? {
+        override fun buildCard(
+            data: JsonElement,
+            arguments: JsonElement,
+            context: ToolExecutionContext
+        ): CardIr? {
             buildCardData = data
+            buildCardArguments = arguments
             return card
         }
     }
@@ -98,8 +104,9 @@ class UiGenToolTest {
 
         job.join()
         assertEquals(arguments, tool.getDataArguments)
-        // buildCard 收到的是 getData 整理后的结构化数据
+        // buildCard 收到的是 getData 整理后的结构化数据，以及本轮原始入参
         assertEquals(data, tool.buildCardData)
+        assertEquals(arguments, tool.buildCardArguments)
         assertEquals(listOf(card), received)
     }
 
@@ -160,7 +167,11 @@ class UiGenToolTest {
             override val parametersSchema: ToolParameters = ToolParameters.Empty
             override fun getData(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
                 error("card generation failed")
-            override fun buildCard(data: JsonElement, context: ToolExecutionContext): CardIr? = null
+            override fun buildCard(
+                data: JsonElement,
+                arguments: JsonElement,
+                context: ToolExecutionContext
+            ): CardIr? = null
         }
 
         // execute 抛异常向上传播，registry 会统一转为错误回执（isError=true），
