@@ -82,7 +82,7 @@ class GatewayService : Service() {
                     agent = agentReference,
                     sessionId = sessionId
                 )
-                agentDefinition.spawn(AgentScope(session.memory))
+                agentDefinition.spawn(session.uniqueKey, session.memory, AgentScope())
             }
 
         val agentRunner = DefaultAgentRunner(createAgent)

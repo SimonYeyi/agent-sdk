@@ -8,7 +8,6 @@ import io.github.yeyi.agent.mcp.McpClient
 import io.github.yeyi.agent.mcp.McpRegistry
 import io.github.yeyi.agent.mcp.HttpTransport
 import io.github.yeyi.agent.mcp.StdioTransport
-import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
 import io.github.yeyi.agent.providers.openai.OpenAiProvider
@@ -19,9 +18,12 @@ import io.github.yeyi.agent.tool.lazy_loading.LazyToolRegistry
 import io.github.yeyi.agent.toolset.ToolsetRegistry
 
 /**
- * Agent 运行时上下文，封装 memory、各组件注册表及运行时注入项。
+ * Agent 运行时上下文，封装各组件注册表及运行时注入项。
  *
- * @param memory 会话记忆（必需）
+ * 只装「可复用的运行时组件」：同一份 scope 可 spawn 多个 agent。
+ * 会话记忆与 agent 身份不在此列——二者都是单个 agent 实例级的东西，
+ * 由 [io.github.yeyi.agent.config.spawn] 的 agentId / memory 参数单独传入。
+ *
  * @param toolRegistry 工具注册表
  * @param lazyToolRegistry 延迟加载工具注册表
  * @param toolsetRegistry 工具集注册表
@@ -31,7 +33,6 @@ import io.github.yeyi.agent.toolset.ToolsetRegistry
  * @param modalityAdapter 历史消息 media 可见性适配器，null 表示默认策略（取 memory 归档）
  */
 public class AgentScope(
-    public val memory: Memory,
     public val toolRegistry: ToolRegistry? = null,
     public val lazyToolRegistry: LazyToolRegistry? = null,
     public val toolsetRegistry: ToolsetRegistry? = null,

@@ -67,7 +67,7 @@ class GatewayDaemon(private val config: GatewayDaemonConfig) {
                     agent = agentReference,
                     sessionId = sessionId
                 )
-                agentDefinition.spawn(AgentScope(session.memory))
+                agentDefinition.spawn(session.uniqueKey, session.memory, AgentScope())
             }
 
         val builtEngine = GatewayEngineBuilder()

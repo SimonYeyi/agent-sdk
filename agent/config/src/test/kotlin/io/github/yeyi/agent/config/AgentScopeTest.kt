@@ -126,7 +126,6 @@ class AgentScopeTest {
             register(LazyTool(createTool("lazy1")))
         }
         val scope = AgentScope(
-            memory = InMemoryMemory(),
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry
         )
@@ -147,7 +146,6 @@ class AgentScopeTest {
             register(LazyTool(createTool("lazy1")))
         }
         val scope = AgentScope(
-            memory = InMemoryMemory(),
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry
         )
@@ -170,7 +168,6 @@ class AgentScopeTest {
             register(LazyTool(createTool("lazyWeather")))
         }
         val scope = AgentScope(
-            memory = InMemoryMemory(),
             toolRegistry = toolRegistry,
             lazyToolRegistry = lazyToolRegistry
         )
@@ -190,7 +187,7 @@ class AgentScopeTest {
             register(Toolset("ts1", "Toolset 1"))
             register(Toolset("ts2", "Toolset 2"))
         }
-        val scope = AgentScope(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
+        val scope = AgentScope(toolsetRegistry = toolsetRegistry)
         val definition = createTestDefinition(toolsets = null)
 
         val info = scope.resolver().resolve(definition)
@@ -203,7 +200,7 @@ class AgentScopeTest {
         val toolsetRegistry = io.github.yeyi.agent.toolset.ToolsetRegistry().apply {
             register(Toolset("ts1", "Toolset 1"))
         }
-        val scope = AgentScope(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
+        val scope = AgentScope(toolsetRegistry = toolsetRegistry)
         val definition = createTestDefinition(toolsets = emptyList())
 
         val info = scope.resolver().resolve(definition)
@@ -218,7 +215,7 @@ class AgentScopeTest {
             register(Toolset("search", "Search"))
             register(Toolset("calculator", "Calculator"))
         }
-        val scope = AgentScope(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
+        val scope = AgentScope(toolsetRegistry = toolsetRegistry)
         val definition = createTestDefinition(toolsets = listOf("weather", "search"))
 
         val info = scope.resolver().resolve(definition)
@@ -235,7 +232,7 @@ class AgentScopeTest {
             register(createSkill("skill1"))
             register(createSkill("skill2"))
         }
-        val scope = AgentScope(memory = InMemoryMemory(), skillRegistry = skillRegistry)
+        val scope = AgentScope(skillRegistry = skillRegistry)
         val definition = createTestDefinition(skills = null)
 
         val info = scope.resolver().resolve(definition)
@@ -248,7 +245,7 @@ class AgentScopeTest {
         val skillRegistry = io.github.yeyi.agent.skill.SkillRegistry().apply {
             register(createSkill("skill1"))
         }
-        val scope = AgentScope(memory = InMemoryMemory(), skillRegistry = skillRegistry)
+        val scope = AgentScope(skillRegistry = skillRegistry)
         val definition = createTestDefinition(skills = emptyList())
 
         val info = scope.resolver().resolve(definition)
@@ -262,7 +259,7 @@ class AgentScopeTest {
             register(createSubagent("subagent1"))
             register(createSubagent("subagent2"))
         }
-        val scope = AgentScope(memory = InMemoryMemory(), subagentRegistry = subagentRegistry)
+        val scope = AgentScope(subagentRegistry = subagentRegistry)
         val definition = createTestDefinition(subagents = null)
 
         val info = scope.resolver().resolve(definition)
@@ -275,7 +272,7 @@ class AgentScopeTest {
         val subagentRegistry = io.github.yeyi.agent.subagent.SubagentRegistry().apply {
             register(createSubagent("subagent1"))
         }
-        val scope = AgentScope(memory = InMemoryMemory(), subagentRegistry = subagentRegistry)
+        val scope = AgentScope(subagentRegistry = subagentRegistry)
         val definition = createTestDefinition(subagents = emptyList())
 
         val info = scope.resolver().resolve(definition)
@@ -285,7 +282,7 @@ class AgentScopeTest {
 
     @Test
     fun `resolve with null mcps returns null`() = runTest {
-        val scope = AgentScope(memory = InMemoryMemory())
+        val scope = AgentScope()
         val definition = createTestDefinition(mcps = null)
 
         val info = scope.resolver().resolve(definition)
@@ -295,7 +292,7 @@ class AgentScopeTest {
 
     @Test
     fun `resolve with emptyList mcps returns null`() = runTest {
-        val scope = AgentScope(memory = InMemoryMemory())
+        val scope = AgentScope()
         val definition = createTestDefinition(mcps = emptyList())
 
         val info = scope.resolver().resolve(definition)
@@ -305,7 +302,7 @@ class AgentScopeTest {
 
     @Test
     fun `resolve with Http transport creates Mcp`() = runTest {
-        val scope = AgentScope(memory = InMemoryMemory())
+        val scope = AgentScope()
         val definition = createTestDefinition(
             mcps = listOf(
                 AgentDefinition.Mcp(
@@ -326,7 +323,7 @@ class AgentScopeTest {
 
     @Test
     fun `resolve with Stdio transport creates Mcp`() = runTest {
-        val scope = AgentScope(memory = InMemoryMemory())
+        val scope = AgentScope()
         val definition = createTestDefinition(
             mcps = listOf(
                 AgentDefinition.Mcp(
@@ -350,7 +347,7 @@ class AgentScopeTest {
         val toolsetRegistry = io.github.yeyi.agent.toolset.ToolsetRegistry().apply {
             register(Toolset("ts1", "Toolset 1"))
         }
-        val scope = AgentScope(memory = InMemoryMemory(), toolsetRegistry = toolsetRegistry)
+        val scope = AgentScope(toolsetRegistry = toolsetRegistry)
         val definition = createTestDefinition(
             toolsets = listOf("ts1"),
             mcps = listOf(
@@ -368,27 +365,26 @@ class AgentScopeTest {
         assertNotNull(info.toolsetRegistry)
         assertNotNull(info.mcpRegistry)
 
-        val agent = definition.spawn(scope)
+        val agent = definition.spawn("agent_test", InMemoryMemory(), scope)
         assertNotNull(agent)
     }
 
     @Test
     fun `spawn wires scope hook and modalityAdapter`() = runTest {
         val scope = AgentScope(
-            memory = InMemoryMemory(),
             hook = NoopHook(),
             modalityAdapter = createPassthroughModalityAdapter()
         )
         val definition = createTestDefinition()
 
-        val agent = definition.spawn(scope)
+        val agent = definition.spawn("agent_test", InMemoryMemory(), scope)
 
         assertNotNull(agent)
     }
 
     @Test
     fun `spawnedAgent is shutdownable and shutdown is terminal and idempotent`() = runTest {
-        val spawned: Shutdownable = createTestDefinition().spawn(AgentScope(memory = InMemoryMemory()))
+        val spawned: Shutdownable = createTestDefinition().spawn("agent_test", InMemoryMemory(), AgentScope())
 
         spawned.shutdown()
         spawned.shutdown() // 幂等，第二次无副作用
@@ -408,7 +404,7 @@ class AgentScopeTest {
                 )
             )
         )
-        val spawned = definition.spawn(AgentScope(memory = InMemoryMemory()))
+        val spawned = definition.spawn("agent_test", InMemoryMemory(), AgentScope())
 
         spawned.shutdown()
         spawned.shutdown() // 幂等

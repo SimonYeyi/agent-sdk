@@ -19,7 +19,7 @@ import io.github.yeyi.agent.toolset.ToolsetRegistry
  *
  * 配置与运行时分离：
  * - [definition] 声明完整 [AgentDefinition]（persona / provider / 能力名称列表），注册进 [AgentRegistry]
- * - [scope] 组装运行时上下文 [AgentScope]：注册表全集 + 会话记忆（记忆来自 session 持久化）
+ * - [scope] 组装运行时上下文 [AgentScope]：注册表全集（记忆由 spawn 参数单独传入，来自 session 持久化）
  * - [create] 通过 [spawnBoss] 构建 [BossAgent]，供全双工语音委托共享同一实例
  */
 object CockpitAgent {
@@ -49,9 +49,8 @@ object CockpitAgent {
         subagents = listOf("media_expert", "navigation_expert"),
     )
 
-    /** 运行时上下文：注册表全集 + 外部注入记忆（session.memory）。 */
-    private fun scope(memory: Memory): AgentScope = AgentScope(
-        memory = memory,
+    /** 运行时上下文：注册表全集。记忆由 spawn 参数单独传入。 */
+    private fun scope(): AgentScope = AgentScope(
         toolRegistry = ToolRegistry().apply {
             register(MusicControlTool())
             register(GetTimeTool())
@@ -87,7 +86,7 @@ object CockpitAgent {
         val definition = requireNotNull(registry.getOrNull(NAME)) {
             "CockpitAgent definition not registered"
         }
-        return definition.spawnBoss(scope(memory))
+        return definition.spawnBoss(memory, scope())
     }
 
     private fun providerFromBuildConfig(): AgentDefinition.Provider {

@@ -24,7 +24,7 @@ class SpawnedAgentShutdownTest {
                 apiKey = "k"
             )
         )
-        val agent: SpawnedAgent = definition.spawn(AgentScope(memory = InMemoryMemory()))
+        val agent: SpawnedAgent = definition.spawn("agent_test", InMemoryMemory(), AgentScope())
 
         agent.shutdown()
         agent.shutdown() // 幂等：第二次无副作用

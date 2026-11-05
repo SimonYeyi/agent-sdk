@@ -73,8 +73,8 @@ class SessionRestoreIntegrationTest {
         assertNotNull(definition)
 
         fun rebuild(session: Session): Agent {
-            val scope = AgentScope(memory = session.memory, toolRegistry = toolRegistry)
-            return definition!!.spawn(scope)
+            val scope = AgentScope(toolRegistry = toolRegistry)
+            return definition!!.spawn(session.uniqueKey, session.memory, scope)
         }
 
         // 创建时与恢复时各构建一次，均可成功
@@ -98,7 +98,7 @@ class SessionRestoreIntegrationTest {
         val session = manager.create("acct-1", "会话一", AgentReference(name = "assistant"))
         val restored = manager.get("acct-1", session.id)
 
-        val scope = AgentScope(memory = restored.memory, toolRegistry = toolRegistry)
+        val scope = AgentScope(toolRegistry = toolRegistry)
         val info = scope.resolver().resolve(registry.getOrNull(restored.agent.name)!!)
 
         assertEquals(setOf("greet", "search"), info.toolRegistry!!.all().map { it.name }.toSet())

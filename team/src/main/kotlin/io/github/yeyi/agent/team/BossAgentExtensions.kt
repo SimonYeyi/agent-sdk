@@ -3,6 +3,7 @@ package io.github.yeyi.agent.team
 import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.config.AgentDefinition
 import io.github.yeyi.agent.config.AgentScope
+import io.github.yeyi.agent.memory.Memory
 
 /**
  * 从 AgentDefinition 构建 BossAgent。
@@ -11,10 +12,11 @@ import io.github.yeyi.agent.config.AgentScope
  * 在 boss 场景不被消费，必须留空；外部增强请配置 [AgentDefinition.instructions]，
  * 经 [AgentPersona.instructions] 写入 system prompt。
  *
- * @param scope 运行时上下文
+ * @param memory 会话记忆，本次 spawn 产出的 boss 独占
+ * @param scope 运行时上下文，只含可复用的运行时组件
  * @return BossAgent 实例
  */
-public fun AgentDefinition.spawnBoss(scope: AgentScope): BossAgent {
+public fun AgentDefinition.spawnBoss(memory: Memory, scope: AgentScope): BossAgent {
     // 显式契约：boss 角色由框架定义，外部 persona 无落点，配置即违约 fail-fast。
     require(persona.isNullOrBlank()) {
         "BossAgent's role is owned by the framework — persona must be null or blank; use instructions to customize the boss."
@@ -23,7 +25,7 @@ public fun AgentDefinition.spawnBoss(scope: AgentScope): BossAgent {
     return bossAgent {
         persona(AgentPersona("").apply { instructions?.let { instructions(it) } })
         llmProvider(resolveInfo.llmProvider)
-        memory(scope.memory, maxMemoryRounds)
+        memory(memory, maxMemoryRounds)
         maxIterations(maxIterations)
         scope.hook?.let { hook(it) }
         scope.modalityAdapter?.let { modalityAdapter(it) }

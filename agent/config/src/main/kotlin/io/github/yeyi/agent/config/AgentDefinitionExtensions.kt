@@ -10,6 +10,7 @@ import io.github.yeyi.agent.ReActAgent
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.mcp.McpRegistry
 import io.github.yeyi.agent.mcp.mcps
+import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.skill.skills
 import io.github.yeyi.agent.subagent.subagents
 import io.github.yeyi.agent.tool.lazy_loading.lazyTools
@@ -18,15 +19,20 @@ import io.github.yeyi.agent.toolset.toolsets
 /**
  * 从 AgentDefinition 和 AgentScope 构建 Agent 实例。
  *
- * @param scope 运行时上下文
+ * @param agentId agent 身份标识，必传：既是 [io.github.yeyi.agent.AgentContext.agentId] 的取值，
+ *   也是卡片旁路（[io.github.yeyi.agent.genui.tool.UiSinkRegistry]）等按 agent 路由的旁路设施的路由键。
+ *   典型取值为会话唯一标识（session.uniqueKey），唯一性由调用方保证。
+ * @param memory 会话记忆，本次 spawn 产出的 agent 独占
+ * @param scope 运行时上下文，只含可复用的运行时组件，同一份 scope 可 spawn 多个 agent
  * @return [SpawnedAgent]，可通过 [Shutdownable.shutdown] 永久关闭并回收资源
  */
-public fun AgentDefinition.spawn(scope: AgentScope): SpawnedAgent {
+public fun AgentDefinition.spawn(agentId: String, memory: Memory, scope: AgentScope): SpawnedAgent {
     val resolveInfo = scope.resolver().resolve(this@spawn)
     val delegate = agent {
+        id(agentId)
         persona(AgentPersona(persona ?: "").apply { instructions?.let { instructions(it) } })
         llmProvider(resolveInfo.llmProvider)
-        memory(scope.memory, maxMemoryRounds)
+        memory(memory, maxMemoryRounds)
         maxIterations(maxIterations)
         resolveInfo.toolRegistry?.let { tools(it) }
         resolveInfo.lazyToolRegistry?.let { lazyTools(it) }
