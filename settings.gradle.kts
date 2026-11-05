@@ -40,6 +40,7 @@ include(":agent:toolset")
 include(":agent:tool:serialization")
 include(":agent:tool:compression")
 include(":agent:tool:lazy-loading")
+include(":agent:genui")
 include(":agent:providers:openai")
 include(":agent:providers:anthropic")
 

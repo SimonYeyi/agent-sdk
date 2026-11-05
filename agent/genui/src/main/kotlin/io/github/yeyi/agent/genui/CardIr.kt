@@ -1,0 +1,20 @@
+package io.github.yeyi.agent.genui
+
+import io.github.yeyi.agent.tool.ToolExecutionContext
+import kotlinx.serialization.Serializable
+
+/**
+ * 卡片中间表示（Card IR）：一次工具调用产出的完整可交互 UI 规格。
+ *
+ * 卡片只经 [UiSink] 旁路对外广播，永不写入记忆；记忆里仅保留工具回执短文本。
+ *
+ * @param instanceId 卡片实例锚点，与 [ToolExecutionContext.toolCallId] 一一对应，会话恢复时按此归位
+ * @param root 组件树根节点
+ * @param actions 本卡片静态声明的动作白名单，渲染引擎只绑定白名单内动作
+ */
+@Serializable
+public data class CardIr(
+    public val instanceId: String,
+    public val root: TreeNode,
+    public val actions: List<Action> = emptyList(),
+)
