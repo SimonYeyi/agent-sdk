@@ -30,6 +30,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.tool.AsyncTool
+import io.github.yeyi.agent.tool.FinalizableTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolRegistry
@@ -278,7 +279,7 @@ public class ReActAgent internal constructor(
         if (response.message.toolCalls.isEmpty()) {
             // 正常终结契约：非短路路径的 Final 必须携带非空正文。LLM 既无工具调用又无正文
             // 属于异常输出，直接 fail-fast；content 为 null 的 Final 事件在整个库中仅由
-            // 下方 allAsync 短路路径构造，外部消费者见到 null 即可断定来自异步工具终结。
+            // 下方可终结短路路径构造，外部消费者见到 null 即可断定来自可终结工具终结。
             // 这是内部不变式而非调用方参数问题，故用 check 抛 IllegalStateException。
             check(response.message.content.isNullOrBlank().not()) {
                 "Final event must carry non-blank content: LLM returned a response with neither tool calls nor content."
@@ -286,12 +287,21 @@ public class ReActAgent internal constructor(
             return finalize(turn, response)
         }
 
+        // allAsync 仅描述「本轮全是异步工具」（供消费方判断，不驱动短路）。
         val allToolAsync = response.message.toolCalls
             .all { call -> toolRegistry.getOrNull(call.name) is AsyncTool }
 
         callTools(turn, response, allToolAsync)
 
-        if (allToolAsync) {
+        // 可终结短路：裁决权完全在工具——工具执行完成后，若本轮全部工具均为可终结工具
+        // 且 finalizable() 全返回 true（工具可基于本轮执行状态自行裁定，如失败后拒绝终结），
+        // 则直接进入终局协议，不再触发下一轮推理。ReActAgent 不做执行结果判断。
+        // finalizable() 在工具执行之后调用，工具 execute 写入的本轮状态对其可见。
+        val allToolFinalizable = response.message.toolCalls.all { call ->
+            val tool = toolRegistry.getOrNull(call.name)
+            tool is FinalizableTool && tool.finalizable()
+        }
+        if (allToolFinalizable) {
             val emptyResponse = ChatResponse(ChatMessage.Assistant(), null, FinishReason.Stop)
             emptyResponse.message.addToMemory(memory)
             return finalize(turn, emptyResponse)
@@ -346,7 +356,7 @@ public class ReActAgent internal constructor(
 
     /**
      * 终局协议：steer 检查点 → onRunCompleted → Final → 退场。
-     * 正常收敛与 [AsyncTool] 短路共用，保证协议一致性。
+     * 正常收敛与可终结短路共用，保证协议一致性。
      * 若在途指令 (steer) 非空，放弃终局返回 null，强制再跑一轮让 LLM 带着指令重新作答。
      */
     private suspend fun finalize(turn: AgentTurn, response: ChatResponse): AgentResult? {

@@ -17,6 +17,7 @@ import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import io.github.yeyi.agent.tool.AsyncTool
+import io.github.yeyi.agent.tool.FinalizableTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -34,6 +35,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -689,6 +691,99 @@ class ReActAgentTest {
         assertEquals("final answer", result.message.content)
         assertEquals(2, result.toolCalls.size)
         assertEquals(1, echo.invocations.size)
+    }
+
+    @Test
+    fun `finalizable tool refusing termination after failure does not short-circuit so LLM retries`() = runTest {
+        // 短路裁决权完全在工具：工具在 finalizable() 中结合本轮执行状态裁定。
+        // 本例工具执行失败后拒绝终结（finalizable() 返回 false）→ 不短路 →
+        // 模型下一轮感知失败回执并重试。这正是产卡工具不适合挂 AsyncTool 短路的原因——
+        // 同步工具可能异常，异常后应由工具在 finalizable() 中拒绝终结，让模型看到失败回执。
+        var failed = false
+        val flaky = object : Tool, FinalizableTool {
+            override val name = "flaky_card"
+            override val description = "a finalizable tool that refuses termination after failure"
+            override val parametersSchema = ToolParameters.Empty
+            override fun finalizable(): Boolean = !failed
+            override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
+                failed = true
+                return ToolExecutionResult.error("card generation failed")
+            }
+        }
+        val toolCall = ToolCall(id = "c1", name = "flaky_card", arguments = JsonNull)
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    ChatMessage.Assistant(content = "正在生成卡片", toolCalls = listOf(toolCall)),
+                    finishReason = FinishReason.ToolCalls
+                ),
+                ChatResponse(ChatMessage.Assistant(content = "卡片生成失败,已为你重试"), finishReason = FinishReason.Stop)
+            )
+        )
+        val mem = InMemoryMemory()
+        val agent = ReActAgent(
+            persona = AgentPersona(""),
+            llmProvider = provider,
+            toolRegistry = registryOf(flaky),
+            memory = mem,
+            modalityAdapter = DefaultModalityAdapter(null),
+            maxRounds = 20,
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
+        )
+        val events = agent.run(AgentQuery.text("hi")).toList()
+
+        // 不短路:LLM 被调用两次,第二轮带着失败回执重试
+        assertEquals(2, provider.recordedRequests.size)
+        val explanation = events.filterIsInstance<AgentEvent.ToolCallExplanation>().single()
+        assertFalse(explanation.allAsync, "同步产卡工具不是 AsyncTool → allAsync 为 false")
+        val final = events.filterIsInstance<AgentEvent.Final>().single()
+        assertEquals("卡片生成失败,已为你重试", final.result.message.content)
+        assertEquals(2, final.result.iterations)
+        // 失败回执已写入记忆（isError=true），模型第二轮能看到并重试
+        val memMessages = mem.history().map { it.message }
+        val toolResult = memMessages.filterIsInstance<ChatMessage.ToolResult>().single()
+        assertTrue(toolResult.isError, "失败回执必须以 isError 写入记忆")
+    }
+
+    @Test
+    fun `finalizable tool declaring non-finalizable does not short-circuit`() = runTest {
+        // finalizable() = false：工具自判本轮不可终结（如非原子产卡，产卡后仍需模型复核/续写）。
+        val reviewTool = object : Tool, FinalizableTool {
+            override val name = "review_card"
+            override val description = "drafts a card pending review"
+            override val parametersSchema = ToolParameters.Empty
+            override fun finalizable(): Boolean = false
+            override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
+                ToolExecutionResult.success("card draft ready")
+        }
+        val toolCall = ToolCall(id = "c1", name = "review_card", arguments = JsonNull)
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    ChatMessage.Assistant(content = "生成卡片草稿", toolCalls = listOf(toolCall)),
+                    finishReason = FinishReason.ToolCalls
+                ),
+                ChatResponse(ChatMessage.Assistant(content = "草稿已生成,请确认"), finishReason = FinishReason.Stop)
+            )
+        )
+        val agent = ReActAgent(
+            persona = AgentPersona(""),
+            llmProvider = provider,
+            toolRegistry = registryOf(reviewTool),
+            memory = InMemoryMemory(),
+            modalityAdapter = DefaultModalityAdapter(null),
+            maxRounds = 20,
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
+        )
+        val events = agent.run(AgentQuery.text("hi")).toList()
+
+        // 不短路:LLM 被调用两次,Final 携带正文（非空响应）
+        assertEquals(2, provider.recordedRequests.size)
+        val final = events.filterIsInstance<AgentEvent.Final>().single()
+        assertEquals("草稿已生成,请确认", final.result.message.content)
+        assertEquals(2, final.result.iterations)
     }
 
     @OptIn(ExperimentalCoroutinesApi::class)

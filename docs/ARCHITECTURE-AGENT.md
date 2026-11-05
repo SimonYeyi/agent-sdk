@@ -108,6 +108,24 @@ public interface Tool {
 - 异常统一转换为 `ToolExecutionResult(isError=true)`
 - 投影为 `ToolDefinition` 发送给 LLM
 
+**可终结能力接口（短路裁决权归工具）**：
+
+```kotlin
+public interface FinalizableTool {
+    public fun finalizable(): Boolean
+}
+
+public interface AsyncTool : FinalizableTool {
+    override fun finalizable(): Boolean = true
+}
+```
+
+`FinalizableTool` 是工具对「本轮是否可安全终结（不再触发下一轮推理）」的唯一裁决者：
+- ReActAgent 仅在本轮全部工具均为 `FinalizableTool` 且 `finalizable()` 全返回 `true` 时直接进入终局协议（emit Final 空响应收尾），不做任何执行结果判断
+- `finalizable()` 在工具执行完成后调用，工具 execute 写入的本轮状态对其可见；同步工具若希望失败后让模型感知并重试，可在 execute 中记录成败并在 `finalizable()` 中结合状态裁定（如失败时返回 `false` 拒绝终结）
+- `AsyncTool` 异步派发型工具天然可终结，`finalizable()` 恒 `true`，向后兼容
+- 消费方以 `Final` 空响应（content 为 null）识别短路终结，无需预判字段
+
 ## 6. Memory 系统
 
 ```kotlin
@@ -143,7 +161,8 @@ AgentEvent (sealed interface)
 ├── Initial(userInput)              — 用户输入事件
 ├── TextDelta(text)                 — 流式文本增量
 ├── ToolCallExplanation(text, toolCalls, allAsync) — 工具调用解释
-│       allAsync=true 表示本轮全部工具为 AsyncTool，ReAct 将直接进入终局
+│       allAsync 为纯描述语义：本轮工具是否全部为 AsyncTool（供委托回执等消费方判断），不驱动短路裁决
+│       短路由 ReActAgent 基于 FinalizableTool 裁决，消费方以 Final 空响应（content 为 null）识别短路终结
 ├── ToolCallStart(callId, toolName) — 工具调用开始
 ├── ToolCallEnd(callId, result)     — 工具调用结束
 ├── Final(result)                   — 最终结果

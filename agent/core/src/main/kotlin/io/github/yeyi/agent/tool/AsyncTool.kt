@@ -5,12 +5,16 @@ package io.github.yeyi.agent.tool
  *
  * 实现本接口的工具（典型：异步派发型工具，如 publish/cancel）执行后立即返回
  * "已受理 / 执行中"状态，真正的结果由外部异步通道（如 report 流）后续送达。
- * 因此当本轮所有工具调用均为 [AsyncTool] 时，ReActAgent 直接进入终局协议
+ * 因此当本轮所有工具调用均满足可终结裁决时，ReActAgent 直接进入终局协议
  * （emit [io.github.yeyi.agent.AgentEvent.Final]）结束当前 run，不再触发下一轮
  * 推理——此时没有可同步等待的下一步结果，过渡语已在调用消息内同步输出。
  *
- * 注意：本接口声明的是"异步"能力而非"终结"承诺；是否终结本轮由 ReActAgent
- * 基于"本轮无同步可等待的结果"推导，而非工具自身决定。
- * 调用方应通过 `tool is AsyncTool` 显式探测能力，而非依赖工具名或执行结果标志。
+ * 本接口同时是 [FinalizableTool] 的特例：异步派发无同步结果、也不会失败，
+ * 故 finalizable() 恒为 true（无「执行成功仍需下一轮推理」的情形）。
+ *
+ * 注意：调用方应通过 `tool is AsyncTool` 显式探测异步能力、通过
+ * `tool is FinalizableTool && tool.finalizable()` 探测终结能力，而非依赖工具名或执行结果标志。
  */
-public interface AsyncTool
+public interface AsyncTool : FinalizableTool {
+    override fun finalizable(): Boolean = true
+}
