@@ -15,6 +15,7 @@ junit = "4.13.2"
 kotlin-test = "2.2.0"
 shadow = "8.3.11"
 speechengine-tob = "0.0.15.0"
+a2ui = "1.0.0-alpha01"
 
 [libraries]
 kotlinx-coroutines-core = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version.ref = "coroutines" }
@@ -32,6 +33,7 @@ ktor-client-mock = { module = "io.ktor:ktor-client-mock", version.ref = "ktor" }
 ktor-serialization-kotlinx-json = { module = "io.ktor:ktor-serialization-kotlinx-json", version.ref = "ktor" }
 
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "compose-bom" }
+compose-runtime = { module = "androidx.compose.runtime:runtime" }
 compose-ui = { module = "androidx.compose.ui:ui" }
 compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
@@ -48,6 +50,9 @@ kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotl
 kotlin-test-junit = { module = "org.jetbrains.kotlin:kotlin-test-junit", version.ref = "kotlin-test" }
 oapi-sdk = { module = "com.larksuite.oapi:oapi-sdk", version.ref = "oapi-sdk" }
 speechengine-tob = { module = "com.bytedance.speechengine:speechengine_tob", version.ref = "speechengine-tob" }
+
+a2ui-model = { module = "androidx.a2ui:a2ui-model", version.ref = "a2ui" }
+a2ui-engine = { module = "androidx.a2ui:a2ui-engine", version.ref = "a2ui" }
 
 [plugins]
 kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }

@@ -8,7 +8,7 @@ import kotlinx.serialization.json.JsonObject
  * 组件渲染实现由外部（demo）注册，消费方只需注册实现后调用 [render]。
  * 白名单校验委托给 [CardIrValidator]，与投影后端（A2UI）共用同一安全语义。
  */
-public class RenderEngine(private val validator: CardIrValidator = CardIrValidator()) {
+public class RenderEngine(public val validator: CardIrValidator = CardIrValidator()) {
 
     private val registry: MutableMap<String, Renderer> = HashMap()
 
