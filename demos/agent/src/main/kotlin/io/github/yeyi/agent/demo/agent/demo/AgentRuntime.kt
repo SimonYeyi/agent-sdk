@@ -73,7 +73,7 @@ object AgentRuntime {
 
     private val lazyToolRegistry = LazyToolRegistry().apply {
         register(LazyTool(getWeatherTool))
-        register(LazyTool(WebSearchTool(), LazyTool.Level.TOOL))
+        register(LazyTool(WebSearchTool(sinkRegistry), LazyTool.Level.TOOL))
     }
 
     private val skillRegistry = SkillRegistry().apply {

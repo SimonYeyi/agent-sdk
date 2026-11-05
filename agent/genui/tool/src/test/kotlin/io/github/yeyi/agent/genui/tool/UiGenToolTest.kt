@@ -46,7 +46,7 @@ class UiGenToolTest {
         override val description: String = "fake"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-        override fun getData(
+        override suspend fun getData(
             arguments: JsonElement,
             context: ToolExecutionContext,
         ): JsonElement {
@@ -165,7 +165,7 @@ class UiGenToolTest {
             override val name: String = "flaky_card"
             override val description: String = "flaky"
             override val parametersSchema: ToolParameters = ToolParameters.Empty
-            override fun getData(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
+            override suspend fun getData(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
                 error("card generation failed")
             override fun buildCard(
                 data: JsonElement,

@@ -22,7 +22,7 @@ class GetLocationTool(registry: UiSinkRegistry) : UiGenTool(registry) {
     override val description: String = "获取当前位置"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    override fun getData(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
+    override suspend fun getData(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
         buildJsonObject {
             put("city", JsonPrimitive("珠海"))
             put("province", JsonPrimitive("广东"))

@@ -23,7 +23,7 @@ import kotlinx.serialization.json.jsonPrimitive
  * 卡片组件模板注册:把卡片 IR 的组件名映射到 Compose 渲染实现。
  *
  * 组件名与产卡工具一一对应（产卡工具写 component，模板解释 component）：
- * Location / DateTime。未知组件走兜底渲染，保证卡片不空白也不中断。
+ * Location / DateTime / Text。未知组件走兜底渲染，保证卡片不空白也不中断。
  */
 object CardTemplates {
 
@@ -32,6 +32,7 @@ object CardTemplates {
         DefaultRenderAdapter().apply {
             register("Location") { node, _, _ -> LocationCard(node) }
             register("DateTime") { node, _, _ -> DateTimeCard(node) }
+            register("Text") { node, _, _ -> TextCard(node) }
             registerFallback { node, _, _ -> FallbackCard(node) }
         }
     }
@@ -53,6 +54,15 @@ private fun DateTimeCard(node: TreeNode) {
     CardTemplate(title = "当前时间") {
         FieldRow("日期", node.bindingText("date"))
         FieldRow("时间", node.bindingText("time"))
+    }
+}
+
+/** 纯文本卡：卡片正文就是一段文本，没有结构化字段。 */
+@Composable
+private fun TextCard(node: TreeNode) {
+    CardTemplate(title = "搜索结果") {
+        FieldRow("关键词", node.bindingText("query"))
+        Text(node.bindingText("text"), style = MaterialTheme.typography.bodyMedium)
     }
 }
 

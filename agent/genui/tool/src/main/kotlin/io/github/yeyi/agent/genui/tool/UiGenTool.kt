@@ -34,7 +34,7 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
 
     final override fun finalizable(result: ToolExecutionResult): Boolean = !result.isError
 
-    protected abstract fun getData(
+    protected abstract suspend fun getData(
         arguments: JsonElement,
         context: ToolExecutionContext
     ): JsonElement

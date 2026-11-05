@@ -1,8 +1,10 @@
 package io.github.yeyi.agent.demo.agent.demo.tools
 
-import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.genui.ir.CardIr
+import io.github.yeyi.agent.genui.ir.TreeNode
+import io.github.yeyi.agent.genui.tool.UiGenTool
+import io.github.yeyi.agent.genui.tool.UiSinkRegistry
 import io.github.yeyi.agent.tool.ToolExecutionContext
-import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
@@ -13,14 +15,19 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.URLEncoder
 
 /**
  * 网络搜索 Tool
- * 使用 Bing 搜索获取真实结果。
+ * 使用 Bing 搜索获取真实结果，产出一张纯文本卡片。
+ *
+ * 卡片经 UiSink 旁路广播,永不写入记忆;记忆里只留结构化回执文本。
  */
-class WebSearchTool : Tool {
+class WebSearchTool(registry: UiSinkRegistry) : UiGenTool(registry) {
     override val name = "web_search"
     override val description = "搜索互联网内容，使用 Bing 搜索"
 
@@ -41,11 +48,11 @@ class WebSearchTool : Tool {
 
     private val httpClient = HttpClient(CIO)
 
-    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
+    override suspend fun getData(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
         val query = (arguments as JsonObject)["query"]?.jsonPrimitive?.content
-            ?: return ToolExecutionResult.error("ERROR: missing 'query' field")
+            ?: throw IllegalArgumentException("missing 'query' field")
 
-        return try {
+        val text = try {
             val encodedQuery = withContext(Dispatchers.IO) { URLEncoder.encode(query, "UTF-8") }
             val url = "https://www.bing.com/search?q=$encodedQuery"
             val html = withContext(Dispatchers.IO) {
@@ -57,16 +64,29 @@ class WebSearchTool : Tool {
                 response.bodyAsText()
             }
             val results = parseBingResults(html)
-            val content = if (results.isNotEmpty()) {
+            if (results.isNotEmpty()) {
                 results.joinToString("\n")
             } else {
                 "未找到与「$query」相关的搜索结果"
             }
-            ToolExecutionResult.success(content)
         } catch (e: Exception) {
-            ToolExecutionResult.error("搜索「$query」失败：${e.message}")
+            throw IllegalStateException("搜索「$query」失败：${e.message}", e)
+        }
+
+        return buildJsonObject {
+            put("query", JsonPrimitive(query))
+            put("text", JsonPrimitive(text))
         }
     }
+
+    override fun buildCard(
+        data: JsonElement,
+        arguments: JsonElement,
+        context: ToolExecutionContext,
+    ): CardIr = CardIr(
+        instanceId = context.toolCallId,
+        root = TreeNode(component = "Text", bindings = data.jsonObject),
+    )
 
     private fun parseBingResults(html: String): List<String> {
         val results = mutableListOf<String>()

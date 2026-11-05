@@ -24,7 +24,7 @@ class GetDateTimeTool(registry: UiSinkRegistry) : UiGenTool(registry) {
     override val description: String = "返回当前日期与时间"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    override fun getData(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
+    override suspend fun getData(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
         buildJsonObject {
             put("date", JsonPrimitive(LocalDate.now().toString()))
             put("time", JsonPrimitive(Instant.now().toString()))
