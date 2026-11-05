@@ -2,6 +2,7 @@ package io.github.yeyi.agent.genui.tool
 
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentPersona
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
 import io.github.yeyi.agent.llm.ChatRequest
@@ -35,8 +36,8 @@ class UiGenToolTest {
     private class FakeUiGenTool(
         private val data: JsonElement,
         private val card: CardIr?,
-        uiSink: UiSink,
-    ) : UiGenTool(uiSink) {
+        registry: UiSinkRegistry,
+    ) : UiGenTool(registry) {
         var getDataArguments: JsonElement? = null
         var buildCardData: JsonElement? = null
 
@@ -66,18 +67,17 @@ class UiGenToolTest {
             flowOf(ChatResponseEvent.Error(IllegalStateException("unused")))
     }
 
-    private fun context(callId: String = "call_1"): ToolExecutionContext = ToolExecutionContext(
+    private fun context(callId: String = "call_1", agentId: String = "agent_1"): ToolExecutionContext = ToolExecutionContext(
         toolCallId = callId,
-        agentContext = AgentContext(
-            persona = AgentPersona(""),
-            maxIterations = 1,
-            currentIteration = 1,
-            memory = InMemoryMemory(),
+        agentContext = testAgentContext(
             llmProvider = UnusedLlm,
-            tools = emptyList(),
-            maxRounds = 20,
+            agentId = agentId,
         ),
     )
+
+    /** 创建 registry 并登记 sink，默认登记在 "agent_1" 名下。 */
+    private fun registeredRegistry(sink: UiSink, agentId: String = "agent_1"): UiSinkRegistry =
+        UiSinkRegistry().apply { register(agentId, sink) }
 
     private val arguments: JsonElement =
         JsonObject(mapOf("city" to JsonPrimitive("上海")))
@@ -87,13 +87,13 @@ class UiGenToolTest {
         val sink = UiSink()
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         val card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text"))
-        val tool = FakeUiGenTool(data, card, sink)
+        val tool = FakeUiGenTool(data, card, registeredRegistry(sink))
 
         val received = mutableListOf<CardIr>()
         val job = backgroundScope.launch { sink.cards.take(1).collect { received += it } }
         runCurrent() // 排空调度队列，确保订阅注册后再执行
 
-        val returned = tool.execute(arguments, context())
+        val returned = tool.execute(arguments, context(agentId = "agent_1"))
         runCurrent() // 处理订阅者恢复任务，确保卡片已投递
 
         job.join()
@@ -109,14 +109,14 @@ class UiGenToolTest {
         val tool = FakeUiGenTool(
             data = JsonObject(mapOf("city" to JsonPrimitive("北京"))),
             card = null,
-            uiSink = sink,
+            registry = registeredRegistry(sink),
         )
 
         var cardCount = 0
         val job = backgroundScope.launch { sink.cards.collect { cardCount++ } }
         runCurrent() // 排空调度队列，确保订阅注册后再执行
 
-        val returned = tool.execute(arguments, context())
+        val returned = tool.execute(arguments, context(agentId = "agent_1"))
         runCurrent() // 处理订阅者恢复任务，确认无卡片投递
 
         job.cancel()
@@ -126,7 +126,7 @@ class UiGenToolTest {
     @Test
     fun `execute 回执为结构化数据文本`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        val tool = FakeUiGenTool(data, CardIr(instanceId = "call_1", root = TreeNode(component = "Text")), UiSink())
+        val tool = FakeUiGenTool(data, CardIr(instanceId = "call_1", root = TreeNode(component = "Text")), UiSinkRegistry())
 
         val returned = tool.execute(arguments, context())
 
@@ -136,7 +136,7 @@ class UiGenToolTest {
     @Test
     fun `执行成功后默认可终结`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        val tool = FakeUiGenTool(data, null, UiSink())
+        val tool = FakeUiGenTool(data, null, UiSinkRegistry())
 
         val returned = tool.execute(arguments, context())
 
@@ -145,8 +145,7 @@ class UiGenToolTest {
 
     @Test
     fun `错误回执拒绝终结`() = runTest {
-        val sink = UiSink()
-        val tool = object : UiGenTool(sink) {
+        val tool = object : UiGenTool(UiSinkRegistry()) {
             override val name: String = "flaky_card"
             override val description: String = "flaky"
             override val parametersSchema: ToolParameters = ToolParameters.Empty
@@ -160,5 +159,56 @@ class UiGenToolTest {
         assertFailsWith<IllegalStateException> { tool.execute(arguments, context()) }
 
         assertFalse(tool.finalizable(ToolExecutionResult.error("card generation failed")))
+    }
+
+    @Test
+    fun `agentId 未登记时降级不产卡`() = runTest {
+        val sink = UiSink()
+        // 空 registry：即使 context 携带 agentId，也未登记 sink
+        val tool = FakeUiGenTool(
+            data = JsonObject(mapOf("city" to JsonPrimitive("北京"))),
+            card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
+            registry = UiSinkRegistry(),
+        )
+
+        var cardCount = 0
+        val job = backgroundScope.launch { sink.cards.collect { cardCount++ } }
+        runCurrent() // 排空调度队列，确保订阅注册后再执行
+
+        val returned = tool.execute(arguments, context(agentId = "agent_9"))
+        runCurrent() // 处理订阅者恢复任务，确认无卡片投递
+
+        job.cancel()
+        assertEquals(0, cardCount)
+        assertEquals(ToolExecutionResult.success(JsonObject(mapOf("city" to JsonPrimitive("北京"))).toString()), returned)
+    }
+
+    @Test
+    fun `多 agent 共享工具实例时卡片路由隔离`() = runTest {
+        val sinkA = UiSink()
+        val sinkB = UiSink()
+        val registry = UiSinkRegistry().apply {
+            register("agent_a", sinkA)
+            register("agent_b", sinkB)
+        }
+        val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
+        val tool = FakeUiGenTool(data, CardIr(instanceId = "call_1", root = TreeNode(component = "Text")), registry)
+
+        val receivedA = mutableListOf<CardIr>()
+        val receivedB = mutableListOf<CardIr>()
+        val jobA = backgroundScope.launch { sinkA.cards.take(1).collect { receivedA += it } }
+        val jobB = backgroundScope.launch { sinkB.cards.take(1).collect { receivedB += it } }
+        runCurrent() // 排空调度队列，确保订阅注册后再执行
+
+        // 同一工具实例，两个 agent 先后执行
+        tool.execute(arguments, context(callId = "call_a", agentId = "agent_a"))
+        tool.execute(arguments, context(callId = "call_b", agentId = "agent_b"))
+        runCurrent() // 处理订阅者恢复任务，确保卡片已投递
+
+        jobA.join()
+        jobB.join()
+        // 各 agent 只收到自己的卡片，不串味
+        assertEquals(1, receivedA.size)
+        assertEquals(1, receivedB.size)
     }
 }

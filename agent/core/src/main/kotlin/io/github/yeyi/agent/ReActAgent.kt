@@ -41,6 +41,7 @@ import kotlinx.serialization.json.JsonNull
 import java.util.concurrent.atomic.AtomicReference
 
 public class ReActAgent internal constructor(
+    private val id: String,
     private val persona: AgentPersona,
     private val llmProvider: LlmProvider,
     private val toolRegistry: ToolRegistry,
@@ -426,6 +427,7 @@ public class ReActAgent internal constructor(
     }
 
     private fun buildContext(currentIteration: Int) = AgentContext(
+        agentId = id,
         persona = persona,
         maxIterations = maxIterations,
         currentIteration = currentIteration,

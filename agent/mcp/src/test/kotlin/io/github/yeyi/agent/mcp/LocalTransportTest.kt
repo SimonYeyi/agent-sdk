@@ -3,6 +3,7 @@ package io.github.yeyi.agent.mcp
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentPersona
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ChatRequest
@@ -111,14 +112,8 @@ class LocalTransportTest {
 
     private fun stubToolExecutionContext(): ToolExecutionContext = ToolExecutionContext(
         toolCallId = "test",
-        agentContext = AgentContext(
-            persona = AgentPersona(""),
-            maxIterations = 1,
-            currentIteration = 1,
-            memory = InMemoryMemory(),
+        agentContext = testAgentContext(
             llmProvider = UnusedLlm,
-            tools = emptyList(),
-            maxRounds = 20,
         ),
     )
 

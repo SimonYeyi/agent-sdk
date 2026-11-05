@@ -4,6 +4,7 @@ import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentPersona
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.LlmProvider
@@ -184,18 +185,15 @@ class OptionalFieldsToolImpl : TypedTool<OptionalFieldsRequest, Unit>(
 
 private fun createToolExecutionContext(): ToolExecutionContext = ToolExecutionContext(
     toolCallId = "test-call",
-    agentContext = AgentContext(
-        persona = AgentPersona(""),
+    agentContext = testAgentContext(
         maxIterations = 10,
         currentIteration = 0,
-        memory = InMemoryMemory(),
         llmProvider = object : LlmProvider {
             override val name: String = "test"
             override suspend fun chat(request: ChatRequest): io.github.yeyi.agent.llm.ChatResponse =
                 throw UnsupportedOperationException()
             override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flowOf()
         },
-        tools = emptyList(),
         maxRounds = 10
     )
 )

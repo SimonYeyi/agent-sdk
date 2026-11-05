@@ -10,8 +10,8 @@ import kotlinx.coroutines.flow.asSharedFlow
  *
  * 卡片 IR 完全绕过 agent 事件主干与记忆，只经此通道对外广播；消费方（demo）订阅 [cards] 渲染。
  *
- * 按实例注入（非全局单例）：作用域由持有者掌控——demo 为整个应用或单个会话创建实例，注入给工具
- * 并订阅 [cards]，多会话卡片流天然隔离，测试可各自持有实例互不污染。
+ * 按实例注入（非全局单例）：作用域由持有者掌控——demo 为每个 agent 创建实例，登记进
+ * [UiSinkRegistry] 并订阅 [cards]，多 agent 卡片流天然隔离，测试可各自持有实例互不污染。
  */
 public class UiSink {
 

@@ -5,6 +5,7 @@ import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
@@ -35,14 +36,9 @@ class LoggingHookTest {
     private lateinit var capturedOut: ByteArrayOutputStream
     private lateinit var capturedErr: ByteArrayOutputStream
 
-    private fun context(iter: Int = 1) = AgentContext(
-        persona = AgentPersona(role = ""),
+    private fun context(iter: Int = 1) = testAgentContext(
         maxIterations = 5,
         currentIteration = iter,
-        memory = InMemoryMemory(),
-        llmProvider = FakeLlmProvider(),
-        tools = emptyList<Tool>(),
-        maxRounds = 20,
     )
 
     private val request = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("")))))

@@ -2,6 +2,7 @@ package io.github.yeyi.agent.tool.compression
 
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentPersona
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
@@ -126,17 +127,14 @@ private fun createEmptyTool(name: String): Tool = object : Tool {
 
 private fun createToolExecutionContext(): ToolExecutionContext = ToolExecutionContext(
     toolCallId = "test-call",
-    agentContext = AgentContext(
-        persona = AgentPersona(""),
+    agentContext = testAgentContext(
         maxIterations = 10,
         currentIteration = 0,
-        memory = InMemoryMemory(),
         llmProvider = object : LlmProvider {
             override val name: String = "test"
             override suspend fun chat(request: ChatRequest): ChatResponse = throw UnsupportedOperationException()
             override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flowOf()
         },
-        tools = emptyList(),
         maxRounds = 10
     )
 )

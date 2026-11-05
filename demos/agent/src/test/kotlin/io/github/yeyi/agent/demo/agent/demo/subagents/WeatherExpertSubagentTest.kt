@@ -3,6 +3,7 @@ package io.github.yeyi.agent.demo.agent.demo.subagents
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ContentPart
@@ -19,14 +20,10 @@ import kotlin.test.assertTrue
 
 class WeatherExpertSubagentTest {
 
-    private fun stubAgentContext(llm: LlmProvider): AgentContext = AgentContext(
+    private fun stubAgentContext(llm: LlmProvider): AgentContext = testAgentContext(
         persona = AgentPersona("main"),
         maxIterations = 100,
-        currentIteration = 1,
-        memory = InMemoryMemory(),
         llmProvider = llm,
-        tools = emptyList(),
-        maxRounds = 20,
     )
 
     private fun chatResponse(content: String): ChatResponse =

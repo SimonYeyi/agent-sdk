@@ -2,6 +2,7 @@ package io.github.yeyi.agent.tool.lazy_loading
 
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentPersona
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.llm.ChatRequest
@@ -37,14 +38,10 @@ class SearchToolTest {
     private fun createStubContext(llmProvider: LlmProvider): ToolExecutionContext {
         return ToolExecutionContext(
             toolCallId = "test",
-            agentContext = AgentContext(
+            agentContext = testAgentContext(
                 persona = AgentPersona("test"),
                 maxIterations = 10,
-                currentIteration = 1,
-                memory = InMemoryMemory(),
                 llmProvider = llmProvider,
-                tools = emptyList(),
-                maxRounds = 20,
             )
         )
     }

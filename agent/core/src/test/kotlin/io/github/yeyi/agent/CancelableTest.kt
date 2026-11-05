@@ -104,6 +104,7 @@ class CancelableTest {
     }
 
     private fun TestScope.agentOf(provider: LlmProvider) = ReActAgent(
+        id = "test",
         persona = AgentPersona(""),
         llmProvider = provider,
         toolRegistry = registryOf(),
@@ -474,6 +475,7 @@ class CancelableTest {
         val iterations = 500
         for (i in 0 until iterations) {
             val agent = ReActAgent(
+                id = "test",
                 persona = AgentPersona(""),
                 llmProvider = FakeLlmProvider(nonStreamResponses = List(iterations) { okResponse() }),
                 toolRegistry = registryOf(),

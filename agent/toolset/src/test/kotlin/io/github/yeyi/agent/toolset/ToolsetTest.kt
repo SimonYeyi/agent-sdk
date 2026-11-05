@@ -3,6 +3,7 @@ package io.github.yeyi.agent.toolset
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentPersona
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.LlmProvider
@@ -57,15 +58,7 @@ class ToolsetTest {
 
     private fun emptyContext(): ToolExecutionContext = ToolExecutionContext(
         toolCallId = "test",
-        agentContext = AgentContext(
-            persona = AgentPersona(""),
-            maxIterations = 1,
-            currentIteration = 1,
-            memory = InMemoryMemory(),
-            llmProvider = UnusedLlm,
-            tools = emptyList(),
-            maxRounds = 20,
-        ),
+        agentContext = testAgentContext(llmProvider = UnusedLlm),
     )
 
     // ---------- Factory & constants ----------

@@ -8,6 +8,7 @@ import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import io.github.yeyi.agent.modality.ModalityAdapter
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolRegistry
+import java.util.UUID
 
 /**
  * DSL builder for [Agent]. Obtain an instance via the top-level [agent] factory function.
@@ -26,6 +27,7 @@ import io.github.yeyi.agent.tool.ToolRegistry
  * [plugin] for the plugin extension point). The core builder only deals with persona, tools, memory, hook, and the LLM provider.
  */
 public class AgentBuilder {
+    private var id: String? = null
     private var persona: AgentPersona = AgentPersona("You are a helpful assistant.")
     private var llmProvider: LlmProvider? = null
     private var memory: Memory = InMemoryMemory()
@@ -74,6 +76,11 @@ public class AgentBuilder {
      */
     public fun hook(hook: AgentHook) {
         this.hook = hook
+    }
+
+    /** 设置 agent 身份标识（默认不配置，构建时自动生成实例唯一 UUID）。供工具按身份路由外部通道（如产卡 sink），不参与任何会话概念。 */
+    public fun id(id: String) {
+        this.id = id
     }
 
     /** 注册单个工具。 */
@@ -158,6 +165,7 @@ public class AgentBuilder {
         installPlugins()
 
         return ReActAgent(
+            id = id ?: UUID.randomUUID().toString(),
             persona = persona,
             llmProvider = provider,
             memory = memory,

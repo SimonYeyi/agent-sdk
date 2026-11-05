@@ -24,7 +24,7 @@ class AgentResultExtensionsTest {
                 ChatResponse(ChatMessage.Assistant(content = "hi"), finishReason = FinishReason.Stop)
             )
         )
-        val agent = ReActAgent(persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, dispatcher = StandardTestDispatcher(testScheduler))
+        val agent = ReActAgent(id = "test", persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, dispatcher = StandardTestDispatcher(testScheduler))
         val result = agent.run(AgentQuery.text("hello")).awaitResult()
         assertEquals("hi", result.message.content)
         assertEquals(1, result.iterations)

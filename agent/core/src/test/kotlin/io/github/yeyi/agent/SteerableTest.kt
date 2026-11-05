@@ -123,6 +123,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
@@ -144,6 +145,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
@@ -177,6 +179,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(echo),
@@ -227,6 +230,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
@@ -277,6 +281,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
@@ -321,6 +326,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(echo),
@@ -375,6 +381,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
@@ -416,6 +423,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
@@ -453,6 +461,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
@@ -511,6 +520,7 @@ class SteerableTest {
                     )
                 )
                 val agent = ReActAgent(
+                    id = "test",
                     persona = AgentPersona(""),
                     llmProvider = provider,
                     toolRegistry = registryOf(),
@@ -556,6 +566,7 @@ class SteerableTest {
         )
         val mem = InMemoryMemory()
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""),
             llmProvider = provider,
             toolRegistry = registryOf(),
@@ -608,6 +619,7 @@ class SteerableTest {
     fun `steer racing with the final handover reports no active round`() = runBlocking {
         val llm = SignallingLlm()
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""),
             llmProvider = llm,
             toolRegistry = registryOf(),

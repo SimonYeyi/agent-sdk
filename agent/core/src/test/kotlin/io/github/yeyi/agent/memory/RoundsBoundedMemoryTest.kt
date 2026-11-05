@@ -4,6 +4,7 @@ import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.EmptyAgentHook
 import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ContentPart
@@ -475,14 +476,8 @@ class RoundsBoundedMemoryTest {
             }
         }
         memory.attachHook(
-            hook, AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            hook, testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -519,14 +514,8 @@ class RoundsBoundedMemoryTest {
             }
         }
         memory.attachHook(
-            hook, AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            hook, testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -564,14 +553,8 @@ class RoundsBoundedMemoryTest {
             }
         }
         memory.attachHook(
-            hook, AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            hook, testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -617,14 +600,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -673,14 +650,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -714,14 +685,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -759,14 +724,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -814,14 +773,8 @@ class RoundsBoundedMemoryTest {
             }
         }
         memory.attachHook(
-            hook, AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            hook, testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -861,14 +814,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -900,14 +847,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -951,14 +892,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -1014,14 +949,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -1065,14 +994,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -1103,14 +1026,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -1146,14 +1063,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -1193,14 +1104,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -1234,14 +1139,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -1272,14 +1171,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -1316,14 +1209,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 
@@ -1358,14 +1245,8 @@ class RoundsBoundedMemoryTest {
         )
         memory.attachHook(
             EmptyAgentHook(),
-            AgentContext(
-                persona = AgentPersona(""),
-                maxIterations = 1,
-                currentIteration = 1,
+            testAgentContext(
                 memory = ReadOnlyMemory(memory),
-                llmProvider = FakeLlmProvider(),
-                tools = emptyList<Tool>(),
-                maxRounds = 20,
             )
         )
 

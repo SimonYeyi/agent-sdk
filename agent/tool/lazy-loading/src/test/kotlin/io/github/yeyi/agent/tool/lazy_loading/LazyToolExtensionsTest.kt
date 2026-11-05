@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.tool.lazy_loading
 
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
@@ -164,14 +165,10 @@ class LazyToolExtensionsTest {
         }
         return ToolExecutionContext(
             toolCallId = "test",
-            agentContext = io.github.yeyi.agent.AgentContext(
+            agentContext = testAgentContext(
                 persona = io.github.yeyi.agent.AgentPersona("test"),
                 maxIterations = 10,
-                currentIteration = 1,
-                memory = io.github.yeyi.agent.memory.InMemoryMemory(),
                 llmProvider = provider,
-                tools = emptyList(),
-                maxRounds = 20,
             )
         )
     }

@@ -4,6 +4,7 @@ import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentPersona
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
@@ -61,13 +62,8 @@ class McpTest {
 
     private fun stubToolExecutionContext(): ToolExecutionContext = ToolExecutionContext(
         toolCallId = "test",
-        agentContext = AgentContext(
-            persona = AgentPersona(""),
-            maxIterations = 1,
-            currentIteration = 1,
-            memory = InMemoryMemory(),
+        agentContext = testAgentContext(
             llmProvider = StubLlm(),
-            tools = emptyList(),
             maxRounds = 1,
         ),
     )

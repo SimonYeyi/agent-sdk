@@ -19,6 +19,7 @@ class ReActAgentMultimodalTest {
     private fun TestScope.makeAgent(provider: FakeLlmProvider): Agent {
         val memory = InMemoryMemory()
         return ReActAgent(
+            id = "test",
             persona = AgentPersona("you are helpful"),
             llmProvider = provider,
             toolRegistry = ToolRegistry(),

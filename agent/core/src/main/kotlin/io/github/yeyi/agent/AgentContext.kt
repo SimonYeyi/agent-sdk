@@ -5,8 +5,9 @@ import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.tool.Tool
 
 /**
- * Agent 运行时上下文，供 [AgentHook] 使用。
+ * Agent 运行时上下文，供 [Tool.execute]、[AgentHook] 使用。
  *
+ * @param agentId agent 身份标识（恒非空必传）
  * @param persona 当前 persona
  * @param maxIterations 最大迭代次数
  * @param currentIteration 当前迭代序号（从 1 开始）
@@ -17,6 +18,7 @@ import io.github.yeyi.agent.tool.Tool
  * @param metadata 扩展数据，hooks 可自由写入供后续 hooks 使用
  */
 public class AgentContext(
+    public val agentId: String,
     public val persona: AgentPersona,
     public val maxIterations: Int,
     public val currentIteration: Int,

@@ -5,6 +5,7 @@ import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.awaitResult
 import io.github.yeyi.agent.AgentPersona
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
@@ -83,10 +84,9 @@ class DynamicSubagentTest {
         maxRounds: Int = 20,
         tools: List<Tool> = emptyList(),
         memory: Memory = InMemoryMemory(),
-    ): AgentContext = AgentContext(
+    ): AgentContext = testAgentContext(
         persona = AgentPersona("main"),
         maxIterations = maxIterations,
-        currentIteration = 1,
         memory = memory,
         llmProvider = llm,
         tools = tools,

@@ -2,6 +2,7 @@ package io.github.yeyi.agent.subagent
 
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentPersona
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
@@ -86,10 +87,9 @@ class SubagentTest {
         maxRounds: Int = 20,
         maxIterations: Int = 100,
         memory: Memory = InMemoryMemory(),
-    ): AgentContext = AgentContext(
+    ): AgentContext = testAgentContext(
         persona = AgentPersona("main"),
         maxIterations = maxIterations,
-        currentIteration = 1,
         memory = memory,
         llmProvider = llm,
         tools = tools,

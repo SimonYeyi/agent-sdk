@@ -22,9 +22,15 @@ import kotlinx.serialization.json.JsonElement
  * 「产卡成功即终结、失败不终结」；需要「产卡后仍需模型复核/续写」语义的工具
  * 不应继承本基类。
  *
- * @param uiSink 卡片旁路通道，构造器必传注入：持有者（demo/会话）显式决定卡片流作用域；仅由基类 execute 收口使用，不发卡权下放给子类
+ * 卡片路由同样零实例状态：基类不持有具体 [UiSink]，execute 时从
+ * [io.github.yeyi.agent.AgentContext.agentId] 解析本 agent 身份标识，经 [UiSinkRegistry.resolve]
+ * 取当前 agent 的 sink 发射——多 agent 共享同一工具实例（含 SpawnedAgent 孵化）天然隔离，
+ * 不会把卡片发到别的 agent 的 sink。
+ *
+ * @param registry 卡片路由注册表，构造器必传注入：应用/会话按 agentId 登记各自 [UiSink]，
+ *   工具执行时反向解析；仅由基类 execute 收口使用，不发卡权下放给子类
  */
-public abstract class UiGenTool(private val uiSink: UiSink) : Tool, FinalizableTool {
+public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, FinalizableTool {
 
     final override fun finalizable(result: ToolExecutionResult): Boolean = !result.isError
 
@@ -41,10 +47,11 @@ public abstract class UiGenTool(private val uiSink: UiSink) : Tool, FinalizableT
     protected abstract fun buildCard(data: JsonElement, context: ToolExecutionContext): CardIr?
 
     /**
-     * 模板接线：业务执行 → 产卡发射 → 回执。
+     * 模板接线：业务执行 → 产卡路由发射 → 回执。
      *
      * 固定执行顺序保证卡片发射时序位于 ToolCallStart/End 区间内；回执文本照常返回进记忆，卡片走旁路。
-     * buildCard 返回 null（数据异常/为空）时跳过发射，仅返回回执文本。
+     * 卡片发射需同时满足：buildCard 返回非空 且 registry 中已登记当前 agent（agentId 恒非空）——
+     * 任一缺失即降级不产卡，仅返回回执文本（agent 未登记 sink 属合法配置，不视为失败）。
      * [getData]/[buildCard] 抛出异常时向上传播（registry 统一转错误回执），
      * [finalizable] 收到错误回执后拒绝终结，模型下一轮感知失败并重试。
      */
@@ -53,7 +60,8 @@ public abstract class UiGenTool(private val uiSink: UiSink) : Tool, FinalizableT
         context: ToolExecutionContext
     ): ToolExecutionResult {
         val result = getData(arguments, context)
-        buildCard(result, context)?.let { uiSink.emit(it) }
+        val card = buildCard(result, context)
+        if (card != null) registry.resolve(context.agentContext.agentId)?.emit(card)
         return ToolExecutionResult.success(result.toString())
     }
 }

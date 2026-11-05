@@ -3,6 +3,7 @@ package io.github.yeyi.agent.approval
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.hook.AgentHookEvent
 import io.github.yeyi.agent.hook.HookContext
 import io.github.yeyi.agent.hook.HookResult
@@ -26,14 +27,9 @@ import kotlin.test.assertSame
 
 class ApprovalHookTest {
 
-    private fun createContext(tools: List<Tool>) = AgentContext(
-        persona = AgentPersona(role = ""),
+    private fun createContext(tools: List<Tool>) = testAgentContext(
         maxIterations = 5,
-        currentIteration = 1,
-        memory = InMemoryMemory(),
-        llmProvider = FakeLlmProvider(),
         tools = tools,
-        maxRounds = 20,
     )
 
     private fun toolCall(name: String) = ToolCall(

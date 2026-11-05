@@ -3,6 +3,7 @@ package io.github.yeyi.agent.demo.agent.demo.tools
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.ToolExecutionContext
@@ -18,15 +19,7 @@ class AllToolsTest {
 
     private fun stubContext(): ToolExecutionContext = ToolExecutionContext(
         toolCallId = "test-call-id",
-        agentContext = AgentContext(
-            persona = AgentPersona(""),
-            maxIterations = 1,
-            currentIteration = 1,
-            memory = InMemoryMemory(),
-            llmProvider = FakeLlmProvider(),
-            tools = emptyList(),
-            maxRounds = 20,
-        )
+        agentContext = testAgentContext()
     )
 
     @Test

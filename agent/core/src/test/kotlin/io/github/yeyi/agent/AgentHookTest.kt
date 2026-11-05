@@ -82,6 +82,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
             dispatcher = StandardTestDispatcher(testScheduler)
         )
@@ -117,6 +118,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
             dispatcher = StandardTestDispatcher(testScheduler)
         )
@@ -149,6 +151,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
             dispatcher = StandardTestDispatcher(testScheduler)
@@ -189,6 +192,7 @@ class AgentHookTest {
             add(ChatMessage.ToolResult("c1", "echo", listOf(ContentPart.Text("prev-r-2"))))
         }
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(),
             memory = memory, modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
             dispatcher = StandardTestDispatcher(testScheduler)
@@ -220,6 +224,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook,
             dispatcher = StandardTestDispatcher(testScheduler)
         )
@@ -247,6 +252,7 @@ class AgentHookTest {
         )
         // maxIterations=1,浼氱珛鍒?emit Failed(MaxIterations)
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 1, hook = errorHook,
             dispatcher = StandardTestDispatcher(testScheduler)
         )
@@ -267,6 +273,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook,
             dispatcher = StandardTestDispatcher(testScheduler)
         )
@@ -299,6 +306,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = throwingHook,
             dispatcher = StandardTestDispatcher(testScheduler)
         )
@@ -323,6 +331,7 @@ class AgentHookTest {
             override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = errorHook,
             dispatcher = StandardTestDispatcher(testScheduler)
         )
@@ -348,6 +357,7 @@ class AgentHookTest {
             override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { /* not used */ }
         }
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(), memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = errorHook,
             dispatcher = StandardTestDispatcher(testScheduler)
         )
@@ -377,6 +387,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
             dispatcher = StandardTestDispatcher(testScheduler)
@@ -405,6 +416,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
             dispatcher = StandardTestDispatcher(testScheduler)
@@ -434,6 +446,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
             dispatcher = StandardTestDispatcher(testScheduler)
@@ -470,6 +483,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
             dispatcher = StandardTestDispatcher(testScheduler)
@@ -499,6 +513,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
             dispatcher = StandardTestDispatcher(testScheduler)
@@ -530,6 +545,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
             dispatcher = StandardTestDispatcher(testScheduler)
@@ -591,6 +607,7 @@ class AgentHookTest {
             )
         )
         val agent = ReActAgent(
+            id = "test",
             persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(EchoTool()),
             memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
             dispatcher = StandardTestDispatcher(testScheduler)

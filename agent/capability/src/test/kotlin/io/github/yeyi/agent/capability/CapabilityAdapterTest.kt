@@ -2,6 +2,7 @@ package io.github.yeyi.agent.capability
 
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentPersona
+import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
@@ -76,14 +77,10 @@ class CapabilityAdapterTest {
 
     private fun stubToolExecutionContext(): ToolExecutionContext = ToolExecutionContext(
         toolCallId = "tc-1",
-        agentContext = AgentContext(
+        agentContext = testAgentContext(
             persona = AgentPersona("test"),
             maxIterations = 10,
-            currentIteration = 1,
-            memory = InMemoryMemory(),
             llmProvider = stubLlm(),
-            tools = emptyList(),
-            maxRounds = 20,
         )
     )
 
