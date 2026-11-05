@@ -56,7 +56,7 @@ class ChatViewModelTest {
             maxIterations(5)
         }
 
-        val vm = ChatViewModel(agentFactory = { memory -> agent })
+        val vm = ChatViewModel(agentFactory = { _, _ -> agent })
 
         vm.sendUserInput("hi")
         val messages = awaitValue { vm.messages.value.takeIf { it.size >= 2 } }
@@ -81,7 +81,7 @@ class ChatViewModelTest {
             llmProvider(provider)
             maxIterations(5)
         }
-        val vm = ChatViewModel(agentFactory = { memory -> agent })
+        val vm = ChatViewModel(agentFactory = { _, _ -> agent })
         vm.setMode(RunMode.BATCH)
         vm.sendUserInput("hi")
         val messages = awaitValue { vm.messages.value.takeIf { it.size >= 2 } }
@@ -113,7 +113,7 @@ class ChatViewModelTest {
             llmProvider(provider)
             maxIterations(5)
         }
-        val vm = ChatViewModel(agentFactory = { memory -> agent })
+        val vm = ChatViewModel(agentFactory = { _, _ -> agent })
         vm.setMode(RunMode.STREAM)
         vm.sendUserInput("hi")
         awaitValue { vm.messages.value.takeIf { it.size >= 2 } }
@@ -122,7 +122,7 @@ class ChatViewModelTest {
         val streamTexts = vm.messages.value.map { (it as? UiMessage.Assistant)?.text }
 
         // 各 VM 用各自的 agent：同一个 agent 不能并发跑两轮
-        val vm2 = ChatViewModel(agentFactory = {
+        val vm2 = ChatViewModel(agentFactory = { _, _ ->
             agent {
                 persona(AgentPersona("you are helpful"))
                 llmProvider(provider)

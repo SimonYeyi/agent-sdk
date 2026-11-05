@@ -65,6 +65,9 @@ dependencies {
     implementation(project(":agent:tool:serialization"))
     implementation(project(":agent:tool:compression"))
     implementation(project(":agent:tool:lazy-loading"))
+    implementation(project(":agent:genui:ir"))
+    implementation(project(":agent:genui:tool"))
+    implementation(project(":agent:genui:adapters:default"))
 
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)

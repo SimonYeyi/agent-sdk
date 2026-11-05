@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.demo.agent.vm
 
+import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.tool.ToolExecutionResult
 
 sealed class UiMessage {
@@ -34,4 +35,11 @@ sealed class UiMessage {
 
     /** [id] 由 [ChatViewModel] 注入,VM 生命周期内唯一,作 LazyColumn key 用。 */
     data class Error(val cause: String, override val id: String) : UiMessage()
+
+    /**
+     * 卡片:经 UiSink 旁路到达的可交互 UI,永不写入记忆。
+     *
+     * 卡片与工具执行气泡是两条独立通道,到达时序不保证与工具调用顺序一致。
+     */
+    data class Card(val card: CardIr, override val id: String) : UiMessage()
 }

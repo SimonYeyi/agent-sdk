@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.demo.agent.ui
 
+import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -87,6 +88,18 @@ fun MessageBubble(message: UiMessage, modifier: Modifier = Modifier) {
                     .padding(12.dp)
             ) {
                 Text(text, color = onColor)
+            }
+        }
+        is UiMessage.Card -> {
+            // 卡片经 UiSink 旁路到达:不进记忆,只在这里渲染
+            Column(
+                modifier = modifier
+                    .fillMaxWidth()
+                    .padding(8.dp)
+            ) {
+                CardTemplates.adapter.RenderCard(message.card) { event ->
+                    Log.d("MessageBubble", "card action: $event")
+                }
             }
         }
         is UiMessage.Error -> {

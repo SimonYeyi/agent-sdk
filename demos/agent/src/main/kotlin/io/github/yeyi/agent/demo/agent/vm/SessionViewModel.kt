@@ -6,17 +6,20 @@ import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
-import io.github.yeyi.agent.demo.agent.demo.DemoAgentFactory
+import io.github.yeyi.agent.demo.agent.demo.AgentRuntime
+import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.text
+import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.session.AgentReference
 import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.session.SessionManager
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.onCompletion
@@ -53,11 +56,25 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     // 换会话 = 换 memory，故切走前必须 shutdown 作废旧实例。
     private var agent: io.github.yeyi.agent.Agent? = null
 
+    private var agentId: String = ""
+    private var agentSeq: Int = 0
+
+    // 卡片旁路:sink 留在收集它的地方,agentId 与 sink 注册进全局路由表。
+    private val sink = UiSink()
+
     private var nextUiId: Int = 0
     private fun nextUiId(): String = (++nextUiId).toString()
 
     init {
         loadSessions()
+        // 卡片订阅:卡片经旁路到达,永不进记忆,只在这里落成 UI 消息
+        viewModelScope.launch {
+            sink.cards.collect { card ->
+                _uiState.value = _uiState.value.copy(
+                    messages = _uiState.value.messages + UiMessage.Card(card, nextUiId())
+                )
+            }
+        }
     }
 
     public fun loadSessions() {
@@ -170,7 +187,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             // agent 构建失败发生在回合建立之前，没有事件通道可用，只能在此兜住。
             val agent = runCatching {
-                agent ?: DemoAgentFactory.create(session.memory, hookPipeline).also { agent = it }
+                agent ?: newAgent(session.memory).also { agent = it }
             }.getOrElse { e ->
                 _uiState.value = _uiState.value.copy(error = e.message, isLoading = false)
                 return@launch
@@ -255,10 +272,20 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    /** 新 agent:分配身份标识并登记到卡片路由表。 */
+    private fun newAgent(memory: Memory): io.github.yeyi.agent.Agent {
+        val id = "demo-session-agent-${++agentSeq}"
+        agentId = id
+        AgentRuntime.sinkRegistry.register(id, sink)
+        return AgentRuntime.buildAgent(agentId, memory)
+    }
+
     /** 作废当前 agent：架构 2 下回合跑在 agent 私有 scope，不 shutdown 会留下无人观察的在途回合。 */
     private fun releaseAgent() {
         val old = agent
         agent = null
+        // 旧 agent 的 id 不再指向任何 agent,解注册避免路由表留下死条目
+        AgentRuntime.sinkRegistry.unregister(agentId)
         (old as? io.github.yeyi.agent.Agent.Shutdownable)?.shutdown()
     }
 

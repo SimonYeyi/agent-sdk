@@ -8,11 +8,13 @@ import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.text
-import io.github.yeyi.agent.demo.agent.demo.DemoAgentFactory
+import io.github.yeyi.agent.demo.agent.demo.AgentRuntime
+import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -24,8 +26,16 @@ enum class RunMode { STREAM, BATCH }
 data class LiveBubble(val id: String, val text: String)
 
 class ChatViewModel(
-    private val agentFactory: (Memory) -> Agent = { memory -> DemoAgentFactory.create(memory = memory) }
+    agentFactory: ((Memory, String) -> Agent)? = null,
 ) : ViewModel() {
+
+    // 卡片旁路:sink 留在收集它的地方,agentId 与 sink 注册进全局路由表。
+    private val sink = UiSink()
+
+    private val agentFactory: (Memory, String) -> Agent =
+        agentFactory ?: { memory, agentId ->
+            AgentRuntime.buildAgent(agentId = agentId, memory = memory)
+        }
 
     private val _mode = MutableStateFlow(RunMode.STREAM)
     val mode: StateFlow<RunMode> = _mode.asStateFlow()
@@ -42,12 +52,33 @@ class ChatViewModel(
     private val inProgressByCallId = mutableMapOf<String, UiMessage.ToolInProgress>()
 
     private var memory: Memory = io.github.yeyi.agent.memory.InMemoryMemory()
-    private var agent: Agent = agentFactory(memory)
+
+    /** agent 身份标识:卡片旁路的路由键,每个 agent 实例一个。 */
+    private var agentId: String = ""
+    private var agentSeq: Int = 0
+    private var agent: Agent = createAgent()
 
     private var runJob: kotlinx.coroutines.Job? = null
 
     init {
         viewModelScope.launch { reloadMessages() }
+        // 卡片订阅:卡片经旁路到达,永不进记忆,只在这里落成 UI 消息
+        viewModelScope.launch {
+            sink.cards.collect { card ->
+                _messages.update { it + UiMessage.Card(card, nextUiId()) }
+            }
+        }
+    }
+
+    /** 新 agent 身份标识:VM 内单调递增,重建 agent 时换新 id。 */
+    private fun newAgentId(): String = "demo-agent-${++agentSeq}"
+
+    /** 建 agent 并把它的 id 登记到卡片路由表。 */
+    private fun createAgent(): Agent {
+        val id = newAgentId()
+        agentId = id
+        AgentRuntime.sinkRegistry.register(id, sink)
+        return agentFactory(memory, id)
     }
 
     private suspend fun reloadMessages() {
@@ -56,8 +87,8 @@ class ChatViewModel(
             .filter { entry ->
                 val msg = entry.message
                 msg is ChatMessage.User ||
-                (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank()) ||
-                (msg is ChatMessage.System && !msg.content.isNullOrBlank())
+                        (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank()) ||
+                        (msg is ChatMessage.System && !msg.content.isNullOrBlank())
             }
             .map { it.toUiMessage() }
     }
@@ -83,6 +114,7 @@ class ChatViewModel(
                 text = parts.text,
                 id = nextUiId(),
             )
+
             is ChatMessage.Assistant -> UiMessage.Assistant(text = content ?: "", id = nextUiId())
             is ChatMessage.System -> UiMessage.Assistant(text = content, id = nextUiId())
             is ChatMessage.ToolResult -> UiMessage.ToolExecution(
@@ -109,9 +141,11 @@ class ChatViewModel(
         _liveBubble.value = null
         inProgressByCallId.clear()
         memory = io.github.yeyi.agent.memory.InMemoryMemory()
+        // 旧 agent 的 id 不再指向任何 agent,解注册避免路由表留下死条目
+        AgentRuntime.sinkRegistry.unregister(agentId)
         // 换 agent 在同一主线程回调里完成，run() 读不到「旧 agent 已 shutdown、
         // 字段尚未替换」的中间态——并发 run 的 ISE 拒绝由此不可达。
-        agent = agentFactory(memory)
+        agent = createAgent()
         (oldAgent as? Agent.Shutdownable)?.shutdown()
     }
 
@@ -132,6 +166,7 @@ class ChatViewModel(
         val flow = when (_mode.value) {
             RunMode.STREAM -> (agent as? Streamable)?.runStream(AgentQuery.text(text))
                 ?: agent.run(AgentQuery.text(text))
+
             RunMode.BATCH -> agent.run(AgentQuery.text(text))
         }
         _isProcessing.value = true
@@ -151,29 +186,35 @@ class ChatViewModel(
     private fun handleEvent(event: AgentEvent) {
         when (event) {
             is AgentEvent.Initial -> {
-                _messages.update { it + UiMessage.User(
-                    text = event.query.parts.text,
-                    id = nextUiId(),
-                ) }
+                _messages.update {
+                    it + UiMessage.User(
+                        text = event.query.parts.text,
+                        id = nextUiId(),
+                    )
+                }
                 _liveBubble.value = null
             }
+
             is AgentEvent.ToolCallExplanation -> {
                 event.text?.let { text ->
                     _messages.update { it + UiMessage.Assistant(text, id = nextUiId()) }
                 }
                 _liveBubble.value = null
             }
+
             is AgentEvent.TextDelta -> {
                 _liveBubble.update { current ->
                     val next = (current?.text ?: "") + event.text
                     if (current == null) LiveBubble(nextUiId(), next) else current.copy(text = next)
                 }
             }
+
             is AgentEvent.ToolCallStart -> {
                 val msg = UiMessage.ToolInProgress(event.toolCall.id, event.toolCall.name)
                 inProgressByCallId[event.toolCall.id] = msg
                 _messages.update { it + msg }
             }
+
             is AgentEvent.ToolCallEnd -> {
                 val started = inProgressByCallId.remove(event.toolCall.id)
                 _messages.update {
@@ -184,16 +225,24 @@ class ChatViewModel(
                     )
                 }
             }
+
             is AgentEvent.Final -> {
-                _messages.update { it + UiMessage.Assistant(event.result.message.content ?: "", id = nextUiId()) }
+                _messages.update {
+                    it + UiMessage.Assistant(
+                        event.result.message.content ?: "",
+                        id = nextUiId()
+                    )
+                }
                 _liveBubble.value = null
             }
+
             is AgentEvent.Failed -> {
                 _messages.update {
                     it + UiMessage.Error(event.cause.message ?: "Unknown error", id = nextUiId())
                 }
                 _liveBubble.value = null
             }
+
             is AgentEvent.Canceled -> {
                 // 终局三选一里的第三种：回合被取消（清空消息 / 关闭页面）——
                 // 不是运行失败，渲染打断气泡。
@@ -202,9 +251,11 @@ class ChatViewModel(
                 }
                 _liveBubble.value = null
             }
+
             is AgentEvent.MemoryCompressing -> {
                 // 等待压缩完成
             }
+
             is AgentEvent.MemoryCompressed -> {
                 viewModelScope.launch { reloadMessages() }
             }
