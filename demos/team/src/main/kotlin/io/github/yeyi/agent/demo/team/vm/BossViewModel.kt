@@ -89,7 +89,7 @@ class BossViewModel(
             }
             restoreConversation(session)
             // 配置驱动 spawn：session.memory 作为 Boss 记忆，文本聊天与语音共享同一实例
-            val agent = CockpitAgent.create(session.memory)
+            val agent = CockpitAgent.create(session.uniqueKey, session.memory)
             _boss.value = agent
             wireCollectors(agent)
         }
@@ -216,7 +216,7 @@ class BossViewModel(
                     ACCOUNT_ID, SESSION_NAME, AgentReference(CockpitAgent.NAME), SESSION_ID
                 )
             }
-            val agent = CockpitAgent.create(newSession.memory)
+            val agent = CockpitAgent.create(newSession.uniqueKey, newSession.memory)
             _boss.value = agent
             wireCollectors(agent)
         }

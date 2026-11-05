@@ -77,13 +77,14 @@ object CockpitAgent {
     /**
      * 构建共享 Boss。
      *
+     * @param agentId agent 身份标识，通常取 session.uniqueKey
      * @param memory 会话记忆（持久化 Memory 时重启可续聊）
      */
-    fun create(memory: Memory): BossAgent {
+    fun create(agentId: String, memory: Memory): BossAgent {
         val definition = requireNotNull(registry.getOrNull(NAME)) {
             "CockpitAgent definition not registered"
         }
-        return definition.spawnBoss(memory, scope())
+        return definition.spawnBoss(agentId, memory, scope())
     }
 
     private fun providerFromBuildConfig(): AgentDefinition.Provider {

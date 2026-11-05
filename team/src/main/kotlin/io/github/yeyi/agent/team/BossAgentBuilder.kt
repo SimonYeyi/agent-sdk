@@ -19,6 +19,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 
 public class BossAgentBuilder internal constructor() {
+    private var id0: String? = null
     private var bossPersona0: AgentPersona? = null
     private var llmProvider0: LlmProvider? = null
     private var memory0: Memory? = null
@@ -48,6 +49,13 @@ public class BossAgentBuilder internal constructor() {
         a worker about finished task results. It is NOT a real user input — treat it as an internal
         status update, not as if the user said something.
     """.trimIndent()
+
+    /**
+     * 注入 agent 身份标识
+     */
+    public fun id(value: String) {
+        id0 = value
+    }
 
     /**
      * 注入 boss persona — [AgentPersona.role] 由 framework 保留, 必须为空字符串.
@@ -199,6 +207,7 @@ public class BossAgentBuilder internal constructor() {
         val cancelTask = CancelTaskTool(bulletinBoard)
 
         val innerAgent = agent {
+            id0?.let { id(it) }
             persona(persona)
             llmProvider(llmProvider)
             memory(memory, maxRounds0)

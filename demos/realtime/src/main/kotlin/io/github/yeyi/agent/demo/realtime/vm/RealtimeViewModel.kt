@@ -60,7 +60,7 @@ class RealtimeViewModel(
             }
             _session.value = session
             // 配置驱动 spawn：session.memory 作为 Boss 记忆，语音委托任务共享同一实例
-            _boss.value = CockpitAgent.create(session.memory)
+            _boss.value = CockpitAgent.create(session.uniqueKey, session.memory)
         }
     }
 

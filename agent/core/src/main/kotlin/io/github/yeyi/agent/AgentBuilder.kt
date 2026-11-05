@@ -39,6 +39,11 @@ public class AgentBuilder {
     private var toolRegistry = ToolRegistry()
     private val plugins = mutableMapOf<String, AgentPlugin<*>>()
 
+    /** 设置 agent 身份标识（默认不配置，构建时自动生成实例唯一 UUID） */
+    public fun id(id: String) {
+        this.id = id
+    }
+
     /** 设置 Agent 人设。 */
     public fun persona(persona: AgentPersona) {
         this.persona = persona
@@ -76,11 +81,6 @@ public class AgentBuilder {
      */
     public fun hook(hook: AgentHook) {
         this.hook = hook
-    }
-
-    /** 设置 agent 身份标识（默认不配置，构建时自动生成实例唯一 UUID）。供工具按身份路由外部通道（如产卡 sink），不参与任何会话概念。 */
-    public fun id(id: String) {
-        this.id = id
     }
 
     /** 注册单个工具。 */
