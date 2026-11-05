@@ -435,7 +435,11 @@ class AgentScopeTest {
         collector.join()
 
         assertTrue(events.last() is AgentEvent.Canceled, "shutdown must end the round with Canceled: $events")
-        assertEquals("Agent is shut down", (events.last() as AgentEvent.Canceled).cause.message)
+        assertTrue(
+            generateSequence<Throwable>((events.last() as AgentEvent.Canceled).cause) { it.cause }
+                .any { it is Agent.Shutdownable.ShutdownError },
+            "shutdown 诊断应沿 cause.cause 链携带 ShutdownError: ${events.last()}"
+        )
     }
 
     @Test
@@ -510,7 +514,11 @@ class AgentScopeTest {
 
         val events = flow.toList()
         assertTrue(events.last() is AgentEvent.Canceled, "late collect must end with Canceled: $events")
-        assertEquals("Agent is shut down", (events.last() as AgentEvent.Canceled).cause.message)
+        assertTrue(
+            generateSequence<Throwable>((events.last() as AgentEvent.Canceled).cause) { it.cause }
+                .any { it is Agent.Shutdownable.ShutdownError },
+            "shutdown 诊断应沿 cause.cause 链携带 ShutdownError: ${events.last()}"
+        )
         assertEquals(1, llm.calls, "round must execute exactly once")
     }
 
@@ -532,7 +540,11 @@ class AgentScopeTest {
         collector.join()
 
         assertTrue(events.last() is AgentEvent.Canceled, "shutdown must end the stream round with Canceled: $events")
-        assertEquals("Agent is shut down", (events.last() as AgentEvent.Canceled).cause.message)
+        assertTrue(
+            generateSequence<Throwable>((events.last() as AgentEvent.Canceled).cause) { it.cause }
+                .any { it is Agent.Shutdownable.ShutdownError },
+            "shutdown 诊断应沿 cause.cause 链携带 ShutdownError: ${events.last()}"
+        )
     }
 
     @Test
@@ -555,7 +567,11 @@ class AgentScopeTest {
 
         val events = flow.toList()
         assertTrue(events.last() is AgentEvent.Canceled, "late collect must end with Canceled: $events")
-        assertEquals("Agent is shut down", (events.last() as AgentEvent.Canceled).cause.message)
+        assertTrue(
+            generateSequence<Throwable>((events.last() as AgentEvent.Canceled).cause) { it.cause }
+                .any { it is Agent.Shutdownable.ShutdownError },
+            "shutdown 诊断应沿 cause.cause 链携带 ShutdownError: ${events.last()}"
+        )
         assertEquals(1, llm.calls, "round must execute exactly once")
     }
 

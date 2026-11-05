@@ -78,7 +78,9 @@ public sealed interface AgentEvent {
      *
      * 取消不是失败：失败的正确默认动作是重试/告警，取消是停止/提示打断。
      * 载荷用 [CancellationException] —— `awaitResult` 可直接抛出而不被协程框架
-     * 误判为失败；message 承载取消原因（诊断用途，如 "Agent is shut down" 与用户打断的区分）。
+     * 误判为失败。诊断信息沿 `cause.cause` 链获取：关闭场景（[Agent.Shutdownable]）
+     * 由 [Agent.Shutdownable.ShutdownError] 承载，打断场景（[Agent.Cancelable]）
+     * 由 message 承载传入原因——直接读 `cause.message` 可能为 null，请勿以此判型。
      */
     public data class Canceled(public val cause: CancellationException) : AgentEvent
 

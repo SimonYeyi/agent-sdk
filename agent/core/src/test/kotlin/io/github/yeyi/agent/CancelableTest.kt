@@ -446,7 +446,13 @@ class CancelableTest {
 
         val last = events.last()
         assertTrue(last is AgentEvent.Canceled, "实际终局: ${events.map { it::class.simpleName }}")
-        assertTrue("Agent is shut down" in (last as AgentEvent.Canceled).cause.message.orEmpty())
+        // shutdown 诊断沿 cause.cause 链传递：ReActAgent.shutdown() 构造 CancellationException(null, ShutdownError)，
+        // 直接读 cause.message 会拿到 null —— 必须沿 cause 链反查 ShutdownError 确认关闭语义。
+        assertTrue(
+            generateSequence<Throwable>((last as AgentEvent.Canceled).cause) { it.cause }
+                .any { it is Agent.Shutdownable.ShutdownError },
+            "实际 cause 链: ${(last as AgentEvent.Canceled).cause}"
+        )
         val ex = assertFailsWith<IllegalStateException> { agent.run(AgentQuery.text("again")) }
         assertTrue(ex.message!!.contains("Agent is shut down"))
     }
