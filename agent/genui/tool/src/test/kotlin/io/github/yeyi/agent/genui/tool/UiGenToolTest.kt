@@ -25,6 +25,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertFalse
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class UiGenToolTest {
@@ -128,5 +131,34 @@ class UiGenToolTest {
         val returned = tool.execute(arguments, context())
 
         assertEquals(ToolExecutionResult.success(data.toString()), returned)
+    }
+
+    @Test
+    fun `执行成功后默认可终结`() = runTest {
+        val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
+        val tool = FakeUiGenTool(data, null, UiSink())
+
+        val returned = tool.execute(arguments, context())
+
+        assertTrue(tool.finalizable(returned))
+    }
+
+    @Test
+    fun `错误回执拒绝终结`() = runTest {
+        val sink = UiSink()
+        val tool = object : UiGenTool(sink) {
+            override val name: String = "flaky_card"
+            override val description: String = "flaky"
+            override val parametersSchema: ToolParameters = ToolParameters.Empty
+            override fun getData(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
+                error("card generation failed")
+            override fun buildCard(data: JsonElement, context: ToolExecutionContext): CardIr? = null
+        }
+
+        // execute 抛异常向上传播，registry 会统一转为错误回执（isError=true），
+        // finalizable 收到错误回执后拒绝终结，模型下一轮感知失败并重试
+        assertFailsWith<IllegalStateException> { tool.execute(arguments, context()) }
+
+        assertFalse(tool.finalizable(ToolExecutionResult.error("card generation failed")))
     }
 }

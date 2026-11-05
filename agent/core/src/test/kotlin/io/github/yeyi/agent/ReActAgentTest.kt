@@ -695,20 +695,17 @@ class ReActAgentTest {
 
     @Test
     fun `finalizable tool refusing termination after failure does not short-circuit so LLM retries`() = runTest {
-        // 短路裁决权完全在工具：工具在 finalizable() 中结合本轮执行状态裁定。
-        // 本例工具执行失败后拒绝终结（finalizable() 返回 false）→ 不短路 →
-        // 模型下一轮感知失败回执并重试。这正是产卡工具不适合挂 AsyncTool 短路的原因——
-        // 同步工具可能异常，异常后应由工具在 finalizable() 中拒绝终结，让模型看到失败回执。
-        var failed = false
+        // 短路裁决权完全在工具：ReActAgent 把本轮执行结果原样回传给 finalizable()，
+        // 工具自行结合成败裁定。本例工具对错误回执拒绝终结（finalizable() 返回 false）
+        // → 不短路 → 模型下一轮感知失败回执并重试。这正是产卡工具不适合挂 AsyncTool
+        // 短路的原因——同步工具可能异常，异常后应由工具结合错误回执拒绝终结。
         val flaky = object : Tool, FinalizableTool {
             override val name = "flaky_card"
             override val description = "a finalizable tool that refuses termination after failure"
             override val parametersSchema = ToolParameters.Empty
-            override fun finalizable(): Boolean = !failed
-            override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
-                failed = true
-                return ToolExecutionResult.error("card generation failed")
-            }
+            override fun finalizable(result: ToolExecutionResult): Boolean = !result.isError
+            override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
+                ToolExecutionResult.error("card generation failed")
         }
         val toolCall = ToolCall(id = "c1", name = "flaky_card", arguments = JsonNull)
         val provider = FakeLlmProvider(
@@ -748,12 +745,13 @@ class ReActAgentTest {
 
     @Test
     fun `finalizable tool declaring non-finalizable does not short-circuit`() = runTest {
-        // finalizable() = false：工具自判本轮不可终结（如非原子产卡，产卡后仍需模型复核/续写）。
+        // finalizable(result) = false：工具对任意结果自判本轮不可终结
+        // （如非原子产卡，产卡后仍需模型复核/续写）。
         val reviewTool = object : Tool, FinalizableTool {
             override val name = "review_card"
             override val description = "drafts a card pending review"
             override val parametersSchema = ToolParameters.Empty
-            override fun finalizable(): Boolean = false
+            override fun finalizable(result: ToolExecutionResult): Boolean = false
             override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
                 ToolExecutionResult.success("card draft ready")
         }

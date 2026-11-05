@@ -9,12 +9,11 @@ package io.github.yeyi.agent.tool
  * （emit [io.github.yeyi.agent.AgentEvent.Final]）结束当前 run，不再触发下一轮
  * 推理——此时没有可同步等待的下一步结果，过渡语已在调用消息内同步输出。
  *
- * 本接口同时是 [FinalizableTool] 的特例：异步派发无同步结果、也不会失败，
- * 故 finalizable() 恒为 true（无「执行成功仍需下一轮推理」的情形）。
+ * 本接口同时是 [FinalizableTool] 的标记特例：异步派发无同步结果、也不会失败，
+ * 继承接口默认的 finalizable() = true（无「执行成功仍需下一轮推理」的情形）。
  *
  * 注意：调用方应通过 `tool is AsyncTool` 显式探测异步能力、通过
- * `tool is FinalizableTool && tool.finalizable()` 探测终结能力，而非依赖工具名或执行结果标志。
+ * `tool is FinalizableTool` 探测终结裁决能力，而非依赖工具名或执行结果标志；
+ * 终结与否由 ReActAgent 在工具执行后将结果回传 finalizable(result) 交由工具自裁。
  */
-public interface AsyncTool : FinalizableTool {
-    override fun finalizable(): Boolean = true
-}
+public interface AsyncTool : FinalizableTool
