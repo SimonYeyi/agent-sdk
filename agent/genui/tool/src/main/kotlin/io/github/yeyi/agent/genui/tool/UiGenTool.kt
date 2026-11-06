@@ -97,7 +97,7 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
         val content = result?.toString()
             ?: if (card != null) {
                 // 无业务结果且产卡：问询工具，卡片即交互，等待用户回复
-                "等待用户回复"
+                "Waiting for user reply"
             } else {
                 error(
                     "$name produced no card and no tool result: " +
