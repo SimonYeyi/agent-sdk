@@ -326,4 +326,16 @@ class ChatViewModel(
             }
         }
     }
+
+    /**
+     * 页面销毁（组合退出 / Activity finish）：回收卡片路由与在途回合。
+     *
+     * 此时 viewModelScope 已随之取消（sink 订阅已断），shutdown 迟到的
+     * Canceled 回放不会渲染；不 shutdown 会留下无人观察的在途回合，
+     * 不反注册会让路由表留下死条目（agentId 每次重建递增累积）。
+     */
+    override fun onCleared() {
+        AgentRuntime.sinkRegistry.unregister(agentId)
+        (agent as? Agent.Shutdownable)?.shutdown()
+    }
 }

@@ -11,7 +11,6 @@ import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.text
-import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.session.AgentReference
 import io.github.yeyi.agent.session.Session
@@ -55,7 +54,6 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     private var agent: io.github.yeyi.agent.Agent? = null
 
     private var agentId: String = ""
-    private var agentSeq: Int = 0
 
     // 卡片旁路:sink 留在收集它的地方,agentId 与 sink 注册进全局路由表。
     private val sink = UiSink()
@@ -185,7 +183,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
         viewModelScope.launch {
             // agent 构建失败发生在回合建立之前，没有事件通道可用，只能在此兜住。
             val agent = runCatching {
-                agent ?: newAgent(session.memory).also { agent = it }
+                agent ?: newAgent(session).also { agent = it }
             }.getOrElse { e ->
                 _uiState.value = _uiState.value.copy(error = e.message, isLoading = false)
                 return@launch
@@ -270,12 +268,12 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    /** 新 agent:分配身份标识并登记到卡片路由表。 */
-    private fun newAgent(memory: Memory): io.github.yeyi.agent.Agent {
-        val id = "demo-session-agent-${++agentSeq}"
+    /** 新 agent:以 session.id 作为身份标识并登记到卡片路由表（会话与 agent 一一对应）。 */
+    private fun newAgent(session: Session): io.github.yeyi.agent.Agent {
+        val id = session.id
         agentId = id
         AgentRuntime.sinkRegistry.register(id, sink)
-        return AgentRuntime.buildAgent(agentId, memory)
+        return AgentRuntime.buildAgent(agentId, session.memory)
     }
 
     /** 作废当前 agent：架构 2 下回合跑在 agent 私有 scope，不 shutdown 会留下无人观察的在途回合。 */
