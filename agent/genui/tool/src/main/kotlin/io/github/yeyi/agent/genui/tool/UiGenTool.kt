@@ -35,8 +35,12 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
     final override fun finalizable(result: ToolExecutionResult): Boolean = !result.isError
 
     /**
-     * 业务结果：查询/展示工具返回结构化数据作为回执文本，模型后续轮次据此读到具体信息；
+     * 业务结果：查询工具返回结构化数据作为回执文本，模型后续轮次据此读到具体信息；
      * 问询工具（卡片即交互、无业务结果可回执）返回 null，回执兜底为「等待用户回复」。
+     *
+     * 业务异常（包括空结果）一律直接抛出（由框架统一转为错误回执，拒绝终结并让模型感知失败重试），
+     * 不要吞掉异常或返回 null 伪装成功。
+     *
      * 必须复写以显式声明本工具的 result 语义——返回数据即查询/展示工具，
      * 返回 null 即问询工具，禁止依赖隐式默认值。
      */
@@ -48,8 +52,11 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
     /**
      * 将本轮结构化数据映射为卡片 IR。
      *
-     * 产不产卡由 [arguments]（调用方意图，如形态开关）与 [result]（取数结果的形态与合法性）共同决定：
-     * 正常情形必须返回非空卡片；返回 null 表示本轮不产卡，降级为纯文本回执。
+     * 正常情形返回非空卡片；返回 null 表示本轮不产卡。
+     *
+     * [result] 由 [getResult] 返回后传入，是构造卡片所需业务数据的唯一来源：
+     * 需要结果数据构造卡片时，应在 [getResult] 中返回工具结果数据，这里直接使用 [result] 参数即可，
+     * 不要在本方法内自行取数（如重新 [getResult]）。
      *
      * @param arguments 本轮 tool 调用的原始入参
      * @param result [getResult] 的取数结果

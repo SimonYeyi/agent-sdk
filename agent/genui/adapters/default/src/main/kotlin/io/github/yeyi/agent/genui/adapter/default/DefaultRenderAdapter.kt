@@ -11,16 +11,16 @@ import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
 import kotlinx.serialization.json.JsonObject
 
 /**
- * Compose 组件渲染实现签名。
- *
- * @param children 子节点渲染插槽：容器组件（Card/Column/Row…）自行决定子节点排布
- *   （间距、对齐、布局方向），叶子组件忽略该插槽；插槽只在组件当前渲染位置生效，
- *   与适配器先序递归语义等价
+ * Compose 组件渲染实现。
  */
 public typealias UiComponentRenderer = @Composable (
-    node: TreeNode,
-    action: Action?,
-    emit: () -> Unit,
+    node: TreeNode, action: Action?, emit: () -> Unit,
+    /**
+     * 子节点渲染插槽：
+     * 容器组件（Card / Column / Row…）自行决定子节点排布
+     * （间距、对齐、布局方向），叶子组件忽略该插槽；
+     * 插槽只在组件当前渲染位置生效，与适配器先序递归语义等价
+     */
     children: @Composable () -> Unit,
 ) -> Unit
 
