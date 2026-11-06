@@ -16,6 +16,10 @@ import io.github.yeyi.agent.demo.agent.demo.tools.GetLocationTool
 import io.github.yeyi.agent.demo.agent.demo.tools.WebSearchTool
 import io.github.yeyi.agent.demo.agent.demo.tools.getWeatherTool
 import io.github.yeyi.agent.demo.agent.log.HttpLogger
+import io.github.yeyi.agent.demo.agent.ui.registerDemoCardComponents
+import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
+import io.github.yeyi.agent.genui.adapter.default.DefaultRenderAdapter
+import io.github.yeyi.agent.genui.adapter.default.registerIosComponents
 import io.github.yeyi.agent.genui.tool.UiSinkRegistry
 import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.LlmProvider
@@ -64,6 +68,15 @@ object AgentRuntime {
 
     /** 卡片路由表：agentId → sink。产卡工具据此找到本 agent 的 sink。 */
     val sinkRegistry = UiSinkRegistry()
+
+    /**
+     * 卡片渲染后端：demo 全局唯一装配点，iOS 风格组件 + 演示工具组件注册一次，
+     * 所有 agent/会话共用。UI 层经 [UiRenderAdapter.RenderCard] 消费卡片流，对后端差异无感。
+     */
+    val cardAdapter: UiRenderAdapter = DefaultRenderAdapter().apply {
+        registerIosComponents()
+        registerDemoCardComponents()
+    }
 
     /** 产卡工具在装配时装好，不随 buildAgent 现场组装。 */
     private val toolRegistry = ToolRegistry().apply {

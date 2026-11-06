@@ -6,18 +6,21 @@ import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
+import io.github.yeyi.agent.demo.agent.demo.AgentRuntime
+import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
+import io.github.yeyi.agent.genui.ir.ActionEvent
+import io.github.yeyi.agent.genui.ir.CardIr
+import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.text
-import io.github.yeyi.agent.demo.agent.demo.AgentRuntime
-import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -51,6 +54,12 @@ class ChatViewModel(
 
     private val inProgressByCallId = mutableMapOf<String, UiMessage.ToolInProgress>()
 
+    /** 卡片按 toolCallId 锚点缓存：内存压缩/会话恢复后仍可按锚点归位。 */
+    private val cardsByCallId = mutableMapOf<String, CardIr>()
+
+    /** 已归位到消息列表的卡片锚点，保证卡片流与事件流竞态下插入幂等。 */
+    private val insertedCards = mutableSetOf<String>()
+
     private var memory: Memory = io.github.yeyi.agent.memory.InMemoryMemory()
 
     /** agent 身份标识:卡片旁路的路由键,每个 agent 实例一个。 */
@@ -62,13 +71,17 @@ class ChatViewModel(
 
     init {
         viewModelScope.launch { reloadMessages() }
-        // 卡片订阅:卡片经旁路到达,永不进记忆,只在这里落成 UI 消息
+        // 卡片旁路流订阅：实时广播，卡片按 toolCallId 插入对应工具调用消息之后
         viewModelScope.launch {
             sink.cards.collect { card ->
-                _messages.update { it + UiMessage.Card(card, nextUiId()) }
+                cardsByCallId[card.instanceId] = card
+                insertCardAfterAnchor(card.instanceId)
             }
         }
     }
+
+    /** 渲染后端：UI 层经 [UiRenderAdapter.RenderCard] 渲染卡片，demo 全局共用 AgentRuntime 装配。 */
+    val cardAdapter: UiRenderAdapter get() = AgentRuntime.cardAdapter
 
     /** 新 agent 身份标识:VM 内单调递增,重建 agent 时换新 id。 */
     private fun newAgentId(): String = "demo-agent-${++agentSeq}"
@@ -83,7 +96,7 @@ class ChatViewModel(
 
     private suspend fun reloadMessages() {
         val history = memory.history()
-        _messages.value = history
+        val base = history
             .filter { entry ->
                 val msg = entry.message
                 msg is ChatMessage.User ||
@@ -91,6 +104,19 @@ class ChatViewModel(
                         (msg is ChatMessage.System && !msg.content.isNullOrBlank())
             }
             .map { it.toUiMessage() }
+        // 锚点归位：本地自持的卡片按 toolCallId 插入对应 ToolResult 之后，恢复后不丢卡
+        val restored = ArrayList<UiMessage>(base.size)
+        insertedCards.clear()
+        for (msg in base) {
+            restored.add(msg)
+            if (msg is UiMessage.ToolExecution) {
+                cardsByCallId[msg.callId]?.let { card ->
+                    restored.add(UiMessage.Card(card, id = "card-${card.instanceId}"))
+                    insertedCards.add(card.instanceId)
+                }
+            }
+        }
+        _messages.value = restored
     }
 
     /**
@@ -140,6 +166,8 @@ class ChatViewModel(
         _messages.value = emptyList()
         _liveBubble.value = null
         inProgressByCallId.clear()
+        cardsByCallId.clear()
+        insertedCards.clear()
         memory = io.github.yeyi.agent.memory.InMemoryMemory()
         // 旧 agent 的 id 不再指向任何 agent,解注册避免路由表留下死条目
         AgentRuntime.sinkRegistry.unregister(agentId)
@@ -147,6 +175,40 @@ class ChatViewModel(
         // 字段尚未替换」的中间态——并发 run 的 ISE 拒绝由此不可达。
         agent = createAgent()
         (oldAgent as? Agent.Shutdownable)?.shutdown()
+    }
+
+    /**
+     * 卡片动作回流桥：渲染层命中白名单动作时，把 [ActionEvent] 组装为新一轮推理。
+     *
+     * 回流指令以 [io.github.yeyi.agent.genui.ir.Action.label] 作为模型可读文案——
+     * 动作集合由工具作者声明，label 供模型结合卡片与历史理解意图，无需专用意图字段。
+     */
+    fun onCardAction(event: ActionEvent) {
+        if (_isProcessing.value) return
+        sendUserInput(event.action.label)
+    }
+
+    /**
+     * 按锚点把卡片插入消息列表：找到对应 ToolInProgress/ToolExecution 消息后插入。
+     *
+     * 卡片流与事件流双向竞态均由 [insertedCards] 幂等收敛：
+     * - 卡片先于事件到达：找不到锚点则暂存 [cardsByCallId]，事件到达后再次触发；
+     * - 事件先于卡片到达：直接命中锚点插入；卡片重复到达时已入集合直接跳过。
+     */
+    private fun insertCardAfterAnchor(instanceId: String) {
+        if (instanceId in insertedCards) return
+        val card = cardsByCallId[instanceId] ?: return
+        _messages.update { list ->
+            val anchorIndex = list.indexOfFirst { msg ->
+                (msg is UiMessage.ToolInProgress && msg.callId == instanceId) ||
+                    (msg is UiMessage.ToolExecution && msg.callId == instanceId)
+            }
+            if (anchorIndex < 0) return@update list
+            insertedCards.add(instanceId)
+            val result = ArrayList(list)
+            result.add(anchorIndex + 1, UiMessage.Card(card, id = "card-$instanceId"))
+            result
+        }
     }
 
     /**
@@ -213,6 +275,8 @@ class ChatViewModel(
                 val msg = UiMessage.ToolInProgress(event.toolCall.id, event.toolCall.name)
                 inProgressByCallId[event.toolCall.id] = msg
                 _messages.update { it + msg }
+                // 卡片可能先于事件到达（暂存于 cardsByCallId），事件到位后补插入
+                insertCardAfterAnchor(event.toolCall.id)
             }
 
             is AgentEvent.ToolCallEnd -> {
@@ -224,6 +288,8 @@ class ChatViewModel(
                         result = event.result,
                     )
                 }
+                // ToolInProgress 已替换为 ToolExecution，锚点仍在，重新按新锚点归位
+                insertCardAfterAnchor(event.toolCall.id)
             }
 
             is AgentEvent.Final -> {

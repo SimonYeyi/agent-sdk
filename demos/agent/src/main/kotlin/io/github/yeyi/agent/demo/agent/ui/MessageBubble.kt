@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.demo.agent.ui
 
-import android.util.Log
 import android.widget.Toast
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -18,10 +17,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import io.github.yeyi.agent.demo.agent.vm.UiMessage
+import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
+import io.github.yeyi.agent.genui.ir.ActionEvent
 import io.github.yeyi.agent.llm.text
 
 @Composable
-fun MessageBubble(message: UiMessage, modifier: Modifier = Modifier) {
+fun MessageBubble(
+    message: UiMessage,
+    cardAdapter: UiRenderAdapter? = null,
+    onCardAction: (ActionEvent) -> Unit = {},
+    modifier: Modifier = Modifier,
+) {
     val clipboard = LocalClipboardManager.current
     val context = LocalContext.current
     val copy: (String) -> Unit = { text ->
@@ -91,14 +97,15 @@ fun MessageBubble(message: UiMessage, modifier: Modifier = Modifier) {
             }
         }
         is UiMessage.Card -> {
-            // 卡片经 UiSink 旁路到达:不进记忆,只在这里渲染
-            Column(
-                modifier = modifier
-                    .fillMaxWidth()
-                    .padding(8.dp)
-            ) {
-                CardTemplates.adapter.RenderCard(message.card) { event ->
-                    Log.d("MessageBubble", "card action: $event")
+            // 卡片旁路流：渲染后端统一入口消费，不写记忆、不进复制链路
+            val adapter = cardAdapter
+            if (adapter != null) {
+                Column(
+                    modifier = modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    adapter.RenderCard(message.card, onCardAction)
                 }
             }
         }

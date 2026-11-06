@@ -33,13 +33,12 @@ sealed class UiMessage {
         override val id: String = "ex-$callId"
     }
 
-    /** [id] 由 [ChatViewModel] 注入,VM 生命周期内唯一,作 LazyColumn key 用。 */
-    data class Error(val cause: String, override val id: String) : UiMessage()
-
     /**
-     * 卡片:经 UiSink 旁路到达的可交互 UI,永不写入记忆。
-     *
-     * 卡片与工具执行气泡是两条独立通道,到达时序不保证与工具调用顺序一致。
+     * 工具产出的卡片：与工具调用锚点（toolCallId）对齐，插入对应 ToolInProgress/
+     * ToolExecution 之后；[id] 稳定取 `card-$instanceId`，会话恢复后仍保持同 key。
      */
     data class Card(val card: CardIr, override val id: String) : UiMessage()
+
+    /** [id] 由 [ChatViewModel] 注入,VM 生命周期内唯一,作 LazyColumn key 用。 */
+    data class Error(val cause: String, override val id: String) : UiMessage()
 }

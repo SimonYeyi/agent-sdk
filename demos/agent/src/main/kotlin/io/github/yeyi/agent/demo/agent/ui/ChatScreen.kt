@@ -158,7 +158,13 @@ fun ChatScreen(
                 .fillMaxWidth()
                 .nestedScroll(userDragConnection)
         ) {
-            items(displayItems, key = { it.id }) { msg -> MessageBubble(message = msg) }
+            items(displayItems, key = { it.id }) { msg ->
+                MessageBubble(
+                    message = msg,
+                    cardAdapter = viewModel.cardAdapter,
+                    onCardAction = viewModel::onCardAction,
+                )
+            }
         }
         Spacer(modifier = Modifier.height(8.dp))
         Row(verticalAlignment = Alignment.CenterVertically) {

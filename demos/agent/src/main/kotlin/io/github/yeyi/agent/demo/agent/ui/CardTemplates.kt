@@ -20,22 +20,19 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * 卡片组件模板注册:把卡片 IR 的组件名映射到 Compose 渲染实现。
+ * 演示工具卡片组件注册：把卡片 IR 的组件名映射到 Compose 渲染实现。
  *
  * 组件名与产卡工具一一对应（产卡工具写 component，模板解释 component）：
  * Location / DateTime / Text。未知组件走兜底渲染，保证卡片不空白也不中断。
+ *
+ * 由 [io.github.yeyi.agent.demo.agent.demo.AgentRuntime.cardAdapter] 一次性装配，
+ * 与 iOS 风格组件注册共存于同一渲染后端。
  */
-object CardTemplates {
-
-    /** 单例适配器：模板注册一次即可，渲染实现本身无状态。 */
-    val adapter: DefaultRenderAdapter by lazy {
-        DefaultRenderAdapter().apply {
-            register("Location") { node, _, _ -> LocationCard(node) }
-            register("DateTime") { node, _, _ -> DateTimeCard(node) }
-            register("Text") { node, _, _ -> TextCard(node) }
-            registerFallback { node, _, _ -> FallbackCard(node) }
-        }
-    }
+fun DefaultRenderAdapter.registerDemoCardComponents() {
+    register("Location") { node, _, _, _ -> LocationCard(node) }
+    register("DateTime") { node, _, _, _ -> DateTimeCard(node) }
+    register("Text") { node, _, _, _ -> TextCard(node) }
+    registerFallback { node, _, _, _ -> FallbackCard(node) }
 }
 
 @Composable

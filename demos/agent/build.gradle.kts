@@ -67,6 +67,7 @@ dependencies {
     implementation(project(":agent:tool:lazy-loading"))
     implementation(project(":agent:genui:ir"))
     implementation(project(":agent:genui:tool"))
+    implementation(project(":agent:genui:adapters:api"))
     implementation(project(":agent:genui:adapters:default"))
 
     implementation(platform(libs.compose.bom))

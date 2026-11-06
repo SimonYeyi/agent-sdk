@@ -10,8 +10,19 @@ import io.github.yeyi.agent.genui.ir.ActionEvent
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
 import kotlinx.serialization.json.JsonObject
 
-/** Compose 组件渲染实现签名：*/
-public typealias UiComponentRenderer = @Composable (node: TreeNode, action: Action?, emit: () -> Unit) -> Unit
+/**
+ * Compose 组件渲染实现签名。
+ *
+ * @param children 子节点渲染插槽：容器组件（Card/Column/Row…）自行决定子节点排布
+ *   （间距、对齐、布局方向），叶子组件忽略该插槽；插槽只在组件当前渲染位置生效，
+ *   与适配器先序递归语义等价
+ */
+public typealias UiComponentRenderer = @Composable (
+    node: TreeNode,
+    action: Action?,
+    emit: () -> Unit,
+    children: @Composable () -> Unit,
+) -> Unit
 
 /**
  * 自研后端适配器：以 [UiRenderAdapter] 插槽形态出场，与 A2UI 后端平级接入。
@@ -27,7 +38,7 @@ public class DefaultRenderAdapter(private val validator: CardIrValidator = CardI
     private val registry: MutableMap<String, UiComponentRenderer> = HashMap()
 
     /** 未知组件降级实现，默认渲染为空内容；demo 可注册为文本块等兜底展示。 */
-    private var fallback: UiComponentRenderer = { _, _, _ -> }
+    private var fallback: UiComponentRenderer = { _, _, _, _ -> }
 
     /** 注册组件渲染实现；同名组件后注册覆盖先注册。 */
     public fun register(component: String, renderer: UiComponentRenderer) {
@@ -65,9 +76,10 @@ public class DefaultRenderAdapter(private val validator: CardIrValidator = CardI
         } else {
             {} // 不可点击：空操作，杜绝白名单外动作被绑定
         }
-        (registry[node.component] ?: fallback)(node, action, actionEmit)
-        for (child in node.children) {
-            RenderNode(card, child, whitelist, onAction)
+        (registry[node.component] ?: fallback)(node, action, actionEmit) {
+            for (child in node.children) {
+                RenderNode(card, child, whitelist, onAction)
+            }
         }
     }
 }
