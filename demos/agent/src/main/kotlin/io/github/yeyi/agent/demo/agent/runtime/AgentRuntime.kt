@@ -19,7 +19,7 @@ import io.github.yeyi.agent.demo.agent.runtime.tools.WeatherCardTool
 import io.github.yeyi.agent.demo.agent.ui.registerDemoCardTemplates
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
 import io.github.yeyi.agent.genui.adapter.default.DefaultRenderAdapter
-import io.github.yeyi.agent.genui.adapter.default.registerIosComponents
+import io.github.yeyi.agent.genui.adapter.default.registerDefaultComponents
 import io.github.yeyi.agent.genui.tool.UiSinkRegistry
 import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.LlmProvider
@@ -74,7 +74,7 @@ object AgentRuntime {
      * 所有 agent/会话共用。UI 层经 [UiRenderAdapter.RenderCard] 消费卡片流，对后端差异无感。
      */
     val cardAdapter: UiRenderAdapter = DefaultRenderAdapter().apply {
-        registerIosComponents()
+        registerDefaultComponents()
         registerDemoCardTemplates()
     }
 
