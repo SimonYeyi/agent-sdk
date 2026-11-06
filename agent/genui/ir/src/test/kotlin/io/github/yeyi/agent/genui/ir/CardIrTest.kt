@@ -22,7 +22,6 @@ class CardIrTest {
                 ),
             ),
             actions = listOf(Action(id = "refresh", label = "刷新")),
-            askAbout = true,
         )
 
         val json = Json.encodeToString(card)

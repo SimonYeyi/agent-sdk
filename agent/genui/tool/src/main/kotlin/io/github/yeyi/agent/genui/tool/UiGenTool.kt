@@ -16,7 +16,7 @@ import kotlinx.serialization.json.JsonElement
  * 可终结能力由基类统一收口：本轮执行结果回传给 [FinalizableTool.finalizable]，
  * 成功时允许终结，产卡失败（[getResult]/[buildCard] 抛出异常，registry 转为错误回执）时
  * 拒绝终结，模型下一轮感知失败并重试；[buildCard] 返回 null（本轮不产卡）是合法降级，
- * 回执照常返回，不视为失败。
+ * 回执为 [getResult] 的结果文本，不视为失败。
  * finalizable() 为 final 实现且不持有实例状态——成败直接从本轮执行结果读取，
  * 多 agent 共享同一工具实例也不会串味；终结裁决不允许子类复写——产卡工具的本性即
  * 「产卡成功即终结、失败不终结」；需要「产卡后仍需模型复核/续写」语义的工具
@@ -34,10 +34,16 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
 
     final override fun finalizable(result: ToolExecutionResult): Boolean = !result.isError
 
-    protected open suspend fun getResult(
+    /**
+     * 业务结果：查询/展示工具返回结构化数据作为回执文本，模型后续轮次据此读到具体信息；
+     * 问询工具（卡片即交互、无业务结果可回执）返回 null，回执兜底为「等待用户回复」。
+     * 必须复写以显式声明本工具的 result 语义——返回数据即查询/展示工具，
+     * 返回 null 即问询工具，禁止依赖隐式默认值。
+     */
+    protected abstract suspend fun getResult(
         arguments: JsonElement,
         context: ToolExecutionContext
-    ): JsonElement? = null
+    ): JsonElement?
 
     /**
      * 将本轮结构化数据映射为卡片 IR。
@@ -59,9 +65,9 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
      * 模板接线：业务执行 → 产卡路由发射 → 回执。
      *
      * 固定执行顺序保证卡片发射时序位于 ToolCallStart/End 区间内；回执文本照常返回进记忆，卡片走旁路。
-     * 回执语义由 [io.github.yeyi.agent.genui.ir.CardIr.askAbout] 声明，而非卡片有无按钮推断：
-     * 询问卡回执固定为「等待用户回复」，模型据此感知回合待用户裁决；
-     * 信息展示卡（含显式置 askAbout=false 的卡，如天气卡）回执为 [getResult] 的结果文本。
+     * 回执语义由 [getResult] 返回值决定，而非卡片有无按钮推断：返回数据（查询/展示工具）
+     * 回执为数据文本，模型后续轮次能读到具体信息；返回 null（问询工具，卡片即交互）
+     * 回执固定为「等待用户回复」，模型据此感知回合待用户裁决。
      * [buildCard] 返回 null（数据异常/为空）是合法降级，本轮不产卡仅返回回执文本；
      * 但 [buildCard] 返回非空卡片时，当前 agent 必须在 registry 中已登记 sink——未登记属装配配置
      * 错误（产卡工具要求使用方先为 agent 登记 sink），直接抛 [IllegalStateException] fail-fast
@@ -81,15 +87,16 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
             }
             sink.emit(card)
         }
-        val content = if (card != null && card.askAbout) {
-            "等待用户回复"
-        } else {
-            result?.toString() ?: error(
-                "$name produced no ask card and no tool result: " +
-                        "if buildCard does not produce an ask card (CardIr.askAbout=true), " +
-                        "getResult must be overridden to return the tool result"
-            )
-        }
+        val content = result?.toString()
+            ?: if (card != null) {
+                // 无业务结果且产卡：问询工具，卡片即交互，等待用户回复
+                "等待用户回复"
+            } else {
+                error(
+                    "$name produced no card and no tool result: " +
+                            "if buildCard returns null, getResult must return the tool result"
+                )
+            }
         return ToolExecutionResult.success(content)
     }
 }

@@ -34,7 +34,7 @@ import kotlin.test.assertTrue
 class UiGenToolTest {
 
     private class FakeUiGenTool(
-        private val data: JsonElement,
+        private val data: JsonElement?,
         private val card: CardIr?,
         registry: UiSinkRegistry,
     ) : UiGenTool(registry) {
@@ -49,7 +49,7 @@ class UiGenToolTest {
         override suspend fun getResult(
             arguments: JsonElement,
             context: ToolExecutionContext,
-        ): JsonElement {
+        ): JsonElement? {
             getResultArguments = arguments
             return data
         }
@@ -150,18 +150,13 @@ class UiGenToolTest {
     }
 
     @Test
-    fun `askAbout 询问卡回执为等待用户回复`() = runTest {
-        val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
+    fun `产卡但无业务结果时回执兜底为等待用户回复`() = runTest {
         val sink = UiSink()
-        // 询问卡：即使 getResult 有数据，回执也固定为「等待用户回复」
+        // 问询工具：getResult 返回 null（无业务数据可回执），卡片即交互
         val tool = FakeUiGenTool(
-            data,
-            CardIr(
-                instanceId = "call_1",
-                root = TreeNode(component = "Text"),
-                askAbout = true,
-            ),
-            registeredRegistry(sink),
+            data = null,
+            card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
+            registry = registeredRegistry(sink),
         )
         val job = backgroundScope.launch { sink.cards.collect { } }
         runCurrent() // 排空调度队列，确保订阅注册后再执行
