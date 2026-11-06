@@ -1,13 +1,10 @@
 package io.github.yeyi.agent.genui.adapter.a2ui
 
-import androidx.a2ui.engine.catalog.A2uiCoreCatalog
-import androidx.a2ui.engine.catalog.A2uiCoreComponentDefinition
-import androidx.a2ui.engine.catalog.A2uiCoreComponentDefinitionCollection
-import androidx.a2ui.model.catalog.A2uiFunctionCollection
+import androidx.a2ui.model.catalog.functions.A2uiLocaleProvider
 import androidx.a2ui.model.protocol.A2uiClientDataModel
 import androidx.a2ui.model.protocol.A2uiClientEventMessage
-import androidx.a2ui.model.schema.A2uiObjectSchema
-import androidx.a2ui.model.schema.A2uiSchema
+import androidx.compose.material3.a2ui.catalog.MaterialA2uiBasicCatalogV1Defaults
+import androidx.compose.material3.a2ui.catalog.materialA2uiBasicCatalogV1
 import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
@@ -27,16 +24,29 @@ import kotlinx.serialization.json.JsonPrimitive
 /**
  * A2uiRenderAdapter 投影与回流映射测试。
  *
- * 引擎层纯 JVM 状态机可独立验证：投影（createSurface + updateComponents）落地后
- * activeSurfaces 出现对应 surface；动作回流不依赖官方渲染器，直接以客户端事件消息
- * 驱动 [A2uiRenderAdapter.dispatchClientEvent] 验证 UiActionEvent 映射。
+ * 使用官方 Material A2uiBasicCatalogV1 目录（material3-a2ui）驱动引擎状态机，
+ * 纯 JVM 可独立验证：投影（createSurface + updateComponents）落地后 activeSurfaces
+ * 出现对应 surface；动作回流不依赖 Compose 渲染，直接以客户端事件消息驱动
+ * [A2uiRenderAdapter.dispatchClientEvent] 验证 UiActionEvent 映射。
  */
 class A2uiRenderAdapterTest {
+
+    // 官方 Material 目录工厂：image/video/audioPlayer 使用无渲染器空实现（测试不触发 Compose
+    // 渲染，仅驱动引擎状态机），urlOpener/messageFormatter 用空实现，localeProvider 用官方默认
+    private val catalog =
+        materialA2uiBasicCatalogV1(
+            image = MaterialA2uiBasicCatalogV1Defaults.image { _, _, _, _, _ -> },
+            video = MaterialA2uiBasicCatalogV1Defaults.video { _, _, _ -> },
+            audioPlayer = MaterialA2uiBasicCatalogV1Defaults.audioPlayer { _, _, _, _ -> },
+            urlOpener = {},
+            messageFormatter = { pattern, _, _ -> pattern },
+            localeProvider = A2uiLocaleProvider.Default,
+        )
 
     @Test
     fun projectCreatesSurfaceAndMapsActionReflow() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val adapter = A2uiRenderAdapter(TestCatalog(), scope)
+        val adapter = A2uiRenderAdapter(catalog, scope)
         val events = mutableListOf<ActionEvent>()
         try {
             adapter.project(
@@ -74,7 +84,7 @@ class A2uiRenderAdapterTest {
     @Test
     fun nodeActionOutsideWhitelistIsNotBound() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val adapter = A2uiRenderAdapter(TestCatalog(), scope)
+        val adapter = A2uiRenderAdapter(catalog, scope)
         val events = mutableListOf<ActionEvent>()
         try {
             adapter.project(
@@ -101,7 +111,7 @@ class A2uiRenderAdapterTest {
     @Test
     fun invalidWhitelistDegradesWholeCardToDisplayOnly() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val adapter = A2uiRenderAdapter(TestCatalog(), scope)
+        val adapter = A2uiRenderAdapter(catalog, scope)
         val events = mutableListOf<ActionEvent>()
         try {
             adapter.project(
@@ -129,7 +139,7 @@ class A2uiRenderAdapterTest {
     @Test
     fun repeatedProjectIsIdempotentAndUpdatesCallback() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
-        val adapter = A2uiRenderAdapter(TestCatalog(), scope)
+        val adapter = A2uiRenderAdapter(catalog, scope)
         val events = mutableListOf<ActionEvent>()
         val replaced = mutableListOf<ActionEvent>()
         try {
@@ -159,24 +169,4 @@ class A2uiRenderAdapterTest {
             context = emptyMap(),
             clientDataModel = A2uiClientDataModel(emptyMap()),
         )
-
-    private class TestCatalog : A2uiCoreCatalog {
-        private val components = listOf(
-            TestComponent("Column"),
-            TestComponent("Text"),
-            TestComponent("Button"),
-        )
-
-        override val id: String = "test-catalog"
-        override val componentDefinitions: A2uiCoreComponentDefinitionCollection =
-            A2uiCoreComponentDefinitionCollection(components)
-        override val functions: A2uiFunctionCollection =
-            A2uiFunctionCollection(emptyList())
-    }
-
-    private class TestComponent(
-        override val name: String,
-        override val propertySchema: A2uiSchema = A2uiObjectSchema(),
-        override val description: String = "",
-    ) : A2uiCoreComponentDefinition
 }

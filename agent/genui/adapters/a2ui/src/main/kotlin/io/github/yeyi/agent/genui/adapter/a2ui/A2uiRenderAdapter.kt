@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.genui.adapter.a2ui
 
+import androidx.a2ui.compose.ui.A2uiCatalog
 import androidx.a2ui.engine.catalog.A2uiCoreCatalog
 import androidx.a2ui.engine.platform.A2uiCoreComponentRegistry
 import androidx.a2ui.engine.platform.A2uiCoreDataModel
@@ -11,7 +12,11 @@ import androidx.a2ui.model.protocol.A2uiCreateSurfaceMessage
 import androidx.a2ui.model.protocol.A2uiDataPath
 import androidx.a2ui.model.protocol.A2uiException
 import androidx.a2ui.model.protocol.A2uiUpdateComponentsMessage
+import androidx.compose.material3.a2ui.A2uiSurface
+import androidx.compose.material3.a2ui.A2uiSurfaceDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.Modifier
 import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.CardIrValidator
@@ -33,33 +38,40 @@ import kotlinx.serialization.json.longOrNull
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * A2UI 后端适配器：CardIr → A2UI v0.9.1 协议投影 + androidx.a2ui 官方引擎状态机。
+ * A2UI 后端适配器：CardIr → A2UI v0.9 协议投影 + androidx.a2ui 官方引擎状态机 + 官方 Compose 渲染。
  *
- * [RenderCard] 是「使用无感」的插槽入口：投影前先过 [CardIrValidator] 白名单校验，
+ * 渲染链路：[RenderCard] 是「使用无感」的插槽入口，投影前先过 [CardIrValidator] 白名单校验，
  * 校验失败整卡降级为纯展示（无动作）；投影结果经 [A2uiCoreMessageProcessor] 落地为
- * 协议消息流（createSurface + updateComponents 扁平邻接表），由官方引擎维护 surface 状态。
+ * 协议消息流（createSurface + updateComponents 扁平邻接表），官方引擎维护 surface 状态；
+ * 适配器从 [A2uiMessageProcessor.activeSurfaces] 收集本卡 surface，交给
+ * androidx.compose.material3 的 [A2uiSurface] 渲染（自动处理加载/错误/成功状态与过渡动画）。
  *
- * 动作回流：用户点击命中白名单的动作节点后，官方渲染器回调引擎 dispatchAction，
- * 引擎经 outboundEvents 发射 [A2uiClientEventMessage]，本适配器将其映射回 [ActionEvent]
- * 并转发给卡片对应的 onAction 回调，demo 侧与自研后端收口完全一致。
+ * 动作回流：用户点击命中白名单的动作节点后，官方渲染器经引擎 outboundEvents 发射
+ * [A2uiClientEventMessage]，本适配器将其映射回 [ActionEvent] 并转发给卡片对应的 onAction 回调，
+ * demo 侧与自研后端收口完全一致。
  *
- * 注：androidx.a2ui.compose 下的官方 Compose 渲染制品（A2uiSurface）在公开 Google Maven
- * 暂未发布，本适配器先交付投影 + 引擎状态机 + 回流映射的完整核心；渲染入口待官方制品
- * 发布后接入。程序化投递入口为 [project]。
- *
- * @param catalog 组件目录契约：投影时组件名必须映射到目录内组件，官方引擎按目录 schema 校验
+ * @param catalog 组件目录契约：需同时实现 [A2uiCatalog]（渲染契约，A2uiSurface 据此渲染）与
+ *   [A2uiCoreCatalog]（引擎 schema 校验契约）。官方 [androidx.a2ui.compose.ui.A2uiCatalog]
+ *   构建产物（如 material3-a2ui 的 Material 目录）同时实现两者，构造时显式校验防伪实现
  * @param scope 引擎消息循环与动作回流收集的运行域，调用方持有生命周期
  * @param validator 动作白名单校验器，与自研后端共用同一安全语义
  */
 public class A2uiRenderAdapter(
-    public val catalog: A2uiCoreCatalog,
+    public val catalog: A2uiCatalog,
     public val scope: CoroutineScope,
     private val validator: CardIrValidator = CardIrValidator(),
 ) : UiRenderAdapter {
 
+    init {
+        require(catalog is A2uiCoreCatalog) {
+            "A2uiRenderAdapter 需要引擎可用的目录：catalog 必须同时实现 A2uiCoreCatalog，" +
+                "官方 A2uiCatalog 构建产物（A2uiCatalog(...) / MaterialA2uiBasicCatalogV1()）满足该契约"
+        }
+    }
+
     /** 官方引擎消息处理器：维护 surface 状态、schema 校验、增量更新与动作事件流。 */
     public val processor: A2uiMessageProcessor = A2uiCoreMessageProcessor(
-        catalogs = listOf(catalog),
+        catalogs = listOf(catalog as A2uiCoreCatalog),
         dataModelFactory = { InMemoryDataModel() },
         componentRegistryFactory = { InMemoryComponentRegistry() },
         actionInterceptors = emptyList(),
@@ -109,6 +121,19 @@ public class A2uiRenderAdapter(
     @Composable
     override fun RenderCard(card: CardIr, onAction: (ActionEvent) -> Unit) {
         project(card, onAction)
+        val surface = processor.activeSurfaces
+            .collectAsState()
+            .value
+            .firstOrNull { it.id == card.instanceId }
+        if (surface != null) {
+            A2uiSurface(
+                surfaceModel = surface,
+                modifier = Modifier,
+                loadingContent = { A2uiSurfaceDefaults.LoadingIndicator() },
+                errorContent = { A2uiSurfaceDefaults.ErrorFallback(it) },
+                transitionSpec = A2uiSurfaceDefaults.transitionSpec,
+            )
+        }
     }
 
     private fun flatten(
@@ -215,7 +240,7 @@ public class A2uiRenderAdapter(
     }
 
     private companion object {
-        /** A2UI v0.9.1 组件扁平邻接表：根组件 id 约定。 */
+        /** A2UI v0.9 组件扁平邻接表：根组件 id 约定。 */
         const val ROOT_COMPONENT_ID = "root"
         const val A2UI_KEY_CHILDREN = "children"
         const val A2UI_KEY_ACTION = "action"

@@ -30,10 +30,15 @@ android {
 dependencies {
     api(project(":agent:genui:adapters:api"))
 
-    // androidx.a2ui 引擎层纯 JVM 状态机；a2ui-compose-runtime / a2ui-compose-ui / material3-a2ui
-    // 官方 Compose 渲染制品在公开 Google Maven 暂未发布，等待发布后接入 A2uiSurface 可组合入口
+    // androidx.a2ui 协议引擎与模型（a2ui-engine / a2ui-model）；
+    // a2ui.compose 官方 Compose 渲染制品（compose-runtime 快照状态层 / compose-ui 组件注册层）；
+    // material3-a2ui 提供 A2uiSurface 顶层渲染入口 + 完整 Material A2uiBasicCatalogV1 目录实现，
+    // 已随 1.0.0-alpha01（2026-09-23）发布到公开 Google Maven
     implementation(libs.a2ui.model)
     implementation(libs.a2ui.engine)
+    implementation(libs.a2ui.compose.runtime)
+    implementation(libs.a2ui.compose.ui)
+    implementation(libs.a2ui.material3)
 
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlin.test.junit)
