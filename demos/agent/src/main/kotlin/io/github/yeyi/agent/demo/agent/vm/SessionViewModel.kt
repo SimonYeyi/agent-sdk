@@ -236,8 +236,14 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                             )
                         }
                         is io.github.yeyi.agent.AgentEvent.Final -> {
+                            val content = event.result.message.content
+                            val messages = if (content.isNullOrBlank()) {
+                                _uiState.value.messages
+                            } else {
+                                _uiState.value.messages + UiMessage.Assistant(content, id = nextUiId())
+                            }
                             _uiState.value = _uiState.value.copy(
-                                messages = _uiState.value.messages + UiMessage.Assistant(event.result.message.content ?: "", id = nextUiId()),
+                                messages = messages,
                                 liveBubble = null,
                                 isLoading = false
                             )

@@ -294,11 +294,11 @@ class ChatViewModel(
             }
 
             is AgentEvent.Final -> {
-                _messages.update {
-                    it + UiMessage.Assistant(
-                        event.result.message.content ?: "",
-                        id = nextUiId()
-                    )
+                val content = event.result.message.content
+                if (!content.isNullOrBlank()) {
+                    _messages.update {
+                        it + UiMessage.Assistant(content, id = nextUiId())
+                    }
                 }
                 _liveBubble.value = null
             }
