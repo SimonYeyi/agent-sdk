@@ -39,6 +39,10 @@ import kotlinx.serialization.json.contentOrNull
  * 组件名与渲染层绑定（自研注册表 / A2UI 目录）保持同一套语义名：Card/Column/Row/Text/
  * Button/Badge/Divider/Spacer/Image。属性经 [TreeNode.bindings] 传入，全部带默认值，
  * 缺省即降级为最常用形态，工具作者无需感知 Compose 细节。
+ *
+ * 可见性边界：仅 [IosCard] 对外公开，供自定义模板顶层复用卡片外壳（children 插槽
+ * 直接写原生 Compose，无需构造叶子节点）；其余组件均为本模块内部渲染实现，
+ * 由注册表查表驱动，外部不应绕过注册表直接调用。
  */
 public fun DefaultRenderAdapter.registerIosComponents() {
     register("Card") { node, _, _, children -> IosCard(node, children) }
@@ -238,9 +242,9 @@ internal fun Map<String, JsonElement>.verticalArrangement(
 
 // ─────────────────────────── 组件实现 ───────────────────────────
 
-/** 卡片容器：白色圆角矩形 + 柔和阴影，iOS 卡片语义。 */
+/** 卡片容器：白色圆角矩形 + 柔和阴影，iOS 卡片语义。子内容经 children 插槽排布。 */
 @Composable
-internal fun IosCard(node: TreeNode, children: @Composable () -> Unit) {
+public fun IosCard(node: TreeNode, children: @Composable () -> Unit) {
     val spacing = node.bindings.intValue("spacing", 12)
     val padding = node.bindings.intValue("padding", 16)
     val shape = RoundedCornerShape(14.dp)
@@ -256,7 +260,7 @@ internal fun IosCard(node: TreeNode, children: @Composable () -> Unit) {
     }
 }
 
-/** 纵向容器。 */
+/** 纵向容器：spacing/arrangement/padding/alignment 均经 bindings 传入，缺省为最常用形态。 */
 @Composable
 internal fun IosColumn(node: TreeNode, children: @Composable () -> Unit) {
     val spacing = node.bindings.intValue("spacing", 0)
@@ -276,7 +280,7 @@ internal fun IosColumn(node: TreeNode, children: @Composable () -> Unit) {
     }
 }
 
-/** 横向容器。 */
+/** 横向容器：spacing/arrangement/padding/alignment 均经 bindings 传入，缺省为最常用形态。 */
 @Composable
 internal fun IosRow(node: TreeNode, children: @Composable () -> Unit) {
     val spacing = node.bindings.intValue("spacing", 0)
@@ -296,7 +300,7 @@ internal fun IosRow(node: TreeNode, children: @Composable () -> Unit) {
     }
 }
 
-/** 文本：style/size/weight/color/align/maxLines 均可绑定，缺省走 body。 */
+/** 文本：content 必填，style/size/weight/color/align/maxLines 均可绑定，缺省走 body。 */
 @Composable
 internal fun IosText(node: TreeNode) {
     val content = node.bindings.str("content")
@@ -320,7 +324,7 @@ internal fun IosText(node: TreeNode) {
     )
 }
 
-/** iOS 风格按钮：variant 支持 primary/secondary/bordered/destructive/plain。 */
+/** iOS 风格按钮：variant 支持 primary/secondary/bordered/destructive/plain；白名单外动作渲染为禁用态。 */
 @Composable
 internal fun IosButton(node: TreeNode, action: Action?, emit: () -> Unit) {
     val label = action?.label ?: node.bindings.str("label", "按钮")
@@ -363,7 +367,7 @@ internal fun IosButton(node: TreeNode, action: Action?, emit: () -> Unit) {
     )
 }
 
-/** 小圆角标签。 */
+/** 小圆角标签：content 必填，color/textColor 可绑定。 */
 @Composable
 internal fun IosBadge(node: TreeNode) {
     val content = node.bindings.str("content")
@@ -382,7 +386,7 @@ internal fun IosBadge(node: TreeNode) {
     )
 }
 
-/** 分隔线：默认 iOS separator 色，高度 0.5dp。 */
+/** 分隔线：默认 iOS separator 色，高度 0.5dp，color 可绑定。 */
 @Composable
 internal fun IosDivider(node: TreeNode) {
     val color = node.bindings.color("color", IosColors.separator)

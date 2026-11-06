@@ -17,15 +17,19 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.URLEncoder
 
 /**
  * 网络搜索 Tool
- * 使用 Bing 搜索获取真实结果，产出一张纯文本卡片。
+ * 使用 Bing 搜索获取真实结果，产出一张文本卡。
  *
  * 卡片经 UiSink 旁路广播,永不写入记忆;记忆里只留结构化回执文本。
+ *
+ * 产卡：IR 根节点直接为 Text（顶层文本节点，无 Card 外壳），
+ * content 承载多行搜索结果文本。
  */
 class WebSearchTool(registry: UiSinkRegistry) : UiGenTool(registry) {
     override val name = "web_search"
@@ -48,7 +52,10 @@ class WebSearchTool(registry: UiSinkRegistry) : UiGenTool(registry) {
 
     private val httpClient = HttpClient(CIO)
 
-    override suspend fun getData(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun getData(
+        arguments: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val query = (arguments as JsonObject)["query"]?.jsonPrimitive?.content
             ?: throw IllegalArgumentException("missing 'query' field")
 
@@ -57,7 +64,10 @@ class WebSearchTool(registry: UiSinkRegistry) : UiGenTool(registry) {
             val url = "https://www.bing.com/search?q=$encodedQuery"
             val html = withContext(Dispatchers.IO) {
                 val response: HttpResponse = httpClient.get(url) {
-                    headers.append(HttpHeaders.UserAgent, "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    headers.append(
+                        HttpHeaders.UserAgent,
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    )
                     headers.append(HttpHeaders.Accept, "text/html,application/xhtml+xml")
                     headers.append(HttpHeaders.AcceptLanguage, "zh-CN,zh;q=0.9,en;q=0.8")
                 }
@@ -85,16 +95,29 @@ class WebSearchTool(registry: UiSinkRegistry) : UiGenTool(registry) {
         context: ToolExecutionContext,
     ): CardIr = CardIr(
         instanceId = context.toolCallId,
-        root = TreeNode(component = "Text", bindings = data.jsonObject),
+        root = TreeNode(
+            component = "Text",
+            bindings = buildJsonObject {
+                put(
+                    "content",
+                    JsonPrimitive(data.jsonObject.str("text"))
+                )
+            },
+        ),
     )
+
+    private fun JsonObject.str(key: String): String =
+        (this[key] as? JsonPrimitive)?.contentOrNull ?: "-"
 
     private fun parseBingResults(html: String): List<String> {
         val results = mutableListOf<String>()
 
         // Bing 结果结构：
         // <li class="b_algo"><h2><a href="url">标题</a></h2><p>摘要...</p></li>
-        val resultPattern = Regex("<li class=\"b_algo\"[^>]*>(.*?)</li>", RegexOption.DOT_MATCHES_ALL)
-        val linkPattern = Regex("<a[^>]+href=\"([^\"]+)\"[^>]*>([^<]+)</a>", RegexOption.DOT_MATCHES_ALL)
+        val resultPattern =
+            Regex("<li class=\"b_algo\"[^>]*>(.*?)</li>", RegexOption.DOT_MATCHES_ALL)
+        val linkPattern =
+            Regex("<a[^>]+href=\"([^\"]+)\"[^>]*>([^<]+)</a>", RegexOption.DOT_MATCHES_ALL)
         val snippetPattern = Regex("<p[^>]*>([^<]+)</p>", RegexOption.DOT_MATCHES_ALL)
 
         val resultBlocks = resultPattern.findAll(html).take(10).toList()

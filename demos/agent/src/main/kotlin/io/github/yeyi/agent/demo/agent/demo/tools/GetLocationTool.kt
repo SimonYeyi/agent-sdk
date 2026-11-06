@@ -15,6 +15,9 @@ import kotlinx.serialization.json.jsonObject
  * 获取当前位置(固定返回珠海),产出一张定位卡片。
  *
  * 卡片经 UiSink 旁路广播,永不写入记忆;记忆里只留结构化回执文本。
+ *
+ * 产卡方式 2（完全自定义模板）：buildCard 只产出单模板节点，
+ * 渲染由 demo 模板 LocationCard 完成——布局与文本全原生 Compose，不依赖基础组件。
  */
 class GetLocationTool(registry: UiSinkRegistry) : UiGenTool(registry) {
 

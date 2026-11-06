@@ -1,12 +1,9 @@
 package io.github.yeyi.agent.demo.agent.ui
 
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -14,70 +11,42 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.yeyi.agent.genui.adapter.default.DefaultRenderAdapter
+import io.github.yeyi.agent.genui.adapter.default.IosCard
 import io.github.yeyi.agent.genui.ir.TreeNode
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * 演示工具卡片组件注册：把卡片 IR 的组件名映射到 Compose 渲染实现。
+ * 演示工具卡片模板注册：方式 2（完全自定义）的渲染实现。
  *
- * 组件名与产卡工具一一对应（产卡工具写 component，模板解释 component）：
- * Location / DateTime / Text。未知组件走兜底渲染，保证卡片不空白也不中断。
+ * 模板只占用专属组件名（Location），不与 iOS 基础组件集同名，
+ * 未知组件兜底统一走 iOS 组件集的 [io.github.yeyi.agent.genui.adapter.default.IosFallback]。
  *
- * 由 [io.github.yeyi.agent.demo.agent.demo.AgentRuntime.cardAdapter] 一次性装配，
- * 与 iOS 风格组件注册共存于同一渲染后端。
+ * 三种产卡方式的验证结论：
+ * - 方式 1 标准 IR：如 get_datetime，产卡工具直接拼装整棵数据树，引擎递归查表渲染；
+ * - 方式 2 完全自定义：如 get_location，产卡只出单模板节点，模板内写原生 Compose。
+ *   顶层可复用 iOS 基础组件外壳（IosCard）——外壳只消费根节点参数，children 插槽
+ *   直接写原生组件，叶子无需手工构造 TreeNode；
+ * - 方式 3 半自定义（已否决）：叶子复用基础组件函数（如 IosText）仍需手工构造
+ *   TreeNode，在模板 Compose 中构造节点徒增麻烦，不如直接写原生 Compose。
+ *
+ * 由 [io.github.yeyi.agent.demo.agent.demo.AgentRuntime.cardAdapter] 一次性装配。
  */
-fun DefaultRenderAdapter.registerDemoCardComponents() {
+fun DefaultRenderAdapter.registerDemoCardTemplates() {
     register("Location") { node, _, _, _ -> LocationCard(node) }
-    register("DateTime") { node, _, _, _ -> DateTimeCard(node) }
-    register("Text") { node, _, _, _ -> TextCard(node) }
-    registerFallback { node, _, _, _ -> FallbackCard(node) }
 }
+
+// ── 方式 2：完全自定义模板（混合写法：顶层复用 IosCard 外壳，叶子全原生 Compose）──
 
 @Composable
 private fun LocationCard(node: TreeNode) {
-    CardTemplate(title = "当前位置") {
+    IosCard(node) {
+        Text("当前位置", style = MaterialTheme.typography.titleSmall)
         FieldRow("城市", node.bindingText("city"))
         FieldRow("省份", node.bindingText("province"))
         FieldRow("国家", node.bindingText("country"))
         FieldRow("纬度", node.bindingText("latitude"))
         FieldRow("经度", node.bindingText("longitude"))
-    }
-}
-
-@Composable
-private fun DateTimeCard(node: TreeNode) {
-    CardTemplate(title = "当前时间") {
-        FieldRow("日期", node.bindingText("date"))
-        FieldRow("时间", node.bindingText("time"))
-    }
-}
-
-/** 纯文本卡：卡片正文就是一段文本，没有结构化字段。 */
-@Composable
-private fun TextCard(node: TreeNode) {
-    CardTemplate(title = "搜索结果") {
-        FieldRow("关键词", node.bindingText("query"))
-        Text(node.bindingText("text"), style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-@Composable
-private fun FallbackCard(node: TreeNode) {
-    CardTemplate(title = node.component) {
-        Text("未注册的卡片组件", style = MaterialTheme.typography.bodySmall)
-    }
-}
-
-@Composable
-private fun CardTemplate(title: String, content: @Composable () -> Unit) {
-    Card(modifier = Modifier.fillMaxWidth().padding(8.dp)) {
-        Column(modifier = Modifier.padding(12.dp)) {
-            Text(title, style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.width(4.dp))
-            content()
-        }
     }
 }
 

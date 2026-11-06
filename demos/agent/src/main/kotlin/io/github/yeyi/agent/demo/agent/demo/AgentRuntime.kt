@@ -16,7 +16,7 @@ import io.github.yeyi.agent.demo.agent.demo.tools.GetLocationTool
 import io.github.yeyi.agent.demo.agent.demo.tools.WebSearchTool
 import io.github.yeyi.agent.demo.agent.demo.tools.getWeatherTool
 import io.github.yeyi.agent.demo.agent.log.HttpLogger
-import io.github.yeyi.agent.demo.agent.ui.registerDemoCardComponents
+import io.github.yeyi.agent.demo.agent.ui.registerDemoCardTemplates
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
 import io.github.yeyi.agent.genui.adapter.default.DefaultRenderAdapter
 import io.github.yeyi.agent.genui.adapter.default.registerIosComponents
@@ -75,7 +75,7 @@ object AgentRuntime {
      */
     val cardAdapter: UiRenderAdapter = DefaultRenderAdapter().apply {
         registerIosComponents()
-        registerDemoCardComponents()
+        registerDemoCardTemplates()
     }
 
     /** 产卡工具在装配时装好，不随 buildAgent 现场组装。 */
