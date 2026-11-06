@@ -150,6 +150,8 @@ class WeatherCardTool(
                 Action("tomorrow", "查看明天天气"),
                 Action("day_after", "查看后天天气"),
             ),
+            // 信息展示卡：天气即最终回复，按钮是可选延伸操作，不等待用户回复
+            askAbout = false,
             root = TreeNode(
                 component = "Card",
                 bindings = buildJsonObject {

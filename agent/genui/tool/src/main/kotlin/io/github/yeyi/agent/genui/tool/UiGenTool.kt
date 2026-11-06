@@ -59,6 +59,9 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
      * 模板接线：业务执行 → 产卡路由发射 → 回执。
      *
      * 固定执行顺序保证卡片发射时序位于 ToolCallStart/End 区间内；回执文本照常返回进记忆，卡片走旁路。
+     * 回执语义由 [io.github.yeyi.agent.genui.ir.CardIr.askAbout] 声明，而非卡片有无按钮推断：
+     * 询问卡回执固定为「等待用户回复」，模型据此感知回合待用户裁决；
+     * 信息展示卡（含显式置 askAbout=false 的卡，如天气卡）回执为 [getResult] 的结果文本。
      * [buildCard] 返回 null（数据异常/为空）是合法降级，本轮不产卡仅返回回执文本；
      * 但 [buildCard] 返回非空卡片时，当前 agent 必须在 registry 中已登记 sink——未登记属装配配置
      * 错误（产卡工具要求使用方先为 agent 登记 sink），直接抛 [IllegalStateException] fail-fast
@@ -78,13 +81,13 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
             }
             sink.emit(card)
         }
-        val content = if (card != null && card.actions.isNotEmpty()) {
+        val content = if (card != null && card.askAbout) {
             "等待用户回复"
         } else {
             result?.toString() ?: error(
-                "$name produced no interactive card and no tool result: " +
-                    "if buildCard does not produce an interactive card, " +
-                    "getResult must be overridden to return the tool result"
+                "$name produced no ask card and no tool result: " +
+                        "if buildCard does not produce an ask card (CardIr.askAbout=true), " +
+                        "getResult must be overridden to return the tool result"
             )
         }
         return ToolExecutionResult.success(content)

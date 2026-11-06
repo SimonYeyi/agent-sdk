@@ -150,6 +150,30 @@ class UiGenToolTest {
     }
 
     @Test
+    fun `askAbout 询问卡回执为等待用户回复`() = runTest {
+        val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
+        val sink = UiSink()
+        // 询问卡：即使 getResult 有数据，回执也固定为「等待用户回复」
+        val tool = FakeUiGenTool(
+            data,
+            CardIr(
+                instanceId = "call_1",
+                root = TreeNode(component = "Text"),
+                askAbout = true,
+            ),
+            registeredRegistry(sink),
+        )
+        val job = backgroundScope.launch { sink.cards.collect { } }
+        runCurrent() // 排空调度队列，确保订阅注册后再执行
+
+        val returned = tool.execute(arguments, context())
+        runCurrent()
+
+        job.cancel()
+        assertEquals(ToolExecutionResult.success("等待用户回复"), returned)
+    }
+
+    @Test
     fun `执行成功后默认可终结`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         val tool = FakeUiGenTool(data, null, UiSinkRegistry())
