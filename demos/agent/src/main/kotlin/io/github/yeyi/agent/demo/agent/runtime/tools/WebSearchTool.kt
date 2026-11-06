@@ -90,8 +90,8 @@ class WebSearchTool(registry: UiSinkRegistry) : UiGenTool(registry) {
     }
 
     override fun buildCard(
-        result: JsonElement?,
         arguments: JsonElement,
+        result: JsonElement?,
         context: ToolExecutionContext,
     ): CardIr? {
         val obj = result?.jsonObject ?: return null

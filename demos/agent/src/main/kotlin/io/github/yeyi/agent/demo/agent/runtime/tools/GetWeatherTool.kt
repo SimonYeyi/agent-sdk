@@ -109,7 +109,7 @@ class WeatherCardTool(
         return weatherData(params.city, params.time ?: WeatherTime.NOW)
     }
 
-    override fun buildCard(result: JsonElement?, arguments: JsonElement, context: ToolExecutionContext): CardIr? {
+    override fun buildCard(arguments: JsonElement, result: JsonElement?, context: ToolExecutionContext): CardIr? {
         val obj = result as? JsonObject ?: return null
         val city = obj["city"]?.jsonPrimitive?.contentOrNull ?: return null
         val temperature = obj["temperature"]?.jsonPrimitive?.contentOrNull ?: return null

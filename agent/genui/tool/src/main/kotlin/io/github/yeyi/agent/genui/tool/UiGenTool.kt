@@ -45,13 +45,13 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
      * 产不产卡由 [arguments]（调用方意图，如形态开关）与 [result]（取数结果的形态与合法性）共同决定：
      * 正常情形必须返回非空卡片；返回 null 表示本轮不产卡，降级为纯文本回执。
      *
-     * @param result [getResult] 的取数结果
      * @param arguments 本轮 tool 调用的原始入参
+     * @param result [getResult] 的取数结果
      * @param context 本轮执行上下文
      */
     protected abstract fun buildCard(
-        result: JsonElement?,
         arguments: JsonElement,
+        result: JsonElement?,
         context: ToolExecutionContext
     ): CardIr?
 
@@ -70,7 +70,7 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
         context: ToolExecutionContext
     ): ToolExecutionResult {
         val result = getResult(arguments, context)
-        val card = buildCard(result, arguments, context)
+        val card = buildCard(arguments, result, context)
         if (card != null) {
             val agentId = context.agentContext.agentId
             val sink = checkNotNull(registry.resolve(agentId)) {
