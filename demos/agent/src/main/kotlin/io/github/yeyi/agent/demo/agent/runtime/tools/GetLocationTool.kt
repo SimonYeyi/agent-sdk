@@ -25,7 +25,7 @@ class GetLocationTool(registry: UiSinkRegistry) : UiGenTool(registry) {
     override val description: String = "获取当前位置"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    override suspend fun getData(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
+    override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
         buildJsonObject {
             put("city", JsonPrimitive("珠海"))
             put("province", JsonPrimitive("广东"))
@@ -35,11 +35,14 @@ class GetLocationTool(registry: UiSinkRegistry) : UiGenTool(registry) {
         }
 
     override fun buildCard(
-        data: JsonElement,
+        result: JsonElement?,
         arguments: JsonElement,
         context: ToolExecutionContext,
-    ): CardIr = CardIr(
-        instanceId = context.toolCallId,
-        root = TreeNode(component = "Location", bindings = data.jsonObject),
-    )
+    ): CardIr? {
+        val obj = result?.jsonObject ?: return null
+        return CardIr(
+            instanceId = context.toolCallId,
+            root = TreeNode(component = "Location", bindings = obj),
+        )
+    }
 }

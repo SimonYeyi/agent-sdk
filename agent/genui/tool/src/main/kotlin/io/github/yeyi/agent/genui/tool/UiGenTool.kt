@@ -10,11 +10,11 @@ import kotlinx.serialization.json.JsonElement
 /**
  * 声明「本工具产出可交互卡片」的抽象基类，实现 [Tool] 与 [FinalizableTool]。
  *
- * 子类只需实现 [getData] 业务逻辑，[buildCard] 完成 UI 映射；
+ * 子类只需实现 [getResult] 业务逻辑，[buildCard] 完成 UI 映射；
  * 发射接线由 final [execute] 统一收口，卡片落在工具调用的 ToolCallStart/End 区间内，锚点天然对齐。
  *
  * 可终结能力由基类统一收口：本轮执行结果回传给 [FinalizableTool.finalizable]，
- * 成功时允许终结，产卡失败（[getData]/[buildCard] 抛出异常，registry 转为错误回执）时
+ * 成功时允许终结，产卡失败（[getResult]/[buildCard] 抛出异常，registry 转为错误回执）时
  * 拒绝终结，模型下一轮感知失败并重试；[buildCard] 返回 null（本轮不产卡）是合法降级，
  * 回执照常返回，不视为失败。
  * finalizable() 为 final 实现且不持有实例状态——成败直接从本轮执行结果读取，
@@ -34,23 +34,23 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
 
     final override fun finalizable(result: ToolExecutionResult): Boolean = !result.isError
 
-    protected abstract suspend fun getData(
+    protected open suspend fun getResult(
         arguments: JsonElement,
         context: ToolExecutionContext
-    ): JsonElement
+    ): JsonElement? = null
 
     /**
      * 将本轮结构化数据映射为卡片 IR。
      *
-     * 产不产卡由 [arguments]（调用方意图，如形态开关）与 [data]（取数结果的形态与合法性）共同决定：
+     * 产不产卡由 [arguments]（调用方意图，如形态开关）与 [result]（取数结果的形态与合法性）共同决定：
      * 正常情形必须返回非空卡片；返回 null 表示本轮不产卡，降级为纯文本回执。
      *
-     * @param data [getData] 的取数结果
+     * @param result [getResult] 的取数结果
      * @param arguments 本轮 tool 调用的原始入参
      * @param context 本轮执行上下文
      */
     protected abstract fun buildCard(
-        data: JsonElement,
+        result: JsonElement?,
         arguments: JsonElement,
         context: ToolExecutionContext
     ): CardIr?
@@ -69,7 +69,7 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
         arguments: JsonElement,
         context: ToolExecutionContext
     ): ToolExecutionResult {
-        val result = getData(arguments, context)
+        val result = getResult(arguments, context)
         val card = buildCard(result, arguments, context)
         if (card != null) {
             val agentId = context.agentContext.agentId
@@ -78,6 +78,15 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
             }
             sink.emit(card)
         }
-        return ToolExecutionResult.success(result.toString())
+        val content = if (card != null && card.actions.isNotEmpty()) {
+            "等待用户回复"
+        } else {
+            result?.toString() ?: error(
+                "$name produced no interactive card and no tool result: " +
+                    "if buildCard does not produce an interactive card, " +
+                    "getResult must be overridden to return the tool result"
+            )
+        }
+        return ToolExecutionResult.success(content)
     }
 }

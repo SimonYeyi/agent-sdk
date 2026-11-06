@@ -38,7 +38,7 @@ class UiGenToolTest {
         private val card: CardIr?,
         registry: UiSinkRegistry,
     ) : UiGenTool(registry) {
-        var getDataArguments: JsonElement? = null
+        var getResultArguments: JsonElement? = null
         var buildCardData: JsonElement? = null
         var buildCardArguments: JsonElement? = null
 
@@ -46,20 +46,20 @@ class UiGenToolTest {
         override val description: String = "fake"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-        override suspend fun getData(
+        override suspend fun getResult(
             arguments: JsonElement,
             context: ToolExecutionContext,
         ): JsonElement {
-            getDataArguments = arguments
+            getResultArguments = arguments
             return data
         }
 
         override fun buildCard(
-            data: JsonElement,
+            result: JsonElement?,
             arguments: JsonElement,
             context: ToolExecutionContext
         ): CardIr? {
-            buildCardData = data
+            buildCardData = result
             buildCardArguments = arguments
             return card
         }
@@ -89,7 +89,7 @@ class UiGenToolTest {
         JsonObject(mapOf("city" to JsonPrimitive("上海")))
 
     @Test
-    fun `execute 接线 getData 结果进 buildCard 并发射卡片`() = runTest {
+    fun `execute 接线 getResult 结果进 buildCard 并发射卡片`() = runTest {
         val sink = UiSink()
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         val card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text"))
@@ -103,8 +103,8 @@ class UiGenToolTest {
         runCurrent() // 处理订阅者恢复任务，确保卡片已投递
 
         job.join()
-        assertEquals(arguments, tool.getDataArguments)
-        // buildCard 收到的是 getData 整理后的结构化数据，以及本轮原始入参
+        assertEquals(arguments, tool.getResultArguments)
+        // buildCard 收到的是 getResult 整理后的结构化数据，以及本轮原始入参
         assertEquals(data, tool.buildCardData)
         assertEquals(arguments, tool.buildCardArguments)
         assertEquals(listOf(card), received)
@@ -165,10 +165,10 @@ class UiGenToolTest {
             override val name: String = "flaky_card"
             override val description: String = "flaky"
             override val parametersSchema: ToolParameters = ToolParameters.Empty
-            override suspend fun getData(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
+            override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
                 error("card generation failed")
             override fun buildCard(
-                data: JsonElement,
+                result: JsonElement?,
                 arguments: JsonElement,
                 context: ToolExecutionContext
             ): CardIr? = null

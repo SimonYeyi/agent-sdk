@@ -52,7 +52,7 @@ class WebSearchTool(registry: UiSinkRegistry) : UiGenTool(registry) {
 
     private val httpClient = HttpClient(CIO)
 
-    override suspend fun getData(
+    override suspend fun getResult(
         arguments: JsonElement,
         context: ToolExecutionContext
     ): JsonElement {
@@ -90,21 +90,24 @@ class WebSearchTool(registry: UiSinkRegistry) : UiGenTool(registry) {
     }
 
     override fun buildCard(
-        data: JsonElement,
+        result: JsonElement?,
         arguments: JsonElement,
         context: ToolExecutionContext,
-    ): CardIr = CardIr(
-        instanceId = context.toolCallId,
-        root = TreeNode(
-            component = "Text",
-            bindings = buildJsonObject {
-                put(
-                    "content",
-                    JsonPrimitive(data.jsonObject.str("text"))
-                )
-            },
-        ),
-    )
+    ): CardIr? {
+        val obj = result?.jsonObject ?: return null
+        return CardIr(
+            instanceId = context.toolCallId,
+            root = TreeNode(
+                component = "Text",
+                bindings = buildJsonObject {
+                    put(
+                        "content",
+                        JsonPrimitive(obj.str("text"))
+                    )
+                },
+            ),
+        )
+    }
 
     private fun JsonObject.str(key: String): String =
         (this[key] as? JsonPrimitive)?.contentOrNull ?: "-"

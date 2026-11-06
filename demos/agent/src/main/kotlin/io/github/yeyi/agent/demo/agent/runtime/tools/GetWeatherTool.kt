@@ -104,13 +104,13 @@ class WeatherCardTool(
     override val parametersSchema: ToolParameters =
         ToolParameters.JsonSchema(SchemaGenerator.generateSchema(GetWeatherRequest.serializer()))
 
-    override suspend fun getData(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
         val params = Json.decodeFromJsonElement(GetWeatherRequest.serializer(), arguments)
         return weatherData(params.city, params.time ?: WeatherTime.NOW)
     }
 
-    override fun buildCard(data: JsonElement, arguments: JsonElement, context: ToolExecutionContext): CardIr? {
-        val obj = data as? JsonObject ?: return null
+    override fun buildCard(result: JsonElement?, arguments: JsonElement, context: ToolExecutionContext): CardIr? {
+        val obj = result as? JsonObject ?: return null
         val city = obj["city"]?.jsonPrimitive?.contentOrNull ?: return null
         val temperature = obj["temperature"]?.jsonPrimitive?.contentOrNull ?: return null
         val condition = obj["condition"]?.jsonPrimitive?.contentOrNull ?: return null

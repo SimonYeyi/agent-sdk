@@ -30,18 +30,18 @@ class GetDateTimeTool(registry: UiSinkRegistry) : UiGenTool(registry) {
     override val description: String = "返回当前日期与时间"
     override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-    override suspend fun getData(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
+    override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
         buildJsonObject {
             put("date", JsonPrimitive(LocalDate.now().toString()))
             put("time", JsonPrimitive(Instant.now().toString()))
         }
 
     override fun buildCard(
-        data: JsonElement,
+        result: JsonElement?,
         arguments: JsonElement,
         context: ToolExecutionContext,
-    ): CardIr {
-        val d = data.jsonObject
+    ): CardIr? {
+        val d = result?.jsonObject ?: return null
         return CardIr(
             instanceId = context.toolCallId,
             root = TreeNode(
