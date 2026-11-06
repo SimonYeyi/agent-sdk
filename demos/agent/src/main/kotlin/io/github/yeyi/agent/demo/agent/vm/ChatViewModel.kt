@@ -188,7 +188,10 @@ class ChatViewModel(
     }
 
     /**
-     * 按锚点把卡片插入消息列表：找到对应 ToolInProgress/ToolExecution 消息后插入。
+     * 按锚点把卡片插入消息列表：找到对应 ToolExecution（工具结果）消息后插入其后。
+     *
+     * 产卡工具是 final 工具，无模型总结语，卡片即最终回复，因此必须落在工具结果之后，
+     * 而非调用中气泡之后。
      *
      * 卡片流与事件流双向竞态均由 [insertedCards] 幂等收敛：
      * - 卡片先于事件到达：找不到锚点则暂存 [cardsByCallId]，事件到达后再次触发；
@@ -199,8 +202,7 @@ class ChatViewModel(
         val card = cardsByCallId[instanceId] ?: return
         _messages.update { list ->
             val anchorIndex = list.indexOfFirst { msg ->
-                (msg is UiMessage.ToolInProgress && msg.callId == instanceId) ||
-                    (msg is UiMessage.ToolExecution && msg.callId == instanceId)
+                msg is UiMessage.ToolExecution && msg.callId == instanceId
             }
             if (anchorIndex < 0) return@update list
             insertedCards.add(instanceId)
@@ -287,7 +289,7 @@ class ChatViewModel(
                         result = event.result,
                     )
                 }
-                // ToolInProgress 已替换为 ToolExecution，锚点仍在，重新按新锚点归位
+                // 结果消息已入列，卡片若先到达（暂存于 cardsByCallId）此时按结果锚点归位
                 insertCardAfterAnchor(event.toolCall.id)
             }
 

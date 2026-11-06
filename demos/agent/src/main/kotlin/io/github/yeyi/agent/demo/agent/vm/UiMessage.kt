@@ -34,8 +34,8 @@ sealed class UiMessage {
     }
 
     /**
-     * 工具产出的卡片：与工具调用锚点（toolCallId）对齐，插入对应 ToolInProgress/
-     * ToolExecution 之后；[id] 稳定取 `card-$instanceId`，会话恢复后仍保持同 key。
+     * 工具产出的卡片：与工具调用锚点（toolCallId）对齐，插入对应 ToolExecution
+     * （工具结果）之后；[id] 稳定取 `card-$instanceId`，会话恢复后仍保持同 key。
      */
     data class Card(val card: CardIr, override val id: String) : UiMessage()
 
