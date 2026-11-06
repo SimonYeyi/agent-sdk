@@ -105,4 +105,14 @@ public class SessionManager(
             repository.findSessions(accountId)
         }
     }
+
+    /**
+     * 会话私有目录句柄。
+     *
+     * 目录随会话删除一并清理，适合应用层存放会话附属数据（如卡片持久化）；
+     * 框架不感知目录内文件内容与格式，只负责目录生命周期。
+     */
+    public fun sessionRoot(accountId: String, sessionId: String): File {
+        return repository.sessionDir(accountId, sessionId)
+    }
 }

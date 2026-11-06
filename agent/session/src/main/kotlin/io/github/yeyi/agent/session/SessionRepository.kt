@@ -46,6 +46,10 @@ internal class SessionRepository(baseDir: File) {
     private fun getMediaDir(accountId: String, sessionId: String): File =
         File(getSessionDir(accountId, sessionId), "media")
 
+    /** 会话私有目录句柄：目录随 [deleteSession] 整目录清理。 */
+    fun sessionDir(accountId: String, sessionId: String): File =
+        getSessionDir(accountId, sessionId)
+
     private fun readSessionsFromFile(accountId: String): List<Session> {
         val file = getSessionsFile(accountId)
         if (!file.exists()) return emptyList()
