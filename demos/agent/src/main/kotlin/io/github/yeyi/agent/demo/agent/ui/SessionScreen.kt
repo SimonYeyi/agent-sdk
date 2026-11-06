@@ -21,6 +21,8 @@ import androidx.compose.ui.unit.dp
 import io.github.yeyi.agent.demo.agent.vm.UiMessage
 import io.github.yeyi.agent.demo.agent.vm.SessionUiState
 import io.github.yeyi.agent.demo.agent.vm.SessionViewModel
+import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
+import io.github.yeyi.agent.genui.ir.ActionEvent
 import io.github.yeyi.agent.llm.ChatMessage
 import kotlinx.coroutines.launch
 
@@ -103,7 +105,9 @@ public fun SessionScreen(
                 onInputChange = { viewModel.updateInput(it) },
                 onSend = { viewModel.sendMessage() },
                 onLoadMore = { viewModel.loadMoreMessages() },
-                                modifier = Modifier
+                cardAdapter = viewModel.cardAdapter,
+                onCardAction = viewModel::onCardAction,
+                modifier = Modifier
                     .fillMaxSize()
                     .padding(padding)
             )
@@ -193,6 +197,8 @@ private fun ChatArea(
     onInputChange: (String) -> Unit,
     onSend: () -> Unit,
     onLoadMore: () -> Unit,
+    cardAdapter: UiRenderAdapter,
+    onCardAction: (ActionEvent) -> Unit,
         modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -256,7 +262,11 @@ private fun ChatArea(
                 }
 
                 items(displayItems, key = { it.id }) { message ->
-                    MessageBubble(message)
+                    MessageBubble(
+                        message,
+                        cardAdapter = cardAdapter,
+                        onCardAction = onCardAction
+                    )
                 }
 
                 if (uiState.isLoading) {

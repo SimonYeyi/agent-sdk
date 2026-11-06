@@ -14,8 +14,8 @@ import io.github.yeyi.agent.demo.agent.runtime.subagents.WeatherExpertSubagent
 import io.github.yeyi.agent.demo.agent.runtime.tools.GetDateTimeTool
 import io.github.yeyi.agent.demo.agent.runtime.tools.GetLocationTool
 import io.github.yeyi.agent.demo.agent.runtime.tools.WebSearchTool
-import io.github.yeyi.agent.demo.agent.runtime.tools.getWeatherTool
 import io.github.yeyi.agent.demo.agent.log.HttpLogger
+import io.github.yeyi.agent.demo.agent.runtime.tools.WeatherCardTool
 import io.github.yeyi.agent.demo.agent.ui.registerDemoCardTemplates
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
 import io.github.yeyi.agent.genui.adapter.default.DefaultRenderAdapter
@@ -85,7 +85,7 @@ object AgentRuntime {
     }
 
     private val lazyToolRegistry = LazyToolRegistry().apply {
-        register(LazyTool(getWeatherTool))
+        register(LazyTool(WeatherCardTool(sinkRegistry)))
         register(LazyTool(WebSearchTool(sinkRegistry), LazyTool.Level.TOOL))
     }
 

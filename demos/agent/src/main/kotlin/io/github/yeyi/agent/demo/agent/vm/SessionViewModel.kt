@@ -7,6 +7,8 @@ import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.demo.agent.runtime.AgentRuntime
+import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
+import io.github.yeyi.agent.genui.ir.ActionEvent
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.hook.HookPipeline
@@ -72,13 +74,16 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
 
     private val json = Json { ignoreUnknownKeys = true }
 
+    /** 渲染后端：UI 层经 [UiRenderAdapter.RenderCard] 渲染卡片，demo 全局共用 AgentRuntime 装配。 */
+    val cardAdapter: UiRenderAdapter get() = AgentRuntime.cardAdapter
+
     private var nextUiId: Int = 0
     private fun nextUiId(): String = (++nextUiId).toString()
 
     init {
         loadSessions()
         // 卡片订阅:卡片经旁路到达,永不进记忆,只在这里落成 UI 消息。
-        // 按 toolCallId 缓存后立即尝试锚点归位,不直接追加——保证卡片恒在工具结果之后；
+        // 按 toolCallId 缓存后立即尝试锚点归位,产卡工具的结果气泡被卡片直接取代；
         // 同时落盘持久化,重启后按锚点恢复。
         viewModelScope.launch {
             sink.cards.collect { card ->
@@ -130,8 +135,10 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                     session.conversation.history(1)
                         .filter { entry ->
                             val msg = entry.message
+                            // 放开 ToolResult：恢复列表需含工具结果，卡片才能按锚点替换它
                             msg is ChatMessage.User ||
-                            (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank())
+                            (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank()) ||
+                            msg is ChatMessage.ToolResult
                         }
                         .map { it.toUiMessage() }
                 )
@@ -195,6 +202,18 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                 _uiState.value = _uiState.value.copy(error = e.message)
             }
         }
+    }
+
+    /**
+     * 卡片动作回流桥：渲染层命中白名单动作时，把 [ActionEvent] 组装为新一轮推理。
+     *
+     * 回流指令以 [io.github.yeyi.agent.genui.ir.Action.label] 作为模型可读文案——
+     * 动作集合由工具作者声明，label 供模型结合卡片与历史理解意图，无需专用意图字段。
+     */
+    fun onCardAction(event: ActionEvent) {
+        val session = _uiState.value.currentSession ?: return
+        if (_uiState.value.isLoading) return
+        sendMessageInternal(session, event.action.label)
     }
 
     private fun sendMessageInternal(session: Session, inputText: String) {
@@ -300,14 +319,15 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     }
 
     /**
-     * 按锚点把卡片插入消息列表：找到对应 ToolExecution（工具结果）消息后插入其后。
+     * 按锚点把卡片替换到消息列表：找到对应 ToolExecution（工具结果）消息后**替换**它。
      *
-     * 产卡工具是 final 工具，无模型总结语，卡片即最终回复，因此必须落在工具结果之后，
-     * 而非调用中气泡之后。
+     * 产卡工具是 final 工具，无模型总结语，卡片即最终回复；工具结果只是中间过程，
+     * 与卡片含义冲突——session 页不显示产卡工具的结果气泡，只显示卡片。
+     * 普通工具（无卡片）的结果气泡照常保留。
      *
      * 卡片流与事件流双向竞态均由 [insertedCards] 幂等收敛：
      * - 卡片先于事件到达：找不到锚点则暂存 [cardsByCallId]，事件到达后再次触发；
-     * - 事件先于卡片到达：直接命中锚点插入；卡片重复到达时已入集合直接跳过。
+     * - 事件先于卡片到达：直接命中锚点替换；卡片重复到达时已入集合直接跳过。
      */
     private fun insertCardAfterAnchor(instanceId: String) {
         if (instanceId in insertedCards) return
@@ -319,7 +339,8 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
             if (anchorIndex < 0) return@update state
             insertedCards.add(instanceId)
             val result = ArrayList(state.messages)
-            result.add(anchorIndex + 1, UiMessage.Card(card, id = "card-$instanceId"))
+            result.removeAt(anchorIndex)
+            result.add(anchorIndex, UiMessage.Card(card, id = "card-$instanceId"))
             state.copy(messages = result)
         }
     }
@@ -356,7 +377,8 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     }
 
     /**
-     * 恢复归位：遍历纯 memory 消息列表，遇 ToolExecution 即把缓存中对应卡片插入其后。
+     * 恢复归位：遍历纯 memory 消息列表，产卡工具的 ToolResult 被卡片**取代**，
+     * 普通工具的 ToolResult 保留为工具结果气泡。
      *
      * 仅用于恢复路径（selectSession 首页 / loadMoreMessages 更早页，消息列表均为纯消息
      * 不含卡片）；实时路径走 [insertCardAfterAnchor]，二者由 [insertedCards] 幂等衔接。
@@ -364,12 +386,17 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     private fun restoreCards(messages: List<UiMessage>): List<UiMessage> {
         val restored = ArrayList<UiMessage>(messages.size)
         for (msg in messages) {
-            restored.add(msg)
             if (msg is UiMessage.ToolExecution) {
-                cardsByCallId[msg.callId]?.let { card ->
+                val card = cardsByCallId[msg.callId]
+                if (card != null) {
+                    // 产卡工具：卡片取代工具结果，只显示卡片
                     restored.add(UiMessage.Card(card, id = "card-${card.instanceId}"))
                     insertedCards.add(card.instanceId)
+                } else {
+                    restored.add(msg)
                 }
+            } else {
+                restored.add(msg)
             }
         }
         return restored
@@ -435,13 +462,15 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
             _uiState.value = _uiState.value.copy(isLoadingMore = true)
             try {
                 val nextPage = _uiState.value.currentPage + 1
-                // 更早页恢复同样走锚点归位：页内 ToolExecution 后补插持久化的卡片
+                // 更早页恢复同样走锚点归位：页内产卡工具的 ToolExecution 被卡片取代
                 val olderMessages = restoreCards(
                     session.conversation.history(nextPage)
                         .filter { entry ->
                             val msg = entry.message
+                            // 放开 ToolResult：恢复列表需含工具结果，卡片才能按锚点替换它
                             msg is ChatMessage.User ||
-                            (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank())
+                            (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank()) ||
+                            msg is ChatMessage.ToolResult
                         }
                         .map { it.toUiMessage() }
                 )
