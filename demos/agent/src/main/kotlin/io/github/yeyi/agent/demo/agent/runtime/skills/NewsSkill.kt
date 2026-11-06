@@ -1,4 +1,4 @@
-package io.github.yeyi.agent.demo.agent.demo.skills
+package io.github.yeyi.agent.demo.agent.runtime.skills
 
 import io.github.yeyi.agent.skill.Skill
 

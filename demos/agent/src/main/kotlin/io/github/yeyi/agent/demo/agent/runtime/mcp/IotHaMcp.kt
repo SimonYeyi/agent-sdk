@@ -1,4 +1,4 @@
-package io.github.yeyi.agent.demo.agent.demo.mcp
+package io.github.yeyi.agent.demo.agent.runtime.mcp
 
 import io.github.yeyi.agent.demo.agent.BuildConfig
 import io.github.yeyi.agent.mcp.Mcp

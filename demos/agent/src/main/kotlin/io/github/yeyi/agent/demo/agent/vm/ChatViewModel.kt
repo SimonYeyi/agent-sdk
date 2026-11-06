@@ -6,7 +6,7 @@ import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
-import io.github.yeyi.agent.demo.agent.demo.AgentRuntime
+import io.github.yeyi.agent.demo.agent.runtime.AgentRuntime
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
 import io.github.yeyi.agent.genui.ir.ActionEvent
 import io.github.yeyi.agent.genui.ir.CardIr
@@ -19,7 +19,6 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch

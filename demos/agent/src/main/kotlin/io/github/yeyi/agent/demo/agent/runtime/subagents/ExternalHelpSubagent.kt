@@ -1,4 +1,4 @@
-package io.github.yeyi.agent.demo.agent.demo.subagents
+package io.github.yeyi.agent.demo.agent.runtime.subagents
 
 import io.github.yeyi.agent.subagent.Subagent
 import io.github.yeyi.agent.subagent.subagent

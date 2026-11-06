@@ -1,19 +1,14 @@
-package io.github.yeyi.agent.demo.agent.demo.tools
+package io.github.yeyi.agent.demo.agent.runtime.tools
 
-import io.github.yeyi.agent.AgentContext
-import io.github.yeyi.agent.AgentPersona
-import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.tool.UiGenTool
 import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.genui.tool.UiSinkRegistry
-import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope

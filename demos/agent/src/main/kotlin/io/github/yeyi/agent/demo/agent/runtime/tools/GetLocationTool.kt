@@ -1,4 +1,4 @@
-package io.github.yeyi.agent.demo.agent.demo.tools
+package io.github.yeyi.agent.demo.agent.runtime.tools
 
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode

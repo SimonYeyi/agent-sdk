@@ -30,7 +30,7 @@ import kotlinx.serialization.json.JsonPrimitive
  * - 方式 3 半自定义（已否决）：叶子复用基础组件函数（如 IosText）仍需手工构造
  *   TreeNode，在模板 Compose 中构造节点徒增麻烦，不如直接写原生 Compose。
  *
- * 由 [io.github.yeyi.agent.demo.agent.demo.AgentRuntime.cardAdapter] 一次性装配。
+ * 由 [io.github.yeyi.agent.demo.agent.runtime.AgentRuntime.cardAdapter] 一次性装配。
  */
 fun DefaultRenderAdapter.registerDemoCardTemplates() {
     register("Location") { node, _, _, _ -> LocationCard(node) }

@@ -6,11 +6,10 @@ import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
-import io.github.yeyi.agent.demo.agent.demo.AgentRuntime
+import io.github.yeyi.agent.demo.agent.runtime.AgentRuntime
 import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.ChatMessage
-import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
@@ -19,7 +18,6 @@ import io.github.yeyi.agent.session.Session
 import io.github.yeyi.agent.session.SessionManager
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.onCompletion

@@ -1,4 +1,4 @@
-package io.github.yeyi.agent.demo.agent.demo.tools
+package io.github.yeyi.agent.demo.agent.runtime.tools
 
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
