@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.demo.agent.runtime.tools
 
+import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
 import io.github.yeyi.agent.genui.tool.UiGenTool
@@ -18,6 +19,9 @@ import kotlinx.serialization.json.jsonObject
  *
  * 产卡方式 2（完全自定义模板）：buildCard 只产出单模板节点，
  * 渲染由 demo 模板 LocationCard 完成——布局与文本全原生 Compose，不依赖基础组件。
+ *
+ * 卡片内嵌「开启导航」动作按钮：点击经 ActionEvent 回流触发新一轮推理，
+ * 经纬度等位置数据已随本次 getResult 写入记忆，模型后续轮次据此执行导航。
  */
 class GetLocationTool(registry: UiSinkRegistry) : UiGenTool(registry) {
 
@@ -42,7 +46,24 @@ class GetLocationTool(registry: UiSinkRegistry) : UiGenTool(registry) {
         val obj = result?.jsonObject ?: return null
         return CardIr(
             instanceId = context.toolCallId,
-            root = TreeNode(component = "Location", bindings = obj),
+            actions = listOf(
+                Action("navigate", "开启导航"),
+                // 动作按钮是 root 的子节点（Button IR），引擎递归渲染并各自绑定白名单动作，
+                // 多按钮天然支持——模板只决定布局位置，不感知按钮实现。
+                // 未来扩展按钮：actions 声明 + children 追加一个 Button 节点即可。
+            ),
+            root = TreeNode(
+                component = "Location",
+                bindings = obj,
+                children = listOf(
+                    TreeNode(
+                        component = "Button",
+                        // variant 由引擎 Button 组件消费；label 自动取 action.label
+                        bindings = buildJsonObject { put("variant", JsonPrimitive("primary")) },
+                        action = "navigate",
+                    ),
+                ),
+            ),
         )
     }
 }

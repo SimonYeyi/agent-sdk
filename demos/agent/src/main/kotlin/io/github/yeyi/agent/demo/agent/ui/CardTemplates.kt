@@ -33,13 +33,13 @@ import kotlinx.serialization.json.JsonPrimitive
  * 由 [io.github.yeyi.agent.demo.agent.runtime.AgentRuntime.cardAdapter] 一次性装配。
  */
 fun DefaultRenderAdapter.registerDemoCardTemplates() {
-    register("Location") { node, _, _, _ -> LocationCard(node) }
+    register("Location") { node, _, _, children -> LocationCard(node, children) }
 }
 
 // ── 方式 2：完全自定义模板（混合写法：顶层复用 IosCard 外壳，叶子全原生 Compose）──
 
 @Composable
-private fun LocationCard(node: TreeNode) {
+private fun LocationCard(node: TreeNode, actions: @Composable () -> Unit) {
     IosCard(node) {
         Text("当前位置", style = MaterialTheme.typography.titleSmall)
         FieldRow("城市", node.bindingText("city"))
@@ -47,6 +47,10 @@ private fun LocationCard(node: TreeNode) {
         FieldRow("国家", node.bindingText("country"))
         FieldRow("纬度", node.bindingText("latitude"))
         FieldRow("经度", node.bindingText("longitude"))
+        // 动作按钮插槽：引擎递归渲染 root.children（Button 子树），
+        // 每个按钮独立绑定白名单动作并回流，多按钮天然支持。
+        // 模板只决定按钮的布局位置，不感知按钮实现。
+        actions()
     }
 }
 

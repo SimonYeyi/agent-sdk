@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.demo.agent.runtime.tools
 
 import io.github.yeyi.agent.fakes.testAgentContext
+import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.tool.UiGenTool
 import io.github.yeyi.agent.genui.tool.UiSink
@@ -57,10 +58,13 @@ class AllToolsTest {
     fun `GetDateTimeTool 产出时间卡片`() = runTest {
         val (result, card) = executeAndCollectCard { GetDateTimeTool(it) }
         assertFalse(result.isError)
+        // 回执携带日期时间数据（数据进记忆，卡片旁路）
+        assertTrue(result.parts.text.contains("date"))
+        assertTrue(result.parts.text.contains("time"))
         val root = assertNotNull(card).root
-        assertEquals("DateTime", root.component)
-        assertTrue(root.bindings["time"]!!.jsonPrimitive.content.endsWith("Z"))
-        assertTrue(root.bindings["date"]!!.jsonPrimitive.content.isNotEmpty())
+        // 方式 1 标准 IR：Card 外壳承载组件树，时间数据在子节点
+        assertEquals("Card", root.component)
+        assertTrue(root.children.isNotEmpty())
     }
 
     @Test
@@ -70,6 +74,11 @@ class AllToolsTest {
         val root = assertNotNull(card).root
         assertEquals("Location", root.component)
         assertEquals("珠海", root.bindings["city"]!!.jsonPrimitive.content)
+        // 卡片声明导航动作白名单，动作按钮作为 root 子节点由引擎渲染并各自回流
+        assertEquals(listOf(Action("navigate", "开启导航")), card.actions)
+        val button = root.children.single()
+        assertEquals("Button", button.component)
+        assertEquals("navigate", button.action)
     }
 
     @Test
