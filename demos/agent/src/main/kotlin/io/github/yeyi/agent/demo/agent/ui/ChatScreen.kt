@@ -31,6 +31,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.yeyi.agent.demo.agent.vm.ChatViewModel
@@ -47,6 +48,7 @@ fun ChatScreen(
     val steerHint by viewModel.steerHint.collectAsStateWithLifecycle()
     val isProcessing by viewModel.isProcessing.collectAsStateWithLifecycle()
     val mode by viewModel.mode.collectAsStateWithLifecycle()
+    val focusManager = LocalFocusManager.current
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -197,6 +199,9 @@ fun ChatScreen(
                 // 没有就开新一轮，由 agent 的槽位决定，调用方不预判状态。
                 Button(
                     onClick = {
+                        // 先撤焦点：输入框失去焦点，键盘随之收起（Button 默认不抢焦点，
+                        // 不清焦点键盘会留在原地）
+                        focusManager.clearFocus()
                         viewModel.submit(input.trim())
                         input = ""
                     },
@@ -206,6 +211,9 @@ fun ChatScreen(
                 Button(
                     onClick = {
                         if (input.isNotBlank()) {
+                            // 先撤焦点：输入框失去焦点，键盘随之收起（Button 默认不抢焦点，
+                            // 不清焦点键盘会留在原地）
+                            focusManager.clearFocus()
                             autoScroll = true
                             viewModel.submit(input.trim())
                             input = ""
