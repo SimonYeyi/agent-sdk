@@ -79,7 +79,14 @@ public class ReActAgent internal constructor(
      * 批式执行本轮 —— 轮次语义见 [Agent.run]。
      *
      * 终局事件（[AgentEvent.Final] / [AgentEvent.Failed] / [AgentEvent.Canceled]）
-     * 发出时本轮已退场（槽位已还），故收到终局事件后紧接着再调本方法必定起得来。
+     * 是本轮流的最后一个事件 —— 收到它即流结束；且终局事件发出时本轮已退场
+     * （槽位已还）。故三者等价：**收到终局事件 == 流结束 == 可以开新一轮**，
+     * 紧接着再调本方法必定起得来。
+     *
+     * 已知边界：还槽与终局事件发出之间没有挂起点（还槽是 CAS + 关信箱，
+     * 终局事件走无界缓冲不挂起），新轮的创建理论上能挤进这条缝。但新轮的
+     * Initial 要等其执行体被调度才发得出，而旧轮的终局事件紧跟在还槽之后
+     * 发出 —— 实际观测顺序恒为"旧轮终局事件先于新轮 Initial"。
      */
     override fun run(query: AgentQuery): Flow<AgentEvent> =
         runTurn(AgentTurn(query) { req -> llmProvider.chat(req) })
