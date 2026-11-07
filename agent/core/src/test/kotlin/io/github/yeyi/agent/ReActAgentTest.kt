@@ -4,9 +4,11 @@ import io.github.yeyi.agent.fakes.EchoTool
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.fakes.registryOf
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
+import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.MediaSource
 import io.github.yeyi.agent.llm.Role
 import io.github.yeyi.agent.llm.ChatResponseEvent
@@ -22,7 +24,11 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -853,20 +859,37 @@ class ReActAgentTest {
      * 回归：终局顺序是"先还槽、后发终局事件" —— 收集方收到终局事件的那一刻，
      * 槽位必须已经归还，收集方可以立刻开下一轮。
      *
-     * 用 Unconfined 让收集方在执行体的 emit 调用里就地恢复（收集线程 = 执行线程），
-     * 收事件与还槽的先后关系被放大到可判定：若终局事件先于还槽发出，
-     * 下面这行 run() 会撞 "Concurrent run not supported"。
+     * 本用例锁的是**对外承诺**：收到终局事件 ⟹ 槽位已还 ⟹ 紧接着 run() 必定起得来。
+     *
+     * 它验的不是 core 内部「还槽先于发事件」这句语句顺序 —— 终局事件的**送达**
+     * 发生在 emit 返回之后（终局流要靠 transformWhile 收尾，而 transformWhile 的
+     * flow{ coroutineScope{…} } 把收集方的恢复派发到了 emit 之外），故收集方回调
+     * 永远看不到「槽位还占着」那个中间态：把 core 里的顺序倒过来，本用例照样通过。
+     * 内部顺序靠代码审读保证（core 侧注释已写明），黑盒测不出来。
+     * 这与「混流」是同一类：理论窗口，靠调度延迟兜底 —— 顺序的价值在于让保证
+     * 无条件成立，而不是修一个可观察的缺陷。
+     *
+     * 收尾要覆盖真实时序：provider 的第一次调用挂在闸门上，轮次停在 LLM 调用里，
+     * 等收集方订阅完毕再放行 —— 终局事件是"轮次还活着时"发出的，不是回放里的旧事件。
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     @Test
     fun `终局事件送达时槽位已还 —— 收到 Final 立即开新轮必定成功`() =
         runTest(UnconfinedTestDispatcher()) {
-            val provider = FakeLlmProvider(
-                nonStreamResponses = listOf(
-                    ChatResponse(ChatMessage.Assistant(content = "one"), finishReason = FinishReason.Stop),
-                    ChatResponse(ChatMessage.Assistant(content = "two"), finishReason = FinishReason.Stop)
-                )
-            )
+            val gate = CompletableDeferred<Unit>()
+            var calls = 0
+            val provider = object : LlmProvider {
+                override val name = "gated"
+                override suspend fun chat(request: ChatRequest): ChatResponse {
+                    calls++
+                    if (calls == 1) {
+                        gate.await() // 轮次停在 LLM 调用里，等收集方订阅完毕
+                        return ChatResponse(ChatMessage.Assistant(content = "one"), finishReason = FinishReason.Stop)
+                    }
+                    return ChatResponse(ChatMessage.Assistant(content = "two"), finishReason = FinishReason.Stop)
+                }
+                override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { }
+            }
             val agent = ReActAgent(
                 id = "test",
                 persona = AgentPersona(""),
@@ -879,17 +902,128 @@ class ReActAgentTest {
                 dispatcher = UnconfinedTestDispatcher(testScheduler)
             )
 
-            var secondStarted = false
-            agent.run(AgentQuery.text("one")).collect { event ->
-                if (event is AgentEvent.Final) {
-                    // 此刻槽位已还：这行不会抛并发拒绝
-                    agent.run(AgentQuery.text("two"))
-                    secondStarted = true
+            val flow = agent.run(AgentQuery.text("one")) // 轮次开跑，停在闸门上
+
+            var newRoundFailure: Throwable? = null
+            val collector = launch {
+                flow.collect { event ->
+                    if (event is AgentEvent.Final) {
+                        // 此刻槽位已还：这行不会抛并发拒绝
+                        newRoundFailure = runCatching { agent.run(AgentQuery.text("two")) }.exceptionOrNull()
+                    }
                 }
             }
+            gate.complete(Unit) // 放行 → 终局 → 事件送达收集方
+            collector.join()
 
-            assertTrue(secondStarted, "收到终局事件后应能立即开新轮")
-            assertEquals(2, provider.recordedRequests.size, "新轮确实跑起来了")
+            assertNull(newRoundFailure, "收到终局事件后应能立即开新轮")
+            assertEquals(2, calls, "新轮确实跑起来了")
+        }
+
+    /**
+     * 回归：取消路径的终局顺序同样是"先还槽、后发终局事件" ——
+     * 收集方收到 Canceled 的那一刻槽位必须已经归还，可以立刻开下一轮。
+     *
+     * 取消是 demo 的 Cancel 按钮直接走的路径，契约与 Final 路径同型：
+     * 收到 Canceled ⟹ 槽位已还 ⟹ run() 必定起得来。
+     * 本用例锁的是对外承诺（内部顺序为何黑盒测不出，见 Final 用例的说明）。
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `终局事件送达时槽位已还 —— 收到 Canceled 立即开新轮必定成功`() =
+        runTest(UnconfinedTestDispatcher()) {
+            // provider 永不返回：轮次停在 LLM 调用上，直到被 cancel 打断。
+            val provider = object : LlmProvider {
+                override val name = "hanging"
+                override suspend fun chat(request: ChatRequest): ChatResponse = awaitCancellation()
+                override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { }
+            }
+            val agent = ReActAgent(
+                id = "test",
+                persona = AgentPersona(""),
+                llmProvider = provider,
+                toolRegistry = registryOf(),
+                memory = InMemoryMemory(),
+                modalityAdapter = DefaultModalityAdapter(null),
+                maxRounds = 20,
+                maxIterations = 5,
+                dispatcher = UnconfinedTestDispatcher(testScheduler)
+            )
+
+            val flow = agent.run(AgentQuery.text("hi")) // 轮次开跑，停在 LLM 调用里
+
+            var newRoundFailure: Throwable? = null
+            val collector = launch {
+                flow.collect { event ->
+                    if (event is AgentEvent.Canceled) {
+                        // 此刻槽位已还：这行不会抛并发拒绝
+                        newRoundFailure = runCatching { agent.run(AgentQuery.text("again")) }.exceptionOrNull()
+                    }
+                }
+            }
+            agent.cancel("boom") // 打断 → 还槽 → Canceled 送达收集方
+            collector.join()
+
+            assertNull(newRoundFailure, "收到 Canceled 后应能立即开新轮")
+        }
+
+    /**
+     * 回归：失败路径的终局顺序同样是"先还槽、后发终局事件" ——
+     * 收集方收到 Failed 的那一刻槽位必须已经归还，可以立刻开下一轮。
+     *
+     * 本用例锁的是对外承诺（内部顺序为何黑盒测不出，见 Final 用例的说明）；
+     * 顺带钉住 Failed 携带原始异常 —— 失败被静默吞成 Canceled 是这条路径上更大的坑。
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `终局事件送达时槽位已还 —— 收到 Failed 立即开新轮必定成功`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val boom = IllegalStateException("llm down")
+            val gate = CompletableDeferred<Unit>()
+            var calls = 0
+            val provider = object : LlmProvider {
+                override val name = "gated-failing"
+                override suspend fun chat(request: ChatRequest): ChatResponse {
+                    calls++
+                    if (calls == 1) {
+                        gate.await() // 轮次停在 LLM 调用里，等收集方订阅完毕
+                        throw boom
+                    }
+                    return ChatResponse(ChatMessage.Assistant(content = "second"), finishReason = FinishReason.Stop)
+                }
+                override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { }
+            }
+            val agent = ReActAgent(
+                id = "test",
+                persona = AgentPersona(""),
+                llmProvider = provider,
+                toolRegistry = registryOf(),
+                memory = InMemoryMemory(),
+                modalityAdapter = DefaultModalityAdapter(null),
+                maxRounds = 20,
+                maxIterations = 5,
+                dispatcher = UnconfinedTestDispatcher(testScheduler)
+            )
+
+            val flow = agent.run(AgentQuery.text("hi")) // 轮次开跑，停在闸门上
+
+            var failedCause: Throwable? = null
+            var newRoundFailure: Throwable? = null
+            val collector = launch {
+                flow.collect { event ->
+                    if (event is AgentEvent.Failed) {
+                        failedCause = event.cause
+                        // 此刻槽位已还：这行不会抛并发拒绝
+                        newRoundFailure = runCatching { agent.run(AgentQuery.text("again")) }.exceptionOrNull()
+                    }
+                }
+            }
+            gate.complete(Unit) // 放行 → 失败 → 还槽 → Failed 送达收集方
+            collector.join()
+
+            assertSame(boom, failedCause, "Failed 须携带原始异常")
+            assertNull(newRoundFailure, "收到 Failed 后应能立即开新轮")
+            assertEquals(2, calls, "新轮确实跑起来了")
         }
 
     @OptIn(ExperimentalCoroutinesApi::class)
