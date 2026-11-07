@@ -10,8 +10,10 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ChatResponseEvent
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -212,16 +214,62 @@ class ChatViewModelTest {
         assertEquals(1, fake.runs.get(), "无活跃轮次时应开新轮")
     }
 
+    /**
+     * 回归：旧轮的收尾不得抹掉新会话的状态。
+     *
+     * clearMessages 换掉 agent 后，旧轮的收集协程仍活到旧轮终局为止 ——
+     * 它的收尾（finally）落在新会话的状态上：进行中标记被置回 false、
+     * 流式气泡被清、工具标记被清。故收尾要与事件同守一道会话守卫。
+     */
+    @Test
+    fun `旧轮收尾不得抹掉新会话的状态`(): Unit = runBlocking {
+        // 每次建 agent 都给一个新实例 —— 会话身份靠 agent 实例区分
+        val agents = mutableListOf<FakeSteerAgent>()
+        val vm = ChatViewModel(agentFactory = { _, _ ->
+            FakeSteerAgent().also { agents += it }
+        })
+
+        // 第一轮：进行中
+        vm.submit("旧会话")
+        awaitValue { agents.size.takeIf { it == 1 } }
+        agents[0].channels[0].trySend(AgentEvent.Initial(AgentQuery.text("旧会话")))
+        awaitValue { Unit.takeIf { vm.isProcessing.value } }
+
+        // 换会话：旧轮仍在跑（它的 channel 未关，收尾未发生）
+        vm.clearMessages()
+        assertTrue(!vm.isProcessing.value, "新会话应从非进行中状态开始")
+
+        // 新会话的第一轮：进行中，且有流式气泡
+        vm.submit("新会话")
+        awaitValue { agents.size.takeIf { it == 2 } }
+        agents[1].channels[0].trySend(AgentEvent.Initial(AgentQuery.text("新会话")))
+        awaitValue { Unit.takeIf { vm.isProcessing.value } }
+        agents[1].channels[0].trySend(AgentEvent.TextDelta("新会话的回复"))
+        awaitValue { Unit.takeIf { vm.liveBubble.value != null } }
+
+        // 旧轮此刻才收尾 —— 不得影响新会话的状态
+        agents[0].channels[0].close()
+        agents[0].completions[0].await()
+        kotlinx.coroutines.delay(200) // 让旧轮收集协程的收尾跑完
+
+        assertTrue(vm.isProcessing.value, "旧轮收尾不得把新会话的进行中状态置回 false")
+        assertTrue(vm.liveBubble.value != null, "旧轮收尾不得清掉新会话的流式气泡")
+    }
+
     /** steer 可控的假 agent：轮次由测试用 channel 控制何时收尾、发出什么事件。 */
     private class FakeSteerAgent(private val steerable: Boolean = false) : Agent, Agent.Steerable {
         val runs = AtomicInteger()
         val channels = mutableListOf<Channel<AgentEvent>>()
+        /** 每轮流结束的时刻 —— 测试据此知道旧轮已收尾。 */
+        val completions = mutableListOf<CompletableDeferred<Unit>>()
 
         override fun run(query: AgentQuery): Flow<AgentEvent> {
             runs.incrementAndGet()
             val channel = Channel<AgentEvent>(Channel.UNLIMITED)
+            val done = CompletableDeferred<Unit>()
             channels += channel
-            return channel.receiveAsFlow()
+            completions += done
+            return channel.receiveAsFlow().onCompletion { done.complete(Unit) }
         }
 
         override fun steer(query: AgentQuery): Boolean = steerable

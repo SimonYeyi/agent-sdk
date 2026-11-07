@@ -257,9 +257,13 @@ class ChatViewModel(
                 }
             } finally {
                 // 轮次收尾：终局事件已渲染，进行中状态归位。
-                _isProcessing.value = false
-                _liveBubble.value = null
-                inProgressByCallId.clear()
+                // 会话已被 clearMessages 换掉时不得归位 —— 旧轮的收尾落在新会话的
+                // 状态上（进行中标记被抹、流式气泡被清、工具标记被清）。
+                if (current === agent) {
+                    _isProcessing.value = false
+                    _liveBubble.value = null
+                    inProgressByCallId.clear()
+                }
             }
         }
     }
