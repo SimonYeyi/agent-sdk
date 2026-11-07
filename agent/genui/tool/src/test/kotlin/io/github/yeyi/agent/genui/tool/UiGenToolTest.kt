@@ -33,22 +33,29 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class UiGenToolTest {
 
+    /** 测试侧的卡片类型标识：基类的 CardKind 是 protected，测试类（非子类）不能直接引用。 */
+    private enum class FakeKind { NONE, INFO, ASK }
+
     private class FakeUiGenTool(
         private val data: JsonElement?,
         private val card: CardIr?,
         registry: UiSinkRegistry,
-        private val askUser: Boolean = false
+        private val kind: FakeKind = FakeKind.INFO
     ) : UiGenTool(registry) {
         var getResultArguments: JsonElement? = null
         var buildCardData: JsonElement? = null
         var buildCardArguments: JsonElement? = null
+        var buildCardCalls: Int = 0
 
         override val name: String = "fake_tool"
         override val description: String = "fake"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
 
-        override fun cardKind(arguments: JsonElement): CardKind =
-            if (askUser) CardKind.ASK else CardKind.INFO
+        override fun cardKind(arguments: JsonElement): CardKind = when (kind) {
+            FakeKind.NONE -> CardKind.NONE
+            FakeKind.INFO -> CardKind.INFO
+            FakeKind.ASK -> CardKind.ASK
+        }
 
         override suspend fun getResult(
             arguments: JsonElement,
@@ -63,6 +70,7 @@ class UiGenToolTest {
             result: JsonElement?,
             context: ToolExecutionContext
         ): CardIr? {
+            buildCardCalls++
             buildCardData = result
             buildCardArguments = arguments
             return card
@@ -174,7 +182,7 @@ class UiGenToolTest {
             data = null,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
             registry = registeredRegistry(sink),
-            askUser = true,
+            kind = FakeKind.ASK,
         )
         val job = backgroundScope.launch { sink.cards.collect { } }
         runCurrent() // 排空调度队列，确保订阅注册后再执行
@@ -226,7 +234,7 @@ class UiGenToolTest {
             data = null,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
             registry = registeredRegistry(sink),
-            askUser = true,
+            kind = FakeKind.ASK,
         )
         val job = backgroundScope.launch { sink.cards.collect { } }
         runCurrent()
@@ -236,6 +244,101 @@ class UiGenToolTest {
 
         job.cancel()
         assertTrue(tool.finalizable(arguments, returned))
+    }
+
+    @Test
+    fun `问询卡未产出卡片时判失败不终结`() = runTest {
+        val sink = UiSink()
+        // 问询卡必须产出：没卡就没有提问，此时终结本轮会让用户干等
+        val tool = FakeUiGenTool(
+            data = null,
+            card = null,
+            registry = registeredRegistry(sink),
+            kind = FakeKind.ASK,
+        )
+        val job = backgroundScope.launch { sink.cards.collect { } }
+        runCurrent()
+
+        assertFailsWith<IllegalStateException> { tool.execute(arguments, context()) }
+        assertFalse(tool.finalizable(arguments, ToolExecutionResult.error("no card")))
+
+        job.cancel()
+    }
+
+    @Test
+    fun `回执不成立时卡片不发出`() = runTest {
+        val sink = UiSink()
+        // 信息卡没有数据可回执：回执定稿在前，卡片不得先发到用户手上
+        val tool = FakeUiGenTool(
+            data = null,
+            card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
+            registry = registeredRegistry(sink),
+        )
+        var cardCount = 0
+        val job = backgroundScope.launch { sink.cards.collect { cardCount++ } }
+        runCurrent()
+
+        assertFailsWith<IllegalStateException> { tool.execute(arguments, context()) }
+        runCurrent()
+
+        job.cancel()
+        assertEquals(0, cardCount)
+    }
+
+    @Test
+    fun `不产卡类型不调用 buildCard 且不终结`() = runTest {
+        val sink = UiSink()
+        val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
+        val tool = FakeUiGenTool(
+            data = data,
+            card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
+            registry = registeredRegistry(sink),
+            kind = FakeKind.NONE,
+        )
+        var cardCount = 0
+        val job = backgroundScope.launch { sink.cards.collect { cardCount++ } }
+        runCurrent()
+
+        val returned = tool.execute(arguments, context())
+        runCurrent()
+
+        job.cancel()
+        // 不产卡由 cardKind 声明，不靠 buildCard 返回 null 协商——buildCard 压根不被调用
+        assertEquals(0, tool.buildCardCalls)
+        assertEquals(0, cardCount)
+        // 回执即数据，不追加「卡片已展示」的告知
+        assertEquals(ToolExecutionResult.success(data.toString()), returned)
+        assertFalse(tool.finalizable(arguments, returned))
+    }
+
+    @Test
+    fun `错误回执时裁决不触达 cardKind`() = runTest {
+        // 不变式：finalizable 里 `!result.isError` 先短路——执行失败时不会二次求值 cardKind。
+        // 这条短路正是「裁决阶段无需 core 兜底捕获异常」的依据：
+        // cardKind 抛异常只会在 execute 阶段暴露（转错误回执，模型重试），不会掀翻回合。
+        val exploding = object : UiGenTool(UiSinkRegistry()) {
+            override val name: String = "exploding_card"
+            override val description: String = "exploding"
+            override val parametersSchema: ToolParameters = ToolParameters.Empty
+            override fun cardKind(arguments: JsonElement): CardKind =
+                throw IllegalStateException("cardKind must not throw")
+
+            override suspend fun getResult(
+                arguments: JsonElement,
+                context: ToolExecutionContext
+            ): JsonElement = JsonObject(mapOf("x" to JsonPrimitive(1)))
+
+            override fun buildCard(
+                arguments: JsonElement,
+                result: JsonElement?,
+                context: ToolExecutionContext
+            ): CardIr? = null
+        }
+
+        // 执行阶段抛出：异常向上传播，由 dispatch 转成错误回执（模型可见、可重试）
+        assertFailsWith<IllegalStateException> { exploding.execute(arguments, context()) }
+        // 错误回执下裁决短路返回 false，不再触达 cardKind
+        assertFalse(exploding.finalizable(arguments, ToolExecutionResult.error("failed")))
     }
 
     @Test

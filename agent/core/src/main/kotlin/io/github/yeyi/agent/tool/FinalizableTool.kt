@@ -23,6 +23,11 @@ public interface FinalizableTool {
     /**
      * 本轮工具执行完成后，是否可安全终结（不再触发下一轮推理）。
      *
+     * 实现不得抛异常：本方法跑在工具执行之后的短路裁决点，抛出不会被
+     * [io.github.yeyi.agent.tool.ToolRegistry.dispatch] 收成错误回执，而是掀翻本轮。
+     * 裁决遇到非法入参等情形，按各自契约降级处理（如产卡工具用「不产卡」表达降级），
+     * 不要以异常表达。
+     *
      * @param arguments 本轮工具调用的原始入参（模型发出的 tool call arguments），
      * 工具可据此裁决终结与否——如按入参决定是否产卡的产卡工具。
      * @param result 本轮工具的执行结果（execute 返回或异常转换后的错误回执），
