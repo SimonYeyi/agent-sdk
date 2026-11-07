@@ -101,13 +101,17 @@ class WebSearchTool(registry: UiSinkRegistry) : UiGenTool(registry) {
         return CardIr(
             instanceId = context.toolCallId,
             root = TreeNode(
-                component = "Text",
-                bindings = buildJsonObject {
-                    put(
-                        "content",
-                        JsonPrimitive(obj.str("text"))
-                    )
-                },
+                component = "Card",
+                children = listOf(
+                    TreeNode(
+                    component = "Text",
+                    bindings = buildJsonObject {
+                        put(
+                            "content",
+                            JsonPrimitive(obj.str("text"))
+                        )
+                    }
+                )),
             ),
         )
     }
