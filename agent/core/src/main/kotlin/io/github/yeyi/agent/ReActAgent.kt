@@ -208,15 +208,23 @@ public class ReActAgent internal constructor(
                 try {
                     ChatMessage.Assistant(e.message ?: e.toString()).addToMemory(memory, "error")
                 } catch (t: CancellationException) {
-                    throw t // 取消优先于失败：取消态下写入失败仍须以 Canceled 收尾
+                    // 取消优先于失败：写记忆时撞上取消 → 失败记录没落进记忆，
+                    // 这一轮什么也没留下 → 以 Canceled 收尾。
+                    throw t
                 } catch (t: Throwable) {
                     log.warn("write error message to memory failed", t)
                 }
-                // hook 必须在 retireTurn 之前调：它抛取消异常会外抛本 catch 块（同级 catch
-                // 接不住），终局由 invokeOnCompletion 兜底转成 Canceled —— 与上面
-                // 「取消优先于失败」同一口径。若挪到 retireTurn 之后，兜底判据
-                // （槽位仍是本轮）不成立，终局事件一个都不发。
-                hook.safeInvoke { onRunFailed(turn.iterationContext, e) }
+                // 失败记录已落进记忆 → 这一轮留下了失败的事实 → 终局必须是 Failed：
+                // hook 处的取消（hook 体内的挂起点被取消投递）不覆盖已成立的失败。
+                // hook 必须在 retireTurn 之前调 —— 若挪到 retireTurn 之后，
+                // 终局兜底的判据（槽位仍是本轮）不成立，终局事件一个都不发。
+                try {
+                    hook.safeInvoke { onRunFailed(turn.iterationContext, e) }
+                } catch (t: CancellationException) {
+                    // 终局事件优先：吞掉这次取消，Failed 仍要送达
+                    // （emit 走无界缓冲，不挂起、不看取消态）。
+                    log.warn("onRunFailed hook cancelled", t)
+                }
                 retireTurn(turn)
                 turn.events.emit(AgentEvent.Failed(e))
             }
@@ -230,7 +238,8 @@ public class ReActAgent internal constructor(
         }
         // 终局兜底：终局事件没发出去时补发。两种触发：
         // - 执行体从未跑起来（LAZY job 在派发前被取消）；
-        // - 终局路径中途抛异常外抛（如失败分支的 hook 抛取消异常）。
+        // - 终局路径中途抛取消异常外抛（如失败分支写记忆时撞上取消 —— 失败记录
+        //   没落进记忆，这一轮什么也没留下，故以 Canceled 收尾）。
         // 两种情况下都没有终局事件，收集方将永久挂起。
         // 槽位仍是本回合 ⟺ 还没人还过槽 ⟺ 终局事件尚未发出：补发终局 + 还槽；
         // 正常路径槽已还，判别名不成立即跳过，不会双发终局。

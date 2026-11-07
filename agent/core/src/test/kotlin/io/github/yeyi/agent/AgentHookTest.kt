@@ -367,6 +367,36 @@ class AgentHookTest {
         assertEquals(0, errorHook.errors.size)
     }
 
+    /**
+     * 回归：失败分支的 hook 抛取消异常，终局仍必须是 Failed。
+     *
+     * 失败记录（error 助手消息）已落进记忆 —— 这一轮留下了失败的事实，
+     * hook 处的取消不覆盖它。若这次取消被外抛，终局会落到兜底变成 Canceled，
+     * 调用方拿不到原始异常，失败被静默吞掉。
+     */
+    @Test
+    fun `cancellation thrown by onRunFailed hook still ends with Failed`() = runTest {
+        val hook = object : EmptyAgentHook() {
+            override suspend fun onRunFailed(context: AgentContext, cause: Throwable) {
+                throw kotlinx.coroutines.CancellationException("hook cancelled")
+            }
+        }
+        val boom = AgentException.LlmError(RuntimeException("llm unavailable"))
+        val provider = object : LlmProvider {
+            override val name = "throwing"
+            override suspend fun chat(request: ChatRequest): ChatResponse = throw boom
+            override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { /* not used */ }
+        }
+        val agent = ReActAgent(
+            id = "test", persona = AgentPersona(""), llmProvider = provider, toolRegistry = registryOf(),
+            memory = InMemoryMemory(), modalityAdapter = DefaultModalityAdapter(null), maxRounds = 20, maxIterations = 5, hook = hook,
+            dispatcher = StandardTestDispatcher(testScheduler)
+        )
+        val events = agent.run(AgentQuery.text("hi")).toList()
+        assertTrue(events.last() is AgentEvent.Failed, "hook 抛取消异常不得把终局改成 Canceled: $events")
+        assertSame(boom, (events.last() as AgentEvent.Failed).cause)
+    }
+
     @Test
     fun `beforeToolCall returning non-null short-circuits tool execution but emits tool events`() = runTest {
         val shortCircuit = ToolExecutionResult.success("synthetic-from-hook")
