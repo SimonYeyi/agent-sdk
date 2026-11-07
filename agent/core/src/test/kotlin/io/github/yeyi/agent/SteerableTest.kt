@@ -606,14 +606,12 @@ class SteerableTest {
     /**
      * 回归：与终局交接同时到达的 steer 必须返回 false —— 那一轮已经死了。
      *
-     * finalize 持闸跨越 emit(Final)：闸被占住的窗口是"等收集方把 Final 接走"的全长。
-     * 这期间到达的 steer() 读到槽位还占着 → 阻塞在闸上 → finalize 放闸后才继续投递：
-     * - 信箱已关 → 投递失败 → 重读槽位 → 已空 → 返回 false，调用方按
-     *   "if (!steer) run(...)" 兜底开新轮，指令送达；
-     * - 信箱还开着 → 投递成功 → 返回 true → 指令进了没人再排空的信箱，被静默丢弃，
-     *   且调用方以为已被接受、不再兜底 —— 指令丢失。
+     * 终局路径"先还槽、后发终局事件"：还槽之后槽位已空，这期间到达的 steer()
+     * 读到空槽位 → 直接返回 false，调用方按 "if (!steer) run(...)" 兜底开新轮，指令送达。
+     * 若顺序反了（先发事件、后还槽），steer() 可能读到还占着槽位的那一轮并投递成功 ——
+     * 指令进了没人再排空的信箱，被静默丢弃，且调用方以为已被接受、不再兜底 —— 指令丢失。
      *
-     * 构造：收集方在 Initial 上磨蹭，让 finalize 持闸等着；另一个线程在这个窗口里 steer。
+     * 构造：收集方在 Initial 上磨蹭，把终局交接拉长；另一个线程在这个窗口里 steer。
      */
     @Test
     fun `steer racing with the final handover reports no active round`() = runBlocking {
@@ -648,4 +646,76 @@ class SteerableTest {
         )
         collector.join()
     }
+
+    /**
+     * 契约4：终局事件的回调里可同步开新轮，并把指令 steer 进新轮。
+     *
+     * 终局路径"先还槽、后发终局事件"，且终局事件在闸外发出 —— 故回调里
+     * agent.run() 必定起得来（槽位已还），随后的 steer() 命中新轮并当场返回 true，
+     * 既不等闸也不阻塞。
+     */
+    @Test
+    fun `terminal event handler can start the next round and steer into it synchronously`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val provider = ControllableLlmProvider(
+                listOf(
+                    ChatResponse(ChatMessage.Assistant(content = "first"), finishReason = FinishReason.Stop),
+                    ChatResponse(ChatMessage.Assistant(content = "second"), finishReason = FinishReason.Stop)
+                )
+            )
+            val mem = InMemoryMemory()
+            val agent = ReActAgent(
+                id = "test",
+                persona = AgentPersona(""),
+                llmProvider = provider,
+                toolRegistry = registryOf(),
+                memory = mem,
+                modalityAdapter = DefaultModalityAdapter(null),
+                maxRounds = 20,
+                maxIterations = 5,
+                dispatcher = StandardTestDispatcher(testScheduler)
+            )
+
+            val firstEvents = mutableListOf<AgentEvent>()
+            val secondEvents = mutableListOf<AgentEvent>()
+            val steerResult = CompletableDeferred<Boolean>()
+
+            backgroundScope.launch {
+                agent.run(AgentQuery.text("one")).collect { event ->
+                    firstEvents += event
+                    if (event is AgentEvent.Final) {
+                        // 终局回调内同步开新轮：槽位已还，run() 必定起得来
+                        val next = agent.run(AgentQuery.text("two"))
+                        // 同步 steer 进新轮：当场返回 true，不等闸
+                        steerResult.complete(agent.steer(AgentQuery.text("into round two")))
+                        backgroundScope.launch { next.collect { secondEvents += it } }
+                    }
+                }
+            }
+            advanceUntilIdle() // 第一轮跑到 chat() 的 gate 上
+
+            provider.completeNext() // 第一轮拿到响应 → 终局 → 回调内开新轮并 steer
+            advanceUntilIdle()
+
+            assertTrue(steerResult.await(), "steer into the new round must be delivered synchronously")
+
+            provider.completeNext() // 第二轮拿到响应
+            advanceUntilIdle()
+
+            assertTrue(firstEvents.first() is AgentEvent.Initial)
+            assertTrue(firstEvents.last() is AgentEvent.Final)
+            assertTrue(secondEvents.first() is AgentEvent.Initial, "round two starts with its own Initial")
+            assertTrue(secondEvents.last() is AgentEvent.Final, "round two ends with Final")
+
+            val userTexts = mem.history()
+                .map { it.message }
+                .filterIsInstance<ChatMessage.User>()
+                .flatMap { it.parts }
+                .filterIsInstance<ContentPart.Text>()
+                .map { it.text }
+            assertTrue(
+                userTexts.any { it.contains("into round two") },
+                "the steered instruction must reach the new round: $userTexts"
+            )
+        }
 }

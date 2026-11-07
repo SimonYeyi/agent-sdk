@@ -86,7 +86,7 @@ public class ReActAgent internal constructor(
      * 已知边界：还槽与终局事件发出之间没有挂起点（还槽是 CAS + 关信箱，
      * 终局事件走无界缓冲不挂起），新轮的创建理论上能挤进这条缝。但新轮的
      * Initial 要等其执行体被调度才发得出，而旧轮的终局事件紧跟在还槽之后
-     * 发出 —— 实际观测顺序恒为"旧轮终局事件先于新轮 Initial"。
+     * 发出 —— 串行轮次情况下，实际观测顺序恒为"旧轮终局事件先于新轮 Initial"。
      */
     override fun run(query: AgentQuery): Flow<AgentEvent> =
         runTurn(AgentTurn(query) { req -> llmProvider.chat(req) })
@@ -103,15 +103,16 @@ public class ReActAgent internal constructor(
 
     /**
      * 投递在途指令 —— 与终局裁决互斥：[AgentTurn.lock] 序列化"投递"与
-     * "判空 → 还槽 → 发终局事件"，堵死"指令被接受却没被消费"的窗口
+     * "判空 → 还槽 + 关信箱"，堵死"指令被接受却没被消费"的窗口
      * （投递若挤进终局窗口，指令会被 Final 带走）。
      *
      * 投递失败契约：返回 false ⟺ 无活跃 run ⟺ 调用方可安全开新轮
      * （[Agent.run] 必定起得来 —— 终局路径先还槽再发终局事件，槽位先于 false 空出）。
      *
-     * 纪律：闸内允许且仅允许 onRunCompleted 与 emit(Final) 两个已知挂起点，
+     * 纪律：闸内允许且仅允许 onRunCompleted 一个已知挂起点（终局事件已在闸外发出），
      * 严禁其他 suspend——持闸挂起会阻塞其他线程的投递，编译器不拦，只能靠约定。
-     * 死锁硬约束：collector / AgentHook 回调内严禁同步调用 steer()（闸门不可重入）。
+     * 死锁硬约束：AgentHook 回调内严禁同步调用 steer()（闸门不可重入）；
+     * collector 回调内不受此限 —— 终局事件在闸外发出，此刻既不持闸、槽位也已还。
      */
     override fun steer(query: AgentQuery): Boolean {
         // 读槽位与投递之间轮次可能刚好终结（信箱已关）→ 投递失败时重读槽位再试；
@@ -119,7 +120,7 @@ public class ReActAgent internal constructor(
         // 终止性：trySend 只在信箱已关时失败，而信箱已关的轮次必定已不在槽位里 → 每轮迭代必然推进。
         while (true) {
             val turn = activeTurn.get() ?: return false
-            // 投递在闸内：与终局裁决互斥 —— 投递若挤进"判空 → 发 Final → 关信箱"那个窗口，
+            // 投递在闸内：与终局裁决互斥 —— 投递若挤进"判空 → 还槽 + 关信箱"那个窗口，
             // 指令会既被接受又没被消费（steer 返回 true，指令却被 Final 带走）。
             turn.lock()
             val delivered = try {
@@ -412,21 +413,21 @@ public class ReActAgent internal constructor(
             toolCalls = turn.toolCalls.toList(),
             usage = response.usage,
         )
-        hook.safeInvoke { onRunCompleted(turn.iterationContext, result) }
         try {
-            // 终局：还槽 + 关门 → 终态发射，全程持闸。
-            //
+            hook.safeInvoke { onRunCompleted(turn.iterationContext, result) }
+            // 终局：还槽 + 关门（闸内）。
             // 顺序：**先还槽、后发终局事件** —— 终局事件一旦发出就代表回合已结束、
             // 槽位已还，收集方收到它即可立即开下一轮（run() 必定起得来）。
             // 闸护的仍是"投递"与"终局裁决"互斥：信箱在终局事件之前就关了，
             // 投递既进不了已死的轮，也不会出现"指令被接受却没被消费"。
             retireTurn(turn)   // 还槽 + 关信箱
-            turn.events.emit(AgentEvent.Final(result))
         } finally {
-            // 闸门用 Semaphore: release 可由任意线程执行 —— emit 是挂起点,
-            // 协程恢复后可能换线程, 线程亲和锁在此 unlock 会抛 IllegalMonitorStateException。
+            // 闸门必须归还：finally 覆盖 hook —— hook 抛 CancellationException 时
+            // safeInvoke 原样抛出，闸若不还，后续 steer() 会永久阻塞在这把闸上。
             turn.unlock()
         }
+        // 终局事件在闸外发出：闸不跨 emit 持有，收集方的回调因此在无闸状态下运行。
+        turn.events.emit(AgentEvent.Final(result))
         return result
     }
 

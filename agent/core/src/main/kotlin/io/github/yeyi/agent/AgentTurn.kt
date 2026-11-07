@@ -10,7 +10,7 @@ import java.util.concurrent.Semaphore
 /**
  * 一轮 run —— 轮次身份，也是本轮状态的唯一所有者。
  *
- * 持有终局闸：闸保护的是"本轮的终局裁决"（判空 → 发 Final → 关信箱 → 还槽），
+ * 持有终局闸：闸保护的是"本轮的终局裁决"（判空 → 还槽 + 关信箱），
  * 终局路径调的就是 `turn.lock()` —— 语义准确；投递侧也取它
  * （见 [io.github.yeyi.agent.ReActAgent.steer]），两边取同一把闸，
  * "投递"与"终局裁决"才互斥。
@@ -37,11 +37,14 @@ internal class AgentTurn(
      * 终局闸门 —— 互斥"抢占 Final"与"投递 steering"两个动作.
      *
      * 用 [Semaphore] 而非 [java.util.concurrent.locks.ReentrantLock]: 终局窗口内的 [AgentHook]
-     * 回调与 `emit` 都是挂起点，协程恢复后可能换线程; ReentrantLock 是线程亲和的, 换线程 unlock 会抛
+     * 回调是挂起点，协程恢复后可能换线程; ReentrantLock 是线程亲和的, 换线程 unlock 会抛
      * IllegalMonitorStateException —— 表现为 agent 在已发出 Final 之后又报 Failed。
      * Semaphore 的 permit 与线程无关, release 可由任意线程执行。
      *
-     * 代价: 不可重入 —— collector / AgentHook 回调内同步调用 steer() 会死锁
+     * 闸不跨终局事件: 终局事件在闸外发出（见 `finalize`），收集方的回调
+     * 因此在无闸状态下运行。
+     *
+     * 代价: 不可重入 —— AgentHook 回调内同步调用 steer() 会死锁
      * (本就是硬约束, 见 [Agent.Steerable.steer] 的 KDoc)。
      */
     private val gate = Semaphore(1)
@@ -91,7 +94,7 @@ internal class SteerInbox {
      * 投递在途指令。
      *
      * **调用方必须持有本轮闸** —— 闸护的是"投递"与"终局裁决"互斥：
-     * 投递若与判空/发 Final/关信箱交错，指令会既被接受又没被消费。
+     * 投递若与判空/还槽/关信箱交错，指令会既被接受又没被消费。
      */
     fun add(query: AgentQuery): Boolean = inbox.trySend(query).isSuccess
 
