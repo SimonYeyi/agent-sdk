@@ -707,7 +707,7 @@ class ReActAgentTest {
             override val name = "flaky_card"
             override val description = "a finalizable tool that refuses termination after failure"
             override val parametersSchema = ToolParameters.Empty
-            override fun finalizable(result: ToolExecutionResult): Boolean = !result.isError
+            override fun finalizable(arguments: JsonElement, result: ToolExecutionResult): Boolean = !result.isError
             override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
                 ToolExecutionResult.error("card generation failed")
         }
@@ -750,13 +750,13 @@ class ReActAgentTest {
 
     @Test
     fun `finalizable tool declaring non-finalizable does not short-circuit`() = runTest {
-        // finalizable(result) = false：工具对任意结果自判本轮不可终结
+        // finalizable(arguments, result) = false：工具对任意结果自判本轮不可终结
         // （如非原子产卡，产卡后仍需模型复核/续写）。
         val reviewTool = object : Tool, FinalizableTool {
             override val name = "review_card"
             override val description = "drafts a card pending review"
             override val parametersSchema = ToolParameters.Empty
-            override fun finalizable(result: ToolExecutionResult): Boolean = false
+            override fun finalizable(arguments: JsonElement, result: ToolExecutionResult): Boolean = false
             override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
                 ToolExecutionResult.success("card draft ready")
         }

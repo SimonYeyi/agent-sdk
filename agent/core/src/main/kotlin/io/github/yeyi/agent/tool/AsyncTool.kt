@@ -14,6 +14,6 @@ package io.github.yeyi.agent.tool
  *
  * 注意：调用方应通过 `tool is AsyncTool` 显式探测异步能力、通过
  * `tool is FinalizableTool` 探测终结裁决能力，而非依赖工具名或执行结果标志；
- * 终结与否由 ReActAgent 在工具执行后将结果回传 finalizable(result) 交由工具自裁。
+ * 终结与否由 ReActAgent 在工具执行后将原始入参与结果回传 finalizable(arguments, result) 交由工具自裁。
  */
 public interface AsyncTool : FinalizableTool

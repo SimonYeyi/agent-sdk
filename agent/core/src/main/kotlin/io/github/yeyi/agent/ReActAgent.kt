@@ -295,13 +295,15 @@ public class ReActAgent internal constructor(
         callTools(turn, response, allToolAsync)
 
         // 可终结短路：裁决权完全在工具——本轮全部工具均为可终结工具，且各工具
-        // finalizable(result) 基于自己本轮的执行结果裁定可终结（如失败拒绝终结），
-        // 则直接进入终局协议，不再触发下一轮推理。ReActAgent 不判断结果，只原样回传。
-        // 各工具的执行结果反查自 turn.toolCalls 的 ToolCallRecord（callTools 已按序追加）。
+        // finalizable(arguments, result) 基于自己本轮的执行结果与原始入参裁定可终结
+        // （如失败拒绝终结、或按入参决定是否产卡），则直接进入终局协议，不再触发下一轮推理。
+        // ReActAgent 不判断结果，只原样回传。
+        // 各工具的执行结果反查自 turn.toolCalls 的 ToolCallRecord（callTools 已按序追加）；
+        // 入参取自本轮 tool call，与执行时 dispatch 的入参一致。
         val allToolFinalizable = response.message.toolCalls.all { call ->
             val tool = toolRegistry.getOrNull(call.name)
             val result = turn.toolCalls.lastOrNull { it.callId == call.id }?.result
-            tool is FinalizableTool && result != null && tool.finalizable(result)
+            tool is FinalizableTool && result != null && tool.finalizable(call.arguments, result)
         }
         if (allToolFinalizable) {
             val emptyResponse = ChatResponse(ChatMessage.Assistant(), null, FinishReason.Stop)

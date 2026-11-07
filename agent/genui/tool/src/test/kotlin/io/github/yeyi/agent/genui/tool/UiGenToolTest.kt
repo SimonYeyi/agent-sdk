@@ -175,7 +175,7 @@ class UiGenToolTest {
 
         val returned = tool.execute(arguments, context())
 
-        assertTrue(tool.finalizable(returned))
+        assertTrue(tool.finalizable(arguments, returned))
     }
 
     @Test
@@ -197,7 +197,7 @@ class UiGenToolTest {
         // finalizable 收到错误回执后拒绝终结，模型下一轮感知失败并重试
         assertFailsWith<IllegalStateException> { tool.execute(arguments, context()) }
 
-        assertFalse(tool.finalizable(ToolExecutionResult.error("card generation failed")))
+        assertFalse(tool.finalizable(arguments, ToolExecutionResult.error("card generation failed")))
     }
 
     @Test

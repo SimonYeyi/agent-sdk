@@ -24,14 +24,13 @@ import kotlinx.serialization.json.JsonElement
  * 子类只需实现 [getResult] 业务逻辑，[buildCard] 完成 UI 映射；
  * 发射接线由 final [execute] 统一收口，卡片落在工具调用的 ToolCallStart/End 区间内，锚点天然对齐。
  *
- * 可终结能力由基类统一收口：本轮执行结果回传给 [FinalizableTool.finalizable]，
+ * 可终结能力由基类统一收口：本轮执行结果与原始入参回传给 [FinalizableTool.finalizable]，
  * 成功时允许终结，产卡失败（[getResult]/[buildCard] 抛出异常，registry 转为错误回执）时
  * 拒绝终结，模型下一轮感知失败并重试；[buildCard] 返回 null（本轮不产卡）是合法降级，
  * 回执为 [getResult] 的结果文本，不视为失败。
- * finalizable() 为 final 实现且不持有实例状态——成败直接从本轮执行结果读取，
- * 多 agent 共享同一工具实例也不会串味；终结裁决不允许子类复写——产卡工具的本性即
- * 「产卡成功即终结、失败不终结」；需要「产卡后仍需模型复核/续写」语义的工具
- * 不应继承本基类。
+ * 默认裁决不持有实例状态——成败直接从本轮执行结果读取，多 agent 共享同一工具实例也不会串味；
+ * 裁决开放复写，供两类工具收窄：一是「按入参决定是否产卡」的工具（出不了卡就不由本工具终结），
+ * 二是「产卡后仍需模型复核/续写」的工具（复写返回 false，让模型继续下一轮）。
  *
  * 卡片路由同样零实例状态：基类不持有具体 [UiSink]，execute 时从
  * [io.github.yeyi.agent.AgentContext.agentId] 解析本 agent 身份标识，经 [UiSinkRegistry.resolve]
@@ -43,7 +42,16 @@ import kotlinx.serialization.json.JsonElement
  */
 public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, FinalizableTool {
 
-    final override fun finalizable(result: ToolExecutionResult): Boolean = !result.isError
+    /**
+     * 可终结裁决：产卡成功即终结、产卡失败不终结。
+     *
+     * 默认实现只看执行成败（[ToolExecutionResult.isError]）；开放复写是为两类工具留出口：
+     * 一是「按入参决定是否产卡」的工具——据原始入参判断本轮该不该出卡，出不了卡就不该由本工具终结；
+     * 二是「产卡后仍需模型复核/续写」的工具——复写返回 false，让模型继续下一轮。
+     * 前者的覆写者须自行保证裁决与 [buildCard] 的产卡判定一致。
+     */
+    override fun finalizable(arguments: JsonElement, result: ToolExecutionResult): Boolean =
+        !result.isError
 
     /**
      * 业务结果：本轮工具结果的唯一来源，取数结果原样存入 agent 记忆。

@@ -112,16 +112,17 @@ public interface Tool {
 
 ```kotlin
 public interface FinalizableTool {
-    public fun finalizable(result: ToolExecutionResult): Boolean = true
+    public fun finalizable(arguments: JsonElement, result: ToolExecutionResult): Boolean = true
 }
 
 public interface AsyncTool : FinalizableTool
 ```
 
 `FinalizableTool` 是工具对「本轮是否可安全终结（不再触发下一轮推理）」的唯一裁决者：
-- ReActAgent 仅在本轮全部工具均为 `FinalizableTool` 且 `finalizable()` 全返回 `true` 时直接进入终局协议（emit Final 空响应收尾），不做任何执行结果判断——只把本轮各工具的执行结果原样回传给本接口，由工具自行结合成败裁定
+- ReActAgent 仅在本轮全部工具均为 `FinalizableTool` 且 `finalizable()` 全返回 `true` 时直接进入终局协议（emit Final 空响应收尾），不做任何执行结果判断——只把本轮各工具的执行结果与原始入参原样回传给本接口，由工具自行结合成败裁定
 - `finalizable()` 默认返回 `true`（实现本接口即声明「默认可终结」），仅在需要拒绝终结时复写；工具无需（也不应）依赖实例状态传递本轮成败，结果由 ReActAgent 直接回传，天然无跨回合/跨 agent 串味，多 agent 共享工具实例安全
-- 同步工具（如产卡工具）若希望失败后让模型感知并重试，在 `finalizable(result)` 中结合 `result.isError` 裁定（失败时返回 `false` 拒绝终结，模型下一轮感知失败回执并重试）
+- 同步工具（如产卡工具）若希望失败后让模型感知并重试，在 `finalizable(arguments, result)` 中结合 `result.isError` 裁定（失败时返回 `false` 拒绝终结，模型下一轮感知失败回执并重试）
+- 需要「按入参决定是否产卡」的工具（如仅当 `detail=true` 时才出卡），在 `finalizable(arguments, result)` 中结合 `arguments` 裁定本轮是否可终结
 - `AsyncTool` 异步派发型工具天然可终结，继承接口默认 `true`，向后兼容
 - 消费方以 `Final` 空响应（content 为 null）识别短路终结，无需预判字段
 
