@@ -10,6 +10,17 @@ import kotlinx.serialization.json.JsonElement
 /**
  * 声明「本工具产出可交互卡片」的抽象基类，实现 [Tool] 与 [FinalizableTool]。
  *
+ * 本基类只承载两类卡片：**信息卡**与**问询卡**。两类卡片都是**非轮次阻塞**的——
+ * 卡片发射后本轮照常走完，用户点击卡片动作经 [io.github.yeyi.agent.genui.ir.ActionEvent]
+ * 回流，触发的是**新一轮**推理，而不是把当前轮次挂起等用户作答。
+ *
+ * 需要阻塞等待用户决策的卡片（如审批卡）不在本基类范围内，走
+ * `io.github.yeyi.agent.approval.Approvable` + `ApprovalHook` 链路：
+ * 那条链路由 hook 在轮次内挂起工具执行、等待审批决策，用户无法用自然语言作答。
+ *
+ * 本基类不支持阻塞式 UI——动作事件一律回流到新一轮；一旦做成阻塞等待，
+ * 用户就只剩下「在卡片按钮上点选」这一条回复路径，失去了用自然语言选择回复的能力。
+ *
  * 子类只需实现 [getResult] 业务逻辑，[buildCard] 完成 UI 映射；
  * 发射接线由 final [execute] 统一收口，卡片落在工具调用的 ToolCallStart/End 区间内，锚点天然对齐。
  *
@@ -35,14 +46,21 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
     final override fun finalizable(result: ToolExecutionResult): Boolean = !result.isError
 
     /**
-     * 业务结果：查询工具返回结构化数据作为回执文本，模型后续轮次据此读到具体信息；
-     * 问询工具（卡片即交互、无业务结果可回执）返回 null，回执兜底为「等待用户回复」。
+     * 业务结果：本轮工具结果的唯一来源，取数结果原样存入 agent 记忆。
      *
-     * 业务异常（包括空结果）一律直接抛出（由框架统一转为错误回执，拒绝终结并让模型感知失败重试），
+     * 返回非 null：回执文本是取数结果的字符串形式，存入记忆，模型后续轮次据此读到具体信息——
+     * 这是**信息卡**的形态。
+     *
+     * 返回 null：回执文本固定为「等待用户回复」，同样存入记忆，模型据此感知回合待用户裁决——
+     * 这是**问询卡**的形态。之所以 null 即表示问询卡，是因为信息卡必须先经本方法取到信息才能制卡；
+     * 返回 null 表示本工具不需要额外信息，没有结果信息可带的卡片就只能是问询卡：
+     * 卡片本身就是与用户交互的全部内容，模型等待的是用户的下一次输入（自然语言或卡片动作回流）。
+     *
+     * 业务异常一律直接抛出（由框架统一转为错误回执，拒绝终结并让模型感知失败重试），
      * 不要吞掉异常或返回 null 伪装成功。
      *
-     * 必须复写以显式声明本工具的 result 语义——返回数据即查询/展示工具，
-     * 返回 null 即问询工具，禁止依赖隐式默认值。
+     * 必须复写以满足本工具的 result 语义——信息卡必须返回数据，
+     * 无数据返回（返回 null）即问询卡，禁止依赖隐式默认值。
      */
     protected abstract suspend fun getResult(
         arguments: JsonElement,
@@ -72,8 +90,8 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
      * 模板接线：业务执行 → 产卡路由发射 → 回执。
      *
      * 固定执行顺序保证卡片发射时序位于 ToolCallStart/End 区间内；回执文本照常返回进记忆，卡片走旁路。
-     * 回执语义由 [getResult] 返回值决定，而非卡片有无按钮推断：返回数据（查询/展示工具）
-     * 回执为数据文本，模型后续轮次能读到具体信息；返回 null（问询工具，卡片即交互）
+     * 回执语义由 [getResult] 返回值决定，而非卡片有无按钮推断：返回数据（信息卡）
+     * 回执为数据文本，模型后续轮次能读到具体信息；返回 null（问询卡，卡片即交互）
      * 回执固定为「等待用户回复」，模型据此感知回合待用户裁决。
      * [buildCard] 返回 null（数据异常/为空）是合法降级，本轮不产卡仅返回回执文本；
      * 但 [buildCard] 返回非空卡片时，当前 agent 必须在 registry 中已登记 sink——未登记属装配配置
@@ -96,7 +114,7 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
         }
         val content = result?.toString()
             ?: if (card != null) {
-                // 无业务结果且产卡：问询工具，卡片即交互，等待用户回复
+                // 无业务结果且产卡：问询卡，卡片即交互，等待用户回复
                 "Waiting for user reply"
             } else {
                 error(
