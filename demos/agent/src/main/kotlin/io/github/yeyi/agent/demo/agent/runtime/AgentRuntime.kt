@@ -11,6 +11,7 @@ import io.github.yeyi.agent.demo.agent.runtime.skills.NewsSkill
 import io.github.yeyi.agent.demo.agent.runtime.skills.WeatherSkill
 import io.github.yeyi.agent.demo.agent.runtime.subagents.ExternalHelpSubagent
 import io.github.yeyi.agent.demo.agent.runtime.subagents.WeatherExpertSubagent
+import io.github.yeyi.agent.demo.agent.runtime.tools.ChooseCityTool
 import io.github.yeyi.agent.demo.agent.runtime.tools.GetDateTimeTool
 import io.github.yeyi.agent.demo.agent.runtime.tools.GetLocationTool
 import io.github.yeyi.agent.demo.agent.runtime.tools.WebSearchTool
@@ -82,6 +83,7 @@ object AgentRuntime {
     private val toolRegistry = ToolRegistry().apply {
         register(GetLocationTool(sinkRegistry))
         register(GetDateTimeTool(sinkRegistry))
+        register(ChooseCityTool(sinkRegistry))
     }
 
     private val lazyToolRegistry = LazyToolRegistry().apply {
