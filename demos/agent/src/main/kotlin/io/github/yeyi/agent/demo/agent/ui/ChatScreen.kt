@@ -44,6 +44,7 @@ fun ChatScreen(
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val liveBubble by viewModel.liveBubble.collectAsStateWithLifecycle()
+    val steerHint by viewModel.steerHint.collectAsStateWithLifecycle()
     val isProcessing by viewModel.isProcessing.collectAsStateWithLifecycle()
     val mode by viewModel.mode.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
@@ -178,6 +179,11 @@ fun ChatScreen(
             }
         }
         Spacer(modifier = Modifier.height(8.dp))
+        // 在途指令的瞬时提示：签收时出现，指令入卷（或轮次收尾）后消失。
+        steerHint?.let { hint ->
+            Text(hint, style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(4.dp))
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             OutlinedTextField(
                 value = input,

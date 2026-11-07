@@ -48,6 +48,13 @@ class ChatViewModel(
     val liveBubble: StateFlow<LiveBubble?> = _liveBubble.asStateFlow()
 
     /**
+     * 在途指令的瞬时提示 —— 签收（指令已投递进本轮信箱）时置起，
+     * 入卷（指令进了本轮对话）或轮次收尾时归位。
+     */
+    private val _steerHint = MutableStateFlow<String?>(null)
+    val steerHint: StateFlow<String?> = _steerHint.asStateFlow()
+
+    /**
      * 回合进行中的状态：由事件流如实反映——[AgentEvent.Initial] 置起，
      * 轮次收尾（流的完成）归位。
      */
@@ -163,6 +170,7 @@ class ChatViewModel(
         _isProcessing.value = false
         _messages.value = emptyList()
         _liveBubble.value = null
+        _steerHint.value = null
         inProgressByCallId.clear()
         cardsByCallId.clear()
         insertedCards.clear()
@@ -228,11 +236,18 @@ class ChatViewModel(
      *
      * steer 投递不到即意味着槽位已还（core 的契约：先还槽、后发终局事件），
      * 所以这里的 run 不会撞上并发轮次。
+     *
+     * steer 返回 true 只说明指令被签收（进了本轮信箱，还没进对话）—— 给一条
+     * 瞬时提示，免得输入框清空后用户不知指令去哪儿了；指令入卷时（事件流
+     * 告知）提示归位、用户气泡出现。
      */
     fun submit(text: String) {
         if (text.isBlank()) return
         val steerable = agent as? Agent.Steerable
-        if (steerable != null && steerable.steer(AgentQuery.text(text))) return
+        if (steerable != null && steerable.steer(AgentQuery.text(text))) {
+            _steerHint.value = "已注入当前轮次，模型将在下一轮采纳"
+            return
+        }
         runTurn(text)
     }
 
@@ -262,6 +277,8 @@ class ChatViewModel(
                 if (current === agent) {
                     _isProcessing.value = false
                     _liveBubble.value = null
+                    // 轮次结束：在途指令若没等到消费就随轮作废，提示一并归位。
+                    _steerHint.value = null
                     inProgressByCallId.clear()
                 }
             }
@@ -290,6 +307,20 @@ class ChatViewModel(
                 // 回合开始的标志：进行中状态由事件流如实反映。
                 _isProcessing.value = true
                 _liveBubble.value = null
+            }
+
+            is AgentEvent.Steering -> {
+                // 在途指令已入卷（进了本轮对话，随下一次模型请求生效）：
+                // 像普通用户消息一样入列 —— 渲染时刻与记忆里的事实一致，
+                // 用户看得见自己注入的指令（否则输入框清空后消息就"消失"了）。
+                _messages.update {
+                    it + UiMessage.User(
+                        text = event.query.parts.text,
+                        id = nextUiId(),
+                    )
+                }
+                // 签收时的提示到这儿归位：指令已经进了对话。
+                _steerHint.value = null
             }
 
             is AgentEvent.ToolCallExplanation -> {

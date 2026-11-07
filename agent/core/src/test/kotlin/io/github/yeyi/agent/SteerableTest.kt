@@ -12,6 +12,7 @@ import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
@@ -76,6 +77,14 @@ class ControllableLlmProvider(
 }
 
 class SteerableTest {
+
+    /** 记忆里是否已有含指定文本的用户消息（steer 指令入卷的事实）。 */
+    private suspend fun memoryHasInstruction(mem: InMemoryMemory, text: String): Boolean =
+        mem.history().any { entry ->
+            val msg = entry.message
+            msg is ChatMessage.User &&
+                    msg.parts.any { it is ContentPart.Text && it.text.contains(text) }
+        }
 
     /** chat() 被调用时发信号 —— 让测试知道执行体已走到终局前的最后一步。 */
     private class SignallingLlm : LlmProvider {
@@ -496,6 +505,102 @@ class SteerableTest {
         assertTrue(
             userTexts.any { it.contains("must be consumed") },
             "steer instruction must be consumed into memory, not dropped"
+        )
+    }
+
+    /**
+     * 契约：入卷的事实事件化 —— 指令被消费、写入记忆时，该轮事件流发出 [AgentEvent.Steering]。
+     *
+     * 事件流是收集方唯一的观察通道：注入的指令若不事件化，收集方无从知道用户
+     * 输入进了对话（只能自己另开一份状态，与记忆必然漂移）。事件在**写入记忆之后**
+     * 发出 —— 收集方看到它时，记忆里已经有这条指令，渲染时刻与事实一致。
+     *
+     * 签收（指令进了信箱）由 [Agent.Steerable.steer] 的返回值告知，不走事件流。
+     */
+    @Test
+    fun `指令消费入记忆时该轮事件流发出 Steering 事件`() = runTest(UnconfinedTestDispatcher()) {
+        val provider = ControllableLlmProvider(
+            listOf(
+                ChatResponse(ChatMessage.Assistant(content = "first answer"), finishReason = FinishReason.Stop),
+                ChatResponse(ChatMessage.Assistant(content = "final"), finishReason = FinishReason.Stop)
+            )
+        )
+        val mem = InMemoryMemory()
+        val agent = ReActAgent(
+            id = "test",
+            persona = AgentPersona(""),
+            llmProvider = provider,
+            toolRegistry = registryOf(),
+            memory = mem,
+            modalityAdapter = DefaultModalityAdapter(null),
+            maxRounds = 20,
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
+        )
+
+        val events = mutableListOf<AgentEvent>()
+        backgroundScope.launch {
+            agent.run(AgentQuery.text("hi")).collect { events += it }
+        }
+        advanceUntilIdle() // 轮次挂在第一次 chat() 的 gate 上
+
+        assertTrue(agent.steer(AgentQuery.text("switch to plan B")))
+        // 签收 ≠ 入卷：此刻指令还在信箱里，记忆与事件流都还没有它
+        assertTrue(
+            events.none { it is AgentEvent.Steering },
+            "签收时不得发 Steering 事件：${events.map { it::class.simpleName }}"
+        )
+        assertTrue(!memoryHasInstruction(mem, "switch to plan B"), "签收时指令不该在记忆里")
+
+        provider.completeNext() // → 检查点②抢占 Final → 消费指令 → iter2 再作答
+        advanceUntilIdle()
+        provider.completeNext() // → Final
+        advanceUntilIdle()
+
+        val steering = events.filterIsInstance<AgentEvent.Steering>()
+        assertEquals(1, steering.size, "消费一条指令 ⟺ 一个 Steering 事件")
+        assertEquals("switch to plan B", steering[0].query.parts.text)
+
+        // 事件发出时指令已在记忆里：渲染时刻与事实一致
+        assertTrue(memoryHasInstruction(mem, "switch to plan B"), "Steering 事件发出时指令应已在记忆里")
+
+        // 顺序：Steering 先于终局事件 —— 消费发生在终局裁决之前
+        val steeringIndex = events.indexOfFirst { it is AgentEvent.Steering }
+        val finalIndex = events.indexOfFirst { it is AgentEvent.Final }
+        assertTrue(steeringIndex in 0 until finalIndex, "Steering 应先于 Final：${events.map { it::class.simpleName }}")
+    }
+
+    /**
+     * 契约的反面：轮次在消费前终结时，不得有 [AgentEvent.Steering]。
+     *
+     * 指令随轮作废 —— 既没有事件，记忆里也没有它，两边一致（收集方不会渲染
+     * 一条根本没进对话的输入）。
+     */
+    @Test
+    fun `轮次在消费前终结时不发布 Steering 事件`() = runTest {
+        val provider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "done"), finishReason = FinishReason.Stop)
+            )
+        )
+        val mem = InMemoryMemory()
+        val agent = ReActAgent(
+            id = "test",
+            persona = AgentPersona(""),
+            llmProvider = provider,
+            toolRegistry = registryOf(),
+            memory = mem,
+            modalityAdapter = DefaultModalityAdapter(null),
+            maxRounds = 20,
+            maxIterations = 5,
+            dispatcher = StandardTestDispatcher(testScheduler)
+        )
+
+        val events = agent.run(AgentQuery.text("hi")).toList()
+        assertFalse(agent.steer(AgentQuery.text("too late")))
+        assertTrue(
+            events.none { it is AgentEvent.Steering },
+            "未消费的指令不得发布 Steering 事件：${events.map { it::class.simpleName }}"
         )
     }
 

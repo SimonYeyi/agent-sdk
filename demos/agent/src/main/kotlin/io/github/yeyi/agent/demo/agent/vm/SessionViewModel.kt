@@ -306,6 +306,9 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                                 isLoading = false
                             )
                         }
+                        is AgentEvent.Steering -> {
+                            // session 页无在途注入路径（不调 steer），故此事件不会出现
+                        }
                         is AgentEvent.MemoryCompressing -> {
                             // 等待压缩完成
                         }

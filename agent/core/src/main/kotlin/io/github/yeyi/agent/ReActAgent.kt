@@ -109,6 +109,9 @@ public class ReActAgent internal constructor(
      * 投递失败契约：返回 false ⟺ 无活跃 run ⟺ 调用方可安全开新轮
      * （[Agent.run] 必定起得来 —— 终局路径先还槽再发终局事件，槽位先于 false 空出）。
      *
+     * 投递成功（返回 true）只是**签收**：指令进了信箱，此刻还没进对话。
+     * 指令被消费、写入记忆时，该轮事件流发出 [AgentEvent.Steering]（入卷）。
+     *
      * 纪律：闸内允许且仅允许 onRunCompleted 一个已知挂起点（终局事件已在闸外发出），
      * 严禁其他 suspend——持闸挂起会阻塞其他线程的投递，编译器不拦，只能靠约定。
      * 死锁硬约束：AgentHook 回调内严禁同步调用 steer()（闸门不可重入）；
@@ -447,11 +450,19 @@ public class ReActAgent internal constructor(
         return result
     }
 
+    /**
+     * 消费在途指令 —— 排空信箱，逐条写入记忆。
+     *
+     * 写入即"纳入推理"：指令进了本轮对话，随下一次模型请求生效。故每条指令
+     * 入记忆后发一个 [AgentEvent.Steering] —— 收集方据此渲染用户输入，
+     * 渲染时刻与记忆里的事实一致（不会先渲染、后落记忆）。
+     */
     private suspend fun consumeSteering(turn: AgentTurn) {
         turn.steering.drain().forEach { query ->
             // steer 注入的指令默认标 "steering"；调用方显式带 label 时优先采用
             modalityAdapter.archive(ChatMessage.User(query.parts))
                 .addToMemory(memory, label = query.label ?: "steering")
+            turn.events.emit(AgentEvent.Steering(query))
         }
     }
 

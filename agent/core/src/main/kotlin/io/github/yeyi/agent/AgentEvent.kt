@@ -25,6 +25,7 @@ import kotlinx.coroutines.CancellationException
  *
  * - 一次 run(Stream) 可能包含多个 [ToolCallExplanation] → [ToolCallStart] → [ToolCallEnd] 事件循环（多轮工具调用）
  * - 一个 [ToolCallExplanation] 后面可能跟着多个 [ToolCallStart] → [ToolCallEnd] 事件对（一次调用多个工具）
+ * - 在途指令被消费（写入记忆）时会在轮次中途发出 [Steering]（位置不定，取决于指令何时被检查点消费）
  */
 public sealed interface AgentEvent {
     /** 用户输入事件,首次循环前发出 */
@@ -94,6 +95,19 @@ public sealed interface AgentEvent {
      * 实时推送文本增量。在增量文本发送完成后，仍会通过 [ToolCallExplanation] 或 [Final] 发射完整文本。
      */
     public data class TextDelta(public val text: String) : AgentEvent
+
+    /**
+     * 在途指令已进入本轮对话事件 —— 指令被消费、写入记忆的那一刻发出。
+     *
+     * **本事件 ⟺ 指令进了本轮对话**：写入记忆即"纳入推理"—— 它随下一次模型请求生效。
+     * 收集方据此渲染用户输入，渲染时刻与记忆里的事实一致（不会先渲染、后落记忆）。
+     *
+     * 与 [Agent.Steerable.steer] 的返回值分工：**返回值是签收**（指令进了信箱，
+     * 同步可得，此刻它还没进对话）；**本事件是入卷**（指令进了记忆，即将成为
+     * 模型看得见的内容）。轮次若在消费前终结，指令随轮作废 —— 既没有本事件，
+     * 记忆里也没有它，两边一致。
+     */
+    public data class Steering(public val query: AgentQuery) : AgentEvent
 }
 
 /** 终局事件族（Final / Failed / Canceled）—— 供 core 与下游模块统一判定终态。 */

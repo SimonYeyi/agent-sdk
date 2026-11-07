@@ -202,6 +202,39 @@ class ChatViewModelTest {
     }
 
     /**
+     * steer 注入的指令有两个时刻：**签收**时（steer 返回 true）给一条瞬时提示，
+     * **入卷**时（被消费、写入记忆）才渲染成用户气泡 —— 渲染时刻与记忆里的
+     * 事实一致：指令进对话才渲染，不会先渲染、后落记忆。
+     */
+    @Test
+    fun `steer 注入的指令入卷时出现在会话里`(): Unit = runBlocking {
+        val fake = FakeSteerAgent(steerable = true, steerNeedsActiveRound = true)
+        val vm = ChatViewModel(agentFactory = { _, _ -> fake })
+
+        vm.submit("hi") // 无活跃轮次 → 开新轮
+        awaitValue { fake.channels.size.takeIf { it == 1 } }
+
+        vm.submit("改成红色") // 有活跃轮次 → steer 签收（此刻还没进对话）
+        assertEquals(1, fake.runs.get(), "steer 投递得到时不应开新轮")
+        assertTrue(
+            vm.messages.value.none { it is UiMessage.User && it.text == "改成红色" },
+            "签收时指令还没进对话，不该渲染"
+        )
+        assertTrue(vm.steerHint.value != null, "签收后应有提示：指令已注入当前轮次")
+
+        fake.consumeSteering() // 消费 → 入卷 → 事件流发出 Steering
+        val messages = awaitValue {
+            vm.messages.value.takeIf { list -> list.any { it is UiMessage.User && it.text == "改成红色" } }
+        }
+        assertTrue(
+            messages.any { it is UiMessage.User && it.text == "改成红色" },
+            "入卷的指令应出现在会话里：${messages.map { it::class.simpleName }}"
+        )
+        awaitValue { Unit.takeIf { vm.steerHint.value == null } }
+        assertTrue(vm.steerHint.value == null, "入卷后提示应归位")
+    }
+
+    /**
      * 没有活跃轮次时 submit 直接开新轮（steer 投递不到 → 降级）。
      */
     @Test
@@ -257,11 +290,17 @@ class ChatViewModelTest {
     }
 
     /** steer 可控的假 agent：轮次由测试用 channel 控制何时收尾、发出什么事件。 */
-    private class FakeSteerAgent(private val steerable: Boolean = false) : Agent, Agent.Steerable {
+    private class FakeSteerAgent(
+        private val steerable: Boolean = false,
+        /** 只在有活跃轮次时才投递（对齐 core 的"无活跃轮次 ⟹ 返回 false"）。 */
+        private val steerNeedsActiveRound: Boolean = false,
+    ) : Agent, Agent.Steerable {
         val runs = AtomicInteger()
         val channels = mutableListOf<Channel<AgentEvent>>()
         /** 每轮流结束的时刻 —— 测试据此知道旧轮已收尾。 */
         val completions = mutableListOf<CompletableDeferred<Unit>>()
+        /** 已签收但尚未消费的指令 —— 等价于 core 的信箱。 */
+        val pendingSteerings = mutableListOf<AgentQuery>()
 
         override fun run(query: AgentQuery): Flow<AgentEvent> {
             runs.incrementAndGet()
@@ -272,6 +311,21 @@ class ChatViewModelTest {
             return channel.receiveAsFlow().onCompletion { done.complete(Unit) }
         }
 
-        override fun steer(query: AgentQuery): Boolean = steerable
+        /**
+         * 对齐 core：签收只返回值（指令进信箱），入卷才发事件
+         * （指令被消费、写入记忆的那一刻）。
+         */
+        override fun steer(query: AgentQuery): Boolean {
+            if (!steerable) return false
+            if (steerNeedsActiveRound && channels.isEmpty()) return false
+            pendingSteerings += query
+            return true
+        }
+
+        /** 模拟 core 的消费：指令入卷，该轮事件流发出 [AgentEvent.Steering]。 */
+        fun consumeSteering() {
+            pendingSteerings.forEach { channels.lastOrNull()?.trySend(AgentEvent.Steering(it)) }
+            pendingSteerings.clear()
+        }
     }
 }
