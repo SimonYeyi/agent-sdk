@@ -40,6 +40,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
 import java.util.concurrent.atomic.AtomicReference
 
+/**
+ * ReAct 循环 agent —— 本实现同一时刻至多一轮在跑，并发 [run] 被拒
+ * （[IllegalStateException]，"Concurrent run not supported"）。
+ */
 public class ReActAgent internal constructor(
     private val id: String,
     private val persona: AgentPersona,
@@ -71,9 +75,16 @@ public class ReActAgent internal constructor(
      */
     private val activeTurn = AtomicReference<AgentTurn?>(null)
 
+    /**
+     * 批式执行本轮 —— 轮次语义见 [Agent.run]。
+     *
+     * 终局事件（[AgentEvent.Final] / [AgentEvent.Failed] / [AgentEvent.Canceled]）
+     * 发出时本轮已退场（槽位已还），故收到终局事件后紧接着再调本方法必定起得来。
+     */
     override fun run(query: AgentQuery): Flow<AgentEvent> =
         runTurn(AgentTurn(query) { req -> llmProvider.chat(req) })
 
+    /** 流式执行本轮 —— 轮次语义与 [run] 一致。 */
     override fun runStream(query: AgentQuery): Flow<AgentEvent> {
         val streaming = StreamingRunner(llmProvider)
         lateinit var turn: AgentTurn
