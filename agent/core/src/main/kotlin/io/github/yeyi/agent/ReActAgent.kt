@@ -212,7 +212,10 @@ public class ReActAgent internal constructor(
                 } catch (t: Throwable) {
                     log.warn("write error message to memory failed", t)
                 }
-                // 失败路径携带原始 Throwable,不再包成 AgentException —— 让上层自由判型。
+                // hook 必须在 retireTurn 之前调：它抛取消异常会外抛本 catch 块（同级 catch
+                // 接不住），终局由 invokeOnCompletion 兜底转成 Canceled —— 与上面
+                // 「取消优先于失败」同一口径。若挪到 retireTurn 之后，兜底判据
+                // （槽位仍是本轮）不成立，终局事件一个都不发。
                 hook.safeInvoke { onRunFailed(turn.iterationContext, e) }
                 retireTurn(turn)
                 turn.events.emit(AgentEvent.Failed(e))
@@ -225,11 +228,15 @@ public class ReActAgent internal constructor(
             job.cancel()
             error("Concurrent run not supported: another run is active, rejected: ${turn.query}")
         }
-        // 终局兜底：执行体从未跑起来（LAZY job 在派发前被取消）时，体内那三条
-        // 终局路径都没执行过 —— 没有终局事件，收集方将永久挂起。
+        // 终局兜底：终局事件没发出去时补发。两种触发：
+        // - 执行体从未跑起来（LAZY job 在派发前被取消）；
+        // - 终局路径中途抛异常外抛（如失败分支的 hook 抛取消异常）。
+        // 两种情况下都没有终局事件，收集方将永久挂起。
         // 槽位仍是本回合 ⟺ 还没人还过槽 ⟺ 终局事件尚未发出：补发终局 + 还槽；
         // 正常路径槽已还，判别名不成立即跳过，不会双发终局。
-        // 走到这里的完成态必为取消（体从未跑 ⟺ 唯一完成方式是被取消），
+        // ⟹ 终局路径必须"先 retireTurn、再发终局事件"：反过来（先还槽、事件还没发
+        // 就失败），判据不成立 → 兜底跳过 → 一个终局事件都没有，收集方永久挂起。
+        // 走到这里的完成态必为取消（终局路径里被原样传播的只有取消异常），
         // 故 cause 必为取消异常 —— 用 as 而非 is 分支，不变量被破坏时立即 CCE fail-fast。
         job.invokeOnCompletion { cause ->
             if (activeTurn.get() !== turn) return@invokeOnCompletion
