@@ -85,12 +85,11 @@ public class ReActAgent internal constructor(
 
     /**
      * 投递在途指令 —— 与终局裁决互斥：[AgentTurn.lock] 序列化"投递"与
-     * "判空 → 发 Final → 关信箱"，堵死"指令被接受却没被消费"的窗口
+     * "判空 → 还槽 → 发终局事件"，堵死"指令被接受却没被消费"的窗口
      * （投递若挤进终局窗口，指令会被 Final 带走）。
      *
-     * 投递失败契约：返回 false ⟺ 无活跃 run ⟺ 终态事件(Final)已发射完毕。
-     * 终局持闸期间阻塞等待，正是语义正确的"等待裁决"——既不能 true
-     * （指令无人消费）也不能 false（Final 未发完，此时开新 run 会与旧 run 的事件混流）。
+     * 投递失败契约：返回 false ⟺ 无活跃 run ⟺ 调用方可安全开新轮
+     * （[Agent.run] 必定起得来 —— 终局路径先还槽再发终局事件，槽位先于 false 空出）。
      *
      * 纪律：闸内允许且仅允许 onRunCompleted 与 emit(Final) 两个已知挂起点，
      * 严禁其他 suspend——持闸挂起会阻塞其他线程的投递，编译器不拦，只能靠约定。
@@ -134,7 +133,7 @@ public class ReActAgent internal constructor(
     override fun cancel(cause: String?): Job? {
         val turn = activeTurn.get() ?: return null // 无活跃轮次 → no-op（幂等）
         // 收尾句柄就是执行体 job：活跃轮次的 job 恒非 null（先建 job 再 CAS 占槽），
-        // join(job) 返回即执行体（含 finally 收尾）彻底结束 —— 槽位已还、信箱已关。
+        // join(job) 返回即执行体彻底结束 —— 槽位已还、信箱已关。
         return turn.job?.also { it.cancel(CancellationException(cause)) }
     }
 
@@ -149,7 +148,7 @@ public class ReActAgent internal constructor(
 
     /**
      * 回合的公共骨架：占活跃槽位 → 在 agent scope 内启动执行体 → 返回广播流。
-     * 启动即执行，收尾在执行体 finally —— 与订阅彻底解耦（孤儿回合语义）。
+     * 启动即执行，收尾在执行体 —— 与订阅彻底解耦（孤儿回合语义）。
      *
      * job 必须先登记到 [AgentTurn.job]、再让轮次出现在 [activeTurn]：否则并发
      * [cancel] 读到活跃轮次却解引用到 null job，成了静默 no-op，该轮逃过取消。
@@ -165,8 +164,9 @@ public class ReActAgent internal constructor(
     private fun runTurn(turn: AgentTurn): Flow<AgentEvent> {
         if (!scope.isActive) throw Agent.Shutdownable.ShutdownError()
         val job = scope.launch(start = CoroutineStart.LAZY) {
-            // 取消与 Final 不会双发：emit(Final) 之后到 job 结束之间没有挂起点
-            // （retireTurn 只是 CAS / close），job 不可能在此窗口被取消。
+            // 取消与 Final 不会双发：终局协议（还槽 → emit(Final)）到 job 结束之间
+            // 没有挂起点（retireTurn 只是 CAS / close，emit 走无限缓冲不挂起），
+            // job 不可能在此窗口被取消。
             // 回合级异常处理只此一层：loop 纯逻辑不自包 try-catch，
             // 取消/错误统一在此收口并事件化。
             try {
@@ -174,18 +174,29 @@ public class ReActAgent internal constructor(
             } catch (e: CancellationException) {
                 // 取消：修复孤儿记忆后以 Canceled 事件送达（NonCancellable 屏蔽取消态）。
                 withContext(NonCancellable) {
-                    RepairedMemory.repairOrphans(memory, RepairedMemory.CANCELLED)
+                    // 修复失败只记日志：终局事件优先，不能因修复异常丢掉它。
+                    runCatching { RepairedMemory.repairOrphans(memory, RepairedMemory.CANCELLED) }
+                        .getOrElse { log.warn("repair orphans on cancel failed", it) }
+                    // 先还槽、后发终局事件：终局事件发出即代表回合已结束、槽位已还，
+                    // 收集方收到 Canceled 即可立即开下一轮。
+                    retireTurn(turn)
                     turn.events.emit(AgentEvent.Canceled(e))
                 }
             } catch (e: Throwable) {
                 // 错误伪装成 Assistant 消息写入记忆：错误发生在助手侧执行链路，模型第二轮
                 // 看到的是「我上一轮输出了错误」，可据此重试/澄清；UI 按 "error" label 渲染错误气泡。
-                ChatMessage.Assistant(e.message ?: e.toString()).addToMemory(memory, "error")
+                // 写入失败只记日志：终局事件优先，不能因写记忆失败丢掉它。
+                try {
+                    ChatMessage.Assistant(e.message ?: e.toString()).addToMemory(memory, "error")
+                } catch (t: CancellationException) {
+                    throw t // 取消优先于失败：取消态下写入失败仍须以 Canceled 收尾
+                } catch (t: Throwable) {
+                    log.warn("write error message to memory failed", t)
+                }
                 // 失败路径携带原始 Throwable,不再包成 AgentException —— 让上层自由判型。
                 hook.safeInvoke { onRunFailed(turn.iterationContext, e) }
-                turn.events.emit(AgentEvent.Failed(e))
-            } finally {
                 retireTurn(turn)
+                turn.events.emit(AgentEvent.Failed(e))
             }
         }
         // 先登记 job、再 CAS 占槽：写 job 先于写槽位，经 activeTurn 观察到轮次的读者
@@ -195,16 +206,17 @@ public class ReActAgent internal constructor(
             job.cancel()
             error("Concurrent run not supported: another run is active, rejected: ${turn.query}")
         }
-        // born-cancelled 兜底：shutdown 的 scope.cancel() 若抢在执行体派发生效之前，
-        // LAZY 执行体永不运行 —— 终局不发、finally 不跑，收集方将永久挂起。
-        // 槽位仍是本回合 ⟺ 执行体从未启动：补发终局 + retireTurn 退场；
+        // 终局兜底：执行体从未跑起来（LAZY job 在派发前被取消）时，体内那三条
+        // 终局路径都没执行过 —— 没有终局事件，收集方将永久挂起。
+        // 槽位仍是本回合 ⟺ 还没人还过槽 ⟺ 终局事件尚未发出：补发终局 + 还槽；
         // 正常路径槽已还，判别名不成立即跳过，不会双发终局。
-        // 从未启动的 LAZY job 唯一完成方式是被取消，cause 必为取消异常——
-        // 用 as 而非 is 分支，不变量被破坏时立即 CCE fail-fast，而非伪装成 Failed。
+        // 走到这里的完成态必为取消（体从未跑 ⟺ 唯一完成方式是被取消），
+        // 故 cause 必为取消异常 —— 用 as 而非 is 分支，不变量被破坏时立即 CCE fail-fast。
         job.invokeOnCompletion { cause ->
             if (activeTurn.get() !== turn) return@invokeOnCompletion
-            turn.events.tryEmit(AgentEvent.Canceled(cause as CancellationException))
+            // 先还槽、后发终局事件（与三条终局路径同一顺序）
             retireTurn(turn)
+            turn.events.tryEmit(AgentEvent.Canceled(cause as CancellationException))
         }
         job.start()
         return turn.events.transformWhile { event -> emit(event); !event.isTerminal }
@@ -213,11 +225,15 @@ public class ReActAgent internal constructor(
     /**
      * 轮次退场 —— 还槽（认人）+ 关信箱。
      *
-     * **幂等**，调用两处：
-     * - [finalize] 在闸内调它（发完 Final 之后）—— 投递被挡在闸外，
-     *   故 `steer() == false` 蕴含"终局已入回放、信箱已关"；
-     * - 执行体外壳的 finally 调它 —— 兜住取消 / 失败 / 意外路径中 [finalize] 没跑的情形。
+     * **幂等**，调用多处：
+     * - [finalize] 在闸内调它（**发终局事件之前**）—— 投递被挡在闸外，
+     *   故 `steer() == false` 蕴含"信箱已关、槽位已空"；
+     * - 取消 / 失败路径在发终局事件之前调它；
+     * - 执行体从未启动的兜底路径（见 [runTurn] 的终局兜底分支）调它。
      * 两件事各自幂等（认人 CAS、信箱 close），二次调用无害。
+     *
+     * **退场先于终局事件**：终局事件发出即代表回合已结束、槽位已还 ——
+     * 收集方收到终局事件即可立即开下一轮（run() 必定起得来）。
      *
      * **不必在闸内**：闸护的是"终局裁决"与"投递"互斥，而退场时执行体已结束，
      * 唯一可能并发的只有投递 —— 两步之间被挤进一个投递，代价只是那轮 steer
@@ -359,7 +375,7 @@ public class ReActAgent internal constructor(
     }
 
     /**
-     * 终局协议：steer 检查点 → onRunCompleted → Final → 退场。
+     * 终局协议：steer 检查点 → onRunCompleted → 退场 → Final。
      * 正常收敛与可终结短路共用，保证协议一致性。
      * 若在途指令 (steer) 非空，放弃终局返回 null，强制再跑一轮让 LLM 带着指令重新作答。
      */
@@ -380,12 +396,14 @@ public class ReActAgent internal constructor(
         )
         hook.safeInvoke { onRunCompleted(turn.iterationContext, result) }
         try {
+            // 终局：还槽 + 关门 → 终态发射，全程持闸。
+            //
+            // 顺序：**先还槽、后发终局事件** —— 终局事件一旦发出就代表回合已结束、
+            // 槽位已还，收集方收到它即可立即开下一轮（run() 必定起得来）。
+            // 闸护的仍是"投递"与"终局裁决"互斥：信箱在终局事件之前就关了，
+            // 投递既进不了已死的轮，也不会出现"指令被接受却没被消费"。
+            retireTurn(turn)   // 还槽 + 关信箱
             turn.events.emit(AgentEvent.Final(result))
-            // 终局：终态发射 → 还槽 + 关门，全程持闸。
-            // 闸门释放之后 steer() 拿到的 false 才意味着"可安全开新 run"——
-            // 若把 emit(Final) 与 retireTurn 放到闸外，缝隙里 steer() 会命中仍开着的信箱、
-            // 对已死的轮返回 true，指令被静默丢弃。
-            retireTurn(turn)   // 还槽 + 关信箱 + 收尾信号（外壳 finally 的二次调用幂等）
         } finally {
             // 闸门用 Semaphore: release 可由任意线程执行 —— emit 是挂起点,
             // 协程恢复后可能换线程, 线程亲和锁在此 unlock 会抛 IllegalMonitorStateException。

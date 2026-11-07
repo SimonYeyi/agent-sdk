@@ -848,4 +848,116 @@ class ReActAgentTest {
             val finalMsg = mem.history().map { it.message }.filterIsInstance<ChatMessage.Assistant>().last()
             assertEquals("steered final", finalMsg.content)
         }
+
+    /**
+     * 回归：终局顺序是"先还槽、后发终局事件" —— 收集方收到终局事件的那一刻，
+     * 槽位必须已经归还，收集方可以立刻开下一轮。
+     *
+     * 用 Unconfined 让收集方在执行体的 emit 调用里就地恢复（收集线程 = 执行线程），
+     * 收事件与还槽的先后关系被放大到可判定：若终局事件先于还槽发出，
+     * 下面这行 run() 会撞 "Concurrent run not supported"。
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `终局事件送达时槽位已还 —— 收到 Final 立即开新轮必定成功`() =
+        runTest(UnconfinedTestDispatcher()) {
+            val provider = FakeLlmProvider(
+                nonStreamResponses = listOf(
+                    ChatResponse(ChatMessage.Assistant(content = "one"), finishReason = FinishReason.Stop),
+                    ChatResponse(ChatMessage.Assistant(content = "two"), finishReason = FinishReason.Stop)
+                )
+            )
+            val agent = ReActAgent(
+                id = "test",
+                persona = AgentPersona(""),
+                llmProvider = provider,
+                toolRegistry = registryOf(),
+                memory = InMemoryMemory(),
+                modalityAdapter = DefaultModalityAdapter(null),
+                maxRounds = 20,
+                maxIterations = 5,
+                dispatcher = UnconfinedTestDispatcher(testScheduler)
+            )
+
+            var secondStarted = false
+            agent.run(AgentQuery.text("one")).collect { event ->
+                if (event is AgentEvent.Final) {
+                    // 此刻槽位已还：这行不会抛并发拒绝
+                    agent.run(AgentQuery.text("two"))
+                    secondStarted = true
+                }
+            }
+
+            assertTrue(secondStarted, "收到终局事件后应能立即开新轮")
+            assertEquals(2, provider.recordedRequests.size, "新轮确实跑起来了")
+        }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `执行体尚未开跑就被取消 —— 兜底补发 Canceled 终局事件`() =
+        runTest(StandardTestDispatcher()) {
+            val provider = FakeLlmProvider(
+                nonStreamResponses = listOf(
+                    ChatResponse(ChatMessage.Assistant(content = "hi"), finishReason = FinishReason.Stop)
+                )
+            )
+            val agent = ReActAgent(
+                id = "test",
+                persona = AgentPersona(""),
+                llmProvider = provider,
+                toolRegistry = registryOf(),
+                memory = InMemoryMemory(),
+                modalityAdapter = DefaultModalityAdapter(null),
+                maxRounds = 20,
+                maxIterations = 5,
+                dispatcher = StandardTestDispatcher(testScheduler)
+            )
+
+            val flow = agent.run(AgentQuery.text("hello"))
+            // 执行体已 start() 派发、但还没被调度器取走：体内的 try/catch/finally 都不会跑，
+            // 只能靠 invokeOnCompletion 兜底补发终局。
+            agent.cancel("boom")
+            advanceUntilIdle()
+
+            val events = flow.toList()
+            assertTrue(
+                events.any { it is AgentEvent.Canceled },
+                "执行体未开跑即被打断时，仍须以 Canceled 终局事件收尾，实际收到：$events"
+            )
+            // 兜底路径同样要先还槽：收集方拿到终局事件即可开新轮
+            agent.run(AgentQuery.text("again")).toList()
+            assertEquals(1, provider.recordedRequests.size, "第一轮从未开跑，第二轮才真正调用了 LLM")
+        }
+
+    @Test
+    fun `终局处理自身失败也不丢终局事件 —— 仍以 Failed 收尾`() = runTest {
+        // LLM 无脚本 → chat() 直接抛；写错误记忆时记忆再抛一次：
+        // 终局处理链自身连环失败，终局事件仍须送达（契约：必有终局事件）。
+        val provider = FakeLlmProvider()
+        val memory = object : Memory {
+            override suspend fun add(entry: MemoryEntry) {
+                if (entry.label == "error") throw IllegalStateException("memory down")
+            }
+
+            override suspend fun history(): List<MemoryEntry> = emptyList()
+            override suspend fun rebuild(entries: List<MemoryEntry>) = Unit
+        }
+        val agent = ReActAgent(
+            id = "test",
+            persona = AgentPersona(""),
+            llmProvider = provider,
+            toolRegistry = registryOf(),
+            memory = memory,
+            modalityAdapter = DefaultModalityAdapter(null),
+            maxRounds = 20,
+            maxIterations = 5,
+            dispatcher = UnconfinedTestDispatcher(testScheduler)
+        )
+
+        val events = agent.run(AgentQuery.text("hello")).toList()
+        assertTrue(
+            events.any { it is AgentEvent.Failed },
+            "终局处理自身失败也须以 Failed 终局事件收尾，实际收到：$events"
+        )
+    }
 }
