@@ -136,8 +136,10 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                         .filter { entry ->
                             val msg = entry.message
                             // 放开 ToolResult：恢复列表需含工具结果，卡片才能按锚点替换它
+                            // 带 toolCalls 的 Assistant 是调工具前的过渡语（中间过程），不显示
                             msg is ChatMessage.User ||
-                            (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank()) ||
+                            (msg is ChatMessage.Assistant && msg.toolCalls.isEmpty() &&
+                                !msg.content.isNullOrBlank()) ||
                             msg is ChatMessage.ToolResult
                         }
                         .map { it.toUiMessage() }
@@ -251,12 +253,9 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                             )
                         }
                         is io.github.yeyi.agent.AgentEvent.ToolCallExplanation -> {
-                            event.text?.let { text ->
-                                _uiState.value = _uiState.value.copy(
-                                    messages = _uiState.value.messages + UiMessage.Assistant(text, id = nextUiId()),
-                                    liveBubble = null
-                                )
-                            }
+                            // 过渡语（模型调工具前的自述）属轮次中间过程：session 页只显示
+                            // 问题与最终回复，不入列；流式下过渡文本已进 liveBubble，此处一并丢弃
+                            _uiState.value = _uiState.value.copy(liveBubble = null)
                         }
                         is io.github.yeyi.agent.AgentEvent.TextDelta -> {
                             _uiState.value = _uiState.value.copy(
@@ -468,8 +467,10 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                         .filter { entry ->
                             val msg = entry.message
                             // 放开 ToolResult：恢复列表需含工具结果，卡片才能按锚点替换它
+                            // 带 toolCalls 的 Assistant 是调工具前的过渡语（中间过程），不显示
                             msg is ChatMessage.User ||
-                            (msg is ChatMessage.Assistant && !msg.content.isNullOrBlank()) ||
+                            (msg is ChatMessage.Assistant && msg.toolCalls.isEmpty() &&
+                                !msg.content.isNullOrBlank()) ||
                             msg is ChatMessage.ToolResult
                         }
                         .map { it.toUiMessage() }

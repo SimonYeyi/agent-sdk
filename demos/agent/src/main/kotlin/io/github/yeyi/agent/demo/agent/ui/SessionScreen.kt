@@ -209,6 +209,12 @@ private fun ChatArea(
         else uiState.messages + UiMessage.Assistant(live.text, id = live.id)
     }
 
+    // 工具结果是轮次中间过程，不渲染（卡片例外：卡片按锚点替换工具结果后单独成条）。
+    // 工具结果消息仍留在 ViewModel 消息列表里充当卡片锚点——卡片的位置即它替代的那次调用。
+    val visibleItems = remember(displayItems) {
+        displayItems.filter { it !is UiMessage.ToolExecution }
+    }
+
     // 标记是否触发了加载更多（用于区分初始加载和加载更多完成）
     var loadMoreTriggered by remember { mutableStateOf(false) }
 
@@ -222,14 +228,14 @@ private fun ChatArea(
 
     // 会话切换或新消息时滚动到底部（加载更多完成时保持位置）
     val currentSessionId = uiState.currentSession?.id
-    LaunchedEffect(currentSessionId, uiState.liveBubble?.text, displayItems.size, uiState.isLoading, uiState.isLoadingMore) {
-        if (displayItems.isNotEmpty()) {
+    LaunchedEffect(currentSessionId, uiState.liveBubble?.text, visibleItems.size, uiState.isLoading, uiState.isLoadingMore) {
+        if (visibleItems.isNotEmpty()) {
             // 加载更多完成后（isLoadingMore: true → false）不滚动，保持在当前位置
             if (loadMoreTriggered) {
                 loadMoreTriggered = false
                 return@LaunchedEffect
             }
-            val lastIndex = if (uiState.isLoading) displayItems.size else displayItems.size - 1
+            val lastIndex = if (uiState.isLoading) visibleItems.size else visibleItems.size - 1
             listState.scrollToItem(lastIndex, Int.MAX_VALUE)
         }
     }
@@ -261,7 +267,7 @@ private fun ChatArea(
                     }
                 }
 
-                items(displayItems, key = { it.id }) { message ->
+                items(visibleItems, key = { it.id }) { message ->
                     MessageBubble(
                         message,
                         cardAdapter = cardAdapter,
