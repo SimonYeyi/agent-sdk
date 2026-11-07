@@ -89,6 +89,9 @@ class WebSearchTool(registry: UiSinkRegistry) : UiGenTool(registry) {
         }
     }
 
+    // 信息卡：卡片展示搜索结果，本轮不终结，模型看完回执自行决定继续还是收尾
+    override fun cardKind(arguments: JsonElement): CardKind = CardKind.INFO
+
     override fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,

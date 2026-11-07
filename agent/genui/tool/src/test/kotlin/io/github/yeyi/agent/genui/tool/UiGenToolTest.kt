@@ -37,6 +37,7 @@ class UiGenToolTest {
         private val data: JsonElement?,
         private val card: CardIr?,
         registry: UiSinkRegistry,
+        private val askUser: Boolean = false
     ) : UiGenTool(registry) {
         var getResultArguments: JsonElement? = null
         var buildCardData: JsonElement? = null
@@ -45,6 +46,9 @@ class UiGenToolTest {
         override val name: String = "fake_tool"
         override val description: String = "fake"
         override val parametersSchema: ToolParameters = ToolParameters.Empty
+
+        override fun cardKind(arguments: JsonElement): CardKind =
+            if (askUser) CardKind.ASK else CardKind.INFO
 
         override suspend fun getResult(
             arguments: JsonElement,
@@ -69,11 +73,15 @@ class UiGenToolTest {
         override val name: String = "unused"
         override suspend fun chat(request: ChatRequest): ChatResponse =
             error("LlmProvider.chat must not be called in UiGenToolTest")
+
         override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> =
             flowOf(ChatResponseEvent.Error(IllegalStateException("unused")))
     }
 
-    private fun context(callId: String = "call_1", agentId: String = "agent_1"): ToolExecutionContext = ToolExecutionContext(
+    private fun context(
+        callId: String = "call_1",
+        agentId: String = "agent_1"
+    ): ToolExecutionContext = ToolExecutionContext(
         toolCallId = callId,
         agentContext = testAgentContext(
             llmProvider = UnusedLlm,
@@ -150,13 +158,14 @@ class UiGenToolTest {
     }
 
     @Test
-    fun `产卡但无业务结果时回执兜底为等待用户回复`() = runTest {
+    fun `问询卡无业务结果时回执兜底为等待用户回复`() = runTest {
         val sink = UiSink()
-        // 问询工具：getResult 返回 null（无业务数据可回执），卡片即交互
+        // 问询卡：卡片即问询，无业务数据可回执
         val tool = FakeUiGenTool(
             data = null,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
             registry = registeredRegistry(sink),
+            askUser = true,
         )
         val job = backgroundScope.launch { sink.cards.collect { } }
         runCurrent() // 排空调度队列，确保订阅注册后再执行
@@ -165,16 +174,53 @@ class UiGenToolTest {
         runCurrent()
 
         job.cancel()
-        assertEquals(ToolExecutionResult.success("等待用户回复"), returned)
+        assertEquals(ToolExecutionResult.success("Waiting for user reply"), returned)
     }
 
     @Test
-    fun `执行成功后默认可终结`() = runTest {
+    fun `信息卡无业务结果时抛异常暴露声明与实现不符`() = runTest {
+        val sink = UiSink()
+        // 信息卡声明有查询结果，实际没有数据可回执——声明与实现不符，直接暴露
+        val tool = FakeUiGenTool(
+            data = null,
+            card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
+            registry = registeredRegistry(sink),
+        )
+        val job = backgroundScope.launch { sink.cards.collect { } }
+        runCurrent()
+
+        assertFailsWith<IllegalStateException> { tool.execute(arguments, context()) }
+
+        job.cancel()
+    }
+
+    @Test
+    fun `信息卡不终结,由模型看完回执自行决定下一步`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         val tool = FakeUiGenTool(data, null, UiSinkRegistry())
 
         val returned = tool.execute(arguments, context())
 
+        // 「本轮是否到此为止」只有模型看到结果后才知道，工具不替它判定
+        assertFalse(tool.finalizable(arguments, returned))
+    }
+
+    @Test
+    fun `问询卡成功即终结等用户作答`() = runTest {
+        val sink = UiSink()
+        val tool = FakeUiGenTool(
+            data = null,
+            card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
+            registry = registeredRegistry(sink),
+            askUser = true,
+        )
+        val job = backgroundScope.launch { sink.cards.collect { } }
+        runCurrent()
+
+        val returned = tool.execute(arguments, context())
+        runCurrent()
+
+        job.cancel()
         assertTrue(tool.finalizable(arguments, returned))
     }
 
@@ -184,8 +230,13 @@ class UiGenToolTest {
             override val name: String = "flaky_card"
             override val description: String = "flaky"
             override val parametersSchema: ToolParameters = ToolParameters.Empty
-            override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
+            override fun cardKind(arguments: JsonElement): CardKind = CardKind.INFO
+            override suspend fun getResult(
+                arguments: JsonElement,
+                context: ToolExecutionContext
+            ): JsonElement =
                 error("card generation failed")
+
             override fun buildCard(
                 arguments: JsonElement,
                 result: JsonElement?,
@@ -197,7 +248,12 @@ class UiGenToolTest {
         // finalizable 收到错误回执后拒绝终结，模型下一轮感知失败并重试
         assertFailsWith<IllegalStateException> { tool.execute(arguments, context()) }
 
-        assertFalse(tool.finalizable(arguments, ToolExecutionResult.error("card generation failed")))
+        assertFalse(
+            tool.finalizable(
+                arguments,
+                ToolExecutionResult.error("card generation failed")
+            )
+        )
     }
 
     @Test
@@ -209,7 +265,12 @@ class UiGenToolTest {
             registry = UiSinkRegistry(),
         )
 
-        val e = assertFailsWith<IllegalStateException> { tool.execute(arguments, context(agentId = "agent_9")) }
+        val e = assertFailsWith<IllegalStateException> {
+            tool.execute(
+                arguments,
+                context(agentId = "agent_9")
+            )
+        }
         assertTrue(e.message!!.contains("agent_9"))
     }
 
@@ -222,7 +283,11 @@ class UiGenToolTest {
             register("agent_b", sinkB)
         }
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        val tool = FakeUiGenTool(data, CardIr(instanceId = "call_1", root = TreeNode(component = "Text")), registry)
+        val tool = FakeUiGenTool(
+            data,
+            CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
+            registry
+        )
 
         val receivedA = mutableListOf<CardIr>()
         val receivedB = mutableListOf<CardIr>()

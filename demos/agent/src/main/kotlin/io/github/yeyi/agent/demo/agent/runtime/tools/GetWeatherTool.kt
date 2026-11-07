@@ -24,10 +24,13 @@ import kotlinx.serialization.json.jsonPrimitive
 enum class WeatherTime {
     @Description("现在")
     NOW,
+
     @Description("今天")
     TODAY,
+
     @Description("明天")
     TOMORROW,
+
     @Description("后天")
     DAY_AFTER_TOMORROW
 }
@@ -83,7 +86,10 @@ internal fun weatherData(city: String, time: WeatherTime): JsonObject {
  * 查询指定城市的天气（支持时间参数）——纯文本回执版，供子 agent 等未接卡片通道的场景使用。
  */
 val getWeatherTool = CompressTool(
-    tool<GetWeatherRequest, JsonElement>("get_weather", "当需要查询指定地点的天气情况时使用") { params, _ ->
+    tool<GetWeatherRequest, JsonElement>(
+        "get_weather",
+        "当需要查询指定地点的天气情况时使用"
+    ) { params, _ ->
         weatherData(params.city, params.time ?: WeatherTime.NOW)
     }
 )
@@ -101,15 +107,26 @@ class WeatherCardTool(
 
     override val name: String = "get_weather"
     override val description: String = "当需要查询指定地点的天气情况时使用"
+
     override val parametersSchema: ToolParameters =
         ToolParameters.JsonSchema(SchemaGenerator.generateSchema(GetWeatherRequest.serializer()))
 
-    override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
+    override suspend fun getResult(
+        arguments: JsonElement,
+        context: ToolExecutionContext
+    ): JsonElement {
         val params = Json.decodeFromJsonElement(GetWeatherRequest.serializer(), arguments)
         return weatherData(params.city, params.time ?: WeatherTime.NOW)
     }
 
-    override fun buildCard(arguments: JsonElement, result: JsonElement?, context: ToolExecutionContext): CardIr? {
+    // 信息卡：卡片展示天气数据，本轮不终结，模型看完回执自行决定继续还是收尾
+    override fun cardKind(arguments: JsonElement): CardKind = CardKind.INFO
+
+    override fun buildCard(
+        arguments: JsonElement,
+        result: JsonElement?,
+        context: ToolExecutionContext
+    ): CardIr? {
         val obj = result as? JsonObject ?: return null
         val city = obj["city"]?.jsonPrimitive?.contentOrNull ?: return null
         val temperature = obj["temperature"]?.jsonPrimitive?.contentOrNull ?: return null
@@ -174,7 +191,12 @@ class WeatherCardTool(
                                     text(timeLabel, "style" to "caption", "color" to "secondary"),
                                 ),
                             ),
-                            text("$temperature°", "style" to "largeTitle", "weight" to "bold", "color" to "primary"),
+                            text(
+                                "$temperature°",
+                                "style" to "largeTitle",
+                                "weight" to "bold",
+                                "color" to "primary"
+                            ),
                         ),
                     ),
                     // 天气标签行
@@ -184,15 +206,30 @@ class WeatherCardTool(
                         children = listOf(
                             TreeNode(
                                 component = "Badge",
-                                bindings = buildJsonObject { put("content", JsonPrimitive(condition)) },
+                                bindings = buildJsonObject {
+                                    put(
+                                        "content",
+                                        JsonPrimitive(condition)
+                                    )
+                                },
                             ),
                             TreeNode(
                                 component = "Badge",
-                                bindings = buildJsonObject { put("content", JsonPrimitive("湿度 $humidity%")) },
+                                bindings = buildJsonObject {
+                                    put(
+                                        "content",
+                                        JsonPrimitive("湿度 $humidity%")
+                                    )
+                                },
                             ),
                             TreeNode(
                                 component = "Badge",
-                                bindings = buildJsonObject { put("content", JsonPrimitive("风速 $wind km/h")) },
+                                bindings = buildJsonObject {
+                                    put(
+                                        "content",
+                                        JsonPrimitive("风速 $wind km/h")
+                                    )
+                                },
                             ),
                         ),
                     ),
