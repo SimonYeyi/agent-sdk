@@ -5,10 +5,12 @@ import kotlinx.serialization.json.JsonElement
 /**
  * 审批请求上下文。
  *
+ * @param agentId 发起审批的 agent 身份标识
  * @param toolName 待审批的工具名称
  * @param toolArguments 工具调用参数
  */
 public data class ApprovalContext(
+    public val agentId: String,
     public val toolName: String,
     public val toolArguments: JsonElement,
 )

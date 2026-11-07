@@ -61,9 +61,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     // 换会话 = 换 memory，故切走前必须 shutdown 作废旧实例。
     private var agent: io.github.yeyi.agent.Agent? = null
 
-    private var agentId: String = ""
-
-    // 卡片旁路:sink 留在收集它的地方,agentId 与 sink 注册进全局路由表。
+    // 卡片旁路:sink 留在收集它的地方,建 agent 时绑给该 agent 的产卡工具。
     private val sink = UiSink()
 
     /** 卡片按 toolCallId 锚点缓存：卡片先到时暂存，事件到达后按锚点补插归位。 */
@@ -404,20 +402,15 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
         return restored
     }
 
-    /** 新 agent:以 session.id 作为身份标识并登记到卡片路由表（会话与 agent 一一对应）。 */
+    /** 新 agent：以 session.id 作为身份标识，产卡工具随它构造并绑定本 VM 的卡片通道。 */
     private fun newAgent(session: Session): io.github.yeyi.agent.Agent {
-        val id = session.id
-        agentId = id
-        AgentRuntime.sinkRegistry.register(id, sink)
-        return AgentRuntime.buildAgent(agentId, session.memory)
+        return AgentRuntime.buildAgent(session.id, session.memory, sink)
     }
 
     /** 作废当前 agent：架构 2 下回合跑在 agent 私有 scope，不 shutdown 会留下无人观察的在途回合。 */
     private fun releaseAgent() {
         val old = agent
         agent = null
-        // 旧 agent 的 id 不再指向任何 agent,解注册避免路由表留下死条目
-        AgentRuntime.sinkRegistry.unregister(agentId)
         (old as? io.github.yeyi.agent.Agent.Shutdownable)?.shutdown()
     }
 

@@ -39,9 +39,9 @@ class UiGenToolTest {
     private class FakeUiGenTool(
         private val data: JsonElement?,
         private val card: CardIr?,
-        registry: UiSinkRegistry,
+        sink: UiSink,
         private val kind: FakeKind = FakeKind.INFO
-    ) : UiGenTool(registry) {
+    ) : UiGenTool(sink) {
         var getResultArguments: JsonElement? = null
         var buildCardData: JsonElement? = null
         var buildCardArguments: JsonElement? = null
@@ -97,10 +97,6 @@ class UiGenToolTest {
         ),
     )
 
-    /** 创建 registry 并登记 sink，默认登记在 "agent_1" 名下。 */
-    private fun registeredRegistry(sink: UiSink, agentId: String = "agent_1"): UiSinkRegistry =
-        UiSinkRegistry().apply { register(agentId, sink) }
-
     private val arguments: JsonElement =
         JsonObject(mapOf("city" to JsonPrimitive("上海")))
 
@@ -109,7 +105,7 @@ class UiGenToolTest {
         val sink = UiSink()
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         val card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text"))
-        val tool = FakeUiGenTool(data, card, registeredRegistry(sink))
+        val tool = FakeUiGenTool(data, card, sink)
 
         val received = mutableListOf<CardIr>()
         val job = backgroundScope.launch { sink.cards.take(1).collect { received += it } }
@@ -133,7 +129,7 @@ class UiGenToolTest {
         val tool = FakeUiGenTool(
             data = data,
             card = null,
-            registry = registeredRegistry(sink),
+            sink = sink,
         )
 
         var cardCount = 0
@@ -156,7 +152,7 @@ class UiGenToolTest {
         val tool = FakeUiGenTool(
             data,
             CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            registeredRegistry(sink),
+            sink,
         )
         val job = backgroundScope.launch { sink.cards.collect { } }
         runCurrent() // 排空调度队列，确保订阅注册后再执行
@@ -181,7 +177,7 @@ class UiGenToolTest {
         val tool = FakeUiGenTool(
             data = null,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            registry = registeredRegistry(sink),
+            sink = sink,
             kind = FakeKind.ASK,
         )
         val job = backgroundScope.launch { sink.cards.collect { } }
@@ -206,7 +202,7 @@ class UiGenToolTest {
         val tool = FakeUiGenTool(
             data = null,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            registry = registeredRegistry(sink),
+            sink = sink,
         )
         val job = backgroundScope.launch { sink.cards.collect { } }
         runCurrent()
@@ -219,7 +215,7 @@ class UiGenToolTest {
     @Test
     fun `信息卡不终结,由模型看完回执自行决定下一步`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        val tool = FakeUiGenTool(data, null, UiSinkRegistry())
+        val tool = FakeUiGenTool(data, null, UiSink())
 
         val returned = tool.execute(arguments, context())
 
@@ -233,7 +229,7 @@ class UiGenToolTest {
         val tool = FakeUiGenTool(
             data = null,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            registry = registeredRegistry(sink),
+            sink = sink,
             kind = FakeKind.ASK,
         )
         val job = backgroundScope.launch { sink.cards.collect { } }
@@ -253,7 +249,7 @@ class UiGenToolTest {
         val tool = FakeUiGenTool(
             data = null,
             card = null,
-            registry = registeredRegistry(sink),
+            sink = sink,
             kind = FakeKind.ASK,
         )
         val job = backgroundScope.launch { sink.cards.collect { } }
@@ -272,7 +268,7 @@ class UiGenToolTest {
         val tool = FakeUiGenTool(
             data = null,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            registry = registeredRegistry(sink),
+            sink = sink,
         )
         var cardCount = 0
         val job = backgroundScope.launch { sink.cards.collect { cardCount++ } }
@@ -292,7 +288,7 @@ class UiGenToolTest {
         val tool = FakeUiGenTool(
             data = data,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            registry = registeredRegistry(sink),
+            sink = sink,
             kind = FakeKind.NONE,
         )
         var cardCount = 0
@@ -316,7 +312,7 @@ class UiGenToolTest {
         // 不变式：finalizable 里 `!result.isError` 先短路——执行失败时不会二次求值 cardKind。
         // 这条短路正是「裁决阶段无需 core 兜底捕获异常」的依据：
         // cardKind 抛异常只会在 execute 阶段暴露（转错误回执，模型重试），不会掀翻回合。
-        val exploding = object : UiGenTool(UiSinkRegistry()) {
+        val exploding = object : UiGenTool(UiSink()) {
             override val name: String = "exploding_card"
             override val description: String = "exploding"
             override val parametersSchema: ToolParameters = ToolParameters.Empty
@@ -343,7 +339,7 @@ class UiGenToolTest {
 
     @Test
     fun `错误回执拒绝终结`() = runTest {
-        val tool = object : UiGenTool(UiSinkRegistry()) {
+        val tool = object : UiGenTool(UiSink()) {
             override val name: String = "flaky_card"
             override val description: String = "flaky"
             override val parametersSchema: ToolParameters = ToolParameters.Empty
@@ -361,7 +357,7 @@ class UiGenToolTest {
             ): CardIr? = null
         }
 
-        // execute 抛异常向上传播，registry 会统一转为错误回执（isError=true），
+        // execute 抛异常向上传播，工具执行链路统一转为错误回执（isError=true），
         // finalizable 收到错误回执后拒绝终结，模型下一轮感知失败并重试
         assertFailsWith<IllegalStateException> { tool.execute(arguments, context()) }
 
@@ -374,36 +370,20 @@ class UiGenToolTest {
     }
 
     @Test
-    fun `agentId 未登记时抛异常暴露配置缺失`() = runTest {
-        // 空 registry：即使 context 携带 agentId，也未登记 sink——产卡工具装配配置缺失应 fail-fast
-        val tool = FakeUiGenTool(
-            data = JsonObject(mapOf("city" to JsonPrimitive("北京"))),
-            card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            registry = UiSinkRegistry(),
-        )
-
-        val e = assertFailsWith<IllegalStateException> {
-            tool.execute(
-                arguments,
-                context(agentId = "agent_9")
-            )
-        }
-        assertTrue(e.message!!.contains("agent_9"))
-    }
-
-    @Test
-    fun `多 agent 共享工具实例时卡片路由隔离`() = runTest {
+    fun `两个 agent 各自的产卡工具互不串味`() = runTest {
         val sinkA = UiSink()
         val sinkB = UiSink()
-        val registry = UiSinkRegistry().apply {
-            register("agent_a", sinkA)
-            register("agent_b", sinkB)
-        }
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        val tool = FakeUiGenTool(
+        // 产卡工具随 agent 构造：每个 agent 一份实例，绑定自己的 sink
+        val toolA = FakeUiGenTool(
             data,
-            CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            registry
+            CardIr(instanceId = "call_a", root = TreeNode(component = "Text")),
+            sinkA,
+        )
+        val toolB = FakeUiGenTool(
+            data,
+            CardIr(instanceId = "call_b", root = TreeNode(component = "Text")),
+            sinkB,
         )
 
         val receivedA = mutableListOf<CardIr>()
@@ -412,9 +392,8 @@ class UiGenToolTest {
         val jobB = backgroundScope.launch { sinkB.cards.take(1).collect { receivedB += it } }
         runCurrent() // 排空调度队列，确保订阅注册后再执行
 
-        // 同一工具实例，两个 agent 先后执行
-        tool.execute(arguments, context(callId = "call_a", agentId = "agent_a"))
-        tool.execute(arguments, context(callId = "call_b", agentId = "agent_b"))
+        toolA.execute(arguments, context(callId = "call_a", agentId = "agent_a"))
+        toolB.execute(arguments, context(callId = "call_b", agentId = "agent_b"))
         runCurrent() // 处理订阅者恢复任务，确保卡片已投递
 
         jobA.join()
@@ -422,5 +401,7 @@ class UiGenToolTest {
         // 各 agent 只收到自己的卡片，不串味
         assertEquals(1, receivedA.size)
         assertEquals(1, receivedB.size)
+        assertEquals("call_a", receivedA.single().instanceId)
+        assertEquals("call_b", receivedB.single().instanceId)
     }
 }

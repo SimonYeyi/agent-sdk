@@ -4,7 +4,9 @@ import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.agent
+import io.github.yeyi.agent.approval.ApprovalHook
 import io.github.yeyi.agent.demo.agent.BuildConfig
+import io.github.yeyi.agent.demo.agent.runtime.approval.AgentApprover
 import io.github.yeyi.agent.demo.agent.runtime.mcp.CalculatorMcp
 import io.github.yeyi.agent.demo.agent.runtime.mcp.IotHaMcp
 import io.github.yeyi.agent.demo.agent.runtime.skills.NewsSkill
@@ -21,7 +23,7 @@ import io.github.yeyi.agent.demo.agent.ui.registerDemoCardTemplates
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
 import io.github.yeyi.agent.genui.adapter.default.DefaultRenderAdapter
 import io.github.yeyi.agent.genui.adapter.default.registerDefaultComponents
-import io.github.yeyi.agent.genui.tool.UiSinkRegistry
+import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.mcp.ClientInfo
@@ -43,14 +45,13 @@ import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logging
 
 /**
- * 全局运行时：持有各 registry 与卡片路由表，按需组装出一个配好 Tool 与
+ * 全局运行时：持有各 registry，按需组装出一个配好 Tool 与
  * 默认 LLM Provider 的 [Agent]。
  *
- * registry 是单例字段：所有 agent 复用同一份 registry，而不是每次重建。
+ * 与会话无关的 registry 是单例字段：所有 agent 复用同一份，而不是每次重建。
  *
- * 卡片旁路：路由表在这里，[sinkRegistry] 公开——使用方自持 sink，
- * 建 agent 时把 agentId 与自己的 sink 注册进来，agent 作废时解注册；
- * sink 的收集也就留在使用方那里。
+ * 前台组件（产卡工具、审批器）是 agent 私有的：随 [buildAgent] 现场构造，
+ * 绑定本 agent 的卡片通道 [UiSink]，不再有跨 agent 的路由表。
  */
 object AgentRuntime {
 
@@ -61,14 +62,12 @@ object AgentRuntime {
     }
 
     /**
-     * 挂到 agent 上的 hook。
+     * hook 流水线：全局共享一份——日志 hook 与审批策略都不需要 agent 私有数据。
      *
-     * 改动只对之后构建的 agent 生效——已构建的 agent 保留各自那份 hook。
+     * 将来接审批 UI 时，per-agent 的不是策略而是**出口**（审批请求投到哪个会话），
+     * 那时这条流水线要改回随 agent 构造。
      */
-    var agentHook: AgentHook = HookPipeline(logging = true)
-
-    /** 卡片路由表：agentId → sink。产卡工具据此找到本 agent 的 sink。 */
-    val sinkRegistry = UiSinkRegistry()
+    val agentHook: AgentHook = HookPipeline(listOf(ApprovalHook(AgentApprover())), logging = true)
 
     /**
      * 卡片渲染后端：demo 全局唯一装配点，iOS 风格组件 + 演示工具组件注册一次，
@@ -79,22 +78,23 @@ object AgentRuntime {
         registerDemoCardTemplates()
     }
 
-    /** 产卡工具在装配时装好，不随 buildAgent 现场组装。 */
-    private val toolRegistry = ToolRegistry().apply {
-        register(GetLocationTool(sinkRegistry))
-        register(GetDateTimeTool(sinkRegistry))
-        register(ChooseCityTool(sinkRegistry))
-    }
-
-    private val lazyToolRegistry = LazyToolRegistry().apply {
-        register(LazyTool(WeatherCardTool(sinkRegistry)))
-        register(LazyTool(WebSearchTool(sinkRegistry), LazyTool.Level.TOOL))
-    }
-
     private val skillRegistry = SkillRegistry().apply {
         register(NewsSkill())
         register(WeatherSkill())
     }
+
+    /**
+     * 全局工具注册表：不依赖 agent 身份、可跨 agent 共享的工具，全 agent 共用一份。
+     *
+     * 当前为空——demo 现有工具都要产卡，绑定 agent 私有的 sink，故都随 agent 构造。
+     * 这里保留位置，是为了让「与 agent 无关的工具」有个明确的落点，而不是混进按 agent 构造的那批。
+     */
+    private val toolRegistry = ToolRegistry()
+
+    /**
+     * 全局懒加载工具注册表：同样只放不依赖 agent 身份、可跨 agent 共享的 [LazyTool]，当前为空。
+     */
+    private val lazyToolRegistry = LazyToolRegistry()
 
     private val subagentRegistry = SubagentRegistry().apply {
         register(WeatherExpertSubagent())
@@ -117,25 +117,47 @@ object AgentRuntime {
     /**
      * 构建一个配好演示 Tool 与默认 LLM Provider 的 Agent。
      *
-     * @param agentId agent 身份标识：卡片旁路的路由键，产卡工具按
-     *   [io.github.yeyi.agent.AgentContext.agentId] 反查自己的 sink。
-     *   需先经 [sinkRegistry] 注册 agentId 与 sink，否则产卡工具找不到 sink。
+     * @param agentId agent 身份标识
+     * @param memory 会话记忆
+     * @param sink 本 agent 的卡片通道：产卡工具随 agent 构造并绑定它，卡片只落在本 agent 的通道上
      */
-    fun buildAgent(agentId: String, memory: Memory): Agent {
+    fun buildAgent(agentId: String, memory: Memory, sink: UiSink): Agent {
         return agent {
             id(agentId)
             persona(AgentPersona(role = "你是一个 helpful 助手，优先使用工具完成任务。"))
             memory(memory)
             llmProvider(provider)
             // 产卡工具:产卡经 UiSink 旁路广播,记忆里只留回执短文本
-            tools(toolRegistry.all())
-            lazyTools(lazyToolRegistry)
+            // 全局工具与产卡工具合并进一份新注册表传入:全局注册表只读,不被写入
+            tools(toolRegistry.withGenUiTools(sink))
+            lazyTools(lazyToolRegistry.withGenUiTools(sink))
             skills(skillRegistry)
             mcps(mcpRegistry)
             hook(agentHook)
             subagents(registry = subagentRegistry, dynamic = true)
         }
     }
+
+    /**
+     * 全局工具 + 产卡工具：产卡工具随 agent 构造，每个 agent 一份，绑定本 agent 的卡片通道。
+     */
+    private fun ToolRegistry.withGenUiTools(sink: UiSink): ToolRegistry = ToolRegistry().apply {
+        register(this@withGenUiTools.all())
+        register(GetLocationTool(sink))
+        register(GetDateTimeTool(sink))
+        register(ChooseCityTool(sink))
+    }
+
+    /**
+     * 延迟加载的工具：全局的可跨 agent 复用，加上随 agent 构造的产卡工具——
+     * [LazyTool] 包的是已构造好的实例，通道绑死在实例上，不能跨 agent 复用。
+     */
+    private fun LazyToolRegistry.withGenUiTools(sink: UiSink): LazyToolRegistry =
+        LazyToolRegistry().apply {
+            register(this@withGenUiTools.all())
+            register(LazyTool(WeatherCardTool(sink)))
+            register(LazyTool(WebSearchTool(sink), LazyTool.Level.TOOL))
+        }
 }
 
 /**

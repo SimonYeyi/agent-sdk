@@ -4,7 +4,7 @@ import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
 import io.github.yeyi.agent.genui.tool.UiGenTool
-import io.github.yeyi.agent.genui.tool.UiSinkRegistry
+import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.compression.CompressTool
@@ -98,12 +98,13 @@ val getWeatherTool = CompressTool(
  * 天气卡片产卡工具：查询天气并对外发射 iOS 风格天气卡。
  *
  * 与 [getWeatherTool] 同名同数据源，但继承 [UiGenTool] 走旁路产卡：
- * 主 agent 场景使用本工具，卡片经 UiSinkRegistry 路由到当前 agent 的 sink；
+ * 主 agent 场景使用本工具，本工具随 agent 构造并绑定该 agent 的 sink，
+ * 卡片只落在本 agent 的通道上；
  * 卡片内嵌时间切换按钮（现在/明天/后天），点击经 ActionEvent 回流触发新一轮推理。
  */
 class WeatherCardTool(
-    private val registry: UiSinkRegistry,
-) : UiGenTool(registry) {
+    sink: UiSink,
+) : UiGenTool(sink) {
 
     override val name: String = "get_weather"
     override val description: String = "当需要查询指定地点的天气情况时使用"

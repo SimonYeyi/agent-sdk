@@ -4,7 +4,7 @@ import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
 import io.github.yeyi.agent.genui.tool.UiGenTool
-import io.github.yeyi.agent.genui.tool.UiSinkRegistry
+import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
@@ -23,7 +23,7 @@ import kotlinx.serialization.json.jsonObject
  * 卡片内嵌「开启导航」动作按钮：点击经 ActionEvent 回流触发新一轮推理，
  * 经纬度等位置数据已随本次 getResult 写入记忆，模型后续轮次据此执行导航。
  */
-class GetLocationTool(registry: UiSinkRegistry) : UiGenTool(registry) {
+class GetLocationTool(sink: UiSink) : UiGenTool(sink) {
 
     override val name: String = "get_location"
     override val description: String = "获取当前位置"

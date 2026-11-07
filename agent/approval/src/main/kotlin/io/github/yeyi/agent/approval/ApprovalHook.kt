@@ -37,7 +37,8 @@ public class ApprovalHook(
 
     override suspend fun execute(event: HookEvent, context: HookContext): HookResult {
         val toolCall = (event as AgentHookEvent.BeforeToolCall).toolCall
-        val tool = context.agentContext?.tools?.find { it.name == toolCall.name }
+        val agentContext = context.agentContext ?: return HookResult.Continue
+        val tool = agentContext.tools.find { it.name == toolCall.name }
             ?: return HookResult.Continue
 
         val target = resolveTarget(tool, toolCall.arguments)
@@ -47,7 +48,10 @@ public class ApprovalHook(
             return HookResult.Continue
         }
 
-        return when (val decision = approver.approve(ApprovalContext(targetTool.name, target.arguments))) {
+        val decision = approver.approve(
+            ApprovalContext(agentContext.agentId, targetTool.name, target.arguments)
+        )
+        return when (decision) {
             is ApprovalDecision.Approved -> HookResult.Continue
             is ApprovalDecision.Denied -> HookResult.Refuse(decision.reason ?: "工具审批被拒绝")
         }

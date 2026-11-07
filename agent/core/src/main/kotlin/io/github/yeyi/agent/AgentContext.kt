@@ -29,7 +29,8 @@ public class AgentContext(
     public val metadata: MutableMap<String, String> = mutableMapOf(),
 ) {
     override fun toString(): String = buildString {
-        append("iter=$currentIteration/$maxIterations")
+        append("agent=$agentId")
+        append(" iter=$currentIteration/$maxIterations")
         if (metadata.isNotEmpty()) {
             append(" metadata=$metadata")
         }

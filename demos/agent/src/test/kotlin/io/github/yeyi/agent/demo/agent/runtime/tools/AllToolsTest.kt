@@ -5,7 +5,6 @@ import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.tool.UiGenTool
 import io.github.yeyi.agent.genui.tool.UiSink
-import io.github.yeyi.agent.genui.tool.UiSinkRegistry
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -33,22 +32,20 @@ class AllToolsTest {
     )
 
     /**
-     * 产卡工具的执行:登记 sink + 起订阅者,执行后取回卡片。
+     * 产卡工具的执行:起订阅者,执行后取回卡片。
      *
-     * 产卡工具按 agentId 反查 sink,无订阅者时 emit 抛异常——订阅必须先于执行就位。
+     * 产卡工具随 agent 构造并绑定自己的 sink,无订阅者时 emit 抛异常——订阅必须先于执行就位。
      */
     private suspend fun TestScope.executeAndCollectCard(
         agentId: String = "agent_1",
-        makeTool: (UiSinkRegistry) -> UiGenTool,
+        makeTool: (UiSink) -> UiGenTool,
     ): Pair<ToolExecutionResult, CardIr?> {
-        val registry = UiSinkRegistry()
         val sink = UiSink()
-        registry.register(agentId, sink)
         val received = mutableListOf<CardIr>()
         val job = backgroundScope.launch { sink.cards.take(1).collect { received += it } }
         runCurrent()
 
-        val result = makeTool(registry).execute(buildJsonObject {}, stubContext(agentId))
+        val result = makeTool(sink).execute(buildJsonObject {}, stubContext(agentId))
         runCurrent()
         if (received.isNotEmpty()) job.join() else job.cancel()
         return result to received.firstOrNull()

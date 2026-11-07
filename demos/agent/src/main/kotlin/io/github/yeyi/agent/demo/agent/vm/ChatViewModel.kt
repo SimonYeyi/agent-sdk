@@ -30,12 +30,12 @@ class ChatViewModel(
     agentFactory: ((Memory, String) -> Agent)? = null,
 ) : ViewModel() {
 
-    // 卡片旁路:sink 留在收集它的地方,agentId 与 sink 注册进全局路由表。
+    // 卡片旁路:sink 留在收集它的地方,建 agent 时绑给该 agent 的产卡工具。
     private val sink = UiSink()
 
     private val agentFactory: (Memory, String) -> Agent =
         agentFactory ?: { memory, agentId ->
-            AgentRuntime.buildAgent(agentId = agentId, memory = memory)
+            AgentRuntime.buildAgent(agentId = agentId, memory = memory, sink = sink)
         }
 
     private val _mode = MutableStateFlow(RunMode.STREAM)
@@ -71,8 +71,6 @@ class ChatViewModel(
 
     private var memory: Memory = io.github.yeyi.agent.memory.InMemoryMemory()
 
-    /** agent 身份标识:卡片旁路的路由键,每个 agent 实例一个。 */
-    private var agentId: String = ""
     private var agentSeq: Int = 0
     private var agent: Agent = createAgent()
 
@@ -93,12 +91,9 @@ class ChatViewModel(
     /** 新 agent 身份标识:VM 内单调递增,重建 agent 时换新 id。 */
     private fun newAgentId(): String = "demo-agent-${++agentSeq}"
 
-    /** 建 agent 并把它的 id 登记到卡片路由表。 */
+    /** 建 agent：产卡工具随它构造，绑定本 VM 的卡片通道。 */
     private fun createAgent(): Agent {
-        val id = newAgentId()
-        agentId = id
-        AgentRuntime.sinkRegistry.register(id, sink)
-        return agentFactory(memory, id)
+        return agentFactory(memory, newAgentId())
     }
 
     private suspend fun reloadMessages() {
@@ -175,10 +170,9 @@ class ChatViewModel(
         cardsByCallId.clear()
         insertedCards.clear()
         memory = io.github.yeyi.agent.memory.InMemoryMemory()
-        // 旧 agent 的 id 不再指向任何 agent,解注册避免路由表留下死条目
-        AgentRuntime.sinkRegistry.unregister(agentId)
         // 换 agent 在同一主线程回调里完成，run() 读不到「旧 agent 已 shutdown、
         // 字段尚未替换」的中间态——并发 run 的 ISE 拒绝由此不可达。
+        // 卡片通道（sink）留在本 VM：新 agent 的产卡工具绑同一个通道，订阅不动。
         agent = createAgent()
         (oldAgent as? Agent.Shutdownable)?.shutdown()
     }
@@ -392,14 +386,12 @@ class ChatViewModel(
     }
 
     /**
-     * 页面销毁（组合退出 / Activity finish）：回收卡片路由与在途回合。
+     * 页面销毁（组合退出 / Activity finish）：回收在途回合。
      *
      * 此时 viewModelScope 已随之取消（sink 订阅已断），shutdown 迟到的
-     * Canceled 回放不会渲染；不 shutdown 会留下无人观察的在途回合，
-     * 不反注册会让路由表留下死条目（agentId 每次重建递增累积）。
+     * Canceled 回放不会渲染；不 shutdown 会留下无人观察的在途回合。
      */
     override fun onCleared() {
-        AgentRuntime.sinkRegistry.unregister(agentId)
         (agent as? Agent.Shutdownable)?.shutdown()
     }
 }

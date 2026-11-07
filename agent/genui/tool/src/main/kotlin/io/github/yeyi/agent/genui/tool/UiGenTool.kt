@@ -33,20 +33,18 @@ import kotlinx.serialization.json.JsonElement
  *   「本轮是否到此为止」只有模型看到结果之后才知道，工具无权替它判定（否则模型把工具
  *   当中间步骤调用时会被提前截断，比如先查时间再查天气）；
  * - 不产卡（[CardKind.NONE]）：本轮就是普通取数工具，回执即数据，永不终结；
- * 产卡失败（[getResult]/[buildCard] 抛出异常，registry 转为错误回执）一律拒绝终结，
+ * 产卡失败（[getResult]/[buildCard] 抛出异常）一律拒绝终结，
  * 模型下一轮感知失败并重试。
- * 裁决不持有实例状态——卡片类型由入参判定、成败直接取自本轮执行结果，
- * 多 agent 共享同一工具实例也不会串味。
+ * 裁决不持有实例状态——卡片类型由入参判定、成败直接取自本轮执行结果。
  *
- * 卡片路由同样零实例状态：基类不持有具体 [UiSink]，execute 时从
- * [io.github.yeyi.agent.AgentContext.agentId] 解析本 agent 身份标识，经 [UiSinkRegistry.resolve]
- * 取当前 agent 的 sink 发射——多 agent 共享同一工具实例（含 SpawnedAgent 孵化）天然隔离，
- * 不会把卡片发到别的 agent 的 sink。
+ * 卡片通道在构造期定死：产卡工具随 agent 构造，持有自己的 [UiSink]，执行时直接发射，
+ * 不做运行期解析。子 agent 继承父 agent 的工具实例（连同 sink 绑定），卡片落父通道——
+ * 与它继承父的 llmProvider、memory 同属一种继承。
+ * 产卡工具实例因此是 agent 私有的：不要在工具里持有跨 agent 的状态（缓存、限流计数）。
  *
- * @param registry 卡片路由注册表，构造器必传注入：应用/会话按 agentId 登记各自 [UiSink]，
- *   工具执行时反向解析；仅由基类 execute 收口使用，不发卡权下放给子类
+ * @param sink 本 agent 的卡片通道，构造器必传注入；仅由基类 execute 收口使用，不发卡权下放给子类
  */
-public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, FinalizableTool {
+public abstract class UiGenTool(private val sink: UiSink) : Tool, FinalizableTool {
 
     private companion object {
         /** 回执里告知模型「卡片已展示给用户」，避免它把同样内容在正文里再讲一遍。 */
@@ -169,9 +167,9 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
      * 回执定稿在发卡之前：回执不成立（无数据、问询卡未产出）时本轮根本不该把卡发到用户手上——
      * 否则用户看到卡片，模型却收到失败回执去重试，卡片会被重复发出。
      *
-     * [buildCard] 返回非空卡片时，当前 agent 必须在 registry 中已登记 sink——未登记属装配配置
-     * 错误（产卡工具要求使用方先为 agent 登记 sink），直接抛 [IllegalStateException] fail-fast
-     * 暴露，绝不静默丢弃卡片；异常向上传播由 registry 统一转错误回执，
+     * [buildCard] 返回非空卡片时，发射通道在构造期已定死；通道上没有订阅者属装配配置
+     * 错误（产卡工具要求使用方为该 agent 备好 sink 并保持订阅），直接抛 [IllegalStateException]
+     * fail-fast 暴露，绝不静默丢弃卡片；异常向上传播由工具执行链路统一转错误回执，
      * [finalizable] 收到错误回执后拒绝终结，模型下一轮感知失败并重试。
      */
     final override suspend fun execute(
@@ -201,10 +199,6 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
                 )
             }
         if (card != null) {
-            val agentId = context.agentContext.agentId
-            val sink = checkNotNull(registry.resolve(agentId)) {
-                "$name is UiGenTool, must emit a card, but agent [$agentId] has no UiSink registered in UiSinkRegistry. Register a sink for any agent using a card-emitting tool."
-            }
             sink.emit(card)
         }
         // 产了卡就要告知模型卡片已送达，避免它把同样的内容在正文里再讲一遍；

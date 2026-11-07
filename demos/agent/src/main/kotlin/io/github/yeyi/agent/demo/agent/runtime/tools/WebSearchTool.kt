@@ -3,7 +3,7 @@ package io.github.yeyi.agent.demo.agent.runtime.tools
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
 import io.github.yeyi.agent.genui.tool.UiGenTool
-import io.github.yeyi.agent.genui.tool.UiSinkRegistry
+import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import io.ktor.client.*
@@ -31,7 +31,7 @@ import java.net.URLEncoder
  * 产卡：IR 根节点直接为 Text（顶层文本节点，无 Card 外壳），
  * content 承载多行搜索结果文本。
  */
-class WebSearchTool(registry: UiSinkRegistry) : UiGenTool(registry) {
+class WebSearchTool(sink: UiSink) : UiGenTool(sink) {
     override val name = "web_search"
     override val description = "搜索互联网内容，使用 Bing 搜索"
 

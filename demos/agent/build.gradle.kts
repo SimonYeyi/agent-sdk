@@ -58,6 +58,7 @@ dependencies {
     implementation(project(":agent:session"))
     implementation(project(":agent:skill"))
     implementation(project(":agent:hook"))
+    implementation(project(":agent:approval"))
     implementation(project(":agent:mcp"))
     implementation(project(":agent:subagent"))
     implementation(project(":agent:providers:openai"))

@@ -4,7 +4,7 @@ import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
 import io.github.yeyi.agent.genui.tool.UiGenTool
-import io.github.yeyi.agent.genui.tool.UiSinkRegistry
+import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
@@ -21,7 +21,7 @@ import kotlinx.serialization.json.buildJsonObject
  * 问询卡没有业务数据可回执（getResult 不复写），回执为「Waiting for user reply」；
  * 卡片必须产出——问询卡未产出时基类判失败，不会让回合空转终结。
  */
-class ChooseCityTool(registry: UiSinkRegistry) : UiGenTool(registry) {
+class ChooseCityTool(sink: UiSink) : UiGenTool(sink) {
 
     override val name: String = "choose_city"
     override val description: String = "当需要跟用户确定城市时使用"
