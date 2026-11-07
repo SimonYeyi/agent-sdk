@@ -121,8 +121,9 @@ class UiGenToolTest {
     @Test
     fun `buildCard 返回 null 时不发射卡片`() = runTest {
         val sink = UiSink()
+        val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         val tool = FakeUiGenTool(
-            data = JsonObject(mapOf("city" to JsonPrimitive("北京"))),
+            data = data,
             card = null,
             registry = registeredRegistry(sink),
         )
@@ -136,6 +137,8 @@ class UiGenToolTest {
 
         job.cancel()
         assertEquals(0, cardCount)
+        // 未产卡：回执不追加「卡片已展示」的告知
+        assertEquals(ToolExecutionResult.success(data.toString()), returned)
     }
 
     @Test
@@ -154,7 +157,13 @@ class UiGenToolTest {
         runCurrent()
 
         job.cancel()
-        assertEquals(ToolExecutionResult.success(data.toString()), returned)
+        // 产了卡：回执附带「卡片已展示给用户」的告知
+        assertEquals(
+            ToolExecutionResult.success(
+                "${data.toString()} (this has already been shown to the user as a ui-card)"
+            ),
+            returned
+        )
     }
 
     @Test
@@ -174,7 +183,12 @@ class UiGenToolTest {
         runCurrent()
 
         job.cancel()
-        assertEquals(ToolExecutionResult.success("Waiting for user reply"), returned)
+        assertEquals(
+            ToolExecutionResult.success(
+                "Waiting for user reply (this has already been shown to the user as a ui-card)"
+            ),
+            returned
+        )
     }
 
     @Test

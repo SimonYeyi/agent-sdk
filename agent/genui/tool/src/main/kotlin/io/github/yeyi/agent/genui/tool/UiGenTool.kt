@@ -47,6 +47,11 @@ import kotlinx.serialization.json.JsonElement
  */
 public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, FinalizableTool {
 
+    private companion object {
+        /** 回执里告知模型「卡片已展示给用户」，避免它把同样内容在正文里再讲一遍。 */
+        const val CARD_SHOWN_NOTE = "(this has already been shown to the user as a ui-card)"
+    }
+
     /**
      * 卡片类型：决定本轮是否可终结，以及回执文本的形态。
      *
@@ -129,8 +134,10 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
      *
      * 固定执行顺序保证卡片发射时序位于 ToolCallStart/End 区间内；回执文本照常返回进记忆，卡片走旁路。
      * 回执语义由 [getResult] 返回值与 [cardKind] 共同决定：有数据即回执数据文本，
-     * 模型后续轮次据此读到具体信息；无数据且为问询卡（卡片已发射）即回执「等待用户回复」，
-     * 模型据此感知回合待用户裁决；无数据且非问询卡属声明与实现不符，直接抛异常。
+     * 模型后续轮次据此读到具体信息；无数据且为问询卡（卡片已发射）即回执「等待用户回复」；
+     * 无数据且非问询卡属声明与实现不符，直接抛异常。
+     * 本轮产了卡时，回执末尾追加「卡片已展示给用户」的告知，避免模型在正文里
+     * 把卡片内容再讲一遍；未产卡（[buildCard] 返回 null 的合法降级）不追加，避免谎报。
      * [buildCard] 返回 null（本轮不产卡）是合法降级，本轮不产卡仅返回回执文本；
      * 但 [buildCard] 返回非空卡片时，当前 agent 必须在 registry 中已登记 sink——未登记属装配配置
      * 错误（产卡工具要求使用方先为 agent 登记 sink），直接抛 [IllegalStateException] fail-fast
@@ -161,6 +168,9 @@ public abstract class UiGenTool(private val registry: UiSinkRegistry) : Tool, Fi
                             "only an ask card tool may return null"
                 )
             }
-        return ToolExecutionResult.success(content)
+        // 产了卡就要告知模型卡片已送达，避免它把同样的内容在正文里再讲一遍；
+        // 未产卡（buildCard 返回 null 的合法降级）不追加，避免谎报
+        val receipt = if (card != null) "$content $CARD_SHOWN_NOTE" else content
+        return ToolExecutionResult.success(receipt)
     }
 }
