@@ -19,7 +19,6 @@ import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.onCompletion
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -48,6 +47,10 @@ class ChatViewModel(
     private val _liveBubble = MutableStateFlow<LiveBubble?>(null)
     val liveBubble: StateFlow<LiveBubble?> = _liveBubble.asStateFlow()
 
+    /**
+     * 回合进行中的状态：由事件流如实反映——[AgentEvent.Initial] 置起，
+     * 轮次收尾（流的完成）归位。
+     */
     private val _isProcessing = MutableStateFlow(false)
     val isProcessing: StateFlow<Boolean> = _isProcessing.asStateFlow()
 
@@ -65,8 +68,6 @@ class ChatViewModel(
     private var agentId: String = ""
     private var agentSeq: Int = 0
     private var agent: Agent = createAgent()
-
-    private var runJob: kotlinx.coroutines.Job? = null
 
     init {
         viewModelScope.launch { reloadMessages() }
@@ -158,10 +159,8 @@ class ChatViewModel(
         // "New" 的语义是开新会话：先清空 UI，再作废旧 agent。
         // 旧 agent 必须 shutdown：架构 2 下回合跑在 agent 私有 scope，
         // 只掐收集会让执行体在无人观察时烧到自然终局。
-        // 订阅先掐断再 shutdown —— shutdown 后迟到的 Canceled 回放不再渲染。
         val oldAgent = agent
-        runJob?.cancel()
-        runJob = null
+        _isProcessing.value = false
         _messages.value = emptyList()
         _liveBubble.value = null
         inProgressByCallId.clear()
@@ -184,7 +183,7 @@ class ChatViewModel(
      */
     fun onCardAction(event: ActionEvent) {
         if (_isProcessing.value) return
-        sendUserInput(event.action.label)
+        submit(event.action.label)
     }
 
     /**
@@ -219,31 +218,60 @@ class ChatViewModel(
     private var nextUiId: Int = 0
     private fun nextUiId(): String = (++nextUiId).toString()
 
-    fun sendUserInput(text: String) {
-        if (text.isBlank() || _isProcessing.value) return
+    /**
+     * 提交输入 —— 有活跃轮次就注入那一轮，没有就开新一轮。
+     *
+     * 按钮形态（Steer / Send）只是提示，真正的分派由 agent 的槽位决定：
+     * 先试 [Agent.Steerable.steer]，投递不到（没有活跃轮次）就直接开新轮 ——
+     * 合成一条路，调用方不必先判断状态再选路：判断用的那个状态可能已经过期
+     * （轮次刚收尾的那一帧，按钮显示与实际状态对不上）。
+     *
+     * steer 投递不到即意味着槽位已还（core 的契约：先还槽、后发终局事件），
+     * 所以这里的 run 不会撞上并发轮次。
+     */
+    fun submit(text: String) {
+        if (text.isBlank()) return
+        val steerable = agent as? Agent.Steerable
+        if (steerable != null && steerable.steer(AgentQuery.text(text))) return
+        runTurn(text)
+    }
 
-        // run() 调用即启动回合（架构 2）——在点击回调里同步启动，
-        // 而不是等 viewModelScope 的协程被调度：清空/关闭页面若抢在协程开跑前
-        // 引用旧 agent，这一轮就成了无人观察的在途回合。
-        // 流式是可选能力：Agent 未实现 Streamable 时降级为批式路径。
+    /**
+     * 跑一轮：调用即启动回合（架构 2），流式是可选能力——
+     * Agent 未实现 Streamable 时降级为批式路径。
+     */
+    private fun runTurn(text: String) {
+        val current = agent
         val flow = when (_mode.value) {
             RunMode.STREAM -> (agent as? Streamable)?.runStream(AgentQuery.text(text))
                 ?: agent.run(AgentQuery.text(text))
 
             RunMode.BATCH -> agent.run(AgentQuery.text(text))
         }
-        _isProcessing.value = true
-
-        runJob = viewModelScope.launch {
-            // 回合内一切失败/取消都是领域事件，collect 不抛。轮次收尾挂在流的完成上：
-            // 终局事件后流完成、订阅被取消（clearMessages），onCompletion 都会执行——
-            // 后者收不到终局事件，靠它归位 isProcessing（不归位 VM 永久拒绝新输入）。
-            flow.onCompletion {
+        viewModelScope.launch {
+            try {
+                flow.collect { event ->
+                    // 会话已被 clearMessages 换掉：旧轮的事件不再落进新会话。
+                    if (current !== agent) return@collect
+                    handleEvent(event)
+                }
+            } finally {
+                // 轮次收尾：终局事件已渲染，进行中状态归位。
+                _isProcessing.value = false
                 _liveBubble.value = null
                 inProgressByCallId.clear()
-                _isProcessing.value = false
-            }.collect { handleEvent(it) }
+            }
         }
+    }
+
+    /**
+     * 打断在途轮次 —— agent 以 [AgentEvent.Canceled] 终局收尾，agent 本身仍可再用。
+     *
+     * 直接走 [Agent.Cancelable.cancel]：只投递取消，不等待。core 的终局顺序是
+     * "先还槽、后发终局事件"，故收集方收到 Canceled 时槽位已还 —— 下一轮直接开即可。
+     */
+    fun cancel() {
+        (agent as? Agent.Cancelable)?.cancel("user canceled")
     }
 
     private fun handleEvent(event: AgentEvent) {
@@ -255,6 +283,8 @@ class ChatViewModel(
                         id = nextUiId(),
                     )
                 }
+                // 回合开始的标志：进行中状态由事件流如实反映。
+                _isProcessing.value = true
                 _liveBubble.value = null
             }
 
@@ -311,11 +341,8 @@ class ChatViewModel(
             }
 
             is AgentEvent.Canceled -> {
-                // 终局三选一里的第三种：回合被取消（清空消息 / 关闭页面）——
-                // 不是运行失败，渲染打断气泡。
-                _messages.update {
-                    it + UiMessage.Assistant("（已打断）", id = nextUiId())
-                }
+                // 终局三选一里的第三种：回合被取消（用户打断 / 清空消息 / 关闭页面）——
+                // 不是运行失败，不渲染气泡；进行中状态由轮次收尾归位。
                 _liveBubble.value = null
             }
 

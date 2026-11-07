@@ -149,6 +149,11 @@ fun ChatScreen(
             }) {
                 Text("New")
             }
+            Spacer(modifier = Modifier.width(8.dp))
+            // 打断在途轮次：agent 以 Canceled 终局收尾，agent 本身仍可继续用。
+            OutlinedButton(onClick = { viewModel.cancel() }, enabled = isProcessing) {
+                Text("Cancel")
+            }
         }
         Spacer(modifier = Modifier.height(8.dp))
         LazyColumn(
@@ -179,19 +184,30 @@ fun ChatScreen(
                 onValueChange = { input = it },
                 label = { Text("Input") },
                 modifier = Modifier.weight(1f),
-                enabled = !isProcessing,
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Button(
-                onClick = {
-                    if (input.isNotBlank()) {
-                        autoScroll = true
-                        viewModel.sendUserInput(input.trim())
+            if (isProcessing) {
+                // 标签只是提示：两条路都走 submit —— 有活跃轮次就注入那一轮，
+                // 没有就开新一轮，由 agent 的槽位决定，调用方不预判状态。
+                Button(
+                    onClick = {
+                        viewModel.submit(input.trim())
                         input = ""
-                    }
-                },
-                enabled = !isProcessing && input.isNotBlank(),
-            ) { Text("Send") }
+                    },
+                    enabled = input.isNotBlank(),
+                ) { Text("Steer") }
+            } else {
+                Button(
+                    onClick = {
+                        if (input.isNotBlank()) {
+                            autoScroll = true
+                            viewModel.submit(input.trim())
+                            input = ""
+                        }
+                    },
+                    enabled = input.isNotBlank(),
+                ) { Text("Send") }
+            }
         }
     }
 }
