@@ -162,7 +162,13 @@ fun ChatScreen(
                 MessageBubble(
                     message = msg,
                     cardAdapter = viewModel.cardAdapter,
-                    onCardAction = viewModel::onCardAction,
+                    onCardAction = { event ->
+                        // 卡片动作会发起新一轮推理，与「发送」同路：先恢复追底，
+                        // 否则用户上滑点旧卡片时 autoScroll 已是 false，
+                        // 新一轮的回复会追加在屏幕外看不见
+                        autoScroll = true
+                        viewModel.onCardAction(event)
+                    },
                 )
             }
         }
