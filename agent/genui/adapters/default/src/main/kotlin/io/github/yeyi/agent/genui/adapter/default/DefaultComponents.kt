@@ -325,14 +325,14 @@ internal fun Text(node: TreeNode) {
 
 /** iOS 风格按钮：variant 支持 primary/secondary/bordered/destructive/plain；无有效动作渲染为禁用态。 */
 @Composable
-internal fun Button(node: TreeNode, scope: UiActionScope) {
-    val action = scope.action
+internal fun Button(node: TreeNode, scope: ActionScope) {
+    val action = node.action
     val label = action?.label ?: node.bindings.str("label", "按钮")
     val variant = node.bindings.str("variant", "primary").lowercase()
     val shape = RoundedCornerShape(10.dp)
 
     if (action == null) {
-        // 卡内动作非法或节点未声明动作：渲染为禁用态静态文本，不绑定点击
+        // 节点未声明动作或卡内动作非法整卡降级：渲染为禁用态静态文本，不绑定点击
         ComposeText(
             text = label,
             fontSize = 15.sp,
@@ -353,7 +353,7 @@ internal fun Button(node: TreeNode, scope: UiActionScope) {
     var modifier = Modifier
         .clip(shape)
         .background(background)
-        .clickable { scope.emit(action.id) }
+        .clickable { scope.emit(action) }
         .padding(horizontal = 14.dp, vertical = 7.dp)
     if (border != Color.Transparent) {
         modifier = modifier.border(1.dp, border, shape)

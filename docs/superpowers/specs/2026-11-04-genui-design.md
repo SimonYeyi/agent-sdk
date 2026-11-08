@@ -33,11 +33,11 @@
 | UI 事件通道 | 旁路 `UiSink`（普通类，按实例注入：demo/会话持有实例注入工具并订阅 `cards: SharedFlow<CardIr>`，`emit` 挂起发射）+ `UiGenTool` 抽象基类（实现 Tool，`uiSink` 构造器必传注入，`execute` final 模板接线） |
 | 卡片记忆策略 | 卡片 IR 完全绕过记忆，工具回执文本照常进记忆，避免 token 污染 |
 | IR 形态 | 统一组件树（TREE），模板概念下沉为「工具内代码复用」，IR 层不做模板注册表；模板卡下工具只交 root + 数据 |
-| 动作契约 | 动作由「拥有者」声明，一个动作只有一处声明：通用组件路径由节点自带（`TreeNode.action`），模板组件路径由组件注册时声明（渲染层）。卡内 id 唯一（同 id 必须同 label），任何渲染后端只绑定已声明动作 |
+| 动作契约 | 动作由「拥有者」持有，一个动作只有一处出处：通用组件路径由节点自带（`TreeNode.action`），模板组件路径是组件自己的常量（写在模板里）。渲染协议面只有「动作出口」，不区分两类来源。卡内 id 唯一（同 id 必须同 label），模型可控的动作（节点自带）非法 → 整卡降级 |
 | 校验归属 | 动作校验独立为公开校验器 `CardIrValidator`（协议层语义收口），自研后端与投影后端共用；A2UI 官方校验不覆盖 genui 动作语义 |
 | 渲染后端插槽 | genui adapters 的 `api` 子模块定义平台版 `UiRenderAdapter`（@Composable）插槽接口，实现分两个并列后端子模块：`adapters:default` 的 `DefaultRenderAdapter`（自研声明式后端，组件注册绑定平台 @Composable，渲染底座整体落于适配器）与 `adapters:a2ui` 的 `A2uiRenderAdapter`（CardIr→A2UI 投影 + androidx.a2ui 官方引擎状态机 + 回流映射）；demo 组装点一次性选择，业务代码统一走 `adapter.RenderCard(card, onAction)` 无感 |
 | 自研渲染 | 组件注册绑定平台渲染实现（@Composable），注定留不在纯 JVM 的 ir——ir 退化为纯协议层（序列化 IR + 校验），渲染底座整体并入 `DefaultRenderAdapter`（@Composable 注册表 + 声明式递归渲染），与其他后端平级 |
-| 组件契约 | 自研后端用 @Composable 组件注册表（DefaultRenderAdapter），组件注册时可声明自己的动作集（模板卡路径）；A2UI 后端用 catalog（目录即契约），投影时组件名映射到目录内组件——A2UI 侧 v1 只承载节点自带动作，模板卡需组件→动作表，未实现 |
+| 组件契约 | 自研后端用 @Composable 组件注册表（DefaultRenderAdapter），注册只给「名字 + 渲染实现」，动作不进注册参数；A2UI 后端用 catalog（目录即契约），投影时组件名映射到目录内组件——A2UI 侧 v1 只承载节点自带动作，模板卡未实现 |
 | 回流路径 | 卡片动作事件 → demo 组装 AgentQuery → 新一轮推理（BossAgent input / ReActAgent 新 run） |
 | 会话恢复 | `CardIr.instanceId` = 工具 `toolCallId`，demo 本地卡片记录按锚点归位 |
 | ReActAgent / BossAgent 接入 | 零改动：工具是外部注入的，demo 订阅 agent 事件流 + UI 流自行合并 |
@@ -59,7 +59,7 @@ tool/（纯 JVM，依赖 ir + :agent:core，
 adapters/（Android 适配层，三个独立子模块）
   ├─ api/：UiRenderAdapter（@Composable 插槽接口）
   ├─ default/：DefaultRenderAdapter（自研声明式后端，
-  │            组件契约 = 名字 + 动作集 + 渲染实现）
+  │            组件契约 = 名字 + 渲染实现）
   └─ a2ui/：A2uiRenderAdapter（投影 + androidx.a2ui 引擎）
 
 工具侧（外部注入）                           UI 使用（无感）
@@ -97,22 +97,23 @@ public data class Action(
 ```
 
 - 组件名由渲染层解释（自研注册表 / A2UI 目录），IR 层不感知具体组件
-- 模板 = 渲染层注册的模板组件（名字 + 动作集 + 渲染实现），工具只交 root + 业务数据；模板不进协议
+- 模板 = 渲染层注册的模板组件（名字 + 渲染实现），工具只交 root + 业务数据；模板不进协议
 - 未知组件由渲染层降级，不中断渲染
 
-**动作归属：谁拥有可点击物，谁声明动作**
+**动作归属：谁拥有可点击物，谁持有动作**
 
-动作只有一处声明，不再「卡级声明一遍 + 节点引用一遍」：
+动作只有一处出处，不再「卡级声明一遍 + 节点引用一遍」：
 
-| 卡片形态 | IR 产出 | 动作声明处 |
+| 卡片形态 | IR 产出 | 动作出处 |
 |---|---|---|
 | 声明式卡（`Card`/`Column`/`Button` 等通用组件） | 整棵组件树 | 节点自带 `TreeNode.action`（动作名每卡不同，通用组件无法预声明） |
-| 模板卡（root 为自研模板组件） | 单 root 节点 + 业务数据 | 组件注册时声明（动作名是组件的常量），工具不出现按钮节点、不声明动作 |
+| 模板卡（root 为自研模板组件） | 单 root 节点 + 业务数据 | 模板自己的常量（写在组件里），工具不出现按钮节点、不声明动作 |
 
 - 模板卡下工具只交 root + 数据：`CardIr(instanceId, TreeNode("Location", bindings = 数据))`，
   可点击物与动作全在模板里——卡片定义不再一分为二
 - 卡内动作 id 唯一：同 id 视为同一动作（多个触发点共享），label 必须一致；id 为空或同 id 不同 label → 整卡降级为纯展示
-- 两条路径的差异只在「谁拥有动作」，渲染引擎一律只绑定已声明动作
+- 两条路径的差异只在「动作值从哪来」，渲染协议面统一为「动作出口」：`scope.emit(action)`，
+  动作值由组件自己持有，协议不要求消费方发明 id
 
 ### 节 2 — UiSink 通道 + UiGenTool 抽象基类
 
@@ -195,12 +196,13 @@ public class CardIrValidator {
      *
      * @return id 到动作规格的映射；卡内动作非法时返回 null，消费方应将整卡降级为纯展示。
      */
-    public fun collectActions(root: TreeNode): Map<String, Action>?
+    public fun validateActions(root: TreeNode): Map<String, Action>?
 }
 ```
 
 - **归属 genui（协议层）**：动作 id 非空、卡内同 id 必须同 label、卡内动作非法整卡降级——是 genui 的安全红线，任何渲染后端都必须遵守
-- **自研后端**：DefaultRenderAdapter 渲染前调用（`collectActions`）；组件注册时校验组件自己声明的动作集（`validateActions`），非法直接拒注册——代码错误不留到运行期
+- **覆盖范围**：只校验 IR 里的节点动作（模型可控的那部分）；模板组件的动作是代码里的常量，由作者自持，出口侧兜底空 id
+- **自研后端**：DefaultRenderAdapter 渲染前调用（`validateActions(root)`）
 - **A2UI 投影后端**：投影 CardIr→A2UI 前调用（A2UI 官方校验只认目录 schema，不覆盖 genui 动作语义）
 - 校验失败不抛异常，降级为纯展示（无动作），保证 UI 流永不中断
 
@@ -208,50 +210,61 @@ public class CardIrValidator {
 
 组件注册绑定平台渲染实现（@Composable），注定留不在纯 JVM 的 ir——渲染底座整体落于 `adapters:default`，ir 退化为纯协议层。
 
-**组件契约 = 组件名 + 组件自己声明的动作集 + 渲染实现**。模板卡下可点击物与动作都归组件，工具只交 root + 数据。
+**组件契约 = 组件名 + 渲染实现**。动作不进注册参数：通用组件的动作来自节点自带，模板组件的动作是模板里的常量——协议面只留一个「动作出口」。
 
 ```kotlin
 // agent/genui/adapters/default —— 自研后端子模块（DefaultRenderAdapter.kt，包名 …/genui/adapter/default）
 /** Compose 组件渲染实现签名：组件拿到动作出口，自行决定要不要发起回流。 */
 public typealias UiComponentRenderer = @Composable (
     node: TreeNode,
-    scope: UiActionScope,
+    scope: ActionScope,
     children: @Composable () -> Unit,
 ) -> Unit
 
-/** 组件的动作出口：节点自带动作与组件声明动作合成一个出口。 */
-public class UiActionScope {
-    public val action: Action?              // 本节点的有效动作（卡内动作非法时为 null）
-    public fun emit(actionId: String, payload: JsonObject = ...)   // 发起动作回流
+/** 组件的动作出口：动作值由调用方给出，出口只负责把动作交回渲染层。 */
+public class ActionScope {
+    // 载荷缺省由适配器按节点绑定数据填充；id 非空是约定，出口不重复校验
+    public fun emit(action: Action, payload: JsonObject? = null)
 }
 
 /** 自研后端：声明式组件树递归渲染（@Composable 注册表），动作校验复用 ir 的 CardIrValidator。 */
 public class DefaultRenderAdapter(
     private val validator: CardIrValidator = CardIrValidator(),
 ) : UiRenderAdapter {
-    public fun register(component: String, actions: List<Action> = emptyList(), renderer: UiComponentRenderer)
+    public fun register(component: String, renderer: UiComponentRenderer)
     public fun registerFallback(renderer: UiComponentRenderer)
 
     @Composable
     override fun RenderCard(card: CardIr, onAction: (ActionEvent) -> Unit) {
-        val valid = validator.collectActions(card.root) != null   // 卡内动作非法 → 整卡降级
+        val valid = validator.validateActions(card.root) != null   // 卡内动作非法 → 整卡降级
         Column { RenderNode(card, card.root, valid, onAction) }  // 声明式先序递归
     }
 }
 ```
 
-模板卡写法（可点击物与动作都在模板里，工具侧只出 root + 数据）：
+两条路径的写法（差别只在动作值从哪来，协议面一致）：
 
 ```kotlin
-register("Location", actions = listOf(Action("navigate", "开启导航"))) { node, scope, _ ->
+// 通用组件：动作值取自节点（IR 数据，受卡级校验保护）
+register("Button") { node, scope, _ ->
+    val action = node.action
+    if (action == null) Text(node.bindingText("label"))
+    else Button(onClick = { scope.emit(action) }) { Text(action.label) }
+}
+
+// 模板组件：动作是模板自己的常量，工具侧不出现
+private val NAVIGATE = Action("navigate", "开启导航")
+
+register("Location") { node, scope, _ ->
     Card(node) {
         FieldRow("城市", node.bindingText("city"))
-        Button(onClick = { scope.emit("navigate") }) { Text("开启导航") }
+        Button(onClick = { scope.emit(NAVIGATE) }) { Text(NAVIGATE.label) }
     }
 }
 ```
 
-- 注册表、树遍历、未知组件降级、动作绑定由适配器收口：节点自带动作按节点绑定，组件声明动作按组件契约绑定；两者都只经 [UiActionScope] 出口
+- 注册表、树遍历、未知组件降级由适配器收口；动作一律经 [ActionScope] 出口回流
+- 卡内动作非法整卡降级：节点自带动作被剥离（组件只能渲染静态内容）+ 出口静默（无动作可回流）
 - `ActionEvent` 由适配器构造（`instanceId` 取自 card，`action` 取自命中的声明，`payload` 取自节点绑定数据），实现方零组装
 - **声明式递归**：以 @Composable 组件树替代命令式推模型，天然贴合 Compose 组合模型与布局系统（SubcomposeLayout 桥需在 measure 阶段手算坐标，会丢失声明式嵌套布局能力）
 - **ir/tool 退化为协议 + 工具分层**：ir 只承载协议 IR（CardIr/TreeNode/Action/ActionEvent）+ CardIrValidator，零平台、零 agent 依赖；UiSink/UiGenTool 归 tool 模块（依赖 agent 内核 `Tool`）；组件注册与渲染是平台行为（绑定 @Composable），全部收敛在适配器
@@ -295,8 +308,8 @@ fun createGenUi(): GenUi {
     val sink = UiSink()
     val adapter: UiRenderAdapter = DefaultRenderAdapter().apply {
         register("Text") { node, _, _ -> Text(node.bindings["content"]?.jsonPrimitive?.content ?: "") }
-        register("Button") { node, scope, _ -> if (scope.action == null) Text(node.label()) else Button(onClick = { scope.emit(scope.action!!.id) }) { Text(scope.action!!.label) } }
-        registerDemoCardTemplates()   // 模板卡注册：组件自带动作集，工具侧无感
+        register("Button") { node, scope, _ -> val action = node.action; if (action == null) Text(node.label()) else Button(onClick = { scope.emit(action) }) { Text(action.label) } }
+        registerDemoCardTemplates()   // 模板卡注册：动作是模板自己的常量，工具侧无感
         registerFallback { _ -> }
     } // 或 A2uiRenderAdapter(MaterialA2uiCatalog(), scope) —— 换后端只改这一行
     return GenUi(sink, adapter)
@@ -372,14 +385,14 @@ agent/genui/
     │   └── src/main/kotlin/io/github/yeyi/agent/genui/adapter/UiRenderAdapter.kt
     ├── default/                                                  ← :agent:genui:adapters:default（自研后端）
     │   └── src/main/kotlin/io/github/yeyi/agent/genui/adapter/default/
-    │       ├── DefaultRenderAdapter.kt                              ← 组件契约（名字 + 动作集 + 渲染实现）
-    │       ├── UiActionScope.kt                                     ← 组件的动作出口
+    │       ├── DefaultRenderAdapter.kt                              ← 组件契约（名字 + 渲染实现）
+    │       ├── ActionScope.kt                                     ← 组件的动作出口
     │       └── DefaultComponents.kt                                 ← 基础组件集
     └── a2ui/                                                     ← :agent:genui:adapters:a2ui（A2UI 后端）
         └── src/main/kotlin/io/github/yeyi/agent/genui/adapter/a2ui/A2uiRenderAdapter.kt
 
 demos/agent/.../agent/runtime/AgentRuntime.kt   ← 组装点（一次性选择后端，组件实现注册）
-demos/agent/.../agent/ui/CardTemplates.kt        ← 模板卡注册（组件自带动作集）
+demos/agent/.../agent/ui/CardTemplates.kt        ← 模板卡注册（动作是模板自己的常量）
 ```
 
 - 平台边界钉死：ir 退化为纯协议层（序列化 IR + 校验），tool 承载旁路通道与工具基类，adapters 承诺「渲染」的平台相关；api 只承载 Compose 平台版插槽接口，default/a2ui 分别依赖 api 提供各自后端实现
@@ -397,7 +410,7 @@ demos/agent/.../agent/ui/CardTemplates.kt        ← 模板卡注册（组件自
 - demo 侧：组件渲染实现注册 + `sink.cards` 订阅 + 回流桥 + `GenUi` 组装点 + 锚点恢复
 - 覆盖场景：绑定原生工具的卡片，自研后端渲染，两种卡形态——
   声明式卡（`Card`/`Column`/`Button` 等通用组件）：工具出整棵组件树，动作由节点自带（`TreeNode.action`）；
-  模板卡（`Location` 等模板组件）：工具只交 root + 数据，动作由组件注册时声明，工具不感知按钮
+  模板卡（`Location` 等模板组件）：工具只交 root + 数据，动作是模板自己的常量，工具不感知按钮
 
 **v2（演进方向，本次不动）**：
 - A2UI 官方 Compose 渲染制品（A2uiSurface）接入：投影 + 引擎状态机 + 回流映射已交付，渲染入口待 androidx.a2ui.compose 发布后接入，换后端只改 `GenUi` 一行
@@ -408,4 +421,4 @@ demos/agent/.../agent/ui/CardTemplates.kt        ← 模板卡注册（组件自
 ## 测试策略
 
 - ir 模块（JVM）：`CardIr` 序列化/反序列化、`CardIrValidator` 动作校验（id 为空/同 id 不同 label → 整卡降级，同 id 同 label → 同一动作）；tool 模块（JVM）：`UiSink` 发射与订阅时序（订阅后 emit 可见 / 无订阅不阻塞不缓存）、`UiGenTool` execute 接线（getData → buildCard → emit 与回执语义、buildCard 返回 null 不发射）
-- adapters 侧：`DefaultRenderAdapter`（default）组件契约——组件声明的动作经 `UiActionScope` 回流（载荷为节点绑定数据）、节点自带动作同样可回流、卡内动作非法整卡降级、组件声明非法动作拒注册；`A2uiRenderAdapter`（a2ui）引擎层纯 JVM 状态机独立验证——投影落地（createSurface + updateComponents 后 activeSurfaces 出现对应 surface）、动作回流映射（客户端事件消息 → ActionEvent）、卡内动作非法整卡降级、重复投影幂等且仅更新回调；demo 锚点恢复用本地卡片记录 + 记忆 ToolResult 模拟
+- adapters 侧：`DefaultRenderAdapter`（default）组件契约——节点自带动作经 `ActionScope` 回流（载荷为节点绑定数据）、模板自有动作同样可回流（与节点动作无关）、卡内动作非法整卡降级（出口静默 + 节点动作被剥离）；`A2uiRenderAdapter`（a2ui）引擎层纯 JVM 状态机独立验证——投影落地（createSurface + updateComponents 后 activeSurfaces 出现对应 surface）、动作回流映射（客户端事件消息 → ActionEvent）、卡内动作非法整卡降级、重复投影幂等且仅更新回调；demo 锚点恢复用本地卡片记录 + 记忆 ToolResult 模拟

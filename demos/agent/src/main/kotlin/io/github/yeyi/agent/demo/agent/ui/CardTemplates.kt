@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.yeyi.agent.genui.adapter.default.DefaultRenderAdapter
 import io.github.yeyi.agent.genui.adapter.default.Card
-import io.github.yeyi.agent.genui.adapter.default.UiActionScope
+import io.github.yeyi.agent.genui.adapter.default.ActionScope
 import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.TreeNode
 import kotlinx.serialization.json.JsonElement
@@ -32,7 +32,7 @@ import kotlinx.serialization.json.JsonPrimitive
  * - 方式 2 完全自定义：如 get_location，产卡只出单模板节点 + 业务数据。
  *   顶层可复用 default 基础组件外壳（Card）——外壳只消费根节点参数，children 插槽
  *   直接写原生组件，叶子无需手工构造 TreeNode；
- *   模板连按钮与动作一起自持：动作在注册时声明，点击经 [UiActionScope] 回流，
+ *   模板连按钮与动作一起自持：动作是模板自己的常量，点击经 [ActionScope] 回流，
  *   工具侧不必出现按钮节点，也不必声明动作——卡片定义不再一分为二。
  * - 方式 3 半自定义（已否决）：叶子复用基础组件函数（如 Text）仍需手工构造
  *   TreeNode，在模板 Compose 中构造节点徒增麻烦，不如直接写原生 Compose。
@@ -40,17 +40,14 @@ import kotlinx.serialization.json.JsonPrimitive
  * 由 [io.github.yeyi.agent.demo.agent.runtime.AgentRuntime.cardAdapter] 一次性装配。
  */
 fun DefaultRenderAdapter.registerDemoCardTemplates() {
-    register(
-        component = "Location",
-        // 模板自持动作：id 与文案都在组件契约里，工具只交 root + 数据
-        actions = listOf(Action(id = "navigate", label = "开启导航")),
-    ) { node, scope, _ -> LocationCard(node, scope) }
+    // 模板自持动作：id 与文案都在组件契约里，工具只交 root + 数据
+    register(component = "Location") { node, scope, _ -> LocationCard(node, scope) }
 }
 
 // ── 方式 2：完全自定义模板（混合写法：顶层复用 Card 外壳，叶子全原生 Compose）──
 
 @Composable
-private fun LocationCard(node: TreeNode, scope: UiActionScope) {
+private fun LocationCard(node: TreeNode, scope: ActionScope) {
     Card(node) {
         Text("当前位置", style = MaterialTheme.typography.titleSmall)
         FieldRow("城市", node.bindingText("city"))
@@ -58,13 +55,14 @@ private fun LocationCard(node: TreeNode, scope: UiActionScope) {
         FieldRow("国家", node.bindingText("country"))
         FieldRow("纬度", node.bindingText("latitude"))
         FieldRow("经度", node.bindingText("longitude"))
-        // 模板自持按钮：动作由组件声明，点击经 scope 回流；
+        // 模板自持按钮：动作是模板自己的常量，点击经 scope 回流；
         // 载荷缺省是节点绑定数据（工具给的经纬度等），随动作一起回给模型。
+        val action = Action(id = "navigate", label = "开启导航")
         Button(
-            onClick = { scope.emit("navigate") },
+            onClick = { scope.emit(action) },
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0A84FF)),
         ) {
-            Text("开启导航")
+            Text(action.label)
         }
     }
 }
