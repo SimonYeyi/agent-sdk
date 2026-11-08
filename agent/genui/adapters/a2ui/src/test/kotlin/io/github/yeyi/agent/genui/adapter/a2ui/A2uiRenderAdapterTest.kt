@@ -19,6 +19,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonPrimitive
 
 /**
@@ -81,7 +82,7 @@ class A2uiRenderAdapterTest {
     }
 
     @Test
-    fun blankActionLabelDegradesThatNodeOnly() = runBlocking {
+    fun blankRootActionProjectsNoSurface() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val adapter = A2uiRenderAdapter(catalog, scope)
         val events = mutableListOf<ActionEvent>()
@@ -91,14 +92,18 @@ class A2uiRenderAdapterTest {
                     instanceId = "card-2",
                     root = TreeNode(
                         component = "Button",
-                        action = Action(" "), // 文案为空：不构成可点击动作
+                        action = Action(" "), // 文案为空：整棵不渲染
                     ),
                 ),
             ) { events += it }
 
-            withTimeout(5_000) { adapter.processor.activeSurfaces.first { it.isNotEmpty() } }
+            // root 不可渲染：不建 surface（空 surface 会滞留在引擎状态机里）
+            val appeared = withTimeoutOrNull(500) {
+                adapter.processor.activeSurfaces.first { it.isNotEmpty() }
+            }
+            assertEquals(null, appeared)
 
-            // 空文案动作未投影，节点不带 action 属性，点击无动作可回流
+            // 无 surface 也无动作可回流
             adapter.dispatchClientEvent(eventMessage("card-2", "root"))
             assertTrue(events.isEmpty())
         } finally {

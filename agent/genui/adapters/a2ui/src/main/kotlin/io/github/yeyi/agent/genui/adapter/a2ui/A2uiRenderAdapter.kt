@@ -89,7 +89,7 @@ public class A2uiRenderAdapter(
     /**
      * 将卡片投影为 A2UI 协议消息并投递进引擎状态机。
      *
-     * 空文案动作不构成可点击动作：投影时该节点不带 action 属性（就地降级为静态内容）。
+     * 空文案动作的节点整棵不渲染：不落协议消息；root 不可渲染时整卡不投影（不建 surface）。
      * 动作由节点自带，节点动作即协议 action 属性；同一 [CardIr.instanceId] 只投影一次
      * （引擎消息与节点映射幂等），重复调用仅更新动作回调。
      *
@@ -97,6 +97,9 @@ public class A2uiRenderAdapter(
      * @param onAction 动作回流出口：用户点击节点自带动作时，映射为 [ActionEvent] 并经此回调
      */
     public fun project(card: CardIr, onAction: (ActionEvent) -> Unit) {
+        // root 不可渲染（空文案动作）时整卡没有可投影的内容：
+        // 不建 surface，也不留 session（空 surface 会滞留在引擎状态机里）
+        if (!isRenderable(card.root)) return
         val session = sessions.computeIfAbsent(card.instanceId) { CardSession(card.instanceId) }
         session.onAction = onAction
         if (!session.projected.compareAndSet(false, true)) return
