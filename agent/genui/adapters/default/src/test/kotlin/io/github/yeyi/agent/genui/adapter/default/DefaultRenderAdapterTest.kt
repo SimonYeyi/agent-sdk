@@ -26,7 +26,7 @@ class DefaultRenderAdapterTest {
         val root = TreeNode(
             component = "Button",
             bindings = mapOf("city" to JsonPrimitive("珠海")),
-            action = Action("city_zhuhai", "查询珠海的天气"),
+            action = Action("查询珠海的天气"),
         )
         val scope = adapter.scopeOf(card(root), root, valid = true) { events += it }
 
@@ -34,7 +34,6 @@ class DefaultRenderAdapterTest {
 
         assertEquals(1, events.size)
         assertEquals("call_1", events[0].instanceId)
-        assertEquals("city_zhuhai", events[0].action.id)
         assertEquals("查询珠海的天气", events[0].action.label)
         assertEquals("珠海", events[0].payload["city"]?.toString()?.trim('"'))
     }
@@ -51,11 +50,10 @@ class DefaultRenderAdapterTest {
         )
         val scope = adapter.scopeOf(card(root), root, valid = true) { events += it }
 
-        scope.emit(Action("navigate", "开启导航"))
+        scope.emit(Action("开启导航"))
 
         assertEquals(1, events.size)
         assertEquals("call_1", events[0].instanceId)
-        assertEquals("navigate", events[0].action.id)
         assertEquals("开启导航", events[0].action.label)
         assertEquals("珠海", events[0].payload["city"]?.toString()?.trim('"'))
     }
@@ -67,19 +65,19 @@ class DefaultRenderAdapterTest {
 
         val events = mutableListOf<ActionEvent>()
         val root = TreeNode(component = "Location")
-        // valid=false：卡内动作非法（id 为空或同 id 不同 label）时的整卡降级
+        // valid=false：卡内动作非法（文案为空）时的整卡降级
         val scope = adapter.scopeOf(card(root), root, valid = false) { events += it }
 
-        scope.emit(Action("navigate", "开启导航"))
+        scope.emit(Action("开启导航"))
 
         assertTrue(events.isEmpty())
     }
 
     @Test
     fun `卡内动作非法时节点动作被剥离`() {
-        val node = TreeNode(component = "Button", action = Action("city_zhuhai", "查询珠海的天气"))
+        val node = TreeNode(component = "Button", action = Action("查询珠海的天气"))
 
         assertNull(effectiveNode(node, valid = false).action)
-        assertEquals("city_zhuhai", effectiveNode(node, valid = true).action?.id)
+        assertEquals("查询珠海的天气", effectiveNode(node, valid = true).action?.label)
     }
 }

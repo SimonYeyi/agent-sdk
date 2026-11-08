@@ -19,8 +19,8 @@ public class ActionScope internal constructor(private val onAction: (Action, Jso
     /**
      * 发起动作回流。
      *
-     * @param action 动作声明；id 非空是约定——节点自带动作由卡级校验保证，
-     *   模板自有动作是作者自持的常量，约定非空即可，出口不再重复校验
+     * @param action 动作声明；节点自带动作的文案由卡级校验把关，
+     *   模板自有动作是作者自持的常量，出口不再重复校验
      * @param payload 回流载荷，缺省由适配器按节点绑定数据填充
      */
     public fun emit(action: Action, payload: JsonObject? = null): Unit = onAction(action, payload)

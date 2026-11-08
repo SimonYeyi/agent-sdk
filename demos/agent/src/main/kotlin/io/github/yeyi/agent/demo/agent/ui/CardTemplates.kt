@@ -57,7 +57,7 @@ private fun LocationCard(node: TreeNode, scope: ActionScope) {
         FieldRow("经度", node.bindingText("longitude"))
         // 模板自持按钮：动作是模板自己的常量，点击经 scope 回流；
         // 载荷缺省是节点绑定数据（工具给的经纬度等），随动作回流到应用，由应用决定是否喂给模型。
-        val action = Action(id = "navigate", label = "开启导航")
+        val action = Action("开启导航")
         Button(
             onClick = { scope.emit(action) },
             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0A84FF)),

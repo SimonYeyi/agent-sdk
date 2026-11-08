@@ -66,11 +66,11 @@ public class DefaultRenderAdapter(private val validator: CardIrValidator = CardI
     /**
      * 校验卡内动作后递归渲染整棵组件树（先序），子节点自上而下线性排布。
      *
-     * 卡内动作非法（id 为空、同 id 不同 label）时整卡降级为纯展示，无动作可回流。
+     * 卡内动作非法（文案为空）时整卡降级为纯展示，无动作可回流。
      */
     @Composable
     override fun RenderCard(card: CardIr, onAction: (ActionEvent) -> Unit) {
-        val valid = validator.validateActions(card.root) != null
+        val valid = validator.isValid(card.root)
         Column {
             RenderNode(card, card.root, valid, onAction)
         }

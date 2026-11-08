@@ -53,7 +53,7 @@ class ChooseCityTool(sink: UiSink) : UiGenTool(sink) {
                                     put("variant", JsonPrimitive("bordered"))
                                     put("city", JsonPrimitive(city))
                                 },
-                                action = Action("city_$city", "查询${city}的天气"),
+                                action = Action("查询${city}的天气"),
                             )
                         },
                     ),

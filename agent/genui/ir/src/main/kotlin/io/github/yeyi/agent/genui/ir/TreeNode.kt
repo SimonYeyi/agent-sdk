@@ -10,7 +10,8 @@ import kotlinx.serialization.json.JsonElement
  * @param bindings 组件属性（文本、数据、样式），渲染层读取；可点击节点的绑定数据将作为回流 [ActionEvent.payload]
  * @param children 子节点，由渲染引擎递归遍历
  * @param action 可点击节点自带的动作声明。动作由「拥有者」持有：通用组件路径下由本节点自带，
- *   模板组件路径下是组件自持的常量（不在 IR 里），工具不必感知——一个动作只有一处出处。
+ *   模板组件路径下是组件自持的常量（不在 IR 里），工具不必感知——一个动作只有一处出处；
+ *   动作只有文案，程序不按标识做逻辑。
  */
 @Serializable
 public data class TreeNode(

@@ -236,9 +236,9 @@ class WeatherCardTool(
                         component = "Row",
                         bindings = buildJsonObject { put("spacing", JsonPrimitive(8)) },
                         children = listOf(
-                            button(Action("refresh", "查看现在天气"), "primary"),
-                            button(Action("tomorrow", "查看明天天气"), "secondary"),
-                            button(Action("day_after", "查看后天天气"), "secondary"),
+                            button(Action("查看现在天气"), "primary"),
+                            button(Action("查看明天天气"), "secondary"),
+                            button(Action("查看后天天气"), "secondary"),
                         ),
                     ),
                 ),

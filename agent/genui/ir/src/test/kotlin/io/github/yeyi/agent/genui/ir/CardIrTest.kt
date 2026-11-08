@@ -21,7 +21,7 @@ class CardIrTest {
                     TreeNode(component = "Text", bindings = mapOf("content" to JsonPrimitive("明天有雨"))),
                     TreeNode(
                         component = "Button",
-                        action = Action(id = "refresh", label = "刷新"),
+                        action = Action("刷新"),
                     ),
                 ),
             ),
@@ -41,7 +41,7 @@ class CardIrTest {
 
     @Test
     fun `ActionEvent 默认 payload 序列化`() {
-        val event = ActionEvent(instanceId = "call_1", action = Action(id = "refresh", label = "刷新"))
+        val event = ActionEvent(instanceId = "call_1", action = Action("刷新"))
 
         val json = Json.encodeToString(event)
         assertEquals(event, Json.decodeFromString<ActionEvent>(json))

@@ -92,7 +92,7 @@ public class A2uiRenderAdapter(
     /**
      * 将卡片投影为 A2UI 协议消息并投递进引擎状态机。
      *
-     * 投影前过 [CardIrValidator]：卡内动作非法（id 为空、同 id 不同 label）时整卡降级为纯展示。
+     * 投影前过 [CardIrValidator]：卡内动作非法（文案为空）时整卡降级为纯展示。
      * 动作由节点自带，节点动作即协议 action 属性；同一 [CardIr.instanceId] 只投影一次
      * （引擎消息与节点映射幂等），重复调用仅更新动作回调。
      *
@@ -104,7 +104,7 @@ public class A2uiRenderAdapter(
         session.onAction = onAction
         if (!session.projected.compareAndSet(false, true)) return
 
-        val valid = validator.validateActions(card.root) != null
+        val valid = validator.isValid(card.root)
         val payloads = ArrayList<A2uiComponentPayload>()
         session.nodeActions.clear()
         val idGen = AtomicInteger(1)
@@ -163,7 +163,7 @@ public class A2uiRenderAdapter(
         if (action != null) {
             properties[A2UI_KEY_ACTION] = mapOf(
                 A2UI_KEY_EVENT to mapOf(
-                    A2UI_KEY_NAME to action.id,
+                    A2UI_KEY_NAME to action.label,
                     A2UI_KEY_CONTEXT to emptyMap<String, Any>(),
                 ),
             )

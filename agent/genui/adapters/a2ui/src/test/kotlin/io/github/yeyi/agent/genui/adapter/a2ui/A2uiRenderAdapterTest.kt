@@ -59,7 +59,7 @@ class A2uiRenderAdapterTest {
                             TreeNode(
                                 component = "Button",
                                 bindings = mapOf("route" to JsonPrimitive("r1")),
-                                action = Action(id = "choose", label = "选择"),
+                                action = Action("选择"),
                             ),
                         ),
                     ),
@@ -73,7 +73,6 @@ class A2uiRenderAdapterTest {
             adapter.dispatchClientEvent(eventMessage("card-1", "node-2"))
             assertEquals(1, events.size)
             assertEquals("card-1", events[0].instanceId)
-            assertEquals("choose", events[0].action.id)
             assertEquals("选择", events[0].action.label)
             assertEquals(JsonPrimitive("r1"), events[0].payload["route"])
         } finally {
@@ -82,7 +81,7 @@ class A2uiRenderAdapterTest {
     }
 
     @Test
-    fun blankActionIdDegradesWholeCardToDisplayOnly() = runBlocking {
+    fun blankActionLabelDegradesWholeCardToDisplayOnly() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val adapter = A2uiRenderAdapter(catalog, scope)
         val events = mutableListOf<ActionEvent>()
@@ -93,7 +92,7 @@ class A2uiRenderAdapterTest {
                     root = TreeNode(
                         component = "Button",
                         bindings = mapOf("route" to JsonPrimitive("r2")),
-                        action = Action(id = " ", label = "选择"), // id 为空：卡内动作非法
+                        action = Action(" "), // 文案为空：卡内动作非法
                     ),
                 ),
             ) { events += it }
@@ -108,7 +107,7 @@ class A2uiRenderAdapterTest {
     }
 
     @Test
-    fun conflictingActionLabelsDegradeWholeCardToDisplayOnly() = runBlocking {
+    fun duplicatedActionLabelsAreLegalAndBothReflow() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val adapter = A2uiRenderAdapter(catalog, scope)
         val events = mutableListOf<ActionEvent>()
@@ -122,13 +121,13 @@ class A2uiRenderAdapterTest {
                             TreeNode(
                                 component = "Button",
                                 bindings = mapOf("route" to JsonPrimitive("r3")),
-                                action = Action(id = "choose", label = "选择"),
+                                action = Action("选择"),
                             ),
-                            // 同 id 不同 label：动作语义歧义，卡内动作非法
+                            // 文案相同：动作唯一性由作者负责，框架不判非法
                             TreeNode(
                                 component = "Button",
                                 bindings = mapOf("route" to JsonPrimitive("r4")),
-                                action = Action(id = "choose", label = "重复"),
+                                action = Action("选择"),
                             ),
                         ),
                     ),
@@ -137,9 +136,11 @@ class A2uiRenderAdapterTest {
 
             withTimeout(5_000) { adapter.processor.activeSurfaces.first { it.isNotEmpty() } }
 
-            // 卡内动作非法 → 整卡降级为纯展示，无动作可回流
             adapter.dispatchClientEvent(eventMessage("card-3", "node-1"))
-            assertTrue(events.isEmpty())
+            adapter.dispatchClientEvent(eventMessage("card-3", "node-2"))
+            assertEquals(2, events.size)
+            assertEquals("r3", events[0].payload["route"].toString().trim('"'))
+            assertEquals("r4", events[1].payload["route"].toString().trim('"'))
         } finally {
             scope.cancel()
         }
@@ -154,7 +155,7 @@ class A2uiRenderAdapterTest {
         try {
             val card = CardIr(
                 instanceId = "card-4",
-                root = TreeNode(component = "Button", action = Action(id = "choose", label = "选择")),
+                root = TreeNode(component = "Button", action = Action("选择")),
             )
             adapter.project(card) { events += it }
             adapter.project(card) { replaced += it } // 重复投影：仅更新回调，不重复投递
@@ -162,7 +163,6 @@ class A2uiRenderAdapterTest {
             adapter.dispatchClientEvent(eventMessage("card-4", "root"))
             assertTrue(events.isEmpty())
             assertEquals(1, replaced.size)
-            assertEquals("choose", replaced[0].action.id)
         } finally {
             scope.cancel()
         }

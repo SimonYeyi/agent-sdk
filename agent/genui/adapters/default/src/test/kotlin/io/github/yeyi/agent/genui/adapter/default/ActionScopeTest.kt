@@ -22,10 +22,9 @@ class ActionScopeTest {
         val sink = mutableListOf<Emitted>()
         val scope = scope(sink)
 
-        scope.emit(Action("navigate", "开启导航"))
+        scope.emit(Action("开启导航"))
 
         assertEquals(1, sink.size)
-        assertEquals("navigate", sink[0].action.id)
         assertEquals("开启导航", sink[0].action.label)
         // 缺省载荷由适配器按节点绑定数据填充，出口只透传
         assertNull(sink[0].payload)
@@ -36,7 +35,7 @@ class ActionScopeTest {
         val sink = mutableListOf<Emitted>()
         val scope = scope(sink)
 
-        scope.emit(Action("navigate", "开启导航"), JsonObject(mapOf("id" to JsonPrimitive("42"))))
+        scope.emit(Action("开启导航"), JsonObject(mapOf("id" to JsonPrimitive("42"))))
 
         assertEquals(1, sink.size)
         assertEquals("42", sink[0].payload?.get("id")?.toString()?.trim('"'))
