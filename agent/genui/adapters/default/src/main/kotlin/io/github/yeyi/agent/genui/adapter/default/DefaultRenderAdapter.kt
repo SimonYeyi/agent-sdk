@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
+import io.github.yeyi.agent.genui.ir.isRenderable
 import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.ActionEvent
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
@@ -76,7 +77,7 @@ public class DefaultRenderAdapter : UiRenderAdapter {
         onAction: (ActionEvent) -> Unit,
     ) {
         // 空文案动作的节点整棵不渲染：动作文案就是它的可点内容，空了就没有可展示的东西
-        if (!isRenderable(node)) return
+        if (!node.isRenderable()) return
         val scope = scopeOf(card, onAction)
         (registry[node.component] ?: fallback)(node, scope) {
             for (child in node.children) {
@@ -98,5 +99,3 @@ public class DefaultRenderAdapter : UiRenderAdapter {
     )
 }
 
-/** 空文案动作的节点不可渲染（整棵不渲染）。 */
-internal fun isRenderable(node: TreeNode): Boolean = node.action?.label?.isBlank() != true

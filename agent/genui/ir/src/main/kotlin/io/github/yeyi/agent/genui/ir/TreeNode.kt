@@ -20,3 +20,11 @@ public data class TreeNode(
     public val children: List<TreeNode> = emptyList(),
     public val action: Action? = null,
 )
+
+/**
+ * 节点是否可渲染：空文案动作的节点整棵不渲染。
+ *
+ * 动作文案就是它的可点内容，空了就没有可展示的东西。规则落在协议层，
+ * 各渲染后端共用同一份口径（自研后端与 a2ui 后端都据此跳过整棵子树）。
+ */
+public fun TreeNode.isRenderable(): Boolean = action?.label?.isBlank() != true

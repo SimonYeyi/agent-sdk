@@ -6,8 +6,6 @@ import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
 
 /**
  * 自研后端的组件契约：组件名 + 渲染实现，动作由组件自己持有（节点自带或模板自有）。
@@ -53,18 +51,5 @@ class DefaultRenderAdapterTest {
         assertEquals("开启导航", events[0].action.label)
         assertEquals("珠海", events[0].action.payload)
         assertEquals("开启导航（珠海）", events[0].action.reflowable)
-    }
-
-    @Test
-    fun `空文案动作的节点整棵不渲染`() {
-        val node = TreeNode(component = "Button", action = Action(" "))
-
-        assertFalse(isRenderable(node))
-    }
-
-    @Test
-    fun `有文案的动作与无动作的节点照常渲染`() {
-        assertTrue(isRenderable(TreeNode(component = "Button", action = Action("查询珠海的天气"))))
-        assertTrue(isRenderable(TreeNode(component = "Button")))
     }
 }

@@ -11,6 +11,7 @@ import io.github.yeyi.agent.genui.ir.ActionEvent
  * demo 组装点一次性选择后端实现注入，业务代码统一走 [RenderCard] 消费卡片流，对后端差异无感。
  *
  * 实现方必须保证：空文案动作的节点整棵不渲染（动作文案就是它的可点内容，空了就没有可展示的东西）。
+ * 口径见 [io.github.yeyi.agent.genui.ir.isRenderable]。
  */
 public interface UiRenderAdapter {
     /**
