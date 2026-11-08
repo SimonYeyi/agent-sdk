@@ -48,10 +48,10 @@ class ChooseCityTool(sink: UiSink) : UiGenTool(sink) {
                         children = CITIES.map { city ->
                             TreeNode(
                                 component = "Button",
-                                // label 取 action.label；city 绑定进 payload，回流时随动作带出
+                                // label 是动作本身，且已含城市（按钮文案按城市区分），
+                                // 故不带参数——回流文案就是「查询北京的天气」
                                 bindings = buildJsonObject {
                                     put("variant", JsonPrimitive("bordered"))
-                                    put("city", JsonPrimitive(city))
                                 },
                                 action = Action("查询${city}的天气"),
                             )

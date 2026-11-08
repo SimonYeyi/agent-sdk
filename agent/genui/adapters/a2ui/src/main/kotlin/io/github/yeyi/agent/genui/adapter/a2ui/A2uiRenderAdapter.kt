@@ -164,10 +164,10 @@ public class A2uiRenderAdapter(
             properties[A2UI_KEY_ACTION] = mapOf(
                 A2UI_KEY_EVENT to mapOf(
                     A2UI_KEY_NAME to action.label,
-                    A2UI_KEY_CONTEXT to emptyMap<String, Any>(),
+                    A2UI_KEY_CONTEXT to mapOf(A2UI_KEY_PAYLOAD to action.payload),
                 ),
             )
-            session.nodeActions[componentId] = NodeActionRef(action, JsonObject(node.bindings))
+            session.nodeActions[componentId] = action
         }
         out.add(A2uiComponentPayload(componentId, node.component, properties))
     }
@@ -180,24 +180,19 @@ public class A2uiRenderAdapter(
 
     internal fun dispatchClientEvent(message: A2uiClientEventMessage) {
         val session = sessions[message.surfaceId] ?: return
-        val ref = session.nodeActions[message.componentId] ?: return
-        session.onAction?.invoke(ActionEvent(session.instanceId, ref.action, ref.payload))
+        val action = session.nodeActions[message.componentId] ?: return
+        session.onAction?.invoke(ActionEvent(session.instanceId, action))
     }
 
     private class CardSession(
         val instanceId: String,
     ) {
         val projected: AtomicBoolean = AtomicBoolean(false)
-        val nodeActions: MutableMap<String, NodeActionRef> = ConcurrentHashMap()
+        val nodeActions: MutableMap<String, Action> = ConcurrentHashMap()
 
         @Volatile
         var onAction: ((ActionEvent) -> Unit)? = null
     }
-
-    private class NodeActionRef(
-        val action: Action,
-        val payload: JsonObject,
-    )
 
     private class InMemoryDataModel : A2uiCoreDataModel {
         private val store: MutableMap<String, Any?> = mutableMapOf()
@@ -251,5 +246,6 @@ public class A2uiRenderAdapter(
         const val A2UI_KEY_EVENT = "event"
         const val A2UI_KEY_NAME = "name"
         const val A2UI_KEY_CONTEXT = "context"
+        const val A2UI_KEY_PAYLOAD = "payload"
     }
 }

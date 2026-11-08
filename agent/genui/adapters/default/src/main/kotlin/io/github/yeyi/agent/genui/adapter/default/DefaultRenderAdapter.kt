@@ -5,9 +5,9 @@ import androidx.compose.runtime.Composable
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.CardIrValidator
 import io.github.yeyi.agent.genui.ir.TreeNode
+import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.ActionEvent
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
-import kotlinx.serialization.json.JsonObject
 
 /**
  * Compose 组件渲染实现。
@@ -83,7 +83,7 @@ public class DefaultRenderAdapter(private val validator: CardIrValidator = CardI
         valid: Boolean,
         onAction: (ActionEvent) -> Unit,
     ) {
-        val scope = scopeOf(card, node, valid, onAction)
+        val scope = scopeOf(card, valid, onAction)
         val effective = effectiveNode(node, valid)
         (registry[effective.component] ?: fallback)(effective, scope) {
             for (child in effective.children) {
@@ -93,25 +93,18 @@ public class DefaultRenderAdapter(private val validator: CardIrValidator = CardI
     }
 
     /**
-     * 构造节点的动作出口：出口只负责带出锚点与载荷，动作值由组件自己持有。
+     * 构造节点的动作出口：出口只负责带出锚点，动作值由组件自己持有。
      *
-     * 载荷缺省取节点绑定数据——工具传给组件的业务数据随动作一起回流。
+     * 动作的参数写在动作自身（[Action.payload]），回流文案由 [Action.reflowText] 给出。
      */
     internal fun scopeOf(
         card: CardIr,
-        node: TreeNode,
         valid: Boolean,
         onAction: (ActionEvent) -> Unit,
     ): ActionScope = ActionScope(
-        onAction = { action, payload ->
+        onAction = { action ->
             // 卡内动作非法时整卡降级：出口静默，无动作可回流
-            if (valid) onAction(
-                ActionEvent(
-                    card.instanceId,
-                    action,
-                    payload ?: JsonObject(node.bindings)
-                )
-            )
+            if (valid) onAction(ActionEvent(card.instanceId, action))
         },
     )
 }

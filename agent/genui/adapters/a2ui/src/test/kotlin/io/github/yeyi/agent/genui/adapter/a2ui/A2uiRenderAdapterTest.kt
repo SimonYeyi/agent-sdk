@@ -58,8 +58,7 @@ class A2uiRenderAdapterTest {
                             TreeNode(component = "Text", bindings = mapOf("text" to JsonPrimitive("hello"))),
                             TreeNode(
                                 component = "Button",
-                                bindings = mapOf("route" to JsonPrimitive("r1")),
-                                action = Action("选择"),
+                                action = Action("选择", payload = "r1"),
                             ),
                         ),
                     ),
@@ -74,7 +73,8 @@ class A2uiRenderAdapterTest {
             assertEquals(1, events.size)
             assertEquals("card-1", events[0].instanceId)
             assertEquals("选择", events[0].action.label)
-            assertEquals(JsonPrimitive("r1"), events[0].payload["route"])
+            assertEquals("r1", events[0].action.payload)
+            assertEquals("选择（r1）", events[0].action.reflowText)
         } finally {
             scope.cancel()
         }
@@ -91,7 +91,6 @@ class A2uiRenderAdapterTest {
                     instanceId = "card-2",
                     root = TreeNode(
                         component = "Button",
-                        bindings = mapOf("route" to JsonPrimitive("r2")),
                         action = Action(" "), // 文案为空：卡内动作非法
                     ),
                 ),
@@ -120,14 +119,12 @@ class A2uiRenderAdapterTest {
                         children = listOf(
                             TreeNode(
                                 component = "Button",
-                                bindings = mapOf("route" to JsonPrimitive("r3")),
-                                action = Action("选择"),
+                                action = Action("选择", payload = "r3"),
                             ),
                             // 文案相同：动作唯一性由作者负责，框架不判非法
                             TreeNode(
                                 component = "Button",
-                                bindings = mapOf("route" to JsonPrimitive("r4")),
-                                action = Action("选择"),
+                                action = Action("选择", payload = "r4"),
                             ),
                         ),
                     ),
@@ -139,8 +136,8 @@ class A2uiRenderAdapterTest {
             adapter.dispatchClientEvent(eventMessage("card-3", "node-1"))
             adapter.dispatchClientEvent(eventMessage("card-3", "node-2"))
             assertEquals(2, events.size)
-            assertEquals("r3", events[0].payload["route"].toString().trim('"'))
-            assertEquals("r4", events[1].payload["route"].toString().trim('"'))
+            assertEquals("r3", events[0].action.payload)
+            assertEquals("r4", events[1].action.payload)
         } finally {
             scope.cancel()
         }

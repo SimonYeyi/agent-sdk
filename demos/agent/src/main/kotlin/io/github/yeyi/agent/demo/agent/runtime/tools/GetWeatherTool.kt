@@ -154,10 +154,7 @@ class WeatherCardTool(
 
         fun button(action: Action, variant: String): TreeNode = TreeNode(
             component = "Button",
-            bindings = buildJsonObject {
-                put("variant", JsonPrimitive(variant))
-                put("city", JsonPrimitive(city)) // 点击回流 payload 携带城市
-            },
+            bindings = buildJsonObject { put("variant", JsonPrimitive(variant)) },
             action = action,
         )
 
@@ -236,9 +233,9 @@ class WeatherCardTool(
                         component = "Row",
                         bindings = buildJsonObject { put("spacing", JsonPrimitive(8)) },
                         children = listOf(
-                            button(Action("查看现在天气"), "primary"),
-                            button(Action("查看明天天气"), "secondary"),
-                            button(Action("查看后天天气"), "secondary"),
+                            button(Action("查看现在天气", payload = city), "primary"),
+                            button(Action("查看明天天气", payload = city), "secondary"),
+                            button(Action("查看后天天气", payload = city), "secondary"),
                         ),
                     ),
                 ),

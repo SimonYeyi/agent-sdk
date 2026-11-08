@@ -40,10 +40,27 @@ class CardIrTest {
     }
 
     @Test
-    fun `ActionEvent 默认 payload 序列化`() {
-        val event = ActionEvent(instanceId = "call_1", action = Action("刷新"))
+    fun `ActionEvent 序列化往返保持完整`() {
+        val event = ActionEvent(instanceId = "call_1", action = Action("刷新", payload = "北京"))
 
         val json = Json.encodeToString(event)
         assertEquals(event, Json.decodeFromString<ActionEvent>(json))
+    }
+
+    @Test
+    fun `回流文案 动作带参数时为 label 加参数`() {
+        assertEquals("查看明天天气（北京）", Action("查看明天天气", payload = "北京").reflowText)
+    }
+
+    @Test
+    fun `回流文案不进协议 序列化只有文案与参数`() {
+        val json = Json.encodeToString(Action("查看明天天气", payload = "北京"))
+
+        assertEquals("""{"label":"查看明天天气","payload":"北京"}""", json)
+    }
+
+    @Test
+    fun `回流文案 动作无参数时只有 label`() {
+        assertEquals("查看明天天气", Action("查看明天天气").reflowText)
     }
 }

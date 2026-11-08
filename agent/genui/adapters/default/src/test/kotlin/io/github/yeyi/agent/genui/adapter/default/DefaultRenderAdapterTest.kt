@@ -8,7 +8,6 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
-import kotlinx.serialization.json.JsonPrimitive
 
 /**
  * 自研后端的组件契约：组件名 + 渲染实现，动作由组件自己持有（节点自带或模板自有）。
@@ -18,24 +17,24 @@ class DefaultRenderAdapterTest {
     private fun card(root: TreeNode): CardIr = CardIr(instanceId = "call_1", root = root)
 
     @Test
-    fun `节点自带动作经出口回流 载荷为节点绑定数据`() {
+    fun `节点自带动作经出口回流 参数随动作带出`() {
         val adapter = DefaultRenderAdapter()
         adapter.register("Button") { _, _, _ -> }
 
         val events = mutableListOf<ActionEvent>()
         val root = TreeNode(
             component = "Button",
-            bindings = mapOf("city" to JsonPrimitive("珠海")),
-            action = Action("查询珠海的天气"),
+            action = Action("查询天气", payload = "珠海"),
         )
-        val scope = adapter.scopeOf(card(root), root, valid = true) { events += it }
+        val scope = adapter.scopeOf(card(root), valid = true) { events += it }
 
         scope.emit(root.action!!)
 
         assertEquals(1, events.size)
         assertEquals("call_1", events[0].instanceId)
-        assertEquals("查询珠海的天气", events[0].action.label)
-        assertEquals("珠海", events[0].payload["city"]?.toString()?.trim('"'))
+        assertEquals("查询天气", events[0].action.label)
+        assertEquals("珠海", events[0].action.payload)
+        assertEquals("查询天气（珠海）", events[0].action.reflowText)
     }
 
     @Test
@@ -44,18 +43,16 @@ class DefaultRenderAdapterTest {
         adapter.register("Location") { _, _, _ -> }
 
         val events = mutableListOf<ActionEvent>()
-        val root = TreeNode(
-            component = "Location",
-            bindings = mapOf("city" to JsonPrimitive("珠海")),
-        )
-        val scope = adapter.scopeOf(card(root), root, valid = true) { events += it }
+        val root = TreeNode(component = "Location")
+        val scope = adapter.scopeOf(card(root), valid = true) { events += it }
 
-        scope.emit(Action("开启导航"))
+        scope.emit(Action("开启导航", payload = "珠海"))
 
         assertEquals(1, events.size)
         assertEquals("call_1", events[0].instanceId)
         assertEquals("开启导航", events[0].action.label)
-        assertEquals("珠海", events[0].payload["city"]?.toString()?.trim('"'))
+        assertEquals("珠海", events[0].action.payload)
+        assertEquals("开启导航（珠海）", events[0].action.reflowText)
     }
 
     @Test
@@ -66,7 +63,7 @@ class DefaultRenderAdapterTest {
         val events = mutableListOf<ActionEvent>()
         val root = TreeNode(component = "Location")
         // valid=false：卡内动作非法（文案为空）时的整卡降级
-        val scope = adapter.scopeOf(card(root), root, valid = false) { events += it }
+        val scope = adapter.scopeOf(card(root), valid = false) { events += it }
 
         scope.emit(Action("开启导航"))
 
