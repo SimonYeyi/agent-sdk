@@ -207,13 +207,13 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     /**
      * 卡片动作回流桥：用户点击卡片动作时，把 [ActionEvent] 组装为新一轮推理。
      *
-     * 回流指令以 [io.github.yeyi.agent.genui.ir.Action.reflowText] 作为模型可读文案——
+     * 回流指令以 [io.github.yeyi.agent.genui.ir.Action.reflowable] 作为模型可读文案——
      * 动作由卡片的拥有者声明（节点自带或模板组件自持），文案（动作 + 参数）供模型结合卡片与历史理解意图，无需专用意图字段。
      */
     fun onCardAction(event: ActionEvent) {
         val session = _uiState.value.currentSession ?: return
         if (_uiState.value.isLoading) return
-        sendMessageInternal(session, event.action.reflowText)
+        sendMessageInternal(session, event.action.reflowable)
     }
 
     private fun sendMessageInternal(session: Session, inputText: String) {

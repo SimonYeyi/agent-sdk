@@ -8,7 +8,7 @@ import kotlinx.serialization.Serializable
  * 事件直接携带命中的动作声明 [Action]，意图由工具调用上下文承载，模型结合卡片与历史自然理解，无需专用意图描述字段。
  *
  * @param instanceId 来源卡片锚点，与 [CardIr.instanceId] 一致
- * @param action 被点击的动作声明，回流文案取 [Action.reflowText]
+ * @param action 被点击的动作声明，回流文案取 [Action.reflowable]
  */
 @Serializable
 public data class ActionEvent(

@@ -75,7 +75,7 @@ class A2uiRenderAdapterTest {
             assertEquals("card-1", events[0].instanceId)
             assertEquals("选择", events[0].action.label)
             assertEquals("r1", events[0].action.payload)
-            assertEquals("选择（r1）", events[0].action.reflowText)
+            assertEquals("选择（r1）", events[0].action.reflowable)
         } finally {
             scope.cancel()
         }

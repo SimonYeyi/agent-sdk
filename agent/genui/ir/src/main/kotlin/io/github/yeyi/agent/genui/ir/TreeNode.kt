@@ -11,7 +11,7 @@ import kotlinx.serialization.json.JsonElement
  * @param children 子节点，由渲染引擎递归遍历
  * @param action 可点击节点自带的动作声明。动作由「拥有者」持有：通用组件路径下由本节点自带，
  *   模板组件路径下是组件自持的常量（不在 IR 里），工具不必感知——一个动作只有一处出处；
- *   动作只有文案与参数，回流文案由 [Action.reflowText] 给出。
+ *   动作只有文案与参数，回流文案由 [Action.reflowable] 给出。
  */
 @Serializable
 public data class TreeNode(

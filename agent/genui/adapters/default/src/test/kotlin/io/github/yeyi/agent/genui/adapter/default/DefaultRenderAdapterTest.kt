@@ -34,7 +34,7 @@ class DefaultRenderAdapterTest {
         assertEquals("call_1", events[0].instanceId)
         assertEquals("查询天气", events[0].action.label)
         assertEquals("珠海", events[0].action.payload)
-        assertEquals("查询天气（珠海）", events[0].action.reflowText)
+        assertEquals("查询天气（珠海）", events[0].action.reflowable)
     }
 
     @Test
@@ -52,7 +52,7 @@ class DefaultRenderAdapterTest {
         assertEquals("call_1", events[0].instanceId)
         assertEquals("开启导航", events[0].action.label)
         assertEquals("珠海", events[0].action.payload)
-        assertEquals("开启导航（珠海）", events[0].action.reflowText)
+        assertEquals("开启导航（珠海）", events[0].action.reflowable)
     }
 
     @Test

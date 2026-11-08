@@ -93,7 +93,7 @@ public data class Action(
     public val payload: String = "",      // 动作的参数（字符串形式），由定义方在产出动作时给出
 ) {
     // 回流给模型的文案：label（payload），payload 为空时只有 label
-    public val reflowText: String get() = if (payload.isBlank()) label else "$label（$payload）"
+    public val reflowable: String = if (payload.isBlank()) label else "$label（$payload）"
 }
 ```
 
@@ -314,7 +314,7 @@ sink.cards.collect { card ->
 @Serializable
 public data class ActionEvent(
     public val instanceId: String,
-    public val action: Action,                 // 命中的动作声明（回流文案取 action.reflowText）
+    public val action: Action,                 // 命中的动作声明（回流文案取 action.reflowable）
 )
 ```
 
@@ -329,7 +329,7 @@ public data class ActionEvent(
 ```
 
 - **意图由工具调用层承载，卡片是其可视化呈现**：模型调用 `deleteOrder(orderId)` 即表达意图，卡片标题 + 按钮 label（"是/取消"）是给人和模型共读的自然语言，模型无需专用意图描述
-- `action` 携带完整动作声明：文案是动作、参数是动作的参数，回流文案由 `action.reflowText` 给出（label（payload））——模型从卡片 + 历史自然理解意图
+- `action` 携带完整动作声明：文案是动作、参数是动作的参数，回流文案由 `action.reflowable` 给出（label（payload））——模型从卡片 + 历史自然理解意图
 - 回流事件构造由渲染后端负责（自研引擎 / A2UI action 回调），demo 统一收 `ActionEvent`，后端无感
 
 ### 节 7 — 记忆清洁与锚点恢复
@@ -397,5 +397,5 @@ demos/agent/.../agent/ui/CardTemplates.kt        ← 模板卡注册（动作是
 
 ## 测试策略
 
-- ir 模块（JVM）：`CardIr` 序列化/反序列化、`Action.reflowText` 组合口径；tool 模块（JVM）：`UiSink` 发射与订阅时序（订阅后 emit 可见 / 无订阅不阻塞不缓存）、`UiGenTool` execute 接线（getData → buildCard → emit 与回执语义、buildCard 返回 null 不发射）
+- ir 模块（JVM）：`CardIr` 序列化/反序列化、`Action.reflowable` 组合口径；tool 模块（JVM）：`UiSink` 发射与订阅时序（订阅后 emit 可见 / 无订阅不阻塞不缓存）、`UiGenTool` execute 接线（getData → buildCard → emit 与回执语义、buildCard 返回 null 不发射）
 - adapters 侧：`DefaultRenderAdapter`（default）组件契约——节点自带动作经 `ActionScope` 回流（参数随动作带出，回流文案为 label（payload））、模板自有动作同样可回流（与节点动作无关）、空文案动作的节点整棵不渲染（该节点与子节点都不渲染，同级节点不受影响）；`A2uiRenderAdapter`（a2ui）引擎层纯 JVM 状态机独立验证——投影落地（createSurface + updateComponents 后 activeSurfaces 出现对应 surface）、动作回流映射（客户端事件消息 → ActionEvent）、空文案动作的节点不投影不回流（同级节点照常可点）、重复投影幂等且仅更新回调；demo 锚点恢复用本地卡片记录 + 记忆 ToolResult 模拟

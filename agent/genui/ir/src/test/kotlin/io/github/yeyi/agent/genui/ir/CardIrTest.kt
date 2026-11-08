@@ -49,7 +49,7 @@ class CardIrTest {
 
     @Test
     fun `回流文案 动作带参数时为 label 加参数`() {
-        assertEquals("查看明天天气（北京）", Action("查看明天天气", payload = "北京").reflowText)
+        assertEquals("查看明天天气（北京）", Action("查看明天天气", payload = "北京").reflowable)
     }
 
     @Test
@@ -61,6 +61,6 @@ class CardIrTest {
 
     @Test
     fun `回流文案 动作无参数时只有 label`() {
-        assertEquals("查看明天天气", Action("查看明天天气").reflowText)
+        assertEquals("查看明天天气", Action("查看明天天气").reflowable)
     }
 }

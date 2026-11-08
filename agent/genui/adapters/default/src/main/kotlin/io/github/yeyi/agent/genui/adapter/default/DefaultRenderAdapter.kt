@@ -88,7 +88,7 @@ public class DefaultRenderAdapter : UiRenderAdapter {
     /**
      * 构造节点的动作出口：出口只负责带出锚点，动作值由组件自己持有。
      *
-     * 动作的参数写在动作自身（[Action.payload]），回流文案由 [Action.reflowText] 给出。
+     * 动作的参数写在动作自身（[Action.payload]），回流文案由 [Action.reflowable] 给出。
      */
     internal fun scopeOf(
         card: CardIr,

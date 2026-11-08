@@ -10,7 +10,7 @@ import kotlinx.serialization.Serializable
  * - 模板组件路径：写在组件里，是组件自持的常量，工具不出现动作。
  *
  * 动作只有文案与参数：意图由工具调用层承载（卡片是工具调用的可视化呈现），
- * 回流带的是 [reflowText]——label 是动作，payload 是动作的参数，两者都按字符串给出。
+ * 回流带的是 [reflowable]——label 是动作，payload 是动作的参数，两者都按字符串给出。
  *
  * 契约：文案必须非空。空文案动作的节点由渲染层整棵跳过（不渲染、不回流）；
  * 协议层不再另设校验器。
@@ -26,6 +26,5 @@ public data class Action(public val label: String, public val payload: String = 
      *
      * 组合规则只在协议层这一处，两个渲染后端共享同一份口径。
      */
-    public val reflowText: String
-        get() = if (payload.isBlank()) label else "$label（$payload）"
+    public val reflowable: String = if (payload.isBlank()) label else "$label（$payload）"
 }

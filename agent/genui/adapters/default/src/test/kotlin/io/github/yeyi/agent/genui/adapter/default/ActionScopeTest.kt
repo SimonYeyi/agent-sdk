@@ -24,6 +24,6 @@ class ActionScopeTest {
         assertEquals(1, sink.size)
         assertEquals("开启导航", sink[0].action.label)
         assertEquals("北京", sink[0].action.payload)
-        assertEquals("开启导航（北京）", sink[0].action.reflowText)
+        assertEquals("开启导航（北京）", sink[0].action.reflowable)
     }
 }
