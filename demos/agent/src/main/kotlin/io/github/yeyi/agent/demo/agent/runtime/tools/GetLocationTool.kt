@@ -19,8 +19,9 @@ import kotlinx.serialization.json.jsonObject
  * 产卡方式 2（完全自定义模板）：buildCard 只产出单模板节点 + 业务数据，
  * 布局、按钮与动作都归模板所有——工具不感知按钮节点，也不声明动作。
  *
- * 模板内嵌「开启导航」动作：点击经 ActionEvent 回流触发新一轮推理，
- * 经纬度等位置数据随节点绑定数据一起回流，模型后续轮次据此执行导航。
+ * 模板内嵌「开启导航」动作：点击经 ActionEvent 回流触发新一轮推理。
+ * 经纬度等位置数据已随工具回执进入记忆，模型后续轮次据此执行导航；
+ * 动作载荷里另有一份同样的绑定数据，随动作回流到应用，由应用决定是否喂给模型。
  */
 class GetLocationTool(sink: UiSink) : UiGenTool(sink) {
 

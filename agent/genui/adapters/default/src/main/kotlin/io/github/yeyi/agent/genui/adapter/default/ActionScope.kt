@@ -11,8 +11,8 @@ import kotlinx.serialization.json.JsonObject
  *   动作名每卡不同，由工具写在节点上，受卡级校验保护；
  * - 模板自有（模板组件路径）：动作是组件自己的常量，写在模板里，工具侧不出现动作。
  *
- * 出口只负责把动作连同锚点与载荷交回渲染层，不做动作白名单——能发出什么动作
- * 由组件代码决定；模型可控的动作（节点自带）仍受卡级校验约束。
+ * 出口只负责把动作连同锚点与载荷交回渲染层——能发出什么动作由组件代码决定；
+ * 模型可控的动作（节点自带）仍受卡级校验约束。
  */
 public class ActionScope internal constructor(private val onAction: (Action, JsonObject?) -> Unit) {
 

@@ -32,7 +32,7 @@
 | 协议与工具分层 | ir 只承载序列化 IR 与校验器（零平台、零 agent 依赖）；UiSink/UiGenTool 单独进 tool 模块（UiGenTool 依赖 agent 内核 `Tool` 接口），依赖方向单向：tool → ir → 无，跨模块无包名混淆 |
 | UI 事件通道 | 旁路 `UiSink`（普通类，按实例注入：demo/会话持有实例注入工具并订阅 `cards: SharedFlow<CardIr>`，`emit` 挂起发射）+ `UiGenTool` 抽象基类（实现 Tool，`uiSink` 构造器必传注入，`execute` final 模板接线） |
 | 卡片记忆策略 | 卡片 IR 完全绕过记忆，工具回执文本照常进记忆，避免 token 污染 |
-| IR 形态 | 统一组件树（TREE），模板概念下沉为「工具内代码复用」，IR 层不做模板注册表；模板卡下工具只交 root + 数据 |
+| IR 形态 | 统一组件树（TREE），模板概念下沉为「工具内代码复用」，IR 层不做模板注册表；模板卡下工具通常只交 root + 数据，也可挂子节点，同一条协议路径 |
 | 动作契约 | 动作由「拥有者」持有，一个动作只有一处出处：通用组件路径由节点自带（`TreeNode.action`），模板组件路径是组件自己的常量（写在模板里）。渲染协议面只有「动作出口」，不区分两类来源。卡内 id 唯一（同 id 必须同 label），模型可控的动作（节点自带）非法 → 整卡降级 |
 | 校验归属 | 动作校验独立为公开校验器 `CardIrValidator`（协议层语义收口），自研后端与投影后端共用；A2UI 官方校验不覆盖 genui 动作语义 |
 | 渲染后端插槽 | genui adapters 的 `api` 子模块定义平台版 `UiRenderAdapter`（@Composable）插槽接口，实现分两个并列后端子模块：`adapters:default` 的 `DefaultRenderAdapter`（自研声明式后端，组件注册绑定平台 @Composable，渲染底座整体落于适配器）与 `adapters:a2ui` 的 `A2uiRenderAdapter`（CardIr→A2UI 投影 + androidx.a2ui 官方引擎状态机 + 回流映射）；demo 组装点一次性选择，业务代码统一走 `adapter.RenderCard(card, onAction)` 无感 |
@@ -109,8 +109,10 @@ public data class Action(
 | 声明式卡（`Card`/`Column`/`Button` 等通用组件） | 整棵组件树 | 节点自带 `TreeNode.action`（动作名每卡不同，通用组件无法预声明） |
 | 模板卡（root 为自研模板组件） | 单 root 节点 + 业务数据 | 模板自己的常量（写在组件里），工具不出现按钮节点、不声明动作 |
 
-- 模板卡下工具只交 root + 数据：`CardIr(instanceId, TreeNode("Location", bindings = 数据))`，
-  可点击物与动作全在模板里——卡片定义不再一分为二
+- 模板卡下工具通常只交 root + 数据：`CardIr(instanceId, TreeNode("Location", bindings = 数据))`，
+  可点击物与动作全在模板里——卡片定义不再一分为二；
+  也可在模板 root 下挂子节点：IR 始终是一棵统一的组件树，模板与通用组件同一条协议路径，
+  引擎照样递归渲染、照样过卡级校验；模板组件是否把 children 插槽渲染出来由模板作者决定
 - 卡内动作 id 唯一：同 id 视为同一动作（多个触发点共享），label 必须一致；id 为空或同 id 不同 label → 整卡降级为纯展示
 - 两条路径的差异只在「动作值从哪来」，渲染协议面统一为「动作出口」：`scope.emit(action)`，
   动作值由组件自己持有，协议不要求消费方发明 id
@@ -184,12 +186,10 @@ public abstract class UiGenTool(
 public class CardIrValidator {
 
     /**
-     * 校验一批动作声明。
-     *
-     * @return id 到动作规格的映射；声明非法（id 为空，或同 id 不同 label）时返回 null，
-     * 消费方应将整卡降级为纯展示。
+     * 校验一批动作声明（内部helper）：只服务节点自带的那部分动作，
+     * 模板组件的动作由作者自控，不走这里。
      */
-    public fun validateActions(actions: List<Action>): Map<String, Action>?
+    private fun validateActions(actions: List<Action>): Map<String, Action>?
 
     /**
      * 收集组件树内节点自带的动作并校验。
@@ -201,7 +201,7 @@ public class CardIrValidator {
 ```
 
 - **归属 genui（协议层）**：动作 id 非空、卡内同 id 必须同 label、卡内动作非法整卡降级——是 genui 的安全红线，任何渲染后端都必须遵守
-- **覆盖范围**：只校验 IR 里的节点动作（模型可控的那部分）；模板组件的动作是代码里的常量，由作者自持，出口侧兜底空 id
+- **覆盖范围**：只校验 IR 里的节点动作（模型可控的那部分）；模板组件的动作是代码里的常量，由作者自持，出口不校验——空 id 属编码错误，不在出口兜底
 - **自研后端**：DefaultRenderAdapter 渲染前调用（`validateActions(root)`）
 - **A2UI 投影后端**：投影 CardIr→A2UI 前调用（A2UI 官方校验只认目录 schema，不覆盖 genui 动作语义）
 - 校验失败不抛异常，降级为纯展示（无动作），保证 UI 流永不中断
