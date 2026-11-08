@@ -323,7 +323,7 @@ internal fun Text(node: TreeNode) {
     )
 }
 
-/** iOS 风格按钮：variant 支持 primary/secondary/bordered/destructive/plain；无有效动作渲染为禁用态。 */
+/** iOS 风格按钮：variant 支持 primary/secondary/bordered/destructive/plain；未声明动作时渲染为禁用态静态文本。 */
 @Composable
 internal fun Button(node: TreeNode, scope: ActionScope) {
     val action = node.action
@@ -332,7 +332,8 @@ internal fun Button(node: TreeNode, scope: ActionScope) {
     val shape = RoundedCornerShape(10.dp)
 
     if (action == null) {
-        // 节点未声明动作或卡内动作非法整卡降级：渲染为禁用态静态文本，不绑定点击
+        // 节点未声明动作：渲染为禁用态静态文本，不绑定点击
+        // （动作文案为空的节点由适配器整棵跳过，不会走到这里）
         ComposeText(
             text = label,
             fontSize = 15.sp,

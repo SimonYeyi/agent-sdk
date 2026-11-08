@@ -6,7 +6,7 @@ import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertNull
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 /**
@@ -26,7 +26,7 @@ class DefaultRenderAdapterTest {
             component = "Button",
             action = Action("查询天气", payload = "珠海"),
         )
-        val scope = adapter.scopeOf(card(root), valid = true) { events += it }
+        val scope = adapter.scopeOf(card(root)) { events += it }
 
         scope.emit(root.action!!)
 
@@ -44,7 +44,7 @@ class DefaultRenderAdapterTest {
 
         val events = mutableListOf<ActionEvent>()
         val root = TreeNode(component = "Location")
-        val scope = adapter.scopeOf(card(root), valid = true) { events += it }
+        val scope = adapter.scopeOf(card(root)) { events += it }
 
         scope.emit(Action("开启导航", payload = "珠海"))
 
@@ -56,25 +56,15 @@ class DefaultRenderAdapterTest {
     }
 
     @Test
-    fun `卡内动作非法时整卡降级 出口静默`() {
-        val adapter = DefaultRenderAdapter()
-        adapter.register("Location") { _, _, _ -> }
+    fun `空文案动作的节点整棵不渲染`() {
+        val node = TreeNode(component = "Button", action = Action(" "))
 
-        val events = mutableListOf<ActionEvent>()
-        val root = TreeNode(component = "Location")
-        // valid=false：卡内动作非法（文案为空）时的整卡降级
-        val scope = adapter.scopeOf(card(root), valid = false) { events += it }
-
-        scope.emit(Action("开启导航"))
-
-        assertTrue(events.isEmpty())
+        assertFalse(isRenderable(node))
     }
 
     @Test
-    fun `卡内动作非法时节点动作被剥离`() {
-        val node = TreeNode(component = "Button", action = Action("查询珠海的天气"))
-
-        assertNull(effectiveNode(node, valid = false).action)
-        assertEquals("查询珠海的天气", effectiveNode(node, valid = true).action?.label)
+    fun `有文案的动作与无动作的节点照常渲染`() {
+        assertTrue(isRenderable(TreeNode(component = "Button", action = Action("查询珠海的天气"))))
+        assertTrue(isRenderable(TreeNode(component = "Button")))
     }
 }

@@ -19,7 +19,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
-import io.github.yeyi.agent.genui.ir.CardIrValidator
 import io.github.yeyi.agent.genui.ir.TreeNode
 import io.github.yeyi.agent.genui.ir.ActionEvent
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
@@ -40,8 +39,8 @@ import java.util.concurrent.ConcurrentHashMap
 /**
  * A2UI 后端适配器：CardIr → A2UI v0.9 协议投影 + androidx.a2ui 官方引擎状态机 + 官方 Compose 渲染。
  *
- * 渲染链路：[RenderCard] 是「使用无感」的插槽入口，投影前先过 [CardIrValidator] 的节点动作校验，
- * 校验失败整卡降级为纯展示（无动作）；投影结果经 [A2uiCoreMessageProcessor] 落地为
+ * 渲染链路：[RenderCard] 是「使用无感」的插槽入口，空文案动作在投影时就地降级为静态内容；
+ * 投影结果经 [A2uiCoreMessageProcessor] 落地为
  * 协议消息流（createSurface + updateComponents 扁平邻接表），官方引擎维护 surface 状态；
  * 适配器从 [A2uiMessageProcessor.activeSurfaces] 收集本卡 surface，交给
  * androidx.compose.material3 的 [A2uiSurface] 渲染（自动处理加载/错误/成功状态与过渡动画）。
@@ -57,12 +56,10 @@ import java.util.concurrent.ConcurrentHashMap
  *   [A2uiCoreCatalog]（引擎 schema 校验契约）。官方 [androidx.a2ui.compose.ui.A2uiCatalog]
  *   构建产物（如 material3-a2ui 的 Material 目录）同时实现两者，构造时显式校验防伪实现
  * @param scope 引擎消息循环与动作回流收集的运行域，调用方持有生命周期
- * @param validator 节点动作校验器，与自研后端共用同一安全语义
  */
 public class A2uiRenderAdapter(
     public val catalog: A2uiCatalog,
     public val scope: CoroutineScope,
-    private val validator: CardIrValidator = CardIrValidator(),
 ) : UiRenderAdapter {
 
     init {
@@ -92,7 +89,7 @@ public class A2uiRenderAdapter(
     /**
      * 将卡片投影为 A2UI 协议消息并投递进引擎状态机。
      *
-     * 投影前过 [CardIrValidator]：卡内动作非法（文案为空）时整卡降级为纯展示。
+     * 空文案动作不构成可点击动作：投影时该节点不带 action 属性（就地降级为静态内容）。
      * 动作由节点自带，节点动作即协议 action 属性；同一 [CardIr.instanceId] 只投影一次
      * （引擎消息与节点映射幂等），重复调用仅更新动作回调。
      *
@@ -104,11 +101,10 @@ public class A2uiRenderAdapter(
         session.onAction = onAction
         if (!session.projected.compareAndSet(false, true)) return
 
-        val valid = validator.isValid(card.root)
         val payloads = ArrayList<A2uiComponentPayload>()
         session.nodeActions.clear()
         val idGen = AtomicInteger(1)
-        flatten(card.root, ROOT_COMPONENT_ID, valid, session, payloads, idGen)
+        flatten(card.root, ROOT_COMPONENT_ID, session, payloads, idGen)
 
         processor.processMessage(
             A2uiCreateSurfaceMessage(
@@ -142,24 +138,25 @@ public class A2uiRenderAdapter(
     private fun flatten(
         node: TreeNode,
         componentId: String,
-        valid: Boolean,
         session: CardSession,
         out: MutableList<A2uiComponentPayload>,
         idGen: AtomicInteger,
     ) {
+        // 空文案动作的节点整棵不渲染：不落协议消息，其子节点一并丢弃
+        if (!isRenderable(node)) return
         val properties = LinkedHashMap<String, Any?>()
         for ((key, value) in node.bindings) {
             properties[key] = value.toPlatformValue()
         }
-        if (node.children.isNotEmpty()) {
-            val childIds = node.children.map { "node-" + idGen.getAndIncrement() }
+        val children = node.children.filter { isRenderable(it) }
+        if (children.isNotEmpty()) {
+            val childIds = children.map { "node-" + idGen.getAndIncrement() }
             properties[A2UI_KEY_CHILDREN] = childIds
-            for (index in node.children.indices) {
-                flatten(node.children[index], childIds[index], valid, session, out, idGen)
+            for (index in children.indices) {
+                flatten(children[index], childIds[index], session, out, idGen)
             }
         }
-        // 卡内动作非法时整卡降级为纯展示：节点不携带 action 属性
-        val action = if (valid) node.action else null
+        val action = node.action
         if (action != null) {
             properties[A2UI_KEY_ACTION] = mapOf(
                 A2UI_KEY_EVENT to mapOf(
@@ -249,3 +246,6 @@ public class A2uiRenderAdapter(
         const val A2UI_KEY_PAYLOAD = "payload"
     }
 }
+
+/** 空文案动作的节点不可渲染（整棵不渲染）。 */
+private fun isRenderable(node: TreeNode): Boolean = node.action?.label?.isBlank() != true

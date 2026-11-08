@@ -81,7 +81,7 @@ class A2uiRenderAdapterTest {
     }
 
     @Test
-    fun blankActionLabelDegradesWholeCardToDisplayOnly() = runBlocking {
+    fun blankActionLabelDegradesThatNodeOnly() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val adapter = A2uiRenderAdapter(catalog, scope)
         val events = mutableListOf<ActionEvent>()
@@ -91,15 +91,46 @@ class A2uiRenderAdapterTest {
                     instanceId = "card-2",
                     root = TreeNode(
                         component = "Button",
-                        action = Action(" "), // 文案为空：卡内动作非法
+                        action = Action(" "), // 文案为空：不构成可点击动作
                     ),
                 ),
             ) { events += it }
 
             withTimeout(5_000) { adapter.processor.activeSurfaces.first { it.isNotEmpty() } }
 
+            // 空文案动作未投影，节点不带 action 属性，点击无动作可回流
             adapter.dispatchClientEvent(eventMessage("card-2", "root"))
             assertTrue(events.isEmpty())
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun blankActionLabelSkipsOnlyThatNode() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val adapter = A2uiRenderAdapter(catalog, scope)
+        val events = mutableListOf<ActionEvent>()
+        try {
+            adapter.project(
+                CardIr(
+                    instanceId = "card-5",
+                    root = TreeNode(
+                        component = "Column",
+                        children = listOf(
+                            TreeNode(component = "Button", action = Action(" ")), // 空文案：不投影
+                            TreeNode(component = "Button", action = Action("选择", payload = "r5")),
+                        ),
+                    ),
+                ),
+            ) { events += it }
+
+            withTimeout(5_000) { adapter.processor.activeSurfaces.first { it.isNotEmpty() } }
+
+            // id 只给可渲染的子节点分配：可渲染的那个是 node-1
+            adapter.dispatchClientEvent(eventMessage("card-5", "node-1"))
+            assertEquals(1, events.size)
+            assertEquals("选择", events[0].action.label)
         } finally {
             scope.cancel()
         }

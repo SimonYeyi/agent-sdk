@@ -12,7 +12,10 @@ import kotlinx.serialization.Serializable
  * 动作只有文案与参数：意图由工具调用层承载（卡片是工具调用的可视化呈现），
  * 回流带的是 [reflowText]——label 是动作，payload 是动作的参数，两者都按字符串给出。
  *
- * @param label 按钮/可点击区域文案（用户可见），是动作本身
+ * 契约：文案必须非空。空文案动作的节点由渲染层整棵跳过（不渲染、不回流）；
+ * 协议层不再另设校验器。
+ *
+ * @param label 按钮/可点击区域文案（用户可见），是动作本身，须非空
  * @param payload 动作的参数（字符串形式），由定义方在产出动作时直接给出；缺省表示无参数
  */
 @Serializable

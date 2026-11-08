@@ -3,7 +3,6 @@ package io.github.yeyi.agent.genui.adapter.default
 import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.Composable
 import io.github.yeyi.agent.genui.ir.CardIr
-import io.github.yeyi.agent.genui.ir.CardIrValidator
 import io.github.yeyi.agent.genui.ir.TreeNode
 import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.ActionEvent
@@ -32,12 +31,9 @@ public typealias UiComponentRenderer = @Composable (
  * 自研后端适配器：以 [UiRenderAdapter] 插槽形态出场，与 A2UI 后端平级接入。
  *
  * 组件注册绑定平台渲染实现（@Composable），故渲染底座整体落在本适配器，ir 模块退化为纯协议层；
- * 校验复用协议层 [CardIrValidator]，与 A2UI 投影后端共用同一安全语义。
- *
  * 组件渲染实现以 @Composable 形态注册；消费方只需注册实现后调用 [RenderCard]，后端差异无感。
  */
-public class DefaultRenderAdapter(private val validator: CardIrValidator = CardIrValidator()) :
-    UiRenderAdapter {
+public class DefaultRenderAdapter : UiRenderAdapter {
 
     private val registry: MutableMap<String, UiComponentRenderer> = HashMap()
 
@@ -64,15 +60,12 @@ public class DefaultRenderAdapter(private val validator: CardIrValidator = CardI
     }
 
     /**
-     * 校验卡内动作后递归渲染整棵组件树（先序），子节点自上而下线性排布。
-     *
-     * 卡内动作非法（文案为空）时整卡降级为纯展示，无动作可回流。
+     * 递归渲染整棵组件树（先序），子节点自上而下线性排布。
      */
     @Composable
     override fun RenderCard(card: CardIr, onAction: (ActionEvent) -> Unit) {
-        val valid = validator.isValid(card.root)
         Column {
-            RenderNode(card, card.root, valid, onAction)
+            RenderNode(card, card.root, onAction)
         }
     }
 
@@ -80,14 +73,14 @@ public class DefaultRenderAdapter(private val validator: CardIrValidator = CardI
     private fun RenderNode(
         card: CardIr,
         node: TreeNode,
-        valid: Boolean,
         onAction: (ActionEvent) -> Unit,
     ) {
-        val scope = scopeOf(card, valid, onAction)
-        val effective = effectiveNode(node, valid)
-        (registry[effective.component] ?: fallback)(effective, scope) {
-            for (child in effective.children) {
-                RenderNode(card, child, valid, onAction)
+        // 空文案动作的节点整棵不渲染：动作文案就是它的可点内容，空了就没有可展示的东西
+        if (!isRenderable(node)) return
+        val scope = scopeOf(card, onAction)
+        (registry[node.component] ?: fallback)(node, scope) {
+            for (child in node.children) {
+                RenderNode(card, child, onAction)
             }
         }
     }
@@ -99,16 +92,11 @@ public class DefaultRenderAdapter(private val validator: CardIrValidator = CardI
      */
     internal fun scopeOf(
         card: CardIr,
-        valid: Boolean,
         onAction: (ActionEvent) -> Unit,
     ): ActionScope = ActionScope(
-        onAction = { action ->
-            // 卡内动作非法时整卡降级：出口静默，无动作可回流
-            if (valid) onAction(ActionEvent(card.instanceId, action))
-        },
+        onAction = { action -> onAction(ActionEvent(card.instanceId, action)) },
     )
 }
 
-/** 卡内动作非法时整卡降级：节点自带动作被剥离，组件只能渲染为静态内容。 */
-internal fun effectiveNode(node: TreeNode, valid: Boolean): TreeNode =
-    if (valid) node else node.copy(action = null)
+/** 空文案动作的节点不可渲染（整棵不渲染）。 */
+internal fun isRenderable(node: TreeNode): Boolean = node.action?.label?.isBlank() != true
