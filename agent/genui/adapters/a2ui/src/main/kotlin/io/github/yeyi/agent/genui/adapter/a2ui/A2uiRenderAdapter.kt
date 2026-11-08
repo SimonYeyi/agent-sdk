@@ -89,23 +89,23 @@ public class A2uiRenderAdapter(
     /**
      * 将卡片投影为 A2UI 协议消息并投递进引擎状态机。
      *
-     * 投影前过 [CardIrValidator]：白名单非法（动作 id 为空或重复）时整卡降级为纯展示；
-     * 节点动作未命中白名单时该节点不携带 action 属性，渲染为静态内容。
-     * 同一 [CardIr.instanceId] 只投影一次（引擎消息与节点映射幂等），重复调用仅更新动作回调。
+     * 投影前过 [CardIrValidator]：卡内动作非法（id 为空、同 id 不同 label）时整卡降级为纯展示。
+     * 动作由节点自带，节点动作即协议 action 属性；同一 [CardIr.instanceId] 只投影一次
+     * （引擎消息与节点映射幂等），重复调用仅更新动作回调。
      *
      * @param card 待渲染的卡片 IR
-     * @param onAction 动作回流出口：用户点击命中白名单的动作节点时，映射为 [ActionEvent] 并经此回调
+     * @param onAction 动作回流出口：用户点击节点自带动作时，映射为 [ActionEvent] 并经此回调
      */
     public fun project(card: CardIr, onAction: (ActionEvent) -> Unit) {
         val session = sessions.computeIfAbsent(card.instanceId) { CardSession(card.instanceId) }
         session.onAction = onAction
         if (!session.projected.compareAndSet(false, true)) return
 
-        val whitelist = validator.validateActions(card.actions)
+        val valid = validator.validateActions(card.root) != null
         val payloads = ArrayList<A2uiComponentPayload>()
         session.nodeActions.clear()
         val idGen = AtomicInteger(1)
-        flatten(card.root, ROOT_COMPONENT_ID, whitelist, session, payloads, idGen)
+        flatten(card.root, ROOT_COMPONENT_ID, valid, session, payloads, idGen)
 
         processor.processMessage(
             A2uiCreateSurfaceMessage(
@@ -139,7 +139,7 @@ public class A2uiRenderAdapter(
     private fun flatten(
         node: TreeNode,
         componentId: String,
-        whitelist: Map<String, Action>?,
+        valid: Boolean,
         session: CardSession,
         out: MutableList<A2uiComponentPayload>,
         idGen: AtomicInteger,
@@ -152,10 +152,11 @@ public class A2uiRenderAdapter(
             val childIds = node.children.map { "node-" + idGen.getAndIncrement() }
             properties[A2UI_KEY_CHILDREN] = childIds
             for (index in node.children.indices) {
-                flatten(node.children[index], childIds[index], whitelist, session, out, idGen)
+                flatten(node.children[index], childIds[index], valid, session, out, idGen)
             }
         }
-        val action = node.action?.let { whitelist?.get(it) }
+        // 卡内动作非法时整卡降级为纯展示：节点不携带 action 属性
+        val action = if (valid) node.action else null
         if (action != null) {
             properties[A2UI_KEY_ACTION] = mapOf(
                 A2UI_KEY_EVENT to mapOf(

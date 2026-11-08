@@ -26,7 +26,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.TreeNode
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
@@ -45,17 +44,17 @@ import kotlinx.serialization.json.contentOrNull
  * 由注册表查表驱动，外部不应绕过注册表直接调用。
  */
 public fun DefaultRenderAdapter.registerDefaultComponents() {
-    register("Card") { node, _, _, children -> Card(node, children) }
-    register("Column") { node, _, _, children -> Column(node, children) }
-    register("Row") { node, _, _, children -> Row(node, children) }
-    register("Text") { node, _, _, _ -> Text(node) }
-    register("Button") { node, action, emit, _ -> Button(node, action, emit) }
-    register("Badge") { node, _, _, _ -> Badge(node) }
-    register("Divider") { node, _, _, _ -> Divider(node) }
-    register("Spacer") { node, _, _, _ -> Spacer(node) }
-    register("Image") { node, _, _, _ -> Image(node) }
+    register("Card") { node, _, children -> Card(node, children) }
+    register("Column") { node, _, children -> Column(node, children) }
+    register("Row") { node, _, children -> Row(node, children) }
+    register("Text") { node, _, _ -> Text(node) }
+    register("Button") { node, scope, _ -> Button(node, scope) }
+    register("Badge") { node, _, _ -> Badge(node) }
+    register("Divider") { node, _, _ -> Divider(node) }
+    register("Spacer") { node, _, _ -> Spacer(node) }
+    register("Image") { node, _, _ -> Image(node) }
     // 未知组件兜底：渲染为小号灰色占位文本，保证渲染不中断
-    registerFallback { node, _, _, _ -> Fallback(node) }
+    registerFallback { node, _, _ -> Fallback(node) }
 }
 
 // ─────────────────────────── 绑定数据读取 ───────────────────────────
@@ -324,15 +323,16 @@ internal fun Text(node: TreeNode) {
     )
 }
 
-/** iOS 风格按钮：variant 支持 primary/secondary/bordered/destructive/plain；白名单外动作渲染为禁用态。 */
+/** iOS 风格按钮：variant 支持 primary/secondary/bordered/destructive/plain；无有效动作渲染为禁用态。 */
 @Composable
-internal fun Button(node: TreeNode, action: Action?, emit: () -> Unit) {
+internal fun Button(node: TreeNode, scope: UiActionScope) {
+    val action = scope.action
     val label = action?.label ?: node.bindings.str("label", "按钮")
     val variant = node.bindings.str("variant", "primary").lowercase()
     val shape = RoundedCornerShape(10.dp)
 
     if (action == null) {
-        // 白名单外动作：渲染为禁用态静态文本，不绑定点击
+        // 卡内动作非法或节点未声明动作：渲染为禁用态静态文本，不绑定点击
         ComposeText(
             text = label,
             fontSize = 15.sp,
@@ -353,7 +353,7 @@ internal fun Button(node: TreeNode, action: Action?, emit: () -> Unit) {
     var modifier = Modifier
         .clip(shape)
         .background(background)
-        .clickable(onClick = emit)
+        .clickable { scope.emit(action.id) }
         .padding(horizontal = 14.dp, vertical = 7.dp)
     if (border != Color.Transparent) {
         modifier = modifier.border(1.dp, border, shape)

@@ -19,9 +19,12 @@ class CardIrTest {
                 ),
                 children = listOf(
                     TreeNode(component = "Text", bindings = mapOf("content" to JsonPrimitive("明天有雨"))),
+                    TreeNode(
+                        component = "Button",
+                        action = Action(id = "refresh", label = "刷新"),
+                    ),
                 ),
             ),
-            actions = listOf(Action(id = "refresh", label = "刷新")),
         )
 
         val json = Json.encodeToString(card)

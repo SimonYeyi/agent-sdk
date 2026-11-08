@@ -9,11 +9,9 @@ import kotlinx.serialization.Serializable
  *
  * @param instanceId 卡片实例锚点，与工具调用 toolCallId 一一对应，会话恢复时按此归位
  * @param root 组件树根节点
- * @param actions 本卡片静态声明的动作白名单，渲染引擎只绑定白名单内动作
  */
 @Serializable
 public data class CardIr(
     public val instanceId: String,
     public val root: TreeNode,
-    public val actions: List<Action> = emptyList(),
 )

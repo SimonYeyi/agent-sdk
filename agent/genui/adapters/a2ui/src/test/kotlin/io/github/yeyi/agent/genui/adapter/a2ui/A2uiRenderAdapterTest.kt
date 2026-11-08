@@ -59,22 +59,22 @@ class A2uiRenderAdapterTest {
                             TreeNode(
                                 component = "Button",
                                 bindings = mapOf("route" to JsonPrimitive("r1")),
-                                action = "choose",
+                                action = Action(id = "choose", label = "选择"),
                             ),
                         ),
                     ),
-                    actions = listOf(Action(id = "choose", label = "选择")),
                 ),
             ) { events += it }
 
             withTimeout(5_000) { adapter.processor.activeSurfaces.first { it.isNotEmpty() } }
             assertEquals("card-1", adapter.processor.activeSurfaces.value.single().id)
 
-            // 回流：Button 子节点按先序编号为 node-2（Text=node-1），命中白名单动作，映射回 ActionEvent
+            // 回流：Button 子节点按先序编号为 node-2（Text=node-1），命中节点自带动作，映射回 ActionEvent
             adapter.dispatchClientEvent(eventMessage("card-1", "node-2"))
             assertEquals(1, events.size)
             assertEquals("card-1", events[0].instanceId)
             assertEquals("choose", events[0].action.id)
+            assertEquals("选择", events[0].action.label)
             assertEquals(JsonPrimitive("r1"), events[0].payload["route"])
         } finally {
             scope.cancel()
@@ -82,7 +82,7 @@ class A2uiRenderAdapterTest {
     }
 
     @Test
-    fun nodeActionOutsideWhitelistIsNotBound() = runBlocking {
+    fun blankActionIdDegradesWholeCardToDisplayOnly() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val adapter = A2uiRenderAdapter(catalog, scope)
         val events = mutableListOf<ActionEvent>()
@@ -93,9 +93,8 @@ class A2uiRenderAdapterTest {
                     root = TreeNode(
                         component = "Button",
                         bindings = mapOf("route" to JsonPrimitive("r2")),
-                        action = "unknown", // 不在白名单
+                        action = Action(id = " ", label = "选择"), // id 为空：卡内动作非法
                     ),
-                    actions = listOf(Action(id = "choose", label = "选择")),
                 ),
             ) { events += it }
 
@@ -109,7 +108,7 @@ class A2uiRenderAdapterTest {
     }
 
     @Test
-    fun invalidWhitelistDegradesWholeCardToDisplayOnly() = runBlocking {
+    fun conflictingActionLabelsDegradeWholeCardToDisplayOnly() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
         val adapter = A2uiRenderAdapter(catalog, scope)
         val events = mutableListOf<ActionEvent>()
@@ -118,18 +117,28 @@ class A2uiRenderAdapterTest {
                 CardIr(
                     instanceId = "card-3",
                     root = TreeNode(
-                        component = "Button",
-                        bindings = mapOf("route" to JsonPrimitive("r3")),
-                        action = "choose",
+                        component = "Column",
+                        children = listOf(
+                            TreeNode(
+                                component = "Button",
+                                bindings = mapOf("route" to JsonPrimitive("r3")),
+                                action = Action(id = "choose", label = "选择"),
+                            ),
+                            // 同 id 不同 label：动作语义歧义，卡内动作非法
+                            TreeNode(
+                                component = "Button",
+                                bindings = mapOf("route" to JsonPrimitive("r4")),
+                                action = Action(id = "choose", label = "重复"),
+                            ),
+                        ),
                     ),
-                    actions = listOf(Action(id = "choose", label = "选择"), Action(id = "choose", label = "重复")),
                 ),
             ) { events += it }
 
             withTimeout(5_000) { adapter.processor.activeSurfaces.first { it.isNotEmpty() } }
 
-            // 白名单非法（重复 id）→ 整卡降级为纯展示，无动作可回流
-            adapter.dispatchClientEvent(eventMessage("card-3", "root"))
+            // 卡内动作非法 → 整卡降级为纯展示，无动作可回流
+            adapter.dispatchClientEvent(eventMessage("card-3", "node-1"))
             assertTrue(events.isEmpty())
         } finally {
             scope.cancel()
@@ -145,8 +154,7 @@ class A2uiRenderAdapterTest {
         try {
             val card = CardIr(
                 instanceId = "card-4",
-                root = TreeNode(component = "Button", action = "choose"),
-                actions = listOf(Action(id = "choose", label = "选择")),
+                root = TreeNode(component = "Button", action = Action(id = "choose", label = "选择")),
             )
             adapter.project(card) { events += it }
             adapter.project(card) { replaced += it } // 重复投影：仅更新回调，不重复投递

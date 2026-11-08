@@ -1,7 +1,6 @@
 package io.github.yeyi.agent.demo.agent.runtime.tools
 
 import io.github.yeyi.agent.fakes.testAgentContext
-import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.tool.UiGenTool
 import io.github.yeyi.agent.genui.tool.UiSink
@@ -21,6 +20,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -71,11 +71,9 @@ class AllToolsTest {
         val root = assertNotNull(card).root
         assertEquals("Location", root.component)
         assertEquals("珠海", root.bindings["city"]!!.jsonPrimitive.content)
-        // 卡片声明导航动作白名单，动作按钮作为 root 子节点由引擎渲染并各自回流
-        assertEquals(listOf(Action("navigate", "开启导航")), card.actions)
-        val button = root.children.single()
-        assertEquals("Button", button.component)
-        assertEquals("navigate", button.action)
+        // 模板卡：工具只交 root + 数据，按钮与动作都在模板里，卡片定义不再一分为二
+        assertTrue(root.children.isEmpty())
+        assertNull(root.action)
     }
 
     @Test

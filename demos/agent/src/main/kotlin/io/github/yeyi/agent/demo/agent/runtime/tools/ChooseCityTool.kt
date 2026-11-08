@@ -37,7 +37,6 @@ class ChooseCityTool(sink: UiSink) : UiGenTool(sink) {
     ): CardIr {
         return CardIr(
             instanceId = context.toolCallId,
-            actions = CITIES.map { Action("city_$it", "查询${it}的天气") },
             root = TreeNode(
                 component = "Card",
                 children = listOf(
@@ -49,12 +48,12 @@ class ChooseCityTool(sink: UiSink) : UiGenTool(sink) {
                         children = CITIES.map { city ->
                             TreeNode(
                                 component = "Button",
-                                // label 自动取 action.label；city 绑定进 payload，回流时随动作带出
+                                // label 取 action.label；city 绑定进 payload，回流时随动作带出
                                 bindings = buildJsonObject {
                                     put("variant", JsonPrimitive("bordered"))
                                     put("city", JsonPrimitive(city))
                                 },
-                                action = "city_$city",
+                                action = Action("city_$city", "查询${city}的天气"),
                             )
                         },
                     ),
