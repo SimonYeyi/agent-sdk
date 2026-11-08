@@ -19,9 +19,12 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
+import kotlin.test.assertTrue
 
 /**
  * 子 agent 的产卡去向：子 agent 继承父 agent 的工具实例，产卡工具连同卡片通道一起继承——
@@ -47,7 +50,9 @@ class SubagentCardTest {
                             ToolCall(
                                 id = "call_1",
                                 name = "get_location",
-                                arguments = buildJsonObject {},
+                                arguments = buildJsonObject {
+                                    put("show_ui", JsonPrimitive(true))
+                                },
                             )
                         )
                     ),
@@ -65,7 +70,12 @@ class SubagentCardTest {
         )
         val sub = subagent("locator", "查位置", instruction = "调用 get_location 查当前位置")
 
-        sub.activate(SubagentTask("查当前位置"), SubagentContext(parentContext))
+        // 产卡工具出卡即终结：子 agent 的回合以空正文收尾，委派结果为空内容错误。
+        // 卡片本身仍落在父 agent 的通道上（卡片在工具执行时即已发射）。
+        val failure = assertFailsWith<IllegalStateException> {
+            sub.activate(SubagentTask("查当前位置"), SubagentContext(parentContext))
+        }
+        assertTrue(failure.message!!.contains("returned empty content"))
 
         // 子 agent 的回合跑在自己的 dispatcher 上，等卡片真正落地
         var waited = 0L

@@ -109,7 +109,7 @@ class WeatherCardTool(
     override val name: String = "get_weather"
     override val description: String = "当需要查询指定地点的天气情况时使用"
 
-    override val parametersSchema: ToolParameters =
+    override val toolSchema: ToolParameters =
         ToolParameters.JsonSchema(SchemaGenerator.generateSchema(GetWeatherRequest.serializer()))
 
     override suspend fun getResult(
@@ -119,9 +119,6 @@ class WeatherCardTool(
         val params = Json.decodeFromJsonElement(GetWeatherRequest.serializer(), arguments)
         return weatherData(params.city, params.time ?: WeatherTime.NOW)
     }
-
-    // 信息卡：卡片展示天气数据，本轮不终结，模型看完回执自行决定继续还是收尾
-    override fun cardKind(arguments: JsonElement): CardKind = CardKind.INFO
 
     override fun buildCard(
         arguments: JsonElement,

@@ -27,7 +27,7 @@ class GetLocationTool(sink: UiSink) : UiGenTool(sink) {
 
     override val name: String = "get_location"
     override val description: String = "获取当前位置"
-    override val parametersSchema: ToolParameters = ToolParameters.Empty
+    override val toolSchema: ToolParameters = ToolParameters.Empty
 
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
         buildJsonObject {
@@ -37,9 +37,6 @@ class GetLocationTool(sink: UiSink) : UiGenTool(sink) {
             put("latitude", JsonPrimitive(22.2769))
             put("longitude", JsonPrimitive(113.5678))
         }
-
-    // 信息卡：卡片展示查询结果，本轮不终结，模型看完回执自行决定继续还是收尾
-    override fun cardKind(arguments: JsonElement): CardKind = CardKind.INFO
 
     override fun buildCard(
         arguments: JsonElement,

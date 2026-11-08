@@ -14,6 +14,7 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
+import io.github.yeyi.agent.tool.FinalizableTool
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -249,5 +250,50 @@ class MemberToolDelegateTest {
         )
         assertEquals("from-A", outA.parts.text)
         assertEquals("from-B", outB.parts.text)
+    }
+
+    // ---------- 可终结裁决转发 ----------
+
+    /** 裁决依据取自自身入参的成员工具，模拟产卡工具按 show_ui 决定是否可终结。 */
+    private class DecidingMember(
+        override val name: String,
+    ) : Tool, FinalizableTool {
+        override val description: String = "deciding"
+        override val parametersSchema: ToolParameters = ToolParameters.Empty
+        override suspend fun execute(
+            arguments: JsonElement,
+            context: ToolExecutionContext
+        ): ToolExecutionResult = ToolExecutionResult.success("ok")
+
+        override fun finalizable(arguments: JsonElement, result: ToolExecutionResult): Boolean =
+            (arguments as? JsonObject)?.get("show_ui")
+                ?.let { (it as? JsonPrimitive)?.content == "true" } ?: true
+    }
+
+    @Test
+    fun `finalizable 转发成员裁决并带上成员自己的入参`() {
+        val ts = Toolset("weather", "d").apply { add(DecidingMember("inner")) }
+        val r = ToolsetRegistry().apply { register(ts) }
+        val delegate = MemberToolDelegate(r)
+
+        val shown = delegate.finalizable(
+            buildJsonObject {
+                put("toolset_name", "weather")
+                put("tool_name", "inner")
+                put("tool_arguments", buildJsonObject { put("show_ui", "true") })
+            },
+            ToolExecutionResult.success("ok"),
+        )
+        val hidden = delegate.finalizable(
+            buildJsonObject {
+                put("toolset_name", "weather")
+                put("tool_name", "inner")
+                put("tool_arguments", buildJsonObject { put("show_ui", "false") })
+            },
+            ToolExecutionResult.success("ok"),
+        )
+
+        assertTrue(shown)
+        assertFalse(hidden)
     }
 }

@@ -45,7 +45,10 @@ class AllToolsTest {
         val job = backgroundScope.launch { sink.cards.take(1).collect { received += it } }
         runCurrent()
 
-        val result = makeTool(sink).execute(buildJsonObject {}, stubContext(agentId))
+        val result = makeTool(sink).execute(
+            buildJsonObject { put("show_ui", JsonPrimitive(true)) },
+            stubContext(agentId),
+        )
         runCurrent()
         if (received.isNotEmpty()) job.join() else job.cancel()
         return result to received.firstOrNull()
@@ -74,6 +77,28 @@ class AllToolsTest {
         // 模板卡：工具只交 root + 数据，按钮与动作都在模板里，卡片定义不再一分为二
         assertTrue(root.children.isEmpty())
         assertNull(root.action)
+    }
+
+    @Test
+    fun `带 show_ui 入参时仍能取数 不因未知键失败`() = runTest {
+        val sink = UiSink()
+        val received = mutableListOf<CardIr>()
+        val job = backgroundScope.launch { sink.cards.take(1).collect { received += it } }
+        runCurrent()
+
+        // 框架参数只是附加：工具的入参解码不该因多出的 show_ui 键而失败
+        val result = WeatherCardTool(sink).execute(
+            buildJsonObject {
+                put("city", JsonPrimitive("北京"))
+                put("show_ui", JsonPrimitive(true))
+            },
+            stubContext(),
+        )
+        runCurrent()
+        job.join()
+
+        assertFalse(result.isError)
+        assertTrue(result.parts.text.contains("北京"))
     }
 
     @Test

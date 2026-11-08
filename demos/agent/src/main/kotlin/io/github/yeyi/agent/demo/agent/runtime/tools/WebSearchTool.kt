@@ -35,7 +35,7 @@ class WebSearchTool(sink: UiSink) : UiGenTool(sink) {
     override val name = "web_search"
     override val description = "搜索互联网内容，使用 Bing 搜索"
 
-    override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
         schema = """
         {
           "type": "object",
@@ -88,9 +88,6 @@ class WebSearchTool(sink: UiSink) : UiGenTool(sink) {
             put("text", JsonPrimitive(text))
         }
     }
-
-    // 信息卡：卡片展示搜索结果，本轮不终结，模型看完回执自行决定继续还是收尾
-    override fun cardKind(arguments: JsonElement): CardKind = CardKind.INFO
 
     override fun buildCard(
         arguments: JsonElement,

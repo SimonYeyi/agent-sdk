@@ -5,13 +5,39 @@ import io.github.yeyi.agent.tool.FinalizableTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
+import io.github.yeyi.agent.tool.ToolParameters
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
+
+/** 框架级参数名：模型据此逐次决定产卡工具本轮出不出卡。 */
+internal const val SHOW_UI_PARAM = "show_ui"
+
+/** show_ui 的参数描述：交给模型的判据。 */
+internal const val SHOW_UI_DESCRIPTION =
+    "是否把本次工具调用的结果或参数以卡片展示给用户。必传。调用前先判断：本次结果只是推理的中间步骤、" +
+            "或仅用于辅助回答用户问题时，传 false（此时只回执数据、不出卡，本轮继续）；" +
+            "只有当本次结果本身就是用户所问的明确答案时，才传 true（出卡，本轮就此结束）。" +
+            "如果本次调用是在向用户提问、需要用户作答，必须传 true——不出卡用户就看不到问题。"
 
 /**
  * 声明「本工具产出可交互卡片」的抽象基类，实现 [Tool] 与 [FinalizableTool]。
  *
- * 本基类只承载三类卡片：**不产卡**、**信息卡**与**问询卡**。两类真卡片都是**非轮次阻塞**的——
- * 卡片发射后本轮按正常协议走完（问询卡是正常终结，不是挂起等事件），
+ * 本轮出不出卡、结不终结，完全由模型逐次传入的框架参数 show_ui 决定：
+ * - show_ui=true：出卡，并终结本轮——卡片已经交到用户手上，本轮到此为止，等用户回复
+ *   或点选卡片动作；
+ * - show_ui=false：不出卡，也不终结——本轮只是推理的中间步骤，模型看到回执后自行决定下一步。
+ *
+ * show_ui 在 schema 里声明为必传：模型每次调用都得表态出不出卡；真缺省时（模型没传）
+ * 由运行时兜底为 false——不出卡、不终结。
+ *
+ * 卡片是**非轮次阻塞**的：卡片发射后本轮按正常协议走完，
  * 用户点击卡片动作经 [io.github.yeyi.agent.genui.ir.ActionEvent]
  * 回流，触发的是**新一轮**推理，而不是把当前轮次挂起等用户作答。
  *
@@ -22,20 +48,14 @@ import kotlinx.serialization.json.JsonElement
  * 本基类不支持阻塞式 UI——动作事件一律回流到新一轮；一旦做成阻塞等待，
  * 用户就只剩下「在卡片按钮上点选」这一条回复路径，失去了用自然语言选择回复的能力。
  *
- * 子类必须复写两处：[cardKind] 声明本轮卡片类型、[buildCard] 完成 UI 映射；
- * [getResult] 取业务数据，问询卡可不复写（默认无数据可回执），其余类型必须返回数据；
- * 发射接线由 final [execute] 统一收口，
+ * 子类必须复写两处：[toolSchema] 声明业务入参、[buildCard] 完成 UI 映射；
+ * [getResult] 取业务数据（不复写则本轮无数据可回执，此时只得出卡，
+ * 典型如卡片即问询的场景）；发射接线由 final [execute] 统一收口，
  * 卡片落在工具调用的 ToolCallStart/End 区间内，锚点天然对齐。
  *
- * 可终结能力由基类统一收口，裁决只看本轮卡片类型（[cardKind]）与执行成败：
- * - 问询卡（[CardKind.ASK]）：卡片即向用户的提问，本轮到此为止——成功即终结，等用户作答；
- * - 信息卡（[CardKind.INFO]）：本轮不终结，模型看完回执自行决定继续调工具还是收尾——
- *   「本轮是否到此为止」只有模型看到结果之后才知道，工具无权替它判定（否则模型把工具
- *   当中间步骤调用时会被提前截断，比如先查时间再查天气）；
- * - 不产卡（[CardKind.NONE]）：本轮就是普通取数工具，回执即数据，永不终结；
- * 产卡失败（[getResult]/[buildCard] 抛出异常）一律拒绝终结，
- * 模型下一轮感知失败并重试。
- * 裁决不持有实例状态——卡片类型由入参判定、成败直接取自本轮执行结果。
+ * show_ui 由基类并入给模型的 schema（子类的业务 schema 一行不改），并声明为必传。
+ * 模型要出卡时传 true——「查天气」过程中顺手调一次的定位工具不必出卡，
+ * 只有本次结果本身就是给用户的答案（或要向用户提问）才传 true。
  *
  * 卡片通道在构造期定死：产卡工具随 agent 构造，持有自己的 [UiSink]，执行时直接发射，
  * 不做运行期解析。子 agent 继承父 agent 的工具实例（连同 sink 绑定），卡片落父通道——
@@ -52,41 +72,28 @@ public abstract class UiGenTool(private val sink: UiSink) : Tool, FinalizableToo
     }
 
     /**
-     * 卡片类型：决定本轮是否产卡、是否可终结，以及回执文本的形态。
+     * 业务入参 schema：子类声明自己的入参结构。
      *
-     * [NONE] 不产卡、[INFO] 信息卡、[ASK] 问询卡都是**非轮次阻塞**的——
-     * 卡片发射后本轮按正常协议走完（问询卡是正常终结，不是挂起等事件），
-     * 用户点击卡片动作经 [io.github.yeyi.agent.genui.ir.ActionEvent]
-     * 回流，触发的是新一轮推理。
-     * 区别在「本轮产不产卡」与「本轮何时结束」：
-     * - [NONE] 不产卡：本轮就是普通取数工具，只回执数据，不发卡；
-     * - [INFO] 信息卡：携带查询结果，本轮不终结，模型看完回执自行决定继续调工具还是收尾；
-     * - [ASK] 问询卡：卡片本身就是向用户的提问，本轮终结，等用户作答。
+     * 模型看到的形态是它与框架参数 show_ui 合并后的结果（见 [parametersSchema]），
+     * 子类只管业务入参，不必操心框架参数。
      */
-    protected enum class CardKind {
-        /**
-         * 不产卡：本轮只取数回执，不发卡。
-         *
-         * 供「按入参决定本轮要不要卡片」的工具使用：入参自足时走 NONE（普通取数），
-         * 入参不足、需要用户裁决时走 ASK（问询卡）。
-         * 本类型下基类**不调用** [buildCard]，子类实现返回 null 即可。
-         */
-        NONE,
+    protected abstract val toolSchema: ToolParameters
 
-        /** 信息卡：回执为查询结果数据，模型据此继续推理或收尾。 */
-        INFO,
-
-        /** 问询卡：卡片即问询，回执为「等待用户回复」，本轮终结等用户作答。 */
-        ASK,
-    }
+    /**
+     * 模型可见的 schema：业务 schema 与框架参数 show_ui 的合并结果。
+     *
+     * final：合并由基类统一收口，子类只声明 [toolSchema]，不直接覆写模型的入参形态。
+     */
+    final override val parametersSchema: ToolParameters by lazy { withShowUi(toolSchema) }
 
     /**
      * 业务结果：本轮工具结果的唯一来源，取数结果原样存入 agent 记忆。
      *
      * 返回非 null：回执文本是取数结果的字符串形式，存入记忆，模型后续轮次据此读到具体信息。
      *
-     * 不复写（默认 null）：本轮没有数据可回执——问询卡（[cardKind] 为 [CardKind.ASK]）适用，
-     * 此时回执兜底为「等待用户回复」；其余类型走到这里属声明与实现不符，execute 直接抛异常暴露。
+     * 不复写（默认 null）：本轮没有业务数据可回执，典型如卡片即问询的场景
+     * （卡片承载问题本身，没有业务结果可讲）。此时只能靠卡片交付，模型须传 show_ui=true，
+     * 回执只带「卡片已展示给用户」；既无数据又不出卡则本轮什么都没交付，基类判失败。
      *
      * 业务异常一律直接抛出（由框架统一转为错误回执，拒绝终结并让模型感知失败重试），
      * 不要吞掉异常或返回 null 伪装成功。
@@ -97,45 +104,16 @@ public abstract class UiGenTool(private val sink: UiSink) : Tool, FinalizableToo
     ): JsonElement? = null
 
     /**
-     * 本轮卡片类型声明：决定本轮是否产卡、是否可终结，以及回执文本的形态。
-     *
-     * [CardKind.NONE]——本轮不产卡，只取数回执（普通取数工具）。
-     *
-     * [CardKind.INFO]——取数型工具：卡片展示查询结果，本轮不终结，
-     * 模型看完回执自行决定继续调工具还是收尾。
-     *
-     * [CardKind.ASK]——问询型工具：卡片本身就是向用户的提问（如「你想查哪个城市」），
-     * 本轮到此为止、终结等用户作答。
-     *
-     * 实现只允许依赖入参：裁决发生在执行之后（[finalizable] 由 ReActAgent 在工具执行完毕后回传），
-     * 那时拿不到 [getResult] 的原始返回值；只看入参才能在执行与裁决两处稳定复算同一结论，
-     * 且不依赖实例状态（多 agent 共享同一工具实例安全）。
-     *
-     * 实现必须是入参的全函数、不得抛异常：入参不合法/信息不足等情形用 [CardKind.NONE]
-     * 表达（不产卡），非法入参由 [getResult] 抛业务异常走错误回执。
-     * 抛异常会让裁决点掀翻本轮——[finalizable] 里 `!result.isError` 先短路，
-     * 执行失败时不会二次求值本方法，故只有执行成功后的不一致才会暴露成回合失败。
-     */
-    protected abstract fun cardKind(arguments: JsonElement): CardKind
-
-    /**
      * 将本轮结构化数据映射为卡片 IR。
      *
-     * 正常情形返回非空卡片；返回 null 表示本轮不产卡。
-     *
-     * [CardKind.NONE] 下基类不调用本方法，实现返回 null 即可。
-     *
-     * [CardKind.ASK] 下必须返回非空卡片：问询卡是「卡片即问询」，
-     * 没有卡片就没有提问，此时若仍终结本轮，用户既看不到卡片也等不到回答——
-     * 故基类把「问询卡未产出」判为失败（错误回执，拒绝终结，模型下一轮感知并重试）。
-     *
-     * [CardKind.INFO] 下返回 null 是合法降级：本轮不产卡，只回执数据（不追加展示告知）。
+     * 模型要求出卡（show_ui=true）时必须返回非空卡片：不出卡就没有交付给用户的东西，
+     * 故基类把「未产出卡片」判为失败（错误回执，拒绝终结，模型下一轮感知并重试）。
      *
      * [result] 由 [getResult] 返回后传入，是构造卡片所需业务数据的唯一来源：
      * 需要结果数据构造卡片时，应在 [getResult] 中返回工具结果数据，这里直接使用 [result] 参数即可，
      * 不要在本方法内自行取数（如重新 [getResult]）。
      *
-     * @param arguments 本轮 tool 调用的原始入参
+     * @param arguments 本轮 tool 调用的业务入参（框架参数 show_ui 已被剥掉）
      * @param result [getResult] 的取数结果
      * @param context 本轮执行上下文
      */
@@ -146,28 +124,29 @@ public abstract class UiGenTool(private val sink: UiSink) : Tool, FinalizableToo
     ): CardIr?
 
     /**
-     * 可终结裁决：由卡片类型与执行成败共同决定。
+     * 可终结裁决：由 show_ui 与执行成败共同决定。
      *
-     * 问询卡成功即终结（等用户作答），信息卡与不产卡一律不终结
-     * （模型看完回执自行决定下一步），执行失败一律不终结（模型下一轮感知失败并重试）。
+     * 出卡即终结：卡片已经交到用户手上，本轮到此为止，等用户回复或点选卡片动作；
+     * 不出卡就不终结——模型看到回执后自行决定下一步（中间步骤工具调用不打断推理链）。
+     * 执行失败一律不终结（模型下一轮感知失败并重试）。
      */
     final override fun finalizable(arguments: JsonElement, result: ToolExecutionResult): Boolean =
-        !result.isError && cardKind(arguments) == CardKind.ASK
+        !result.isError && showCard(arguments)
 
     /**
      * 模板接线：业务执行 → 回执定稿 → 产卡路由发射 → 回执。
      *
      * 固定执行顺序保证卡片发射时序位于 ToolCallStart/End 区间内；回执文本照常返回进记忆，卡片走旁路。
-     * 回执语义由 [getResult] 返回值与 [cardKind] 共同决定：有数据即回执数据文本，
-     * 模型后续轮次据此读到具体信息；无数据且为问询卡（卡片已发射）即回执「等待用户回复」；
-     * 无数据且非问询卡属声明与实现不符，直接抛异常。
+     * 出不出卡由模型逐次决定（show_ui）：true 则出卡并终结，false 则只回执数据、本轮继续。
+     * 回执语义由 [getResult] 返回值决定：有数据即回执数据文本，模型后续轮次据此读到具体信息；
+     * 无数据（卡片即问询的场景）则回执只有「卡片已展示给用户」——没有数据可讲。
      * 本轮产了卡时，回执末尾追加「卡片已展示给用户」的告知，避免模型在正文里
      * 把卡片内容再讲一遍；未产卡不追加，避免谎报。
      *
-     * 回执定稿在发卡之前：回执不成立（无数据、问询卡未产出）时本轮根本不该把卡发到用户手上——
+     * 回执定稿在发卡之前：回执不成立时本轮根本不该把卡发到用户手上——
      * 否则用户看到卡片，模型却收到失败回执去重试，卡片会被重复发出。
      *
-     * [buildCard] 返回非空卡片时，发射通道在构造期已定死；通道上没有订阅者属装配配置
+     * 发射通道在构造期已定死；通道上没有订阅者属装配配置
      * 错误（产卡工具要求使用方为该 agent 备好 sink 并保持订阅），直接抛 [IllegalStateException]
      * fail-fast 暴露，绝不静默丢弃卡片；异常向上传播由工具执行链路统一转错误回执，
      * [finalizable] 收到错误回执后拒绝终结，模型下一轮感知失败并重试。
@@ -176,34 +155,95 @@ public abstract class UiGenTool(private val sink: UiSink) : Tool, FinalizableToo
         arguments: JsonElement,
         context: ToolExecutionContext
     ): ToolExecutionResult {
-        val kind = cardKind(arguments)
-        val result = getResult(arguments, context)
-        // 不产卡类型不调用 buildCard：卡片有无由 cardKind 声明，不靠 buildCard 返回 null 协商
-        val card = if (kind == CardKind.NONE) null else buildCard(arguments, result, context)
-        // 问询卡必须产出：卡片即问询，没卡就没提问，此时终结本轮会让用户干等
-        if (kind == CardKind.ASK && card == null) {
-            error(
-                "$name is an ask card tool but produced no card: " +
-                        "an ask card tool must build a card in buildCard"
-            )
+        val showCard = showCard(arguments)
+        // 业务侧只看到业务入参：show_ui 是框架与模型之间的约定，不该渗进业务解码
+        val realArgs = withoutShowUi(arguments)
+        val result = getResult(realArgs, context)
+        // 又无数据又不出卡：本轮什么都没交付给用户，模型也无从读到什么。
+        // 措辞指向模型侧的修法：带 show_ui=true 重新调用。
+        if (!showCard && result == null) {
+            error("$name produced neither a result nor a card: call it again with show_ui=true")
         }
-        val content = result?.toString()
-            ?: when (kind) {
-                // 问询卡无业务数据可回执：卡片即问询，等待用户回复
-                CardKind.ASK -> "Waiting for user reply"
-                CardKind.NONE -> error(
-                    "$name produced no tool result: a tool that produces no card must return data from getResult"
-                )
-                CardKind.INFO -> error(
-                    "$name produced no tool result: an info card tool must return data from getResult"
-                )
-            }
+        val card = if (showCard) buildCard(realArgs, result, context) else null
+        // 模型要求出卡就必须真有卡片：没有卡片就没有交付给用户的东西
+        if (showCard && card == null) {
+            error("$name produced no card: a card tool must build a card in buildCard")
+        }
         if (card != null) {
             sink.emit(card)
         }
         // 产了卡就要告知模型卡片已送达，避免它把同样的内容在正文里再讲一遍；
         // 未产卡不追加，避免谎报
-        val receipt = if (card != null) "$content $CARD_SHOWN_NOTE" else content
+        val content = result?.toString()
+        val receipt = when {
+            content != null && card != null -> "$content $CARD_SHOWN_NOTE"
+            content != null -> content
+            else -> CARD_SHOWN_NOTE
+        }
         return ToolExecutionResult.success(receipt)
+    }
+
+    /** 模型是否要求本轮出卡：模型没传时兜底为不出卡、不终结。 */
+    private fun showCard(arguments: JsonElement): Boolean =
+        ((arguments as? JsonObject)?.get(SHOW_UI_PARAM) as? JsonPrimitive)?.booleanOrNull ?: false
+
+    /**
+     * 业务入参：剥掉框架参数 show_ui。
+     *
+     * show_ui 是框架与模型之间的约定，不该渗进业务解码——
+     * 否则每个严格解码的业务工具都得为这个多出来的键放宽解码。
+     */
+    private fun withoutShowUi(arguments: JsonElement): JsonElement {
+        if (arguments !is JsonObject) return arguments
+        val business = arguments.filterKeys { it != SHOW_UI_PARAM }
+        return if (business.size == arguments.size) arguments else JsonObject(business)
+    }
+
+    /**
+     * 在业务 schema 的 properties 里并入 show_ui，并让它进 required。
+     *
+     * show_ui 是框架参数（模型据此逐次决定本轮出不出卡），不是业务入参：
+     * 子类的业务 schema 一行不改，模型却能多传这一个参数。
+     * 声明为必传：模型每次调用都得表态出不出卡，缺省由运行时兜底为 false（不出卡、不终结）。
+     *
+     * 只附加、不覆写：业务 schema 的其余内容（`$defs`/`$ref`/`additionalProperties`/
+     * 各属性的完整定义）原样保留。两处装配错误 fail-fast 抛 [IllegalArgumentException]：
+     * 业务 schema 不是合法 JSON 对象（并入不了 show_ui，模型就永远看不到这个参数），
+     * 以及业务 schema 自带同名 show_ui 属性（框架版本会静默覆盖它）。
+     */
+    private fun withShowUi(schema: ToolParameters): ToolParameters {
+        val base = when (schema) {
+            is ToolParameters.Empty -> buildJsonObject {
+                put("type", "object")
+                put("properties", buildJsonObject { })
+            }
+
+            is ToolParameters.JsonSchema -> {
+                val parsed = runCatching { Json.parseToJsonElement(schema.schema) }.getOrNull()
+                    ?: throw IllegalArgumentException(
+                        "$name 的 toolSchema 不是合法 JSON，无法并入框架参数 $SHOW_UI_PARAM"
+                    )
+                parsed as? JsonObject
+                    ?: throw IllegalArgumentException(
+                        "$name 的 toolSchema 必须是 JSON 对象，无法并入框架参数 $SHOW_UI_PARAM"
+                    )
+            }
+        }
+        val properties = (base["properties"] as? JsonObject) ?: JsonObject(emptyMap())
+        require(SHOW_UI_PARAM !in properties) {
+            "$name 的 toolSchema 已有同名属性 $SHOW_UI_PARAM，与框架参数冲突"
+        }
+        val showUiProperty = buildJsonObject {
+            put("type", "boolean")
+            put("description", SHOW_UI_DESCRIPTION)
+        }
+        val required = ((base["required"] as? JsonArray).orEmpty().map { it.jsonPrimitive.content }
+            + SHOW_UI_PARAM).distinct()
+        val merged = JsonObject(
+            base +
+                ("properties" to JsonObject(properties + (SHOW_UI_PARAM to showUiProperty))) +
+                ("required" to JsonArray(required.map { JsonPrimitive(it) }))
+        )
+        return ToolParameters.JsonSchema(merged.toString())
     }
 }

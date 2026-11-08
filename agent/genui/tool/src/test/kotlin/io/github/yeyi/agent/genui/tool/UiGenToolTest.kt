@@ -21,9 +21,13 @@ import kotlinx.coroutines.flow.take
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
@@ -33,14 +37,11 @@ import kotlin.test.assertTrue
 @OptIn(ExperimentalCoroutinesApi::class)
 class UiGenToolTest {
 
-    /** 测试侧的卡片类型标识：基类的 CardKind 是 protected，测试类（非子类）不能直接引用。 */
-    private enum class FakeKind { NONE, INFO, ASK }
-
     private class FakeUiGenTool(
         private val data: JsonElement?,
         private val card: CardIr?,
         sink: UiSink,
-        private val kind: FakeKind = FakeKind.INFO
+        schema: ToolParameters = ToolParameters.Empty,
     ) : UiGenTool(sink) {
         var getResultArguments: JsonElement? = null
         var buildCardData: JsonElement? = null
@@ -49,13 +50,7 @@ class UiGenToolTest {
 
         override val name: String = "fake_tool"
         override val description: String = "fake"
-        override val parametersSchema: ToolParameters = ToolParameters.Empty
-
-        override fun cardKind(arguments: JsonElement): CardKind = when (kind) {
-            FakeKind.NONE -> CardKind.NONE
-            FakeKind.INFO -> CardKind.INFO
-            FakeKind.ASK -> CardKind.ASK
-        }
+        override val toolSchema: ToolParameters = schema
 
         override suspend fun getResult(
             arguments: JsonElement,
@@ -100,6 +95,17 @@ class UiGenToolTest {
     private val arguments: JsonElement =
         JsonObject(mapOf("city" to JsonPrimitive("上海")))
 
+    /** 模型显式要求出卡的入参。 */
+    private val showCardArgs: JsonElement =
+        JsonObject(mapOf("city" to JsonPrimitive("上海"), "show_ui" to JsonPrimitive(true)))
+
+    /** 模型看到的 schema：基类把业务 schema 与框架参数 show_ui 合并后的结果。 */
+    private fun modelSchema(tool: UiGenTool): JsonObject {
+        val schema = tool.parametersSchema
+        assertTrue(schema is ToolParameters.JsonSchema, "expected merged JsonSchema, got $schema")
+        return Json.parseToJsonElement((schema as ToolParameters.JsonSchema).schema).jsonObject
+    }
+
     @Test
     fun `execute 接线 getResult 结果进 buildCard 并发射卡片`() = runTest {
         val sink = UiSink()
@@ -111,38 +117,16 @@ class UiGenToolTest {
         val job = backgroundScope.launch { sink.cards.take(1).collect { received += it } }
         runCurrent() // 排空调度队列，确保订阅注册后再执行
 
-        val returned = tool.execute(arguments, context(agentId = "agent_1"))
+        tool.execute(showCardArgs, context(agentId = "agent_1"))
         runCurrent() // 处理订阅者恢复任务，确保卡片已投递
 
         job.join()
+        // 业务侧看到的入参已剥掉框架参数 show_ui
         assertEquals(arguments, tool.getResultArguments)
-        // buildCard 收到的是 getResult 整理后的结构化数据，以及本轮原始入参
+        // buildCard 收到的是 getResult 整理后的结构化数据，以及本轮业务入参
         assertEquals(data, tool.buildCardData)
         assertEquals(arguments, tool.buildCardArguments)
         assertEquals(listOf(card), received)
-    }
-
-    @Test
-    fun `buildCard 返回 null 时不发射卡片`() = runTest {
-        val sink = UiSink()
-        val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        val tool = FakeUiGenTool(
-            data = data,
-            card = null,
-            sink = sink,
-        )
-
-        var cardCount = 0
-        val job = backgroundScope.launch { sink.cards.collect { cardCount++ } }
-        runCurrent() // 排空调度队列，确保订阅注册后再执行
-
-        val returned = tool.execute(arguments, context(agentId = "agent_1"))
-        runCurrent() // 处理订阅者恢复任务，确认无卡片投递
-
-        job.cancel()
-        assertEquals(0, cardCount)
-        // 未产卡：回执不追加「卡片已展示」的告知
-        assertEquals(ToolExecutionResult.success(data.toString()), returned)
     }
 
     @Test
@@ -157,7 +141,7 @@ class UiGenToolTest {
         val job = backgroundScope.launch { sink.cards.collect { } }
         runCurrent() // 排空调度队列，确保订阅注册后再执行
 
-        val returned = tool.execute(arguments, context())
+        val returned = tool.execute(showCardArgs, context())
         runCurrent()
 
         job.cancel()
@@ -171,34 +155,31 @@ class UiGenToolTest {
     }
 
     @Test
-    fun `问询卡无业务结果时回执兜底为等待用户回复`() = runTest {
+    fun `无业务结果时回执只有卡片已展示告知`() = runTest {
         val sink = UiSink()
-        // 问询卡：卡片即问询，无业务数据可回执
+        // 卡片即问询：无业务数据可回执，回执只剩「卡片已展示给用户」
         val tool = FakeUiGenTool(
             data = null,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
             sink = sink,
-            kind = FakeKind.ASK,
         )
         val job = backgroundScope.launch { sink.cards.collect { } }
         runCurrent() // 排空调度队列，确保订阅注册后再执行
 
-        val returned = tool.execute(arguments, context())
+        val returned = tool.execute(showCardArgs, context())
         runCurrent()
 
         job.cancel()
         assertEquals(
-            ToolExecutionResult.success(
-                "Waiting for user reply (this has already been shown to the user as a ui-card)"
-            ),
+            ToolExecutionResult.success("(this has already been shown to the user as a ui-card)"),
             returned
         )
     }
 
     @Test
-    fun `信息卡无业务结果时抛异常暴露声明与实现不符`() = runTest {
+    fun `无业务结果又不出卡时判失败`() = runTest {
         val sink = UiSink()
-        // 信息卡声明有查询结果，实际没有数据可回执——声明与实现不符，直接暴露
+        // 既无数据回执又不出卡：本轮什么都没交付给用户
         val tool = FakeUiGenTool(
             data = null,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
@@ -207,134 +188,91 @@ class UiGenToolTest {
         val job = backgroundScope.launch { sink.cards.collect { } }
         runCurrent()
 
-        assertFailsWith<IllegalStateException> { tool.execute(arguments, context()) }
+        assertFailsWith<IllegalStateException> {
+            tool.execute(JsonObject(mapOf("show_ui" to JsonPrimitive(false))), context())
+        }
 
         job.cancel()
     }
 
     @Test
-    fun `信息卡不终结,由模型看完回执自行决定下一步`() = runTest {
+    fun `既无数据又不出卡时错误回执指向模型侧的修法`() = runTest {
+        val sink = UiSink()
+        val tool = FakeUiGenTool(
+            data = null,
+            card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
+            sink = sink,
+        )
+
+        // 错误措辞要指向模型能改的地方：带 show_ui=true 重新调用
+        val failure = assertFailsWith<IllegalStateException> {
+            tool.execute(JsonObject(mapOf("show_ui" to JsonPrimitive(false))), context())
+        }
+        assertTrue(failure.message?.contains("show_ui=true") == true)
+    }
+
+    @Test
+    fun `出卡即终结 卡片交到用户手上本轮到此为止`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        val tool = FakeUiGenTool(data, null, UiSink())
-
-        val returned = tool.execute(arguments, context())
-
-        // 「本轮是否到此为止」只有模型看到结果后才知道，工具不替它判定
-        assertFalse(tool.finalizable(arguments, returned))
-    }
-
-    @Test
-    fun `问询卡成功即终结等用户作答`() = runTest {
         val sink = UiSink()
         val tool = FakeUiGenTool(
-            data = null,
+            data = data,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
             sink = sink,
-            kind = FakeKind.ASK,
         )
-        val job = backgroundScope.launch { sink.cards.collect { } }
+        val job = backgroundScope.launch { sink.cards.take(1).collect { } }
         runCurrent()
 
-        val returned = tool.execute(arguments, context())
+        val returned = tool.execute(showCardArgs, context())
         runCurrent()
 
-        job.cancel()
-        assertTrue(tool.finalizable(arguments, returned))
+        job.join()
+        assertTrue(tool.finalizable(showCardArgs, returned))
     }
 
     @Test
-    fun `问询卡未产出卡片时判失败不终结`() = runTest {
+    fun `show_ui=true 却未产出卡片时判失败不终结`() = runTest {
         val sink = UiSink()
-        // 问询卡必须产出：没卡就没有提问，此时终结本轮会让用户干等
+        // 模型要求出卡就必须真有卡片：没有卡片就没有交付给用户的东西
         val tool = FakeUiGenTool(
             data = null,
             card = null,
             sink = sink,
-            kind = FakeKind.ASK,
         )
         val job = backgroundScope.launch { sink.cards.collect { } }
         runCurrent()
 
-        assertFailsWith<IllegalStateException> { tool.execute(arguments, context()) }
-        assertFalse(tool.finalizable(arguments, ToolExecutionResult.error("no card")))
+        assertFailsWith<IllegalStateException> { tool.execute(showCardArgs, context()) }
+        assertFalse(tool.finalizable(showCardArgs, ToolExecutionResult.error("no card")))
 
         job.cancel()
     }
 
     @Test
-    fun `回执不成立时卡片不发出`() = runTest {
-        val sink = UiSink()
-        // 信息卡没有数据可回执：回执定稿在前，卡片不得先发到用户手上
-        val tool = FakeUiGenTool(
-            data = null,
-            card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            sink = sink,
-        )
-        var cardCount = 0
-        val job = backgroundScope.launch { sink.cards.collect { cardCount++ } }
-        runCurrent()
-
-        assertFailsWith<IllegalStateException> { tool.execute(arguments, context()) }
-        runCurrent()
-
-        job.cancel()
-        assertEquals(0, cardCount)
-    }
-
-    @Test
-    fun `不产卡类型不调用 buildCard 且不终结`() = runTest {
+    fun `show_ui=false 时不调用 buildCard 且不终结`() = runTest {
         val sink = UiSink()
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         val tool = FakeUiGenTool(
             data = data,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
             sink = sink,
-            kind = FakeKind.NONE,
         )
         var cardCount = 0
         val job = backgroundScope.launch { sink.cards.collect { cardCount++ } }
         runCurrent()
 
-        val returned = tool.execute(arguments, context())
+        val noCardArgs =
+            JsonObject(mapOf("city" to JsonPrimitive("上海"), "show_ui" to JsonPrimitive(false)))
+        val returned = tool.execute(noCardArgs, context())
         runCurrent()
 
         job.cancel()
-        // 不产卡由 cardKind 声明，不靠 buildCard 返回 null 协商——buildCard 压根不被调用
+        // 不出卡由模型说了算：buildCard 压根不被调用
         assertEquals(0, tool.buildCardCalls)
         assertEquals(0, cardCount)
         // 回执即数据，不追加「卡片已展示」的告知
         assertEquals(ToolExecutionResult.success(data.toString()), returned)
-        assertFalse(tool.finalizable(arguments, returned))
-    }
-
-    @Test
-    fun `错误回执时裁决不触达 cardKind`() = runTest {
-        // 不变式：finalizable 里 `!result.isError` 先短路——执行失败时不会二次求值 cardKind。
-        // 这条短路正是「裁决阶段无需 core 兜底捕获异常」的依据：
-        // cardKind 抛异常只会在 execute 阶段暴露（转错误回执，模型重试），不会掀翻回合。
-        val exploding = object : UiGenTool(UiSink()) {
-            override val name: String = "exploding_card"
-            override val description: String = "exploding"
-            override val parametersSchema: ToolParameters = ToolParameters.Empty
-            override fun cardKind(arguments: JsonElement): CardKind =
-                throw IllegalStateException("cardKind must not throw")
-
-            override suspend fun getResult(
-                arguments: JsonElement,
-                context: ToolExecutionContext
-            ): JsonElement = JsonObject(mapOf("x" to JsonPrimitive(1)))
-
-            override fun buildCard(
-                arguments: JsonElement,
-                result: JsonElement?,
-                context: ToolExecutionContext
-            ): CardIr? = null
-        }
-
-        // 执行阶段抛出：异常向上传播，由 dispatch 转成错误回执（模型可见、可重试）
-        assertFailsWith<IllegalStateException> { exploding.execute(arguments, context()) }
-        // 错误回执下裁决短路返回 false，不再触达 cardKind
-        assertFalse(exploding.finalizable(arguments, ToolExecutionResult.error("failed")))
+        assertFalse(tool.finalizable(noCardArgs, returned))
     }
 
     @Test
@@ -342,8 +280,8 @@ class UiGenToolTest {
         val tool = object : UiGenTool(UiSink()) {
             override val name: String = "flaky_card"
             override val description: String = "flaky"
-            override val parametersSchema: ToolParameters = ToolParameters.Empty
-            override fun cardKind(arguments: JsonElement): CardKind = CardKind.INFO
+            override val toolSchema: ToolParameters = ToolParameters.Empty
+
             override suspend fun getResult(
                 arguments: JsonElement,
                 context: ToolExecutionContext
@@ -392,8 +330,8 @@ class UiGenToolTest {
         val jobB = backgroundScope.launch { sinkB.cards.take(1).collect { receivedB += it } }
         runCurrent() // 排空调度队列，确保订阅注册后再执行
 
-        toolA.execute(arguments, context(callId = "call_a", agentId = "agent_a"))
-        toolB.execute(arguments, context(callId = "call_b", agentId = "agent_b"))
+        toolA.execute(showCardArgs, context(callId = "call_a", agentId = "agent_a"))
+        toolB.execute(showCardArgs, context(callId = "call_b", agentId = "agent_b"))
         runCurrent() // 处理订阅者恢复任务，确保卡片已投递
 
         jobA.join()
@@ -403,5 +341,131 @@ class UiGenToolTest {
         assertEquals(1, receivedB.size)
         assertEquals("call_a", receivedA.single().instanceId)
         assertEquals("call_b", receivedB.single().instanceId)
+    }
+
+    @Test
+    fun `show_ui 缺省时不出卡也不终结`() = runTest {
+        val sink = UiSink()
+        val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
+        val tool = FakeUiGenTool(
+            data = data,
+            card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
+            sink = sink,
+        )
+        var cardCount = 0
+        val job = backgroundScope.launch { sink.cards.collect { cardCount++ } }
+        runCurrent()
+
+        // 模型没传 show_ui：按不出卡、不终结处理（中间步骤工具调用不打断推理链）
+        val returned = tool.execute(arguments, context())
+        runCurrent()
+
+        job.cancel()
+        assertEquals(0, cardCount)
+        assertEquals(0, tool.buildCardCalls)
+        assertEquals(ToolExecutionResult.success(data.toString()), returned)
+        assertFalse(tool.finalizable(arguments, returned))
+    }
+
+    @Test
+    fun `框架参数 show_ui 不渗进业务入参`() = runTest {
+        val sink = UiSink()
+        val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
+        val tool = FakeUiGenTool(
+            data = data,
+            card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
+            sink = sink,
+        )
+        val job = backgroundScope.launch { sink.cards.take(1).collect { } }
+        runCurrent()
+
+        val withShowUi = JsonObject(
+            mapOf("city" to JsonPrimitive("北京"), "show_ui" to JsonPrimitive(true))
+        )
+        tool.execute(withShowUi, context())
+        runCurrent()
+
+        job.join()
+        // 业务侧只看得到业务入参：show_ui 由基类剥掉，严格解码的工具不必为它放宽
+        val businessOnly = JsonObject(mapOf("city" to JsonPrimitive("北京")))
+        assertEquals(businessOnly, tool.getResultArguments)
+        assertEquals(businessOnly, tool.buildCardArguments)
+    }
+
+    @Test
+    fun `模型看到的 schema 含 show_ui 且保留业务参数`() = runTest {
+        val businessSchema = ToolParameters.JsonSchema(
+            """{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}"""
+        )
+        val tool = FakeUiGenTool(
+            data = null,
+            card = null,
+            sink = UiSink(),
+            schema = businessSchema,
+        )
+
+        val schema = modelSchema(tool)
+        val properties = schema["properties"]!!.jsonObject
+
+        assertTrue("city" in properties)
+        val showUi = properties.getValue("show_ui").jsonObject
+        assertEquals("boolean", showUi.getValue("type").jsonPrimitive.content)
+        assertTrue(showUi.getValue("description").jsonPrimitive.content.isNotEmpty())
+        // show_ui 必传：模型每次调用都得表态出不出卡
+        val required = (schema["required"] as? JsonArray).orEmpty().map { it.jsonPrimitive.content }
+        assertTrue("show_ui" in required)
+        // 业务必填项保留
+        assertTrue("city" in required)
+    }
+
+    @Test
+    fun `业务 schema 不是 JSON 对象时判装配错误`() = runTest {
+        val tool = FakeUiGenTool(
+            data = null,
+            card = null,
+            sink = UiSink(),
+            schema = ToolParameters.JsonSchema("""[1,2,3]"""),
+        )
+
+        // 并不进 show_ui 就等于模型永远看不到这个参数：装配错误，不能静默放过
+        val failure = assertFailsWith<IllegalArgumentException> { tool.parametersSchema }
+        assertTrue(failure.message?.contains("show_ui") == true)
+    }
+
+    @Test
+    fun `业务 schema 不是合法 JSON 时判装配错误`() = runTest {
+        val tool = FakeUiGenTool(
+            data = null,
+            card = null,
+            sink = UiSink(),
+            schema = ToolParameters.JsonSchema("""{"type":"object","""),
+        )
+
+        assertFailsWith<IllegalArgumentException> { tool.parametersSchema }
+    }
+
+    @Test
+    fun `业务 schema 自带 show_ui 属性时判装配错误`() = runTest {
+        val tool = FakeUiGenTool(
+            data = null,
+            card = null,
+            sink = UiSink(),
+            schema = ToolParameters.JsonSchema(
+                """{"type":"object","properties":{"show_ui":{"type":"string"}}}"""
+            ),
+        )
+
+        // 框架版本会静默盖掉业务同名属性：业务参数就此消失，必须拦住
+        val failure = assertFailsWith<IllegalArgumentException> { tool.parametersSchema }
+        assertTrue(failure.message?.contains("show_ui") == true)
+    }
+
+    @Test
+    fun `无业务参数的工具也给模型 show_ui`() = runTest {
+        val tool = FakeUiGenTool(data = null, card = null, sink = UiSink())
+
+        val properties = modelSchema(tool)["properties"]!!.jsonObject
+
+        assertTrue("show_ui" in properties)
     }
 }

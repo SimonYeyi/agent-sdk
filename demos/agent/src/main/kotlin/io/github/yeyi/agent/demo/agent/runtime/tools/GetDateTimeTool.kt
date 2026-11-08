@@ -28,16 +28,13 @@ class GetDateTimeTool(sink: UiSink) : UiGenTool(sink) {
 
     override val name: String = "get_datetime"
     override val description: String = "返回当前日期与时间"
-    override val parametersSchema: ToolParameters = ToolParameters.Empty
+    override val toolSchema: ToolParameters = ToolParameters.Empty
 
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
         buildJsonObject {
             put("date", JsonPrimitive(LocalDate.now().toString()))
             put("time", JsonPrimitive(Instant.now().toString()))
         }
-
-    // 信息卡：卡片展示查询结果，本轮不终结，模型看完回执自行决定继续还是收尾
-    override fun cardKind(arguments: JsonElement): CardKind = CardKind.INFO
 
     override fun buildCard(
         arguments: JsonElement,

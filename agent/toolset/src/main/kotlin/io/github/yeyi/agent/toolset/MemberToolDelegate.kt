@@ -2,6 +2,7 @@ package io.github.yeyi.agent.toolset
 
 import io.github.yeyi.agent.tool.DelegateTarget
 import io.github.yeyi.agent.tool.DelegateTool
+import io.github.yeyi.agent.tool.FinalizableTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -17,8 +18,12 @@ import kotlinx.serialization.json.jsonPrimitive
  *
  * 同时实现 [DelegateTool]，使审批等拦截器能穿透委托层，基于成员 Tool 的策略
  * 做决策。[execute] 复用 [resolveTarget] 获取目标，避免路由解析逻辑重复。
+ *
+ * 同时实现 [FinalizableTool]：可终结裁决转发给成员 Tool，产卡工具的
+ * 「出卡即终结」经委托层同样成立。
  */
-internal class MemberToolDelegate(private val registry: ToolsetRegistry) : Tool, DelegateTool {
+internal class MemberToolDelegate(private val registry: ToolsetRegistry) : Tool, DelegateTool,
+    FinalizableTool {
     override val name: String = "member_tool_delegate"
 
     override val description: String = ""
@@ -46,6 +51,13 @@ internal class MemberToolDelegate(private val registry: ToolsetRegistry) : Tool,
         val toolArgs = argsObj["tool_arguments"] ?: JsonNull
         val target = registry.get(toolsetName).get(toolName)
         return DelegateTarget(target, toolArgs)
+    }
+
+    override fun finalizable(arguments: JsonElement, result: ToolExecutionResult): Boolean {
+        val target = resolveTarget(arguments)
+        val tool = target.tool
+        // 转发目标自己的入参：产卡工具的 show_ui 在内层 tool_arguments 里
+        return tool is FinalizableTool && tool.finalizable(target.arguments, result)
     }
 
     override suspend fun execute(

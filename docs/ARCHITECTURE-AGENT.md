@@ -123,7 +123,7 @@ public interface AsyncTool : FinalizableTool
 - `finalizable()` 默认返回 `true`（实现本接口即声明「默认可终结」），仅在需要拒绝终结时复写；工具无需（也不应）依赖实例状态传递本轮成败，结果由 ReActAgent 直接回传，天然无跨回合/跨 agent 串味，多 agent 共享工具实例安全
 - 同步工具（如产卡工具）若希望失败后让模型感知并重试，在 `finalizable(arguments, result)` 中结合 `result.isError` 裁定（失败时返回 `false` 拒绝终结，模型下一轮感知失败回执并重试）
 - 需要「按入参决定是否产卡」的工具（如仅当 `detail=true` 时才出卡），在 `finalizable(arguments, result)` 中结合 `arguments` 裁定本轮是否可终结
-- `finalizable()` 的实现不得抛异常：它跑在工具执行之后的短路裁决点，抛出不会被 `dispatch()` 收成错误回执，而是掀翻本轮。工具自裁遇到非法入参等情形，按各自契约处理（产卡工具用 `CardKind.NONE` 表达缺参、不产卡），不要以异常表达
+- `finalizable()` 的实现不得抛异常：它跑在工具执行之后的短路裁决点，抛出不会被 `dispatch()` 收成错误回执，而是掀翻本轮。工具自裁遇到非法入参等情形，按各自契约处理（产卡工具用框架参数 `show_ui=false` 表达本轮不出卡、不终结），不要以异常表达
 - `AsyncTool` 异步派发型工具天然可终结，继承接口默认 `true`，向后兼容
 - 消费方以 `Final` 空响应（content 为 null）识别短路终结，无需预判字段
 

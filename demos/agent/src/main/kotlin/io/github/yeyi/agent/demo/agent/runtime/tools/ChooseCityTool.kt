@@ -14,21 +14,18 @@ import kotlinx.serialization.json.buildJsonObject
 /**
  * 问询卡示例：当用户想查天气却没说城市时，产出一张问询卡请用户点选城市。
  *
- * 问询卡是「卡片即问询」：本轮到此为止（[cardKind] 为 [CardKind.ASK]，成功即终结），
+ * 问询卡是「卡片即问询」：模型传 show_ui=true 时出卡并终结本轮，
  * 模型不再追问，用户在卡片上点选城市——点击经 [io.github.yeyi.agent.genui.ir.ActionEvent]
  * 回流，动作文案作为新一轮的用户输入，模型据此调用 get_weather。
  *
- * 问询卡没有业务数据可回执（getResult 不复写），回执为「Waiting for user reply」；
- * 卡片必须产出——问询卡未产出时基类判失败，不会让回合空转终结。
+ * 问询卡没有业务数据可回执（getResult 不复写），回执只有「卡片已展示给用户」；
+ * 卡片必须产出——show_ui=true 却没产出卡片时基类判失败，不会让回合空转终结。
  */
 class ChooseCityTool(sink: UiSink) : UiGenTool(sink) {
 
     override val name: String = "choose_city"
     override val description: String = "当需要跟用户确定城市时使用"
-    override val parametersSchema: ToolParameters = ToolParameters.Empty
-
-    // 问询卡：卡片即问询，本轮终结等用户点选
-    override fun cardKind(arguments: JsonElement): CardKind = CardKind.ASK
+    override val toolSchema: ToolParameters = ToolParameters.Empty
 
     override fun buildCard(
         arguments: JsonElement,
