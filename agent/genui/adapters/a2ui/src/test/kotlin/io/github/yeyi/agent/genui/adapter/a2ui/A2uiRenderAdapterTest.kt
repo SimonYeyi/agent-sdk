@@ -2,6 +2,7 @@ package io.github.yeyi.agent.genui.adapter.a2ui
 
 import androidx.a2ui.model.catalog.functions.A2uiLocaleProvider
 import androidx.a2ui.model.protocol.A2uiClientDataModel
+import androidx.a2ui.model.protocol.A2uiClientErrorMessage
 import androidx.a2ui.model.protocol.A2uiClientEventMessage
 import androidx.compose.material3.a2ui.catalog.MaterialA2uiBasicCatalogV1Defaults
 import androidx.compose.material3.a2ui.catalog.materialA2uiBasicCatalogV1
@@ -16,7 +17,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.withTimeoutOrNull
@@ -56,7 +59,7 @@ class A2uiRenderAdapterTest {
                     root = TreeNode(
                         component = "Column",
                         children = listOf(
-                            TreeNode(component = "Text", bindings = mapOf("text" to JsonPrimitive("hello"))),
+                            TreeNode(component = "Text", bindings = mapOf("content" to JsonPrimitive("hello"))),
                             TreeNode(
                                 component = "Button",
                                 action = Action("选择", payload = "r1"),
@@ -196,6 +199,81 @@ class A2uiRenderAdapterTest {
             adapter.dispatchClientEvent(eventMessage("card-4", "root"))
             assertTrue(events.isEmpty())
             assertEquals(1, replaced.size)
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun projectionSatisfiesOfficialCatalogContract() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val adapter = A2uiRenderAdapter(catalog, scope)
+        val errors = mutableListOf<A2uiClientErrorMessage>()
+        scope.launch {
+            adapter.processor.outboundEvents.collect { if (it is A2uiClientErrorMessage) errors += it }
+        }
+        try {
+            adapter.project(
+                CardIr(
+                    instanceId = "card-6",
+                    root = TreeNode(
+                        component = "Card",
+                        children = listOf(
+                            TreeNode(
+                                component = "Text",
+                                bindings = mapOf("content" to JsonPrimitive("北京 晴 26°C")),
+                            ),
+                            TreeNode(component = "Divider"),
+                            TreeNode(
+                                component = "Column",
+                                bindings = mapOf("arrangement" to JsonPrimitive("spaceBetween")),
+                                children = listOf(
+                                    TreeNode(
+                                        component = "Text",
+                                        bindings = mapOf("content" to JsonPrimitive("26°")),
+                                    ),
+                                    TreeNode(component = "Button", action = Action("查看明天", payload = "北京")),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ) {}
+
+            withTimeout(5_000) { adapter.processor.activeSurfaces.first { it.isNotEmpty() } }
+            delay(300)
+
+            // 官方目录对每个组件有必填属性，缺项的组件会被引擎校验丢弃
+            assertTrue(errors.isEmpty(), "官方目录校验失败：$errors")
+        } finally {
+            scope.cancel()
+        }
+    }
+
+    @Test
+    fun buttonWithoutActionProjectsAsStaticText() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val adapter = A2uiRenderAdapter(catalog, scope)
+        val errors = mutableListOf<A2uiClientErrorMessage>()
+        scope.launch {
+            adapter.processor.outboundEvents.collect { if (it is A2uiClientErrorMessage) errors += it }
+        }
+        try {
+            adapter.project(
+                CardIr(
+                    instanceId = "card-7",
+                    root = TreeNode(
+                        component = "Button",
+                        bindings = mapOf("label" to JsonPrimitive("暂不可用")),
+                    ),
+                ),
+            ) {}
+
+            withTimeout(5_000) { adapter.processor.activeSurfaces.first { it.isNotEmpty() } }
+            delay(300)
+
+            // 官方 Button 的 action 必填：无动作的按钮按静态文本投影，不该报校验错
+            assertTrue(errors.isEmpty(), "官方目录校验失败：$errors")
         } finally {
             scope.cancel()
         }

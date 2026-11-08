@@ -182,8 +182,9 @@ public abstract class UiGenTool(
 
 协议层不另设校验器：动作是否可用是动作自身的属性（文案非空），由渲染层就地判断。
 
-- **契约**：动作文案必须非空。动作文案就是可点节点的可见内容，空了就没有可展示的东西
+- **契约**：动作文案必须非空。动作文案是动作本身（意图），也是回流文案（label（payload））的一部分，空了就没有可回流的动作
 - **降级粒度**：该节点整棵不渲染（连同其子节点），同级其他节点照常渲染（不再整卡降级）
+- **口径落点**：判空在协议层一处——`TreeNode.isRenderable()`，两个渲染后端共用同一口径
 - **自研后端**：渲染递归遇到空文案动作的节点直接跳过，不进组件
 - **A2UI 投影后端**：该节点不落协议消息（父节点的 children 里也不列它），其子节点一并丢弃
 - **模板组件的动作**：是组件自持的常量，由作者自控，不在协议契约内
@@ -305,7 +306,8 @@ sink.cards.collect { card ->
 ```
 
 - **插槽语义**：适配层定义、实现可插拔、组装点一次性选择；业务代码只接触 `sink.cards` 与 `adapter.RenderCard(card, onAction)`
-- **组件名映射**：A2UI 后端投影时，工具产出的组件名必须映射到 catalog 内组件（`Column`/`Text`/`Button`…），否则官方渲染器不识别；v1 建议工具直接产出语义等价的 catalog 内组件名，避免自定义目录
+- **组件名映射**：A2UI 后端按官方目录的组件契约逐个投影（IR 词汇 → 官方属性）：`Text.content` → 官方 `text`；`Button` 的动作 → 官方 `action`、可见文案合成一个 Text 当官方 `child`（官方 Button 只收单个 child）；`Column/Row` 的子节点 → 官方 `children`、`arrangement` → `justify`、对齐 → `align`；`Card` 的多子节点用 Column 包一层当官方 `child`。官方目录对每个组件有必填属性，缺项的组件会被引擎校验丢弃——故投影不做 bindings 原样透传，而是按组件规则翻译
+- **目录外的组件**：官方目录没有的组件（`Badge`、模板组件等）在 A2UI 后端不投影（投影过去也会被引擎丢弃），只记一笔日志；这类卡只在自研后端生效
 - **动作契约收敛**：空文案动作的节点在两个后端都整棵不渲染，保证「使用无感」覆盖同一条动作契约
 
 ### 节 6 — 回流契约
@@ -398,4 +400,4 @@ demos/agent/.../agent/ui/CardTemplates.kt        ← 模板卡注册（动作是
 ## 测试策略
 
 - ir 模块（JVM）：`CardIr` 序列化/反序列化、`Action.reflowable` 组合口径；tool 模块（JVM）：`UiSink` 发射与订阅时序（订阅后 emit 可见 / 无订阅不阻塞不缓存）、`UiGenTool` execute 接线（getData → buildCard → emit 与回执语义、buildCard 返回 null 不发射）
-- adapters 侧：`DefaultRenderAdapter`（default）组件契约——节点自带动作经 `ActionScope` 回流（参数随动作带出，回流文案为 label（payload））、模板自有动作同样可回流（与节点动作无关）、空文案动作的节点整棵不渲染（该节点与子节点都不渲染，同级节点不受影响）；`A2uiRenderAdapter`（a2ui）引擎层纯 JVM 状态机独立验证——投影落地（createSurface + updateComponents 后 activeSurfaces 出现对应 surface）、动作回流映射（客户端事件消息 → ActionEvent）、空文案动作的节点不投影不回流（同级节点照常可点）、重复投影幂等且仅更新回调；demo 锚点恢复用本地卡片记录 + 记忆 ToolResult 模拟
+- adapters 侧：`DefaultRenderAdapter`（default）组件契约——节点自带动作经 `ActionScope` 回流（参数随动作带出，回流文案为 label（payload））、模板自有动作同样可回流（与节点动作无关）；空文案动作的判空用例落在 ir 层（`TreeNode.isRenderable()`，两后端共用口径）；`A2uiRenderAdapter`（a2ui）引擎层纯 JVM 状态机独立验证——投影落地（createSurface + updateComponents 后 activeSurfaces 出现对应 surface）、动作回流映射（客户端事件消息 → ActionEvent）、空文案动作的节点不投影不回流（同级节点照常可点）、重复投影幂等且仅更新回调、投影满足官方目录契约（整树投影不产生引擎校验错误、无动作的 Button 按静态文本投影也不报错）；demo 锚点恢复用本地卡片记录 + 记忆 ToolResult 模拟
