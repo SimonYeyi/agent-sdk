@@ -50,6 +50,12 @@ class BossViewModel(
     /** 渲染后端：UI 层经 [UiRenderAdapter.RenderCard] 渲染卡片，team demo 全局共用 TeamRuntime 装配。 */
     val cardAdapter: UiRenderAdapter get() = TeamRuntime.cardAdapter
 
+    /**
+     * toolCall.id -> 对应"调用工具"气泡在 _messages 中的下标，工具结果到达时原位替换。
+     * "调用工具"是运行时中间态（无持久化条目），被工具结果替换后不残留，
+     * 与恢复路径（直接还原工具结果）同构。
+     */
+    private val pendingToolBubbles = mutableMapOf<String, Int>()
     private var tasksStatesJob: Job? = null
     private var reportJob: Job? = null
 
@@ -212,6 +218,7 @@ class BossViewModel(
             _boss.value = null
 
             // 清理全部 UI 状态，进入全新会话
+            pendingToolBubbles.clear()
             pendingQueue.clear()
             refreshPendingInputs()
             streamingAssistantIndex = null
@@ -357,11 +364,11 @@ class BossViewModel(
     }
 
     /**
-     * 工具开始：追加"调用工具: xxx"气泡，作为工具执行痕迹保留在列表中；
-     * 工具结果到达时卡片/结果气泡追加在其后，与 demos/agent 展示一致。
+     * 工具开始：追加"调用工具: xxx"气泡并记录下标，等待 [handleToolCallEnd] 原位替换。
      */
     private fun handleToolCallStart(toolCall: ToolCall) {
         val name = toolCall.name
+        pendingToolBubbles[toolCall.id] = _messages.value.size
         _messages.value = _messages.value + ChatMessageUi(
             "tool",
             "调用工具: $name",
@@ -370,20 +377,26 @@ class BossViewModel(
     }
 
     /**
-     * 工具结果到达：工具结果气泡总是追加在"调用工具"气泡之后；产卡工具额外把
-     * 卡片追加在工具结果气泡下方——卡片不替代工具结果，两者同屏展示，
-     * 与恢复路径（工具结果 + 卡片）一致，也与其他 demo 的展示方式对齐。
+     * 工具结果到达：把 [handleToolCallStart] 记录的"调用工具"气泡原位替换为工具结果气泡。
      *
-     * 卡片内嵌结果 metadata，与恢复路径同源同键，顺序天然正确，
-     * 无暂存/查表/锚点插入。
+     * "调用工具"是运行时中间态、无持久化条目，被工具结果替换后不残留，
+     * 与恢复路径（直接还原工具结果）同构；产卡工具额外把卡片追加在
+     * 工具结果气泡下方——卡片不替代工具结果，两者同屏展示。
+     * 找不到对应气泡（异常路径）时直接追加，保证结果不丢失。
      */
     private fun handleToolCallEnd(toolCall: ToolCall, result: ToolExecutionResult) {
-        _messages.value = _messages.value + ChatMessageUi(
+        val index = pendingToolBubbles.remove(toolCall.id)
+        val resultBubble = ChatMessageUi(
             "tool",
             result.parts.text.takeIf { it.isNotEmpty() } ?: "完成",
             toolName = toolCall.name,
             callId = toolCall.id,
         )
+        if (index != null && index < _messages.value.size) {
+            _messages.value = _messages.value.toMutableList().also { it[index] = resultBubble }
+        } else {
+            _messages.value = _messages.value + resultBubble
+        }
         result.decodeCard()?.let { card ->
             _messages.value = _messages.value + ChatMessageUi("card", "", card = card)
         }
