@@ -1,17 +1,13 @@
 package io.github.yeyi.agent.genui.adapter.a2ui
 
 import androidx.a2ui.compose.ui.A2uiCatalog
+import androidx.a2ui.compose.ui.A2uiMessageProcessor as createA2uiMessageProcessor
 import androidx.a2ui.engine.catalog.A2uiCoreCatalog
-import androidx.a2ui.engine.platform.A2uiCoreComponentRegistry
-import androidx.a2ui.engine.platform.A2uiCoreDataModel
-import androidx.a2ui.engine.processor.A2uiCoreMessageProcessor
 import androidx.a2ui.model.processor.A2uiMessageProcessor
 import androidx.a2ui.model.protocol.A2uiClientErrorMessage
 import androidx.a2ui.model.protocol.A2uiClientEventMessage
 import androidx.a2ui.model.protocol.A2uiComponentPayload
 import androidx.a2ui.model.protocol.A2uiCreateSurfaceMessage
-import androidx.a2ui.model.protocol.A2uiDataPath
-import androidx.a2ui.model.protocol.A2uiException
 import androidx.a2ui.model.protocol.A2uiUpdateComponentsMessage
 import androidx.compose.material3.a2ui.A2uiSurface
 import androidx.compose.material3.a2ui.A2uiSurfaceDefaults
@@ -37,7 +33,7 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * 渲染链路：[RenderCard] 是「使用无感」的插槽入口，空文案动作的节点整棵不投影
  * （口径见 [isRenderable]）；
- * 投影结果经 [A2uiCoreMessageProcessor] 落地为
+ * 投影结果经官方 compose-ui 的 [androidx.a2ui.compose.ui.A2uiMessageProcessor] 工厂落地为
  * 协议消息流（createSurface + updateComponents 扁平邻接表），官方引擎维护 surface 状态；
  * 适配器从 [A2uiMessageProcessor.activeSurfaces] 收集本卡 surface，交给
  * androidx.compose.material3 的 [A2uiSurface] 渲染（自动处理加载/错误/成功状态与过渡动画）。
@@ -76,11 +72,9 @@ public class A2uiRenderAdapter(
     }
 
     /** 官方引擎消息处理器：维护 surface 状态、schema 校验、增量更新与动作事件流。 */
-    public val processor: A2uiMessageProcessor = A2uiCoreMessageProcessor(
-        catalogs = listOf(catalog as A2uiCoreCatalog),
-        dataModelFactory = { InMemoryDataModel() },
-        componentRegistryFactory = { InMemoryComponentRegistry() },
-        actionInterceptors = emptyList(),
+    public val processor: A2uiMessageProcessor = createA2uiMessageProcessor(
+        catalogs = listOf(catalog),
+        interceptors = emptyList(),
     )
 
     private val sessions: MutableMap<String, CardSession> = ConcurrentHashMap()
@@ -300,37 +294,6 @@ public class A2uiRenderAdapter(
 
         @Volatile
         var onAction: ((ActionEvent) -> Unit)? = null
-    }
-
-    private class InMemoryDataModel : A2uiCoreDataModel {
-        private val store: MutableMap<String, Any?> = mutableMapOf()
-        override fun update(path: A2uiDataPath, value: Any?) {
-            store[path.normalizedPath] = value
-        }
-
-        override fun get(path: A2uiDataPath): Any? = store[path.normalizedPath]
-
-        override fun close() {
-            store.clear()
-        }
-    }
-
-    private class InMemoryComponentRegistry : A2uiCoreComponentRegistry {
-        private val components: MutableMap<String, A2uiComponentPayload> = mutableMapOf()
-        override fun update(components: List<A2uiComponentPayload>) {
-            for (payload in components) {
-                this.components[payload.id] = payload
-            }
-        }
-
-        override fun reportError(id: String, exception: A2uiException) {
-            // 引擎 schema 校验失败等异常：内存后端无渲染可上报，记一笔让问题可见
-            println("[$TAG] 组件被引擎丢弃：id=$id, error=${exception.message}")
-        }
-
-        override fun close() {
-            components.clear()
-        }
     }
 
     private companion object {
