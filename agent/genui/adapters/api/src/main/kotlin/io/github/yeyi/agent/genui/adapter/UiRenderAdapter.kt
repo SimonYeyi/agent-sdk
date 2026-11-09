@@ -15,7 +15,7 @@ import io.github.yeyi.agent.genui.ir.ActionEvent
  */
 public interface UiRenderAdapter {
     /**
-     * @param card 待渲染的卡片 IR，经 UiSink 旁路到达，永不写入记忆
+     * @param card 待渲染的卡片 IR，由消费端从工具结果 metadata 解码而来
      * @param onAction 动作回流出口：用户点击动作时，实现方构造 [io.github.yeyi.agent.genui.ir.ActionEvent] 并经此回调，demo 组装为新一轮 AgentQuery
      */
     @Composable
