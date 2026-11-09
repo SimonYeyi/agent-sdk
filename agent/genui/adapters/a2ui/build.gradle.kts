@@ -27,9 +27,10 @@ android {
     }
 }
 
-// a2ui 1.0.0-alpha01 制品 AAR 元数据声明 minAgpVersion=9.1.0，超出本项目 AGP 8.9.1；
-// AGP 8.9.1 仅提供 disableCompileSdkChecks 开关（已全局配置），AGP 版本检查无开关，
-// 直接跳过本模块的 AAR 元数据检查任务（alpha 依赖实际 API 在 8.9.1 上可编译运行）。
+// a2ui 1.0.0-alpha01 AARs declare minAgpVersion=9.1.0 in metadata, beyond this
+// project's AGP 8.9.1. AGP 8.9.1 only offers the disableCompileSdkChecks switch
+// (set globally); there is no switch for the AGP version check, so skip this
+// module's AAR metadata checks (alpha deps actually compile and run on 8.9.1).
 tasks.matching { it.name.endsWith("AarMetadata") }.configureEach { enabled = false }
 
 dependencies {

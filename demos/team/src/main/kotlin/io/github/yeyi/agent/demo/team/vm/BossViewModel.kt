@@ -49,14 +49,11 @@ class BossViewModel(
     private val _boss = MutableStateFlow<BossAgent?>(null)
     val boss: StateFlow<BossAgent?> = _boss.asStateFlow()
 
-    /** 卡片旁路：sink 留在收集它的地方，agentId 与 sink 注册进全局路由表。 */
+    /** 卡片旁路：sink 留在收集它的地方，产卡工具随 agent 构造时绑定。 */
     private val sink = UiSink()
 
     /** 渲染后端：UI 层经 [UiRenderAdapter.RenderCard] 渲染卡片，team demo 全局共用 TeamRuntime 装配。 */
     val cardAdapter: UiRenderAdapter get() = TeamRuntime.cardAdapter
-
-    /** 当前 agent 身份标识：卡片旁路路由键，与 sink 一起登记进 TeamRuntime.sinkRegistry。 */
-    private var agentId: String = ""
 
     /** 卡片按 toolCallId 锚点缓存：卡片流先于事件到达时暂存，事件到位后归位。 */
     private val cardsByCallId = mutableMapOf<String, CardIr>()
@@ -110,10 +107,8 @@ class BossViewModel(
             }
             restoreConversation(session)
             // 配置驱动 spawn：session.memory 作为 Boss 记忆，文本聊天与语音共享同一实例。
-            // 先用 agentId 登记卡片路由（产卡工具执行时按 agentId 解析 sink），再建 agent。
-            agentId = session.uniqueKey
-            TeamRuntime.sinkRegistry.register(agentId, sink)
-            val agent = CockpitAgent.create(agentId, session.memory)
+            // 产卡工具随 agent 构造绑定本 sink，卡片只落在这条通道上。
+            val agent = CockpitAgent.create(session.uniqueKey, session.memory, sink)
             _boss.value = agent
             wireCollectors(agent)
         }
@@ -240,9 +235,6 @@ class BossViewModel(
             _inputText.value = ""
             _isLoading.value = false
 
-            // 旧 agent 的 id 不再指向任何 agent，解注册避免路由表留下死条目
-            TeamRuntime.sinkRegistry.unregister(agentId)
-
             // 删除旧会话持久化记录并重建同 id 新会话，记忆从空开始
             val newSession = withContext(Dispatchers.IO) {
                 sessionManager.getOrCreate(
@@ -252,9 +244,7 @@ class BossViewModel(
                     ACCOUNT_ID, SESSION_NAME, AgentReference(CockpitAgent.NAME), SESSION_ID
                 )
             }
-            agentId = newSession.uniqueKey
-            TeamRuntime.sinkRegistry.register(agentId, sink)
-            val agent = CockpitAgent.create(agentId, newSession.memory)
+            val agent = CockpitAgent.create(newSession.uniqueKey, newSession.memory, sink)
             _boss.value = agent
             wireCollectors(agent)
         }
@@ -268,14 +258,14 @@ class BossViewModel(
     }
 
     /**
-     * 卡片动作回流桥：渲染层命中白名单动作时，把 [ActionEvent] 组装为新一轮推理。
+     * 卡片动作回流桥：渲染层命中动作节点时，把 [ActionEvent] 组装为新一轮推理。
      *
-     * 回流指令以 [ActionEvent.action.label] 作为模型可读文案——动作集合由工具作者声明，
-     * label 供模型结合卡片与历史理解意图，无需专用意图字段。
+     * 回流指令以 [Action.reflowable]（动作文案 + 参数）作为模型可读文案——
+     * 动作由卡片的拥有者声明（节点自带），文案供模型结合卡片与历史理解意图，无需专用意图字段。
      */
     fun onCardAction(event: ActionEvent) {
         if (_isLoading.value) return
-        sendQuery(event.action.label)
+        sendQuery(event.action.reflowable)
     }
 
     /** 指令执行入口：文本输入与卡片动作回流共用同一回合启动逻辑。 */
@@ -437,8 +427,6 @@ class BossViewModel(
 
     override fun onCleared() {
         super.onCleared()
-        // 反注册卡片路由，避免路由表留下死条目（agentId 每次重建递增累积）
-        TeamRuntime.sinkRegistry.unregister(agentId)
         _boss.value?.shutdown()
     }
 

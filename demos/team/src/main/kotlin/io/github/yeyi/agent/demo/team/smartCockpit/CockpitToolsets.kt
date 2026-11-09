@@ -4,7 +4,7 @@ import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
 import io.github.yeyi.agent.genui.tool.UiGenTool
-import io.github.yeyi.agent.genui.tool.UiSinkRegistry
+import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.toolset.Toolset
@@ -19,10 +19,10 @@ import kotlinx.serialization.json.jsonPrimitive
 
 // ===== 舒适控制工具集 =====
 
-class AcTool(registry: UiSinkRegistry) : UiGenTool(registry) {
+class AcTool(sink: UiSink) : UiGenTool(sink) {
     override val name = "ac_control"
     override val description = "空调控制"
-    override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"temperature":{"type":"number"},"fanSpeed":{"type":"number"}},"required":["temperature"]}"""
     )
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -42,21 +42,17 @@ class AcTool(registry: UiSinkRegistry) : UiGenTool(registry) {
         val obj = result?.jsonObject ?: return null
         return CardIr(
             instanceId = context.toolCallId,
-            actions = listOf(
-                Action("temp_up", "空调温度升高一度"),
-                Action("temp_down", "空调温度降低一度"),
-            ),
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("空调控制", "h3"),
+                    A2uiNodes.text("空调控制", "title3"),
                     A2uiNodes.divider(),
                     A2uiNodes.fieldRow("设定温度", "${obj.str("temperature")}°C"),
                     A2uiNodes.fieldRow("风速档位", obj.str("fanSpeed")),
                     A2uiNodes.divider(),
                     A2uiNodes.row(
-                        A2uiNodes.button("温度升高", "temp_up", "primary", "temperature" to obj.str("temperature")),
-                        A2uiNodes.button("温度降低", "temp_down", "default", "temperature" to obj.str("temperature")),
+                        A2uiNodes.button("温度升高", Action("温度升高", payload = obj.str("temperature")), "primary"),
+                        A2uiNodes.button("温度降低", Action("温度降低", payload = obj.str("temperature"))),
                     ),
                 ),
             ),
@@ -64,10 +60,10 @@ class AcTool(registry: UiSinkRegistry) : UiGenTool(registry) {
     }
 }
 
-class SeatTool(registry: UiSinkRegistry) : UiGenTool(registry) {
+class SeatTool(sink: UiSink) : UiGenTool(sink) {
     override val name = "seat_control"
     override val description = "座椅控制"
-    override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"seat":{"type":"string"},"heating":{"type":"number"},"ventilation":{"type":"number"}},"required":["seat"]}"""
     )
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -88,22 +84,18 @@ class SeatTool(registry: UiSinkRegistry) : UiGenTool(registry) {
         val obj = result?.jsonObject ?: return null
         return CardIr(
             instanceId = context.toolCallId,
-            actions = listOf(
-                Action("heat", "开启座椅加热"),
-                Action("vent", "开启座椅通风"),
-            ),
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("座椅控制", "h3"),
+                    A2uiNodes.text("座椅控制", "title3"),
                     A2uiNodes.divider(),
                     A2uiNodes.fieldRow("座椅", obj.str("seat")),
                     A2uiNodes.fieldRow("加热档位", obj.str("heating")),
                     A2uiNodes.fieldRow("通风档位", obj.str("ventilation")),
                     A2uiNodes.divider(),
                     A2uiNodes.row(
-                        A2uiNodes.button("开启加热", "heat", "primary", "seat" to obj.str("seat")),
-                        A2uiNodes.button("开启通风", "vent", "default", "seat" to obj.str("seat")),
+                        A2uiNodes.button("开启加热", Action("开启加热", payload = obj.str("seat")), "primary"),
+                        A2uiNodes.button("开启通风", Action("开启通风", payload = obj.str("seat"))),
                     ),
                 ),
             ),
@@ -111,17 +103,17 @@ class SeatTool(registry: UiSinkRegistry) : UiGenTool(registry) {
     }
 }
 
-fun comfortControlToolset(registry: UiSinkRegistry): Toolset = Toolset("comfort_control", "座舱舒适控制，包含空调、座椅等").apply {
-    add(AcTool(registry))
-    add(SeatTool(registry))
+fun comfortControlToolset(sink: UiSink): Toolset = Toolset("comfort_control", "座舱舒适控制，包含空调、座椅等").apply {
+    add(AcTool(sink))
+    add(SeatTool(sink))
 }
 
 // ===== 车内环境工具集 =====
 
-class WindowTool(registry: UiSinkRegistry) : UiGenTool(registry) {
+class WindowTool(sink: UiSink) : UiGenTool(sink) {
     override val name = "window_control"
     override val description = "车窗控制"
-    override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"position":{"type":"string"},"action":{"type":"string","enum":["open","close"]}},"required":["position","action"]}"""
     )
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -143,21 +135,17 @@ class WindowTool(registry: UiSinkRegistry) : UiGenTool(registry) {
         val obj = result?.jsonObject ?: return null
         return CardIr(
             instanceId = context.toolCallId,
-            actions = listOf(
-                Action("open", "打开车窗"),
-                Action("close", "关闭车窗"),
-            ),
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("车窗控制", "h3"),
+                    A2uiNodes.text("车窗控制", "title3"),
                     A2uiNodes.divider(),
                     A2uiNodes.fieldRow("车窗", obj.str("position")),
                     A2uiNodes.fieldRow("状态", obj.str("state")),
                     A2uiNodes.divider(),
                     A2uiNodes.row(
-                        A2uiNodes.button("打开车窗", "open", "primary", "position" to obj.str("position")),
-                        A2uiNodes.button("关闭车窗", "close", "default", "position" to obj.str("position")),
+                        A2uiNodes.button("打开车窗", Action("打开车窗", payload = obj.str("position")), "primary"),
+                        A2uiNodes.button("关闭车窗", Action("关闭车窗", payload = obj.str("position"))),
                     ),
                 ),
             ),
@@ -165,10 +153,10 @@ class WindowTool(registry: UiSinkRegistry) : UiGenTool(registry) {
     }
 }
 
-class AmbientLightTool(registry: UiSinkRegistry) : UiGenTool(registry) {
+class AmbientLightTool(sink: UiSink) : UiGenTool(sink) {
     override val name = "ambient_light_control"
     override val description = "氛围灯控制"
-    override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"mode":{"type":"string","enum":["normal","relax","party","sleep"]}},"required":["mode"]}"""
     )
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -188,22 +176,17 @@ class AmbientLightTool(registry: UiSinkRegistry) : UiGenTool(registry) {
         val obj = result?.jsonObject ?: return null
         return CardIr(
             instanceId = context.toolCallId,
-            actions = listOf(
-                Action("relax", "切换氛围灯为放松模式"),
-                Action("party", "切换氛围灯为派对模式"),
-                Action("sleep", "切换氛围灯为睡眠模式"),
-            ),
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("氛围灯控制", "h3"),
+                    A2uiNodes.text("氛围灯控制", "title3"),
                     A2uiNodes.divider(),
                     A2uiNodes.fieldRow("当前模式", obj.str("modeLabel")),
                     A2uiNodes.divider(),
                     A2uiNodes.row(
-                        A2uiNodes.button("放松", "relax", "primary"),
-                        A2uiNodes.button("派对", "party", "default"),
-                        A2uiNodes.button("睡眠", "sleep", "default"),
+                        A2uiNodes.button("放松", Action("切换氛围灯为放松模式"), "primary"),
+                        A2uiNodes.button("派对", Action("切换氛围灯为派对模式")),
+                        A2uiNodes.button("睡眠", Action("切换氛围灯为睡眠模式")),
                     ),
                 ),
             ),
@@ -220,17 +203,17 @@ class AmbientLightTool(registry: UiSinkRegistry) : UiGenTool(registry) {
     }
 }
 
-fun cabinEnvironmentToolset(registry: UiSinkRegistry): Toolset = Toolset("cabin_environment", "车内环境控制，包含车窗、氛围灯等").apply {
-    add(WindowTool(registry))
-    add(AmbientLightTool(registry))
+fun cabinEnvironmentToolset(sink: UiSink): Toolset = Toolset("cabin_environment", "车内环境控制，包含车窗、氛围灯等").apply {
+    add(WindowTool(sink))
+    add(AmbientLightTool(sink))
 }
 
 // ===== 驾驶辅助工具集 =====
 
-class NavigateTool(registry: UiSinkRegistry) : UiGenTool(registry) {
+class NavigateTool(sink: UiSink) : UiGenTool(sink) {
     override val name = "navigate"
     override val description = "导航到目的地"
-    override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"destination":{"type":"string"},"route":{"type":"string"}},"required":["destination"]}"""
     )
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -250,21 +233,17 @@ class NavigateTool(registry: UiSinkRegistry) : UiGenTool(registry) {
         val obj = result?.jsonObject ?: return null
         return CardIr(
             instanceId = context.toolCallId,
-            actions = listOf(
-                Action("start", "开始导航"),
-                Action("replan", "重新规划路线"),
-            ),
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("导航", "h3"),
+                    A2uiNodes.text("导航", "title3"),
                     A2uiNodes.divider(),
                     A2uiNodes.fieldRow("目的地", obj.str("destination")),
                     A2uiNodes.fieldRow("路线", obj.str("route")),
                     A2uiNodes.divider(),
                     A2uiNodes.row(
-                        A2uiNodes.button("开始导航", "start", "primary", "destination" to obj.str("destination")),
-                        A2uiNodes.button("重新规划", "replan", "default", "destination" to obj.str("destination")),
+                        A2uiNodes.button("开始导航", Action("开始导航", payload = obj.str("destination")), "primary"),
+                        A2uiNodes.button("重新规划", Action("重新规划路线", payload = obj.str("destination"))),
                     ),
                 ),
             ),
@@ -272,10 +251,10 @@ class NavigateTool(registry: UiSinkRegistry) : UiGenTool(registry) {
     }
 }
 
-class DashCamTool(registry: UiSinkRegistry) : UiGenTool(registry) {
+class DashCamTool(sink: UiSink) : UiGenTool(sink) {
     override val name = "dash_cam_control"
     override val description = "行车记录仪控制"
-    override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"action":{"type":"string","enum":["start","stop","snapshot"]}},"required":["action"]}"""
     )
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -294,22 +273,17 @@ class DashCamTool(registry: UiSinkRegistry) : UiGenTool(registry) {
         val obj = result?.jsonObject ?: return null
         return CardIr(
             instanceId = context.toolCallId,
-            actions = listOf(
-                Action("start", "开始录制"),
-                Action("stop", "停止录制"),
-                Action("snapshot", "抓拍一张照片"),
-            ),
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("行车记录仪", "h3"),
+                    A2uiNodes.text("行车记录仪", "title3"),
                     A2uiNodes.divider(),
                     A2uiNodes.fieldRow("状态", obj.str("state")),
                     A2uiNodes.divider(),
                     A2uiNodes.row(
-                        A2uiNodes.button("开始录制", "start", "primary"),
-                        A2uiNodes.button("停止录制", "stop", "default"),
-                        A2uiNodes.button("抓拍", "snapshot", "default"),
+                        A2uiNodes.button("开始录制", Action("开始录制"), "primary"),
+                        A2uiNodes.button("停止录制", Action("停止录制")),
+                        A2uiNodes.button("抓拍", Action("抓拍一张照片")),
                     ),
                 ),
             ),
@@ -317,9 +291,9 @@ class DashCamTool(registry: UiSinkRegistry) : UiGenTool(registry) {
     }
 }
 
-fun drivingAssistToolset(registry: UiSinkRegistry): Toolset = Toolset("driving_assist", "驾驶辅助，包含导航、行车记录仪等").apply {
-    add(NavigateTool(registry))
-    add(DashCamTool(registry))
+fun drivingAssistToolset(sink: UiSink): Toolset = Toolset("driving_assist", "驾驶辅助，包含导航、行车记录仪等").apply {
+    add(NavigateTool(sink))
+    add(DashCamTool(sink))
 }
 
 private fun JsonObject.str(key: String): String =

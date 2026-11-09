@@ -318,7 +318,7 @@ class A2uiRenderAdapterTest {
                                             TreeNode(
                                                 component = "Button",
                                                 bindings = mapOf("variant" to JsonPrimitive("primary")),
-                                                action = "ok",
+                                                action = Action("确定"),
                                                 children = listOf(
                                                     TreeNode(
                                                         component = "Text",
@@ -332,7 +332,6 @@ class A2uiRenderAdapterTest {
                             ),
                         ),
                     ),
-                    actions = listOf(Action(id = "ok", label = "确定")),
                 ),
             ) { events += it }
 
@@ -345,11 +344,11 @@ class A2uiRenderAdapterTest {
             }
             assertTrue(errors.isEmpty(), "schema errors emitted: $errors")
 
-            // 动作回流不受 schema 合规改造影响：Button 子节点按先序编号 node-5
-            adapter.dispatchClientEvent(eventMessage("card-schema", "node-5"))
+            // 动作回流不受 schema 合规改造影响：Button 经 Card→Column→Row 预分配后编号 node-6
+            adapter.dispatchClientEvent(eventMessage("card-schema", "node-6"))
             assertEquals(1, events.size)
             assertEquals("card-schema", events[0].instanceId)
-            assertEquals("ok", events[0].action.id)
+            assertEquals("确定", events[0].action.label)
         } finally {
             errorsJob.cancel()
             scope.cancel()
