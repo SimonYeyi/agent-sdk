@@ -54,6 +54,10 @@ internal class MemberToolDelegate(private val registry: ToolsetRegistry) : Tool,
     }
 
     override fun finalizable(arguments: JsonElement, result: ToolExecutionResult): Boolean {
+        // 失败先行短路：规避 resolveTarget 抛异常导致终结信号不准。
+        // 解析失败时 execute 已回错误回执，此处再解析会重复抛出、掀翻本轮
+        // （finalizable 契约禁止抛异常），故失败一律不终结、交还模型处理。
+        if (result.isError) return false
         val target = resolveTarget(arguments)
         val tool = target.tool
         // 转发目标自己的入参：产卡工具的 show_ui 在内层 tool_arguments 里
