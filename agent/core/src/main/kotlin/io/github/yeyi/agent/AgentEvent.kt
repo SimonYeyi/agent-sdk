@@ -47,12 +47,21 @@ public sealed interface AgentEvent {
         public val allAsync: Boolean
     ) : AgentEvent
 
-    /** 工具调用开始事件。在 [ToolCallExplanation] 之后发出，仅作信号，不提交消息。 */
+    /**
+     * 工具调用开始事件。在 [ToolCallExplanation] 之后发出，仅作信号，不提交消息。
+     *
+     * 该事件是运行时中间态、无对应持久化条目；消费方（如 UI）以它渲染
+     * "调用工具"临时气泡，并在收到配对 [ToolCallEnd] 时以最终结果替换，不残留。
+     */
     public data class ToolCallStart(
         public val toolCall: ToolCall
     ) : AgentEvent
 
-    /** 工具调用结束事件。携带工具执行结果。 */
+    /**
+     * 工具调用结束事件。携带工具执行结果，与 [ToolCallStart] 配对。
+     *
+     * 结果是该工具调用持久化的唯一来源（写入记忆），消费方应以结果替换 [ToolCallStart] 的临时展示。
+     */
     public data class ToolCallEnd(
         public val toolCall: ToolCall,
         public val result: ToolExecutionResult
