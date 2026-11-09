@@ -4,6 +4,7 @@ import io.github.yeyi.agent.config.AgentDefinition
 import io.github.yeyi.agent.config.AgentRegistry
 import io.github.yeyi.agent.config.AgentScope
 import io.github.yeyi.agent.demo.team.BuildConfig
+import io.github.yeyi.agent.demo.team.runtime.TeamRuntime
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.subagent.SubagentRegistry
@@ -49,18 +50,20 @@ object CockpitAgent {
 
     /** 运行时上下文：注册表全集。记忆由 spawn 参数单独传入。 */
     private fun scope(): AgentScope = AgentScope(
+        // 全部产卡工具共享 TeamRuntime 的卡片路由表：agent 建好后把 agentId 与 sink 登记进去，
+        // 工具执行时按 agentId 解析出本 agent 的 sink 发射卡片。
         toolRegistry = ToolRegistry().apply {
-            register(GetTimeTool())
-            register(GetDateTool())
+            register(GetTimeTool(TeamRuntime.sinkRegistry))
+            register(GetDateTool(TeamRuntime.sinkRegistry))
         },
         lazyToolRegistry = LazyToolRegistry().apply {
-            register(LazyTool(GetCarStatusTool()))
-            register(LazyTool(GetEnergyTool(), LazyTool.Level.TOOL))
+            register(LazyTool(GetCarStatusTool(TeamRuntime.sinkRegistry)))
+            register(LazyTool(GetEnergyTool(TeamRuntime.sinkRegistry), LazyTool.Level.TOOL))
         },
         toolsetRegistry = ToolsetRegistry().apply {
-            register(comfortControlToolset)
-            register(cabinEnvironmentToolset)
-            register(drivingAssistToolset)
+            register(comfortControlToolset(TeamRuntime.sinkRegistry))
+            register(cabinEnvironmentToolset(TeamRuntime.sinkRegistry))
+            register(drivingAssistToolset(TeamRuntime.sinkRegistry))
         },
         skillRegistry = SkillRegistry().apply {
             register(DrivingModeSkill())

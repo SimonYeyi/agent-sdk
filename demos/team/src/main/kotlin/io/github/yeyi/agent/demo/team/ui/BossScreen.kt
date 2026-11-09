@@ -52,6 +52,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
+import io.github.yeyi.agent.genui.ir.ActionEvent
+import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.team.TasksState
 import kotlinx.coroutines.launch
 
@@ -69,6 +72,8 @@ fun BossScreen(
     onSend: () -> Unit,
     onReset: () -> Unit,
     scenarioName: String,
+    cardAdapter: UiRenderAdapter? = null,
+    onCardAction: (ActionEvent) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
@@ -209,7 +214,11 @@ fun BossScreen(
                         state = listState
                     ) {
                         items(messages) { message ->
-                            ChatBubble(message = message)
+                            ChatBubble(
+                                message = message,
+                                cardAdapter = cardAdapter,
+                                onCardAction = onCardAction,
+                            )
                         }
                     }
                 }
@@ -307,7 +316,11 @@ data class ChatMessageUi(
     val role: String,
     val content: String,
     val isLoading: Boolean = false,
-    val toolName: String? = null
+    val toolName: String? = null,
+    /** 工具调用锚点：工具结果气泡与卡片消息共用，卡片按 instanceId 归位到结果气泡之后。 */
+    val callId: String? = null,
+    /** 卡片旁路消息：非空时 [ChatBubble] 经渲染后端渲染，role 固定为 "card"。 */
+    val card: CardIr? = null,
 )
 
 /**
@@ -321,7 +334,29 @@ data class PendingInput(
 )
 
 @Composable
-fun ChatBubble(message: ChatMessageUi) {
+fun ChatBubble(
+    message: ChatMessageUi,
+    cardAdapter: UiRenderAdapter? = null,
+    onCardAction: (ActionEvent) -> Unit = {},
+) {
+    // 卡片旁路流：渲染后端统一入口消费，不写记忆、不进复制链路
+    val card = message.card
+    if (card != null) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 4.dp),
+            contentAlignment = Alignment.TopStart
+        ) {
+            if (cardAdapter != null) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    cardAdapter.RenderCard(card, onCardAction)
+                }
+            }
+        }
+        return
+    }
+
     val isUser = message.role == "user"
     val isTool = message.role == "tool"
     val isSystem = message.role == "system"

@@ -6,9 +6,14 @@ import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
+import io.github.yeyi.agent.demo.team.runtime.TeamRuntime
 import io.github.yeyi.agent.demo.team.smartCockpit.CockpitAgent
 import io.github.yeyi.agent.demo.team.ui.ChatMessageUi
 import io.github.yeyi.agent.demo.team.ui.PendingInput
+import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
+import io.github.yeyi.agent.genui.ir.ActionEvent
+import io.github.yeyi.agent.genui.ir.CardIr
+import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.text
@@ -26,6 +31,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -42,6 +48,21 @@ class BossViewModel(
 
     private val _boss = MutableStateFlow<BossAgent?>(null)
     val boss: StateFlow<BossAgent?> = _boss.asStateFlow()
+
+    /** 卡片旁路：sink 留在收集它的地方，agentId 与 sink 注册进全局路由表。 */
+    private val sink = UiSink()
+
+    /** 渲染后端：UI 层经 [UiRenderAdapter.RenderCard] 渲染卡片，team demo 全局共用 TeamRuntime 装配。 */
+    val cardAdapter: UiRenderAdapter get() = TeamRuntime.cardAdapter
+
+    /** 当前 agent 身份标识：卡片旁路路由键，与 sink 一起登记进 TeamRuntime.sinkRegistry。 */
+    private var agentId: String = ""
+
+    /** 卡片按 toolCallId 锚点缓存：卡片流先于事件到达时暂存，事件到位后归位。 */
+    private val cardsByCallId = mutableMapOf<String, CardIr>()
+
+    /** 已归位到消息列表的卡片锚点，保证卡片流与事件流竞态下插入幂等。 */
+    private val insertedCards = mutableSetOf<String>()
 
     /** toolCall.id -> 对应"执行中"气泡在 _messages 中的下标，工具结果到达时原位替换。 */
     private val pendingToolBubbles = mutableMapOf<String, Int>()
@@ -88,10 +109,20 @@ class BossViewModel(
                 )
             }
             restoreConversation(session)
-            // 配置驱动 spawn：session.memory 作为 Boss 记忆，文本聊天与语音共享同一实例
-            val agent = CockpitAgent.create(session.uniqueKey, session.memory)
+            // 配置驱动 spawn：session.memory 作为 Boss 记忆，文本聊天与语音共享同一实例。
+            // 先用 agentId 登记卡片路由（产卡工具执行时按 agentId 解析 sink），再建 agent。
+            agentId = session.uniqueKey
+            TeamRuntime.sinkRegistry.register(agentId, sink)
+            val agent = CockpitAgent.create(agentId, session.memory)
             _boss.value = agent
             wireCollectors(agent)
+        }
+        // 卡片旁路流订阅：实时广播，卡片按 toolCallId 插入对应工具结果消息之后
+        viewModelScope.launch {
+            sink.cards.collect { card ->
+                cardsByCallId[card.instanceId] = card
+                insertCardAfterAnchor(card.instanceId)
+            }
         }
     }
 
@@ -202,10 +233,15 @@ class BossViewModel(
             pendingQueue.clear()
             refreshPendingInputs()
             streamingAssistantIndex = null
+            cardsByCallId.clear()
+            insertedCards.clear()
             _messages.value = emptyList()
             _taskGroups.value = emptyList()
             _inputText.value = ""
             _isLoading.value = false
+
+            // 旧 agent 的 id 不再指向任何 agent，解注册避免路由表留下死条目
+            TeamRuntime.sinkRegistry.unregister(agentId)
 
             // 删除旧会话持久化记录并重建同 id 新会话，记忆从空开始
             val newSession = withContext(Dispatchers.IO) {
@@ -216,7 +252,9 @@ class BossViewModel(
                     ACCOUNT_ID, SESSION_NAME, AgentReference(CockpitAgent.NAME), SESSION_ID
                 )
             }
-            val agent = CockpitAgent.create(newSession.uniqueKey, newSession.memory)
+            agentId = newSession.uniqueKey
+            TeamRuntime.sinkRegistry.register(agentId, sink)
+            val agent = CockpitAgent.create(agentId, newSession.memory)
             _boss.value = agent
             wireCollectors(agent)
         }
@@ -225,7 +263,23 @@ class BossViewModel(
     fun onSend() {
         val text = _inputText.value.trim()
         if (text.isEmpty()) return
+        _inputText.value = ""
+        sendQuery(text)
+    }
 
+    /**
+     * 卡片动作回流桥：渲染层命中白名单动作时，把 [ActionEvent] 组装为新一轮推理。
+     *
+     * 回流指令以 [ActionEvent.action.label] 作为模型可读文案——动作集合由工具作者声明，
+     * label 供模型结合卡片与历史理解意图，无需专用意图字段。
+     */
+    fun onCardAction(event: ActionEvent) {
+        if (_isLoading.value) return
+        sendQuery(event.action.label)
+    }
+
+    /** 指令执行入口：文本输入与卡片动作回流共用同一回合启动逻辑。 */
+    private fun sendQuery(text: String) {
         val agent = _boss.value ?: return
 
         // 不立即渲染用户气泡：BossAgent 可能正处于任务报告轮次，指令进入
@@ -233,7 +287,6 @@ class BossViewModel(
         // （指令→报告）与重启后记忆恢复顺序（报告→指令）颠倒。
         // 指令先入待确认队列，收到对应 Initial 事件后再落为用户气泡。
         addPendingInput(text)
-        _inputText.value = ""
 
         // run() 调用即启动回合（架构 2）——在点击回调里同步启动，不等
         // viewModelScope 调度，堵死「resetSession 抢在协程开跑前 shutdown」的竞态。
@@ -339,18 +392,42 @@ class BossViewModel(
 
     /**
      * 工具结果到达：把 [handleToolCallStart] 记录的"调用工具"气泡原位替换为执行结果，
-     * 以工具名为气泡标签、结果为内容，明确结果来源工具；
+     * 以工具名为气泡标签、结果为内容，明确结果来源工具；callId 承载工具调用锚点，
+     * 供卡片按 instanceId 归位到结果气泡之后；
      * 找不到对应气泡（异常路径）时直接追加，保证结果不丢失。
      */
     private fun handleToolCallEnd(toolCall: ToolCall, result: ToolExecutionResult) {
         val name = toolCall.name
         val content = result.parts.text.takeIf { it.isNotEmpty() } ?: "完成"
-        val replacement = ChatMessageUi("tool", content, toolName = name)
+        val replacement = ChatMessageUi("tool", content, toolName = name, callId = toolCall.id)
         val index = pendingToolBubbles.remove(toolCall.id)
         if (index != null && index < _messages.value.size) {
             _messages.value = _messages.value.toMutableList().also { it[index] = replacement }
         } else {
             _messages.value = _messages.value + replacement
+        }
+        // 结果消息已入列，卡片若先到达（暂存于 cardsByCallId）此时按结果锚点归位
+        insertCardAfterAnchor(toolCall.id)
+    }
+
+    /**
+     * 按锚点把卡片插入消息列表：找到对应工具结果气泡（callId 与卡片 instanceId 一致）后插入其后。
+     *
+     * 产卡工具是 final 工具，无模型总结语，卡片即最终回复，因此必须落在工具结果之后。
+     * 卡片流与事件流双向竞态均由 [insertedCards] 幂等收敛：
+     * - 卡片先于事件到达：找不到锚点则暂存 [cardsByCallId]，事件到达后再次触发；
+     * - 事件先于卡片到达：直接命中锚点插入；卡片重复到达时已入集合直接跳过。
+     */
+    private fun insertCardAfterAnchor(instanceId: String) {
+        if (instanceId in insertedCards) return
+        val card = cardsByCallId[instanceId] ?: return
+        _messages.update { list ->
+            val anchorIndex = list.indexOfFirst { it.callId == instanceId }
+            if (anchorIndex < 0) return@update list
+            insertedCards.add(instanceId)
+            val result = ArrayList(list)
+            result.add(anchorIndex + 1, ChatMessageUi("card", "", card = card))
+            result
         }
     }
 
@@ -360,6 +437,8 @@ class BossViewModel(
 
     override fun onCleared() {
         super.onCleared()
+        // 反注册卡片路由，避免路由表留下死条目（agentId 每次重建递增累积）
+        TeamRuntime.sinkRegistry.unregister(agentId)
         _boss.value?.shutdown()
     }
 
@@ -394,5 +473,6 @@ private fun MemoryEntry.toChatMessageUi(): ChatMessageUi? = when (val msg = mess
         "tool",
         msg.parts.text.takeIf { it.isNotEmpty() } ?: "完成",
         toolName = msg.toolName,
+        callId = msg.toolCallId,
     )
 }

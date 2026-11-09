@@ -279,6 +279,83 @@ class A2uiRenderAdapterTest {
         }
     }
 
+    @Test
+    fun flattenEmitsSchemaCompliantPayloads() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val adapter = A2uiRenderAdapter(catalog, scope)
+        val errors = mutableListOf<A2uiClientErrorMessage>()
+        val errorsJob = scope.launch {
+            adapter.processor.outboundEvents.collect { msg ->
+                if (msg is A2uiClientErrorMessage) errors += msg
+            }
+        }
+        val events = mutableListOf<ActionEvent>()
+        try {
+            adapter.project(
+                CardIr(
+                    instanceId = "card-schema",
+                    // Card 多子节点 → 合成 Column 承载；Button 带 Text 子节点 + 动作，
+                    // 覆盖 child 单子 / children 数组 / 动作可表达性三条 schema 约束
+                    root = TreeNode(
+                        component = "Card",
+                        children = listOf(
+                            TreeNode(
+                                component = "Column",
+                                bindings = mapOf("align" to JsonPrimitive("start")),
+                                children = listOf(
+                                    TreeNode(
+                                        component = "Text",
+                                        bindings = mapOf("text" to JsonPrimitive("标题")),
+                                    ),
+                                    TreeNode(
+                                        component = "Row",
+                                        bindings = mapOf("justify" to JsonPrimitive("spaceBetween")),
+                                        children = listOf(
+                                            TreeNode(
+                                                component = "Text",
+                                                bindings = mapOf("text" to JsonPrimitive("内容")),
+                                            ),
+                                            TreeNode(
+                                                component = "Button",
+                                                bindings = mapOf("variant" to JsonPrimitive("primary")),
+                                                action = "ok",
+                                                children = listOf(
+                                                    TreeNode(
+                                                        component = "Text",
+                                                        bindings = mapOf("text" to JsonPrimitive("确定")),
+                                                    ),
+                                                ),
+                                            ),
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        ),
+                    ),
+                    actions = listOf(Action(id = "ok", label = "确定")),
+                ),
+            ) { events += it }
+
+            withTimeout(5_000) { adapter.processor.activeSurfaces.first { it.isNotEmpty() } }
+            // 等引擎消化 updateComponents 的 schema 校验：校验失败会立即经 outboundEvents
+            // 发射错误消息，合规卡片不应出现任何校验错误（无错误时最多空等 1s）
+            val deadline = System.currentTimeMillis() + 1_000
+            while (errors.isEmpty() && System.currentTimeMillis() < deadline) {
+                delay(25)
+            }
+            assertTrue(errors.isEmpty(), "schema errors emitted: $errors")
+
+            // 动作回流不受 schema 合规改造影响：Button 子节点按先序编号 node-5
+            adapter.dispatchClientEvent(eventMessage("card-schema", "node-5"))
+            assertEquals(1, events.size)
+            assertEquals("card-schema", events[0].instanceId)
+            assertEquals("ok", events[0].action.id)
+        } finally {
+            errorsJob.cancel()
+            scope.cancel()
+        }
+    }
+
     private fun eventMessage(surfaceId: String, componentId: String): A2uiClientEventMessage =
         A2uiClientEventMessage(
             type = "event",

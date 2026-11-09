@@ -48,6 +48,8 @@ class MainActivity : ComponentActivity() {
                         onSend = viewModel::onSend,
                         onReset = viewModel::resetSession,
                         scenarioName = "智能座舱",
+                        cardAdapter = viewModel.cardAdapter,
+                        onCardAction = viewModel::onCardAction,
                     )
                 }
             }
