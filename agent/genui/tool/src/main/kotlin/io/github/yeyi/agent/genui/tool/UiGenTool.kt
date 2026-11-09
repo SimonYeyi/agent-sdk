@@ -146,7 +146,7 @@ public abstract class UiGenTool : Tool, FinalizableTool {
      * 执行失败一律不终结（模型下一轮感知失败并重试）。
      */
     final override fun finalizable(arguments: JsonElement, result: ToolExecutionResult): Boolean =
-        !result.isError && showCard(arguments)
+        super.finalizable(arguments, result) && showCard(arguments)
 
     /**
      * 模板接线：业务执行 → 回执定稿 → 产卡路由发射 → 回执。

@@ -11,9 +11,6 @@ import kotlinx.serialization.json.JsonElement
  * 由工具自己结合成败裁定：
  * - 默认实现以成败为准：执行成功（!result.isError）即可终结，失败则拒绝终结，
  *   让模型下一轮感知错误回执并重试——避免一次失败静默终结、用户什么都拿不到；
- * - 派发型工具（如 publish_task / cancel_task）执行成功即完成派发，直接用默认实现即可；
- * - 需要「按入参决定是否产卡」的工具（如「仅当 detail=true 时才出卡」），
- *   复写 [finalizable]，结合 'arguments' 裁定本轮是否可终结。
  *
  * 注意：工具不必（也不应）依赖实例状态传递本轮成败——执行结果由 ReActAgent 直接回传，
  * 天然无跨回合/跨 agent 串味，多 agent 共享工具实例安全。
