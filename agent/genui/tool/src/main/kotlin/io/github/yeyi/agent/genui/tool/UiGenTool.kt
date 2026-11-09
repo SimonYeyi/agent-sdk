@@ -172,14 +172,14 @@ public abstract class UiGenTool : Tool, FinalizableTool {
     ): ToolExecutionResult {
         val showCard = showCard(arguments)
         // 业务侧只看到业务入参：show_ui 是框架与模型之间的约定，不该渗进业务解码
-        val realArgs = withoutShowUi(arguments)
-        val result = getResult(realArgs, context)
+        val origArgs = withoutShowUi(arguments)
+        val result = getResult(origArgs, context)
         // 又无数据又不出卡：本轮什么都没交付给用户，模型也无从读到什么。
         // 措辞指向模型侧的修法：带 show_ui=true 重新调用。
         if (!showCard && result == null) {
             error("$name produced neither a result nor a card: call it again with show_ui=true")
         }
-        val card = if (showCard) buildCard(realArgs, result, context) else null
+        val card = if (showCard) buildCard(origArgs, result, context) else null
         // 模型要求出卡就必须真有卡片：没有卡片就没有交付给用户的东西
         if (showCard && card == null) {
             error("$name produced no card: a card tool must build a card in buildCard")
