@@ -125,11 +125,11 @@ public class ReActAgent internal constructor(
             val turn = activeTurn.get() ?: return false
             // 投递在闸内：与终局裁决互斥 —— 投递若挤进"判空 → 还槽 + 关信箱"那个窗口，
             // 指令会既被接受又没被消费（steer 返回 true，指令却被 Final 带走）。
-            turn.lock()
+            turn.lock.lock()
             val delivered = try {
                 turn.steering.add(query)
             } finally {
-                turn.unlock()
+                turn.lock.unlock()
             }
             // 投递失败 = 信箱已关 = 那一轮已退场 —— 此刻可能已有新一轮占着槽位，
             // 故不能就此返回 false（false 的契约是"无活跃轮次，可安全开新轮"）；
@@ -419,9 +419,9 @@ public class ReActAgent internal constructor(
      */
     private suspend fun finalize(turn: AgentTurn, response: ChatResponse): AgentResult? {
         // 终局：Final 抢占 + 终局。与 steer() 闸门下互斥。
-        turn.lock()
+        turn.lock.lock()
         if (!turn.steering.isEmpty()) {
-            turn.unlock()
+            turn.lock.unlock()
             // 指令已注入 memory，抢占 Final，强制再跑一轮让 LLM 带着新指令重新作答
             consumeSteering(turn)
             return null
@@ -443,7 +443,7 @@ public class ReActAgent internal constructor(
         } finally {
             // 闸门必须归还：finally 覆盖 hook —— hook 抛 CancellationException 时
             // safeInvoke 原样抛出，闸若不还，后续 steer() 会永久阻塞在这把闸上。
-            turn.unlock()
+            turn.lock.unlock()
         }
         // 终局事件在闸外发出：闸不跨 emit 持有，收集方的回调因此在无闸状态下运行。
         turn.events.emit(AgentEvent.Final(result))

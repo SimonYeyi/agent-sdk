@@ -34,28 +34,14 @@ internal class AgentTurn(
     val llmCall: suspend (ChatRequest) -> ChatResponse,
 ) {
     /**
-     * 终局闸门 —— 互斥"抢占 Final"与"投递 steering"两个动作.
-     *
-     * 用 [Semaphore] 而非 [java.util.concurrent.locks.ReentrantLock]: 终局窗口内的 [AgentHook]
-     * 回调是挂起点，协程恢复后可能换线程; ReentrantLock 是线程亲和的, 换线程 unlock 会抛
-     * IllegalMonitorStateException —— 表现为 agent 在已发出 Final 之后又报 Failed。
-     * Semaphore 的 permit 与线程无关, release 可由任意线程执行。
-     *
-     * 闸不跨终局事件: 终局事件在闸外发出（见 `finalize`），收集方的回调
-     * 因此在无闸状态下运行。
-     *
-     * 代价: 不可重入 —— AgentHook 回调内同步调用 steer() 会死锁
-     * (本就是硬约束, 见 [Agent.Steerable.steer] 的 KDoc)。
-     */
-    private val gate = Semaphore(1)
-
-    /**
      * 本轮事件总线 —— 全历史回放广播（replay = Int.MAX_VALUE，惰性倍增，无预分配）。
      *
      * emit 永不挂起（无限缓冲）：执行体速度与订阅者彻底解耦，也断了终局闸
      * 横跨挂起点的死锁窗口。任何时刻订阅都从 [AgentEvent.Initial] 开始收到完整序列。
      */
     val events = MutableSharedFlow<AgentEvent>(replay = Int.MAX_VALUE, extraBufferCapacity = 0)
+
+    val lock = TurnLock()
 
     /** 本轮在途信箱 —— 纯缓冲，不取闸。 */
     val steering = SteerInbox()
@@ -75,9 +61,6 @@ internal class AgentTurn(
      * 由 agent 在每轮迭代开始时刷新（`buildContext(turn.iterations)`）。
      */
     lateinit var iterationContext: AgentContext
-
-    fun lock() = gate.acquireUninterruptibly()
-    fun unlock() = gate.release()
 }
 
 /**
@@ -116,4 +99,24 @@ internal class SteerInbox {
     fun isEmpty(): Boolean = inbox.isEmpty
 
     fun close() = inbox.close()
+}
+
+internal class TurnLock {
+    /**
+     * 终局闸门 —— 互斥"抢占 Final"与"投递 steering"两个动作.
+     *
+     * 用 [Semaphore] 而非 [java.util.concurrent.locks.ReentrantLock]: 终局窗口内的 [AgentHook]
+     * 回调是挂起点，协程恢复后可能换线程; ReentrantLock 是线程亲和的, 换线程 unlock 会抛
+     * IllegalMonitorStateException —— 表现为 agent 在已发出 Final 之后又报 Failed。
+     * Semaphore 的 permit 与线程无关, release 可由任意线程执行。
+     *
+     * 闸不跨终局事件: 终局事件在闸外发出（见 `finalize`），收集方的回调
+     * 因此在无闸状态下运行。
+     *
+     * 代价: 不可重入 —— AgentHook 回调内同步调用 steer() 会死锁
+     * (本就是硬约束, 见 [Agent.Steerable.steer] 的 KDoc)。
+     */
+    private val gate = Semaphore(1)
+    fun lock() = gate.acquireUninterruptibly()
+    fun unlock() = gate.release()
 }
