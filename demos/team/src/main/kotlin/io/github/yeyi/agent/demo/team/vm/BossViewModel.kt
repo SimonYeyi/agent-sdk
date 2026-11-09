@@ -50,8 +50,6 @@ class BossViewModel(
     /** 渲染后端：UI 层经 [UiRenderAdapter.RenderCard] 渲染卡片，team demo 全局共用 TeamRuntime 装配。 */
     val cardAdapter: UiRenderAdapter get() = TeamRuntime.cardAdapter
 
-    /** toolCall.id -> 对应"执行中"气泡在 _messages 中的下标，工具结果到达时原位替换。 */
-    private val pendingToolBubbles = mutableMapOf<String, Int>()
     private var tasksStatesJob: Job? = null
     private var reportJob: Job? = null
 
@@ -105,18 +103,15 @@ class BossViewModel(
     private fun restoreConversation(session: Session) {
         viewModelScope.launch {
             val history = session.conversation.history(Conversation.PAGE_ALL)
-            // 运行时工具调用最终只保留结果气泡（"执行中"气泡被结果替换），
-            // memory 持久化的 ToolResult 即最终结果，恢复渲染与运行时一致。
-            // 产卡工具的卡片内嵌在条目顶层 metadata 里，随记忆链路原生持久化，
-            // 恢复时直接读取渲染，无需旁路独立卡片文件。
+            // memory 持久化的 ToolResult 即最终结果：工具结果气泡总是还原，
+            // 产卡工具额外还原其卡片（卡片内嵌条目顶层 metadata，原生持久化），
+            // 追加在工具结果气泡下方——与实时路径一致；"调用工具"是运行时中间态不持久化。
             val restored = ArrayList<ChatMessageUi>(history.size)
             for (entry in history) {
+                entry.toChatMessageUi()?.let(restored::add)
                 val card = entry.decodeCard()
                 if (card != null) {
-                    // 产卡工具：卡片取代工具结果气泡，只显示卡片
                     restored.add(ChatMessageUi("card", "", card = card))
-                } else {
-                    entry.toChatMessageUi()?.let(restored::add)
                 }
             }
             _messages.value = restored
@@ -217,7 +212,6 @@ class BossViewModel(
             _boss.value = null
 
             // 清理全部 UI 状态，进入全新会话
-            pendingToolBubbles.clear()
             pendingQueue.clear()
             refreshPendingInputs()
             streamingAssistantIndex = null
@@ -363,36 +357,35 @@ class BossViewModel(
     }
 
     /**
-     * 工具开始：追加"调用工具: xxx"气泡并记录下标，等待 [handleToolCallEnd] 原位替换。
+     * 工具开始：追加"调用工具: xxx"气泡，作为工具执行痕迹保留在列表中；
+     * 工具结果到达时卡片/结果气泡追加在其后，与 demos/agent 展示一致。
      */
     private fun handleToolCallStart(toolCall: ToolCall) {
         val name = toolCall.name
-        pendingToolBubbles[toolCall.id] = _messages.value.size
-        _messages.value = _messages.value + ChatMessageUi("tool", "调用工具: $name")
+        _messages.value = _messages.value + ChatMessageUi(
+            "tool",
+            "调用工具: $name",
+            toolName = name,
+        )
     }
 
     /**
-     * 工具结果到达：把 [handleToolCallStart] 记录的"调用工具"气泡原位替换为最终展示。
+     * 工具结果到达：工具结果气泡总是追加在"调用工具"气泡之后；产卡工具额外把
+     * 卡片追加在工具结果气泡下方——卡片不替代工具结果，两者同屏展示，
+     * 与恢复路径（工具结果 + 卡片）一致，也与其他 demo 的展示方式对齐。
      *
-     * 产卡工具（卡片内嵌结果 metadata）：直接替换为卡片，卡片取代工具结果气泡；
-     * 普通工具：替换为结果气泡，以工具名为标签、结果为内容，明确结果来源工具。
-     * 卡片与恢复路径同源同键（metadata 编码），顺序天然正确，无暂存/查表/锚点插入。
-     * 找不到对应气泡（异常路径）时直接追加，保证结果不丢失。
+     * 卡片内嵌结果 metadata，与恢复路径同源同键，顺序天然正确，
+     * 无暂存/查表/锚点插入。
      */
     private fun handleToolCallEnd(toolCall: ToolCall, result: ToolExecutionResult) {
-        val index = pendingToolBubbles.remove(toolCall.id)
-        val replacement = result.decodeCard()?.let { card ->
-            ChatMessageUi("card", "", card = card)
-        } ?: ChatMessageUi(
+        _messages.value = _messages.value + ChatMessageUi(
             "tool",
             result.parts.text.takeIf { it.isNotEmpty() } ?: "完成",
             toolName = toolCall.name,
             callId = toolCall.id,
         )
-        if (index != null && index < _messages.value.size) {
-            _messages.value = _messages.value.toMutableList().also { it[index] = replacement }
-        } else {
-            _messages.value = _messages.value + replacement
+        result.decodeCard()?.let { card ->
+            _messages.value = _messages.value + ChatMessageUi("card", "", card = card)
         }
     }
 

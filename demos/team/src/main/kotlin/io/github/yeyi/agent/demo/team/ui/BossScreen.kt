@@ -331,9 +331,9 @@ data class ChatMessageUi(
     val content: String,
     val isLoading: Boolean = false,
     val toolName: String? = null,
-    /** 工具调用锚点：工具结果气泡与卡片消息共用，卡片按 instanceId 归位到结果气泡之后。 */
+    /** 工具调用锚点：工具结果气泡的调用来源标识，供结果定位来源工具。 */
     val callId: String? = null,
-    /** 卡片旁路消息：非空时 [ChatBubble] 经渲染后端渲染，role 固定为 "card"。 */
+    /** 卡片消息：非空时 [ChatBubble] 经渲染后端渲染，role 固定为 "card"。 */
     val card: CardIr? = null,
 )
 
@@ -353,7 +353,7 @@ fun ChatBubble(
     cardAdapter: UiRenderAdapter? = null,
     onCardAction: (ActionEvent) -> Unit = {},
 ) {
-    // 卡片旁路流：渲染后端统一入口消费，不写记忆、不进复制链路
+    // 卡片消息：渲染后端统一入口消费，不写记忆、不进复制链路
     val card = message.card
     if (card != null) {
         Box(
