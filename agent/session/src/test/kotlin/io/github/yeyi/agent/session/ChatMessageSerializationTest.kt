@@ -4,9 +4,13 @@ import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.memory.MemoryEntry
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
@@ -65,6 +69,30 @@ class ChatMessageSerializationTest {
         assertEquals("tc", (decoded[3].message as ChatMessage.ToolResult).toolCallId)
         assertEquals("echo", (decoded[3].message as ChatMessage.ToolResult).toolName)
         assertTrue(decoded[3].message is ChatMessage.ToolResult)
+    }
+
+    @Test
+    fun `metadata defaults to null for legacy entries and survives round trip`() {
+        // 旧版本持久化的条目没有 metadata 字段：反序列化回退默认 null，会话数据不破坏。
+        // 模拟旧数据：从当前序列化产物中剔除 metadata 键。
+        val entry = MemoryEntry(ChatMessage.User(listOf(ContentPart.Text("hello"))))
+        val full = json.encodeToString(entry)
+        val withoutMetadata = buildJsonObject {
+            json.parseToJsonElement(full).jsonObject.filterKeys { it != "metadata" }
+                .forEach { (k, v) -> put(k, v) }
+        }.toString()
+        val legacy = json.decodeFromString<MemoryEntry>(withoutMetadata)
+        assertNull(legacy.metadata)
+        assertEquals("hello", (legacy.message as ChatMessage.User).parts[0].let { (it as ContentPart.Text).text })
+
+        // 带 metadata 的条目 roundtrip 完整保留
+        val withMeta = MemoryEntry(
+            ChatMessage.ToolResult(toolCallId = "tc", toolName = "echo", parts = listOf(ContentPart.Text("r"))),
+            metadata = JsonObject(mapOf("card" to JsonPrimitive("ir"))),
+        )
+        val decoded = json.decodeFromString<MemoryEntry>(json.encodeToString(withMeta))
+        assertEquals("tc", (decoded.message as ChatMessage.ToolResult).toolCallId)
+        assertEquals("ir", decoded.metadata!!["card"]!!.jsonPrimitive.content)
     }
 
     private fun encode(message: ChatMessage): String =

@@ -406,7 +406,7 @@ public class ReActAgent internal constructor(
                     parts = final.parts,
                     isError = final.isError,
                 )
-            ).addToMemory(memory)
+            ).addToMemory(memory, metadata = final.metadata)
 
             turn.events.emit(AgentEvent.ToolCallEnd(call, final))
         }

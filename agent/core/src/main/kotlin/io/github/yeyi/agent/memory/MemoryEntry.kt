@@ -9,6 +9,7 @@ import kotlinx.serialization.descriptors.PrimitiveSerialDescriptor
 import kotlinx.serialization.descriptors.SerialDescriptor
 import kotlinx.serialization.encoding.Decoder
 import kotlinx.serialization.encoding.Encoder
+import kotlinx.serialization.json.JsonObject
 import java.time.Instant
 
 /**
@@ -27,6 +28,9 @@ import java.time.Instant
  * @param label 消息来源标签（单值，如 `"report"`、`"summary"`、`"steering"`）：
  *   随条目持久化并在压缩重建时保留；UI 可据此分类渲染，
  *   构建请求时对带 label 的上行消息（User / System）拼 `"label: content"` 前缀使模型可见。
+ * @param metadata 消息级附加元数据（默认为 null 表示无附加信息，随条目持久化并在压缩重建时保留）：
+ *   通用承载容器，供 UI 层等消费方附加非 LLM 领域信息（如卡片数据），
+ *   不污染 [message] 的 LLM 线格式
  */
 @Serializable
 public data class MemoryEntry(
@@ -34,6 +38,7 @@ public data class MemoryEntry(
     @Serializable(with = InstantEpochMillisSerializer::class)
     public val createAt: Instant = Instant.now(),
     public val label: String? = null,
+    public val metadata: JsonObject? = null,
 )
 
 /**
@@ -44,8 +49,8 @@ public data class MemoryEntry(
  * @param memory 目标记忆
  * @param label 随条目携带的消息来源标签（如 `"steering"`），见 [MemoryEntry.label]
  */
-internal suspend fun ChatMessage.addToMemory(memory: Memory, label: String? = null) {
-    memory.add(MemoryEntry(this, label = label))
+internal suspend fun ChatMessage.addToMemory(memory: Memory, label: String? = null, metadata: JsonObject? = null) {
+    memory.add(MemoryEntry(this, label = label, metadata = metadata))
 }
 
 /**
