@@ -37,15 +37,13 @@ class BossDelegation(private val boss: BossAgent) : RealtimeDelegation {
     )
 
     override suspend fun run(task: String) {
-        var delegated = false
         boss.run(AgentQuery.text(task)).collect { event ->
             when (event) {
-                // 本轮工具调用全部为异步派发型（publish/cancel）时,ReAct 短路直接进入终局,
-                // Final 为空响应（content=null）不再携带回执——用事件字段判断,不绑定具体工具名。
-                is AgentEvent.ToolCallExplanation if (event.allAsync) -> delegated = true
-
-                is AgentEvent.Final if (delegated.not()) ->
-                    runEvents.emit(Confirmation(event.result.message.content ?: ""))
+                is AgentEvent.Final -> {
+                    // Final 为空响应（content=null）表示已异步派发，不需要回执给 S2S
+                    val content = event.result.message.content ?: return@collect
+                    runEvents.emit(Confirmation(content))
+                }
 
                 is AgentEvent.Failed -> runEvents.emit(
                     Failure(

@@ -114,8 +114,6 @@ public interface Tool {
 public interface FinalizableTool {
     public fun finalizable(arguments: JsonElement, result: ToolExecutionResult): Boolean = true
 }
-
-public interface AsyncTool : FinalizableTool
 ```
 
 `FinalizableTool` 是工具对「本轮是否可安全终结（不再触发下一轮推理）」的唯一裁决者：
@@ -124,7 +122,7 @@ public interface AsyncTool : FinalizableTool
 - 同步工具（如产卡工具）若希望失败后让模型感知并重试，在 `finalizable(arguments, result)` 中结合 `result.isError` 裁定（失败时返回 `false` 拒绝终结，模型下一轮感知失败回执并重试）
 - 需要「按入参决定是否产卡」的工具（如仅当 `detail=true` 时才出卡），在 `finalizable(arguments, result)` 中结合 `arguments` 裁定本轮是否可终结
 - `finalizable()` 的实现不得抛异常：它跑在工具执行之后的短路裁决点，抛出不会被 `dispatch()` 收成错误回执，而是掀翻本轮。工具自裁遇到非法入参等情形，按各自契约处理（产卡工具用框架参数 `show_ui=false` 表达本轮不出卡、不终结），不要以异常表达
-- `AsyncTool` 异步派发型工具天然可终结，继承接口默认 `true`，向后兼容
+- 派发型工具（publish_task / cancel_task 等）天然可终结，继承接口默认 `true`
 - 消费方以 `Final` 空响应（content 为 null）识别短路终结，无需预判字段
 
 ## 6. Memory 系统
@@ -161,8 +159,7 @@ public class AgentPersona(public val role: String) {
 AgentEvent (sealed interface)
 ├── Initial(userInput)              — 用户输入事件
 ├── TextDelta(text)                 — 流式文本增量
-├── ToolCallExplanation(text, toolCalls, allAsync) — 工具调用解释
-│       allAsync 为纯描述语义：本轮工具是否全部为 AsyncTool（供委托回执等消费方判断），不驱动短路裁决
+├── ToolCallExplanation(text, toolCalls) — 工具调用解释
 │       短路由 ReActAgent 基于 FinalizableTool 裁决，消费方以 Final 空响应（content 为 null）识别短路终结
 ├── ToolCallStart(callId, toolName) — 工具调用开始
 ├── ToolCallEnd(callId, result)     — 工具调用结束

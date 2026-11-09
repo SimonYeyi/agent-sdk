@@ -247,7 +247,7 @@ class BossAgentIntegrationTest {
 
     @Test
     fun `publish_task short-circuits boss round - LLM called once and events end with Final`() = runBlocking {
-        // boss 调 publish_task → AsyncTool 短路 → 本轮直接 Final,不再触发第二轮推理
+        // boss 调 publish_task → FinalizableTool 短路 → 本轮直接 Final,不再触发第二轮推理
         val capabilitiesByType: Map<String, List<NamedCapability>> = mapOf(
             "tool" to listOf(NamedCapability("echo", "Echo."))
         )
@@ -280,7 +280,6 @@ class BossAgentIntegrationTest {
         // 事件尾序: ToolCallExplanation → ToolCallStart → ToolCallEnd → Final
         val tail = events.takeLast(4)
         assertTrue(tail[0] is AgentEvent.ToolCallExplanation)
-        assertEquals(true, (tail[0] as AgentEvent.ToolCallExplanation).allAsync, "publish-only round must be all-async")
         assertTrue(tail[1] is AgentEvent.ToolCallStart)
         assertTrue(tail[2] is AgentEvent.ToolCallEnd)
         assertTrue(tail[3] is AgentEvent.Final)

@@ -18,7 +18,6 @@ import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
-import io.github.yeyi.agent.tool.AsyncTool
 import io.github.yeyi.agent.tool.FinalizableTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
@@ -41,7 +40,6 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertSame
 import kotlin.test.assertTrue
@@ -591,8 +589,8 @@ class ReActAgentTest {
         )
     }
 
-    /** 测试辅助:异步派发型工具。执行后立即返回执行中状态,结果由外部异步送达。 */
-    private fun asyncTool(name: String = "async_echo"): Tool = object : Tool, AsyncTool {
+    /** 测试辅助:可终结工具。执行后立即返回,裁定可终结后不再触发下一轮推理。 */
+    private fun asyncTool(name: String = "async_echo"): Tool = object : Tool, FinalizableTool {
         override val name = name
         override val description = "dispatches async"
         override val parametersSchema = ToolParameters.Empty
@@ -636,16 +634,15 @@ class ReActAgentTest {
         // 事件尾序: ToolCallExplanation → ToolCallStart → ToolCallEnd → Final
         val tail = events.takeLast(4)
         assertTrue(tail[0] is AgentEvent.ToolCallExplanation)
-        assertEquals(true, (tail[0] as AgentEvent.ToolCallExplanation).allAsync, "all-async round must be flagged")
         assertTrue(tail[1] is AgentEvent.ToolCallStart)
         assertTrue(tail[2] is AgentEvent.ToolCallEnd)
         assertTrue(tail[3] is AgentEvent.Final)
 
-        // allAsync 短路轮：Final 为模拟模型空返回的空响应（content=null），
+        // 可终结短路轮：Final 为模拟模型空返回的空响应（content=null），
         // 前端识别 content 为 null 的 Final 不渲染，避免过渡语归位造成 UI 跳动。
         assertNull(
             events.filterIsInstance<AgentEvent.Final>().single().result.message.content,
-            "allAsync 短路轮的 Final 必须为空响应，过渡语不再由 Final 携带"
+            "可终结短路轮的 Final 必须为空响应，过渡语不再由 Final 携带"
         )
         // 记忆顺序与运行时事件流对齐：
         // User(query) → Assistant(过渡语 + toolCalls) → ToolResult → Assistant(空响应终结)
@@ -743,8 +740,6 @@ class ReActAgentTest {
 
         // 不短路:LLM 被调用两次,第二轮带着失败回执重试
         assertEquals(2, provider.recordedRequests.size)
-        val explanation = events.filterIsInstance<AgentEvent.ToolCallExplanation>().single()
-        assertFalse(explanation.allAsync, "同步产卡工具不是 AsyncTool → allAsync 为 false")
         val final = events.filterIsInstance<AgentEvent.Final>().single()
         assertEquals("卡片生成失败,已为你重试", final.result.message.content)
         assertEquals(2, final.result.iterations)

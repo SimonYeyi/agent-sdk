@@ -29,7 +29,6 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import io.github.yeyi.agent.modality.ModalityAdapter
-import io.github.yeyi.agent.tool.AsyncTool
 import io.github.yeyi.agent.tool.FinalizableTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
@@ -342,11 +341,7 @@ public class ReActAgent internal constructor(
             return finalize(turn, response)
         }
 
-        // allAsync 仅描述「本轮全是异步工具」（供消费方判断，不驱动短路）。
-        val allToolAsync = response.message.toolCalls
-            .all { call -> toolRegistry.getOrNull(call.name) is AsyncTool }
-
-        callTools(turn, response, allToolAsync)
+        callTools(turn, response)
 
         // 可终结短路：裁决权完全在工具——本轮全部工具均为可终结工具，且各工具
         // finalizable(arguments, result) 基于自己本轮的执行结果与原始入参裁定可终结
@@ -368,12 +363,11 @@ public class ReActAgent internal constructor(
         return null
     }
 
-    private suspend fun callTools(turn: AgentTurn, response: ChatResponse, allAsync: Boolean) {
+    private suspend fun callTools(turn: AgentTurn, response: ChatResponse) {
         turn.events.emit(
             AgentEvent.ToolCallExplanation(
                 text = response.message.content?.takeIf { it != "" },
                 toolCalls = response.message.toolCalls,
-                allAsync = allAsync,
             )
         )
 

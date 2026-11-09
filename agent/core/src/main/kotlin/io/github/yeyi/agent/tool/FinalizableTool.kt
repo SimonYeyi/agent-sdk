@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonElement
  * finalizable() 全返回 true」时直接进入终局协议（emit Final 空响应收尾），
  * 不做任何执行结果判断——但会把本轮各工具的执行结果与原始入参原样回传给本接口，
  * 由工具自己结合成败裁定：
- * - 异步派发型工具（[AsyncTool]）执行后无同步可等待结果、也不会失败，继承默认 true；
+ * - 派发型工具（如 publish_task / cancel_task）执行后无同步可等待结果、也不会失败，继承默认 true；
  * - 同步工具（如产卡工具）若希望「失败后让模型感知并重试」，可在 [finalizable] 中
  *   结合 'result' 裁定（如 result.isError 时返回 false 拒绝终结）；
  * - 需要「按入参决定是否产卡」的工具（如「仅当 detail=true 时才出卡」），
