@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.genui.tool
 
 import io.github.yeyi.agent.genui.ir.CardIr
+import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.tool.FinalizableTool
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
@@ -13,18 +14,9 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
-
-/** 框架级参数名：模型据此逐次决定产卡工具本轮出不出卡。 */
-internal const val SHOW_UI_PARAM = "show_ui"
-
-/** show_ui 的参数描述：交给模型的判据。 */
-internal const val SHOW_UI_DESCRIPTION =
-    "是否把本次工具调用的结果或参数以卡片展示给用户。必传。调用前先判断：本次结果只是推理的中间步骤、" +
-            "或仅用于辅助回答用户问题时，传 false（此时只回执数据、不出卡，本轮继续）；" +
-            "只有当本次结果本身就是用户所问的明确答案时，才传 true（出卡，本轮就此结束）。" +
-            "如果本次调用是在向用户提问、需要用户作答，必须传 true——不出卡用户就看不到问题。"
 
 /**
  * 声明「本工具产出可交互卡片」的抽象基类，实现 [Tool] 与 [FinalizableTool]。
@@ -57,18 +49,41 @@ internal const val SHOW_UI_DESCRIPTION =
  * 模型要出卡时传 true——「查天气」过程中顺手调一次的定位工具不必出卡，
  * 只有本次结果本身就是给用户的答案（或要向用户提问）才传 true。
  *
- * 卡片通道在构造期定死：产卡工具随 agent 构造，持有自己的 [UiSink]，执行时直接发射，
- * 不做运行期解析。子 agent 继承父 agent 的工具实例（连同 sink 绑定），卡片落父通道——
- * 与它继承父的 llmProvider、memory 同属一种继承。
+ * 卡片在工具结果 metadata 中交付：卡片 IR 编码进 [ToolExecutionResult.metadata] 的
+ * [CARD_METADATA_KEY]，随事件流（[io.github.yeyi.agent.AgentEvent.ToolCallEnd]）实时送达消费方渲染，
+ * 同时经归档层落到 [MemoryEntry.metadata] 走记忆链路原生持久化——重启恢复时直接读取渲染。
+ * 消费方读取一律走 [decodeCard]（[ToolExecutionResult.decodeCard] / [MemoryEntry.decodeCard]），
+ * 无需感知键名细节。ToolResult 本身保持模型线格式纯净，卡片不污染上行载荷。
+ * 子 agent 继承父 agent 的工具实例（连同产卡行为），与继承父的 llmProvider、memory 同属一种继承。
  * 产卡工具实例因此是 agent 私有的：不要在工具里持有跨 agent 的状态（缓存、限流计数）。
- *
- * @param sink 本 agent 的卡片通道，构造器必传注入；仅由基类 execute 收口使用，不发卡权下放给子类
  */
-public abstract class UiGenTool(private val sink: UiSink) : Tool, FinalizableTool {
+public abstract class UiGenTool : Tool, FinalizableTool {
 
-    private companion object {
+    internal companion object {
         /** 回执里告知模型「卡片已展示给用户」，避免它把同样内容在正文里再讲一遍。 */
-        const val CARD_SHOWN_NOTE = "(this has already been shown to the user as a ui-card)"
+        internal const val CARD_SHOWN_NOTE =
+            "(this has already been shown to the user as a ui-card)"
+
+        /** 框架级参数名：模型据此逐次决定产卡工具本轮出不出卡。 */
+        internal const val SHOW_UI_PARAM = "show_ui"
+
+        /** show_ui 的参数描述：交给模型的判据。 */
+        internal const val SHOW_UI_DESCRIPTION =
+            "是否把本次工具调用的结果或参数以卡片展示给用户。必传。调用前先判断：本次结果只是推理的中间步骤、" +
+                    "或仅用于辅助回答用户问题时，传 false（此时只回执数据、不出卡，本轮继续）；" +
+                    "只有当本次结果本身就是用户所问的明确答案时，才传 true（出卡，本轮就此结束）。" +
+                    "如果本次调用是在向用户提问、需要用户作答，必须传 true——不出卡用户就看不到问题。"
+
+        /**
+         * 卡片在工具结果 metadata 中的固定键名。
+         *
+         * 写入侧与读取侧都在本模块内维护：[UiGenTool] 执行时把卡片 IR 编码进
+         * [ToolExecutionResult.metadata] 的此键，由归档层提取到
+         * [io.github.yeyi.agent.memory.MemoryEntry.metadata] 走记忆链路原生持久化；
+         * 消费方（如界面层）恢复时经 [MemoryEntry.decodeCard] 读取解码渲染，
+         * 无需旁路独立持久化文件。本键对模块外部不可见，读取一律走 [MemoryEntry.decodeCard]。
+         */
+        internal const val CARD_METADATA_KEY: String = "card"
     }
 
     /**
@@ -169,9 +184,6 @@ public abstract class UiGenTool(private val sink: UiSink) : Tool, FinalizableToo
         if (showCard && card == null) {
             error("$name produced no card: a card tool must build a card in buildCard")
         }
-        if (card != null) {
-            sink.emit(card)
-        }
         // 产了卡就要告知模型卡片已送达，避免它把同样的内容在正文里再讲一遍；
         // 未产卡不追加，避免谎报
         val content = result?.toString()
@@ -180,7 +192,14 @@ public abstract class UiGenTool(private val sink: UiSink) : Tool, FinalizableToo
             content != null -> content
             else -> CARD_SHOWN_NOTE
         }
-        return ToolExecutionResult.success(receipt)
+        // 卡片内嵌进结果元数据（CARD_METADATA_KEY），随 ToolCallEnd 事件实时送达
+        // 消费方渲染，同时由归档层提取到 MemoryEntry 顶层 metadata 随记忆链路原生持久化——
+        // 实时与恢复同源同键，重启恢复时直接从记忆条目读取渲染，无需旁路独立持久化文件。
+        // 卡片锚点天然对齐：卡片绑定在对应工具调用的结果消息上，消息顺序即渲染顺序。
+        val metadata = card?.let {
+            buildJsonObject { put(CARD_METADATA_KEY, Json.encodeToJsonElement(card)) }
+        }
+        return ToolExecutionResult.success(receipt, metadata)
     }
 
     /** 模型是否要求本轮出卡：模型没传时兜底为不出卡、不终结。 */
@@ -238,12 +257,35 @@ public abstract class UiGenTool(private val sink: UiSink) : Tool, FinalizableToo
             put("description", SHOW_UI_DESCRIPTION)
         }
         val required = ((base["required"] as? JsonArray).orEmpty().map { it.jsonPrimitive.content }
-            + SHOW_UI_PARAM).distinct()
+                + SHOW_UI_PARAM).distinct()
         val merged = JsonObject(
             base +
-                ("properties" to JsonObject(properties + (SHOW_UI_PARAM to showUiProperty))) +
-                ("required" to JsonArray(required.map { JsonPrimitive(it) }))
+                    ("properties" to JsonObject(properties + (SHOW_UI_PARAM to showUiProperty))) +
+                    ("required" to JsonArray(required.map { JsonPrimitive(it) }))
         )
         return ToolParameters.JsonSchema(merged.toString())
     }
+}
+
+/**
+ * 从工具结果 metadata 读取产卡工具内嵌的卡片 IR；无卡片返回 null。
+ *
+ * 与 [UiGenTool] 的写入互为镜像：产卡工具把卡片 IR 编码进 [UiGenTool.CARD_METADATA_KEY]，
+ * 随 [io.github.yeyi.agent.AgentEvent.ToolCallEnd] 实时送达消费方渲染。
+ * metadata 携带该键但内容非法时直接抛序列化异常（fail-fast）。
+ */
+public fun ToolExecutionResult.decodeCard(): CardIr? = metadata.decodeCard()
+
+/**
+ * 从记忆条目顶层 metadata 读取产卡工具内嵌的卡片 IR；无卡片返回 null。
+ *
+ * 与 [UiGenTool] 的写入互为镜像：产卡工具把卡片 IR 编码进 [UiGenTool.CARD_METADATA_KEY]
+ * （经归档层落到本条目顶层 metadata），消费方（如界面层）恢复时调用本扩展解码渲染，
+ * 无需感知键名细节。metadata 携带该键但内容非法时直接抛序列化异常（fail-fast）。
+ */
+public fun MemoryEntry.decodeCard(): CardIr? = metadata.decodeCard()
+
+private fun JsonObject?.decodeCard(): CardIr? {
+    val cardJson = this?.get(UiGenTool.CARD_METADATA_KEY) ?: return null
+    return Json.decodeFromJsonElement(CardIr.serializer(), cardJson)
 }

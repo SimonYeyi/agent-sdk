@@ -5,11 +5,13 @@ import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
+import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
+import io.github.yeyi.agent.memory.MemoryEntry
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
@@ -17,21 +19,22 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.flow.take
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -40,9 +43,8 @@ class UiGenToolTest {
     private class FakeUiGenTool(
         private val data: JsonElement?,
         private val card: CardIr?,
-        sink: UiSink,
         schema: ToolParameters = ToolParameters.Empty,
-    ) : UiGenTool(sink) {
+    ) : UiGenTool() {
         var getResultArguments: JsonElement? = null
         var buildCardData: JsonElement? = null
         var buildCardArguments: JsonElement? = null
@@ -106,49 +108,40 @@ class UiGenToolTest {
         return Json.parseToJsonElement((schema as ToolParameters.JsonSchema).schema).jsonObject
     }
 
+    /** 产卡工具写入结果 metadata 的形态：CARD_METADATA_KEY -> 编码后的卡片 IR。 */
+    private fun cardMetadata(card: CardIr): JsonObject =
+        buildJsonObject { put(UiGenTool.CARD_METADATA_KEY, Json.encodeToJsonElement(card)) }
+
     @Test
-    fun `execute 接线 getResult 结果进 buildCard 并发射卡片`() = runTest {
-        val sink = UiSink()
+    fun `execute 接线 getResult 结果进 buildCard 并编码进结果 metadata`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         val card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text"))
-        val tool = FakeUiGenTool(data, card, sink)
+        val tool = FakeUiGenTool(data, card)
 
-        val received = mutableListOf<CardIr>()
-        val job = backgroundScope.launch { sink.cards.take(1).collect { received += it } }
-        runCurrent() // 排空调度队列，确保订阅注册后再执行
+        val returned = tool.execute(showCardArgs, context(agentId = "agent_1"))
 
-        tool.execute(showCardArgs, context(agentId = "agent_1"))
-        runCurrent() // 处理订阅者恢复任务，确保卡片已投递
-
-        job.join()
         // 业务侧看到的入参已剥掉框架参数 show_ui
         assertEquals(arguments, tool.getResultArguments)
         // buildCard 收到的是 getResult 整理后的结构化数据，以及本轮业务入参
         assertEquals(data, tool.buildCardData)
         assertEquals(arguments, tool.buildCardArguments)
-        assertEquals(listOf(card), received)
+        // 卡片编码进结果 metadata，消费方经 decodeCard 读取
+        assertEquals(card, returned.decodeCard())
     }
 
     @Test
     fun `execute 回执为结构化数据文本`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        val sink = UiSink()
-        val tool = FakeUiGenTool(
-            data,
-            CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            sink,
-        )
-        val job = backgroundScope.launch { sink.cards.collect { } }
-        runCurrent() // 排空调度队列，确保订阅注册后再执行
+        val card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text"))
+        val tool = FakeUiGenTool(data, card)
 
         val returned = tool.execute(showCardArgs, context())
-        runCurrent()
 
-        job.cancel()
-        // 产了卡：回执附带「卡片已展示给用户」的告知
+        // 产了卡：回执附带「卡片已展示给用户」的告知，卡片内嵌进结果 metadata
         assertEquals(
             ToolExecutionResult.success(
-                "${data.toString()} (this has already been shown to the user as a ui-card)"
+                "${data.toString()} (this has already been shown to the user as a ui-card)",
+                metadata = cardMetadata(card),
             ),
             returned
         )
@@ -156,52 +149,77 @@ class UiGenToolTest {
 
     @Test
     fun `无业务结果时回执只有卡片已展示告知`() = runTest {
-        val sink = UiSink()
         // 卡片即问询：无业务数据可回执，回执只剩「卡片已展示给用户」
+        val card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text"))
         val tool = FakeUiGenTool(
             data = null,
-            card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            sink = sink,
+            card = card,
         )
-        val job = backgroundScope.launch { sink.cards.collect { } }
-        runCurrent() // 排空调度队列，确保订阅注册后再执行
 
         val returned = tool.execute(showCardArgs, context())
-        runCurrent()
 
-        job.cancel()
         assertEquals(
-            ToolExecutionResult.success("(this has already been shown to the user as a ui-card)"),
+            ToolExecutionResult.success(
+                "(this has already been shown to the user as a ui-card)",
+                metadata = cardMetadata(card),
+            ),
             returned
         )
     }
 
     @Test
+    fun `产卡后卡片可经结果 metadata 读取 随记忆链路持久化`() = runTest {
+        val card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text"))
+        val tool = FakeUiGenTool(
+            data = null,
+            card = card,
+        )
+
+        val returned = tool.execute(showCardArgs, context())
+
+        // 实时路径：消费方经 ToolExecutionResult.decodeCard 读取卡片
+        assertEquals(card, returned.decodeCard())
+        // 卡片随结果 metadata 走记忆链路：execute 编码进 CARD_METADATA_KEY，
+        // 由归档层提取到 MemoryEntry 顶层 metadata；恢复路径经 MemoryEntry.decodeCard
+        // 读取解码渲染
+        val cardFromMetadata = MemoryEntry(
+            ChatMessage.ToolResult(toolCallId = "call_1", toolName = "fake", parts = emptyList()),
+            metadata = returned.metadata,
+        ).decodeCard()
+        assertEquals(card, cardFromMetadata)
+    }
+
+    @Test
+    fun `无 metadata 时 decodeCard 返回 null`() {
+        // 普通工具结果无卡片 metadata：读卡为空
+        assertNull(ToolExecutionResult.success("plain").decodeCard())
+        // 有 metadata 但不存在卡片键：同样读卡为空
+        assertNull(
+            ToolExecutionResult.success(
+                "meta",
+                metadata = buildJsonObject { put("other", JsonPrimitive(1)) },
+            ).decodeCard()
+        )
+    }
+
+    @Test
     fun `无业务结果又不出卡时判失败`() = runTest {
-        val sink = UiSink()
         // 既无数据回执又不出卡：本轮什么都没交付给用户
         val tool = FakeUiGenTool(
             data = null,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            sink = sink,
         )
-        val job = backgroundScope.launch { sink.cards.collect { } }
-        runCurrent()
 
         assertFailsWith<IllegalStateException> {
             tool.execute(JsonObject(mapOf("show_ui" to JsonPrimitive(false))), context())
         }
-
-        job.cancel()
     }
 
     @Test
     fun `既无数据又不出卡时错误回执指向模型侧的修法`() = runTest {
-        val sink = UiSink()
         val tool = FakeUiGenTool(
             data = null,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            sink = sink,
         )
 
         // 错误措辞要指向模型能改的地方：带 show_ui=true 重新调用
@@ -214,62 +232,42 @@ class UiGenToolTest {
     @Test
     fun `出卡即终结 卡片交到用户手上本轮到此为止`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        val sink = UiSink()
         val tool = FakeUiGenTool(
             data = data,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            sink = sink,
         )
-        val job = backgroundScope.launch { sink.cards.take(1).collect { } }
-        runCurrent()
 
         val returned = tool.execute(showCardArgs, context())
-        runCurrent()
 
-        job.join()
         assertTrue(tool.finalizable(showCardArgs, returned))
     }
 
     @Test
     fun `show_ui=true 却未产出卡片时判失败不终结`() = runTest {
-        val sink = UiSink()
         // 模型要求出卡就必须真有卡片：没有卡片就没有交付给用户的东西
         val tool = FakeUiGenTool(
             data = null,
             card = null,
-            sink = sink,
         )
-        val job = backgroundScope.launch { sink.cards.collect { } }
-        runCurrent()
 
         assertFailsWith<IllegalStateException> { tool.execute(showCardArgs, context()) }
         assertFalse(tool.finalizable(showCardArgs, ToolExecutionResult.error("no card")))
-
-        job.cancel()
     }
 
     @Test
     fun `show_ui=false 时不调用 buildCard 且不终结`() = runTest {
-        val sink = UiSink()
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         val tool = FakeUiGenTool(
             data = data,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            sink = sink,
         )
-        var cardCount = 0
-        val job = backgroundScope.launch { sink.cards.collect { cardCount++ } }
-        runCurrent()
 
+        // 不出卡由模型说了算：buildCard 压根不被调用
         val noCardArgs =
             JsonObject(mapOf("city" to JsonPrimitive("上海"), "show_ui" to JsonPrimitive(false)))
         val returned = tool.execute(noCardArgs, context())
-        runCurrent()
 
-        job.cancel()
-        // 不出卡由模型说了算：buildCard 压根不被调用
         assertEquals(0, tool.buildCardCalls)
-        assertEquals(0, cardCount)
         // 回执即数据，不追加「卡片已展示」的告知
         assertEquals(ToolExecutionResult.success(data.toString()), returned)
         assertFalse(tool.finalizable(noCardArgs, returned))
@@ -277,7 +275,7 @@ class UiGenToolTest {
 
     @Test
     fun `错误回执拒绝终结`() = runTest {
-        val tool = object : UiGenTool(UiSink()) {
+        val tool = object : UiGenTool() {
             override val name: String = "flaky_card"
             override val description: String = "flaky"
             override val toolSchema: ToolParameters = ToolParameters.Empty
@@ -308,60 +306,37 @@ class UiGenToolTest {
     }
 
     @Test
-    fun `两个 agent 各自的产卡工具互不串味`() = runTest {
-        val sinkA = UiSink()
-        val sinkB = UiSink()
+    fun `两个 agent 各自的产卡工具卡片互不串味`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        // 产卡工具随 agent 构造：每个 agent 一份实例，绑定自己的 sink
+        // 产卡工具随 agent 构造：每个 agent 一份实例，卡片编码进各自结果 metadata
         val toolA = FakeUiGenTool(
             data,
             CardIr(instanceId = "call_a", root = TreeNode(component = "Text")),
-            sinkA,
         )
         val toolB = FakeUiGenTool(
             data,
             CardIr(instanceId = "call_b", root = TreeNode(component = "Text")),
-            sinkB,
         )
 
-        val receivedA = mutableListOf<CardIr>()
-        val receivedB = mutableListOf<CardIr>()
-        val jobA = backgroundScope.launch { sinkA.cards.take(1).collect { receivedA += it } }
-        val jobB = backgroundScope.launch { sinkB.cards.take(1).collect { receivedB += it } }
-        runCurrent() // 排空调度队列，确保订阅注册后再执行
+        val returnedA = toolA.execute(showCardArgs, context(callId = "call_a", agentId = "agent_a"))
+        val returnedB = toolB.execute(showCardArgs, context(callId = "call_b", agentId = "agent_b"))
 
-        toolA.execute(showCardArgs, context(callId = "call_a", agentId = "agent_a"))
-        toolB.execute(showCardArgs, context(callId = "call_b", agentId = "agent_b"))
-        runCurrent() // 处理订阅者恢复任务，确保卡片已投递
-
-        jobA.join()
-        jobB.join()
-        // 各 agent 只收到自己的卡片，不串味
-        assertEquals(1, receivedA.size)
-        assertEquals(1, receivedB.size)
-        assertEquals("call_a", receivedA.single().instanceId)
-        assertEquals("call_b", receivedB.single().instanceId)
+        // 各 agent 只从自己的结果里读到自己的卡片，不串味
+        assertEquals("call_a", returnedA.decodeCard()!!.instanceId)
+        assertEquals("call_b", returnedB.decodeCard()!!.instanceId)
     }
 
     @Test
     fun `show_ui 缺省时不出卡也不终结`() = runTest {
-        val sink = UiSink()
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         val tool = FakeUiGenTool(
             data = data,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            sink = sink,
         )
-        var cardCount = 0
-        val job = backgroundScope.launch { sink.cards.collect { cardCount++ } }
-        runCurrent()
 
         // 模型没传 show_ui：按不出卡、不终结处理（中间步骤工具调用不打断推理链）
         val returned = tool.execute(arguments, context())
-        runCurrent()
 
-        job.cancel()
-        assertEquals(0, cardCount)
         assertEquals(0, tool.buildCardCalls)
         assertEquals(ToolExecutionResult.success(data.toString()), returned)
         assertFalse(tool.finalizable(arguments, returned))
@@ -369,23 +344,17 @@ class UiGenToolTest {
 
     @Test
     fun `框架参数 show_ui 不渗进业务入参`() = runTest {
-        val sink = UiSink()
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         val tool = FakeUiGenTool(
             data = data,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
-            sink = sink,
         )
-        val job = backgroundScope.launch { sink.cards.take(1).collect { } }
-        runCurrent()
 
         val withShowUi = JsonObject(
             mapOf("city" to JsonPrimitive("北京"), "show_ui" to JsonPrimitive(true))
         )
         tool.execute(withShowUi, context())
-        runCurrent()
 
-        job.join()
         // 业务侧只看得到业务入参：show_ui 由基类剥掉，严格解码的工具不必为它放宽
         val businessOnly = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         assertEquals(businessOnly, tool.getResultArguments)
@@ -400,7 +369,6 @@ class UiGenToolTest {
         val tool = FakeUiGenTool(
             data = null,
             card = null,
-            sink = UiSink(),
             schema = businessSchema,
         )
 
@@ -423,7 +391,6 @@ class UiGenToolTest {
         val tool = FakeUiGenTool(
             data = null,
             card = null,
-            sink = UiSink(),
             schema = ToolParameters.JsonSchema("""[1,2,3]"""),
         )
 
@@ -437,8 +404,7 @@ class UiGenToolTest {
         val tool = FakeUiGenTool(
             data = null,
             card = null,
-            sink = UiSink(),
-            schema = ToolParameters.JsonSchema("""{"type":"object","""),
+            schema = ToolParameters.JsonSchema("""{"type":"object",""""),
         )
 
         assertFailsWith<IllegalArgumentException> { tool.parametersSchema }
@@ -449,7 +415,6 @@ class UiGenToolTest {
         val tool = FakeUiGenTool(
             data = null,
             card = null,
-            sink = UiSink(),
             schema = ToolParameters.JsonSchema(
                 """{"type":"object","properties":{"show_ui":{"type":"string"}}}"""
             ),
@@ -462,7 +427,7 @@ class UiGenToolTest {
 
     @Test
     fun `无业务参数的工具也给模型 show_ui`() = runTest {
-        val tool = FakeUiGenTool(data = null, card = null, sink = UiSink())
+        val tool = FakeUiGenTool(data = null, card = null)
 
         val properties = modelSchema(tool)["properties"]!!.jsonObject
 
