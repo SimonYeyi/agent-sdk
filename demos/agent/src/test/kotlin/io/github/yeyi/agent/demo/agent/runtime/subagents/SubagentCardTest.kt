@@ -4,8 +4,7 @@ import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.demo.agent.runtime.tools.GetLocationTool
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.fakes.testAgentContext
-import io.github.yeyi.agent.genui.ir.CardIr
-import io.github.yeyi.agent.genui.tool.UiSink
+import io.github.yeyi.agent.genui.tool.decodeCard
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
@@ -13,11 +12,7 @@ import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.subagent.SubagentContext
 import io.github.yeyi.agent.subagent.SubagentTask
 import io.github.yeyi.agent.subagent.subagent
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.take
-import kotlinx.coroutines.launch
+import io.github.yeyi.agent.tool.ToolExecutionContext
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -27,20 +22,15 @@ import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
- * 子 agent 的产卡去向：子 agent 继承父 agent 的工具实例，产卡工具连同卡片通道一起继承——
- * 子 agent 的卡片落在父 agent 的通道上。
- *
- * 这条路径在「按 agentId 查全局路由表」时代是坏的：子 agent 不设 id（走默认 UUID），
- * 查表必然落空，产卡工具 fail-fast。
+ * 子 agent 的产卡去向：子 agent 继承父 agent 的工具实例，产卡工具连同结果 metadata 一起继承——
+ * 子 agent 产出的卡片编码进工具结果 metadata，实时路径从 ToolCallEnd.result.decodeCard 读取，
+ * 恢复路径从 MemoryEntry.decodeCard 读取，无独立旁路通道。
  */
 class SubagentCardTest {
 
     @Test
-    fun `子 agent 产卡落在父 agent 的通道`() = runBlocking {
-        val sink = UiSink()
-        val received = mutableListOf<CardIr>()
-        val scope = CoroutineScope(Dispatchers.Default)
-        val job = scope.launch { sink.cards.take(1).collect { received += it } }
+    fun `子 agent 继承父 agent 的产卡工具 卡片可经结果 metadata 读取`() = runBlocking {
+        val locationTool = GetLocationTool()
 
         val llm = FakeLlmProvider(
             nonStreamResponses = listOf(
@@ -61,31 +51,27 @@ class SubagentCardTest {
                 ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop),
             )
         )
-        // 父 agent 上下文：产卡工具绑父 agent 的卡片通道
+        // 父 agent 上下文：产卡工具随父 agent 构造，卡片编码进工具结果 metadata
         val parentContext = testAgentContext(
             persona = AgentPersona("main"),
             maxIterations = 5,
             llmProvider = llm,
-            tools = listOf(GetLocationTool(sink)),
+            tools = listOf(locationTool),
         )
         val sub = subagent("locator", "查位置", instruction = "调用 get_location 查当前位置")
 
         // 产卡工具出卡即终结：子 agent 的回合以空正文收尾，委派结果为空内容错误。
-        // 卡片本身仍落在父 agent 的通道上（卡片在工具执行时即已发射）。
+        // 继承来的产卡工具在子 agent 上下文中正常出卡终结，无通道绑定也不影响链路。
         val failure = assertFailsWith<IllegalStateException> {
             sub.activate(SubagentTask("查当前位置"), SubagentContext(parentContext))
         }
         assertTrue(failure.message!!.contains("returned empty content"))
 
-        // 子 agent 的回合跑在自己的 dispatcher 上，等卡片真正落地
-        var waited = 0L
-        while (received.isEmpty() && waited < 3_000) {
-            delay(20)
-            waited += 20
-        }
-        job.cancel()
-
-        assertEquals(1, received.size, "子 agent 的卡片应落在父 agent 的通道上")
-        assertEquals("Location", received.single().root.component)
+        // 卡片编码进工具结果 metadata：消费方经 ToolExecutionResult.decodeCard 读取渲染
+        val executed = locationTool.execute(
+            buildJsonObject { put("show_ui", JsonPrimitive(true)) },
+            ToolExecutionContext(toolCallId = "call_1", agentContext = parentContext),
+        )
+        assertEquals("Location", executed.decodeCard()!!.root.component)
     }
 }

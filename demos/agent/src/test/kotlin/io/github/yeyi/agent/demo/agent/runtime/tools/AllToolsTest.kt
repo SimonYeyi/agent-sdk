@@ -3,15 +3,11 @@ package io.github.yeyi.agent.demo.agent.runtime.tools
 import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.tool.UiGenTool
-import io.github.yeyi.agent.genui.tool.UiSink
+import io.github.yeyi.agent.genui.tool.decodeCard
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.take
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -32,33 +28,24 @@ class AllToolsTest {
     )
 
     /**
-     * 产卡工具的执行:起订阅者,执行后取回卡片。
-     *
-     * 产卡工具随 agent 构造并绑定自己的 sink,无订阅者时 emit 抛异常——订阅必须先于执行就位。
+     * 产卡工具的执行：执行后直接从结果 metadata 读取卡片。
      */
-    private suspend fun TestScope.executeAndCollectCard(
+    private suspend fun executeAndDecodeCard(
         agentId: String = "agent_1",
-        makeTool: (UiSink) -> UiGenTool,
+        makeTool: () -> UiGenTool,
     ): Pair<ToolExecutionResult, CardIr?> {
-        val sink = UiSink()
-        val received = mutableListOf<CardIr>()
-        val job = backgroundScope.launch { sink.cards.take(1).collect { received += it } }
-        runCurrent()
-
-        val result = makeTool(sink).execute(
+        val result = makeTool().execute(
             buildJsonObject { put("show_ui", JsonPrimitive(true)) },
             stubContext(agentId),
         )
-        runCurrent()
-        if (received.isNotEmpty()) job.join() else job.cancel()
-        return result to received.firstOrNull()
+        return result to result.decodeCard()
     }
 
     @Test
     fun `GetDateTimeTool 产出时间卡片`() = runTest {
-        val (result, card) = executeAndCollectCard { GetDateTimeTool(it) }
+        val (result, card) = executeAndDecodeCard { GetDateTimeTool() }
         assertFalse(result.isError)
-        // 回执携带日期时间数据（数据进记忆，卡片旁路）
+        // 回执携带日期时间数据（数据进记忆，卡片内嵌结果 metadata）
         assertTrue(result.parts.text.contains("date"))
         assertTrue(result.parts.text.contains("time"))
         val root = assertNotNull(card).root
@@ -69,7 +56,7 @@ class AllToolsTest {
 
     @Test
     fun `GetLocationTool 产出定位卡片`() = runTest {
-        val (result, card) = executeAndCollectCard { GetLocationTool(it) }
+        val (result, card) = executeAndDecodeCard { GetLocationTool() }
         assertFalse(result.isError)
         val root = assertNotNull(card).root
         assertEquals("Location", root.component)
@@ -81,21 +68,14 @@ class AllToolsTest {
 
     @Test
     fun `带 show_ui 入参时仍能取数 不因未知键失败`() = runTest {
-        val sink = UiSink()
-        val received = mutableListOf<CardIr>()
-        val job = backgroundScope.launch { sink.cards.take(1).collect { received += it } }
-        runCurrent()
-
         // 框架参数只是附加：工具的入参解码不该因多出的 show_ui 键而失败
-        val result = WeatherCardTool(sink).execute(
+        val result = WeatherCardTool().execute(
             buildJsonObject {
                 put("city", JsonPrimitive("北京"))
                 put("show_ui", JsonPrimitive(true))
             },
             stubContext(),
         )
-        runCurrent()
-        job.join()
 
         assertFalse(result.isError)
         assertTrue(result.parts.text.contains("北京"))

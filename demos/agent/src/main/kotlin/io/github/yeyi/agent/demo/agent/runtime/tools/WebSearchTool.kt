@@ -3,7 +3,6 @@ package io.github.yeyi.agent.demo.agent.runtime.tools
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
 import io.github.yeyi.agent.genui.tool.UiGenTool
-import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import io.ktor.client.*
@@ -26,12 +25,12 @@ import java.net.URLEncoder
  * 网络搜索 Tool
  * 使用 Bing 搜索获取真实结果，产出一张文本卡。
  *
- * 卡片经 UiSink 旁路广播,永不写入记忆;记忆里只留结构化回执文本。
+ * 卡片内嵌工具结果 metadata，随事件流实时送达渲染、随记忆链路持久化恢复。
  *
  * 产卡：IR 根节点直接为 Text（顶层文本节点，无 Card 外壳），
  * content 承载多行搜索结果文本。
  */
-class WebSearchTool(sink: UiSink) : UiGenTool(sink) {
+class WebSearchTool : UiGenTool() {
     override val name = "web_search"
     override val description = "搜索互联网内容，使用 Bing 搜索"
 

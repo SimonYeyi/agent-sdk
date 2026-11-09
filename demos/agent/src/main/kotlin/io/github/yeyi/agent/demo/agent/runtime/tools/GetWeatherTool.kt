@@ -4,7 +4,6 @@ import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
 import io.github.yeyi.agent.genui.tool.UiGenTool
-import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.compression.CompressTool
@@ -83,7 +82,7 @@ internal fun weatherData(city: String, time: WeatherTime): JsonObject {
 }
 
 /**
- * 查询指定城市的天气（支持时间参数）——纯文本回执版，供子 agent 等未接卡片通道的场景使用。
+ * 查询指定城市的天气（支持时间参数）——纯文本回执版，供子 agent 等场景使用。
  */
 val getWeatherTool = CompressTool(
     tool<GetWeatherRequest, JsonElement>(
@@ -97,14 +96,11 @@ val getWeatherTool = CompressTool(
 /**
  * 天气卡片产卡工具：查询天气并对外发射 iOS 风格天气卡。
  *
- * 与 [getWeatherTool] 同名同数据源，但继承 [UiGenTool] 走旁路产卡：
- * 主 agent 场景使用本工具，本工具随 agent 构造并绑定该 agent 的 sink，
- * 卡片只落在本 agent 的通道上；
+ * 与 [getWeatherTool] 同名同数据源，但继承 [UiGenTool] 产卡：
+ * 卡片内嵌工具结果 metadata，随事件流实时送达渲染、随记忆链路持久化恢复；
  * 卡片内嵌时间切换按钮（现在/明天/后天），点击经 ActionEvent 回流触发新一轮推理。
  */
-class WeatherCardTool(
-    sink: UiSink,
-) : UiGenTool(sink) {
+class WeatherCardTool : UiGenTool() {
 
     override val name: String = "get_weather"
     override val description: String = "当需要查询指定地点的天气情况时使用"

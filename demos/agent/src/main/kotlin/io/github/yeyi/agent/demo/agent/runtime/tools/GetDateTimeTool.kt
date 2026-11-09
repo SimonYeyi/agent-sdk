@@ -3,7 +3,6 @@ package io.github.yeyi.agent.demo.agent.runtime.tools
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
 import io.github.yeyi.agent.genui.tool.UiGenTool
-import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
@@ -18,13 +17,13 @@ import java.time.LocalDate
 /**
  * 返回当前日期与时间，产出一张时间卡片。
  *
- * 卡片经 UiSink 旁路广播,永不写入记忆;记忆里只留结构化回执文本。
+ * 卡片内嵌工具结果 metadata，随事件流实时送达渲染、随记忆链路持久化恢复。
  *
  * 产卡方式 1（标准 IR）：buildCard 直接产出完整组件数据树，
  * 渲染由 DefaultRenderAdapter 递归查表完成，工具不感知任何渲染细节。
  * IR 只携带语义数据（content），视觉效果由基础组件默认形态决定。
  */
-class GetDateTimeTool(sink: UiSink) : UiGenTool(sink) {
+class GetDateTimeTool : UiGenTool() {
 
     override val name: String = "get_datetime"
     override val description: String = "返回当前日期与时间"
