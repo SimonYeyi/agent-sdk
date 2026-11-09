@@ -182,6 +182,13 @@ fun BossScreen(
                 // - 用户下划离开底部: 最后一项底边超出视口底(>)——判 false,不恢复
                 // 空列表同理判 true(初始即底部)。不依赖 canScrollForward:实测它在
                 // 多种场景下与滚动位置脱节(恒 false),无法区分"贴底"与"离开底部"。
+                //
+                // 底部状态下内容尺寸增长（如卡片经渲染后端异步渲染完成、高度突变）导致
+                // 离开底部时，主动追底滚回底部——与 messages 变化触发的 chaser 互补，
+                // 覆盖「数据未变但渲染尺寸已变」的异步渲染路径，让卡片与普通气泡一样
+                // 实时渲染即拉到底。用户上滑（autoScroll=false）时仍不抢滚动；
+                // 追底经独立 scope 启动，被手势抢占或新滚动取消只是子协程作罢，
+                // 不影响本收集协程继续判位。
                 LaunchedEffect(listState) {
                     snapshotFlow {
                         val info = listState.layoutInfo
@@ -194,6 +201,13 @@ fun BossScreen(
                     .collect { (scrolling, atBottom) ->
                         if (!scrolling && atBottom) {
                             autoScroll = true
+                        } else if (autoScroll && !scrolling && !atBottom) {
+                            val count = listState.layoutInfo.totalItemsCount
+                            if (count > 0) {
+                                scope.launch {
+                                    listState.scrollToItem(count - 1, Int.MAX_VALUE)
+                                }
+                            }
                         }
                     }
                 }
