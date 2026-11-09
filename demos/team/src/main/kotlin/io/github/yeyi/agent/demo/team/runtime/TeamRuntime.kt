@@ -16,8 +16,8 @@ import kotlinx.coroutines.SupervisorJob
  * team 侧只接 [A2uiRenderAdapter]（官方 androidx.a2ui 引擎 + material3-a2ui Compose 渲染），
  * 不引入 demos/agent 的 default adapter。
  *
- * 卡片通道不在这里：产卡工具随 agent 构造、绑定该 agent 自持的 [io.github.yeyi.agent.genui.tool.UiSink]
- * （与 demos/agent 的装配口径一致），sink 由使用方（BossViewModel）创建并订阅。
+ * 卡片不再走独立旁路通道：产卡工具把卡片内嵌进工具结果 metadata，
+ * 随事件流实时送达渲染、随记忆链路持久化恢复（与 demos/agent 的装配口径一致）。
  *
  * 渲染后端 [cardAdapter] 是 app 级单例：引擎消息循环与动作回流收集挂在
  * [CoroutineScope(SupervisorJob() + Dispatchers.Main)] 上，生命周期随 app；

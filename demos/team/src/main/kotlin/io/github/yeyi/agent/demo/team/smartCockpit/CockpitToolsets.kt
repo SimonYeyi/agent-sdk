@@ -4,7 +4,6 @@ import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
 import io.github.yeyi.agent.genui.tool.UiGenTool
-import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.toolset.Toolset
@@ -19,7 +18,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 // ===== 舒适控制工具集 =====
 
-class AcTool(sink: UiSink) : UiGenTool(sink) {
+class AcTool : UiGenTool() {
     override val name = "ac_control"
     override val description = "空调控制"
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
@@ -60,7 +59,7 @@ class AcTool(sink: UiSink) : UiGenTool(sink) {
     }
 }
 
-class SeatTool(sink: UiSink) : UiGenTool(sink) {
+class SeatTool : UiGenTool() {
     override val name = "seat_control"
     override val description = "座椅控制"
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
@@ -103,14 +102,14 @@ class SeatTool(sink: UiSink) : UiGenTool(sink) {
     }
 }
 
-fun comfortControlToolset(sink: UiSink): Toolset = Toolset("comfort_control", "座舱舒适控制，包含空调、座椅等").apply {
-    add(AcTool(sink))
-    add(SeatTool(sink))
+fun comfortControlToolset(): Toolset = Toolset("comfort_control", "座舱舒适控制，包含空调、座椅等").apply {
+    add(AcTool())
+    add(SeatTool())
 }
 
 // ===== 车内环境工具集 =====
 
-class WindowTool(sink: UiSink) : UiGenTool(sink) {
+class WindowTool : UiGenTool() {
     override val name = "window_control"
     override val description = "车窗控制"
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
@@ -153,7 +152,7 @@ class WindowTool(sink: UiSink) : UiGenTool(sink) {
     }
 }
 
-class AmbientLightTool(sink: UiSink) : UiGenTool(sink) {
+class AmbientLightTool : UiGenTool() {
     override val name = "ambient_light_control"
     override val description = "氛围灯控制"
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
@@ -203,14 +202,14 @@ class AmbientLightTool(sink: UiSink) : UiGenTool(sink) {
     }
 }
 
-fun cabinEnvironmentToolset(sink: UiSink): Toolset = Toolset("cabin_environment", "车内环境控制，包含车窗、氛围灯等").apply {
-    add(WindowTool(sink))
-    add(AmbientLightTool(sink))
+fun cabinEnvironmentToolset(): Toolset = Toolset("cabin_environment", "车内环境控制，包含车窗、氛围灯等").apply {
+    add(WindowTool())
+    add(AmbientLightTool())
 }
 
 // ===== 驾驶辅助工具集 =====
 
-class NavigateTool(sink: UiSink) : UiGenTool(sink) {
+class NavigateTool : UiGenTool() {
     override val name = "navigate"
     override val description = "导航到目的地"
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
@@ -251,7 +250,7 @@ class NavigateTool(sink: UiSink) : UiGenTool(sink) {
     }
 }
 
-class DashCamTool(sink: UiSink) : UiGenTool(sink) {
+class DashCamTool : UiGenTool() {
     override val name = "dash_cam_control"
     override val description = "行车记录仪控制"
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
@@ -291,9 +290,9 @@ class DashCamTool(sink: UiSink) : UiGenTool(sink) {
     }
 }
 
-fun drivingAssistToolset(sink: UiSink): Toolset = Toolset("driving_assist", "驾驶辅助，包含导航、行车记录仪等").apply {
-    add(NavigateTool(sink))
-    add(DashCamTool(sink))
+fun drivingAssistToolset(): Toolset = Toolset("driving_assist", "驾驶辅助，包含导航、行车记录仪等").apply {
+    add(NavigateTool())
+    add(DashCamTool())
 }
 
 private fun JsonObject.str(key: String): String =

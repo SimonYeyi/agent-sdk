@@ -12,8 +12,7 @@ import io.github.yeyi.agent.demo.team.ui.ChatMessageUi
 import io.github.yeyi.agent.demo.team.ui.PendingInput
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
 import io.github.yeyi.agent.genui.ir.ActionEvent
-import io.github.yeyi.agent.genui.ir.CardIr
-import io.github.yeyi.agent.genui.tool.UiSink
+import io.github.yeyi.agent.genui.tool.decodeCard
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.text
@@ -31,7 +30,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -49,17 +47,8 @@ class BossViewModel(
     private val _boss = MutableStateFlow<BossAgent?>(null)
     val boss: StateFlow<BossAgent?> = _boss.asStateFlow()
 
-    /** 卡片旁路：sink 留在收集它的地方，产卡工具随 agent 构造时绑定。 */
-    private val sink = UiSink()
-
     /** 渲染后端：UI 层经 [UiRenderAdapter.RenderCard] 渲染卡片，team demo 全局共用 TeamRuntime 装配。 */
     val cardAdapter: UiRenderAdapter get() = TeamRuntime.cardAdapter
-
-    /** 卡片按 toolCallId 锚点缓存：卡片流先于事件到达时暂存，事件到位后归位。 */
-    private val cardsByCallId = mutableMapOf<String, CardIr>()
-
-    /** 已归位到消息列表的卡片锚点，保证卡片流与事件流竞态下插入幂等。 */
-    private val insertedCards = mutableSetOf<String>()
 
     /** toolCall.id -> 对应"执行中"气泡在 _messages 中的下标，工具结果到达时原位替换。 */
     private val pendingToolBubbles = mutableMapOf<String, Int>()
@@ -107,17 +96,9 @@ class BossViewModel(
             }
             restoreConversation(session)
             // 配置驱动 spawn：session.memory 作为 Boss 记忆，文本聊天与语音共享同一实例。
-            // 产卡工具随 agent 构造绑定本 sink，卡片只落在这条通道上。
-            val agent = CockpitAgent.create(session.uniqueKey, session.memory, sink)
+            val agent = CockpitAgent.create(session.uniqueKey, session.memory)
             _boss.value = agent
             wireCollectors(agent)
-        }
-        // 卡片旁路流订阅：实时广播，卡片按 toolCallId 插入对应工具结果消息之后
-        viewModelScope.launch {
-            sink.cards.collect { card ->
-                cardsByCallId[card.instanceId] = card
-                insertCardAfterAnchor(card.instanceId)
-            }
         }
     }
 
@@ -126,7 +107,19 @@ class BossViewModel(
             val history = session.conversation.history(Conversation.PAGE_ALL)
             // 运行时工具调用最终只保留结果气泡（"执行中"气泡被结果替换），
             // memory 持久化的 ToolResult 即最终结果，恢复渲染与运行时一致。
-            _messages.value = history.mapNotNull { entry -> entry.toChatMessageUi() }
+            // 产卡工具的卡片内嵌在条目顶层 metadata 里，随记忆链路原生持久化，
+            // 恢复时直接读取渲染，无需旁路独立卡片文件。
+            val restored = ArrayList<ChatMessageUi>(history.size)
+            for (entry in history) {
+                val card = entry.decodeCard()
+                if (card != null) {
+                    // 产卡工具：卡片取代工具结果气泡，只显示卡片
+                    restored.add(ChatMessageUi("card", "", card = card))
+                } else {
+                    entry.toChatMessageUi()?.let(restored::add)
+                }
+            }
+            _messages.value = restored
         }
     }
 
@@ -228,8 +221,6 @@ class BossViewModel(
             pendingQueue.clear()
             refreshPendingInputs()
             streamingAssistantIndex = null
-            cardsByCallId.clear()
-            insertedCards.clear()
             _messages.value = emptyList()
             _taskGroups.value = emptyList()
             _inputText.value = ""
@@ -244,7 +235,7 @@ class BossViewModel(
                     ACCOUNT_ID, SESSION_NAME, AgentReference(CockpitAgent.NAME), SESSION_ID
                 )
             }
-            val agent = CockpitAgent.create(newSession.uniqueKey, newSession.memory, sink)
+            val agent = CockpitAgent.create(newSession.uniqueKey, newSession.memory)
             _boss.value = agent
             wireCollectors(agent)
         }
@@ -381,43 +372,27 @@ class BossViewModel(
     }
 
     /**
-     * 工具结果到达：把 [handleToolCallStart] 记录的"调用工具"气泡原位替换为执行结果，
-     * 以工具名为气泡标签、结果为内容，明确结果来源工具；callId 承载工具调用锚点，
-     * 供卡片按 instanceId 归位到结果气泡之后；
+     * 工具结果到达：把 [handleToolCallStart] 记录的"调用工具"气泡原位替换为最终展示。
+     *
+     * 产卡工具（卡片内嵌结果 metadata）：直接替换为卡片，卡片取代工具结果气泡；
+     * 普通工具：替换为结果气泡，以工具名为标签、结果为内容，明确结果来源工具。
+     * 卡片与恢复路径同源同键（metadata 编码），顺序天然正确，无暂存/查表/锚点插入。
      * 找不到对应气泡（异常路径）时直接追加，保证结果不丢失。
      */
     private fun handleToolCallEnd(toolCall: ToolCall, result: ToolExecutionResult) {
-        val name = toolCall.name
-        val content = result.parts.text.takeIf { it.isNotEmpty() } ?: "完成"
-        val replacement = ChatMessageUi("tool", content, toolName = name, callId = toolCall.id)
         val index = pendingToolBubbles.remove(toolCall.id)
+        val replacement = result.decodeCard()?.let { card ->
+            ChatMessageUi("card", "", card = card)
+        } ?: ChatMessageUi(
+            "tool",
+            result.parts.text.takeIf { it.isNotEmpty() } ?: "完成",
+            toolName = toolCall.name,
+            callId = toolCall.id,
+        )
         if (index != null && index < _messages.value.size) {
             _messages.value = _messages.value.toMutableList().also { it[index] = replacement }
         } else {
             _messages.value = _messages.value + replacement
-        }
-        // 结果消息已入列，卡片若先到达（暂存于 cardsByCallId）此时按结果锚点归位
-        insertCardAfterAnchor(toolCall.id)
-    }
-
-    /**
-     * 按锚点把卡片插入消息列表：找到对应工具结果气泡（callId 与卡片 instanceId 一致）后插入其后。
-     *
-     * 产卡工具是 final 工具，无模型总结语，卡片即最终回复，因此必须落在工具结果之后。
-     * 卡片流与事件流双向竞态均由 [insertedCards] 幂等收敛：
-     * - 卡片先于事件到达：找不到锚点则暂存 [cardsByCallId]，事件到达后再次触发；
-     * - 事件先于卡片到达：直接命中锚点插入；卡片重复到达时已入集合直接跳过。
-     */
-    private fun insertCardAfterAnchor(instanceId: String) {
-        if (instanceId in insertedCards) return
-        val card = cardsByCallId[instanceId] ?: return
-        _messages.update { list ->
-            val anchorIndex = list.indexOfFirst { it.callId == instanceId }
-            if (anchorIndex < 0) return@update list
-            insertedCards.add(instanceId)
-            val result = ArrayList(list)
-            result.add(anchorIndex + 1, ChatMessageUi("card", "", card = card))
-            result
         }
     }
 

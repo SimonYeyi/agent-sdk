@@ -4,7 +4,6 @@ import io.github.yeyi.agent.config.AgentDefinition
 import io.github.yeyi.agent.config.AgentRegistry
 import io.github.yeyi.agent.config.AgentScope
 import io.github.yeyi.agent.demo.team.BuildConfig
-import io.github.yeyi.agent.genui.tool.UiSink
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.subagent.SubagentRegistry
@@ -49,21 +48,21 @@ object CockpitAgent {
     )
 
     /** 运行时上下文：注册表全集。记忆由 spawn 参数单独传入。 */
-    private fun scope(sink: UiSink): AgentScope = AgentScope(
-        // 产卡工具随 agent 构造：绑定本 agent 的卡片通道 sink（调用方持有并订阅），
-        // 工具执行时直接向该通道发射卡片，无运行期路由。
+    private fun scope(): AgentScope = AgentScope(
+        // 产卡工具随 agent 构造：卡片内嵌工具结果 metadata，随事件流实时送达渲染、
+        // 随记忆链路持久化恢复，无运行期路由。
         toolRegistry = ToolRegistry().apply {
-            register(GetTimeTool(sink))
-            register(GetDateTool(sink))
+            register(GetTimeTool())
+            register(GetDateTool())
         },
         lazyToolRegistry = LazyToolRegistry().apply {
-            register(LazyTool(GetCarStatusTool(sink)))
-            register(LazyTool(GetEnergyTool(sink), LazyTool.Level.TOOL))
+            register(LazyTool(GetCarStatusTool()))
+            register(LazyTool(GetEnergyTool(), LazyTool.Level.TOOL))
         },
         toolsetRegistry = ToolsetRegistry().apply {
-            register(comfortControlToolset(sink))
-            register(cabinEnvironmentToolset(sink))
-            register(drivingAssistToolset(sink))
+            register(comfortControlToolset())
+            register(cabinEnvironmentToolset())
+            register(drivingAssistToolset())
         },
         skillRegistry = SkillRegistry().apply {
             register(DrivingModeSkill())
@@ -82,13 +81,12 @@ object CockpitAgent {
      *
      * @param agentId agent 身份标识，通常取 session.uniqueKey
      * @param memory 会话记忆（持久化 Memory 时重启可续聊）
-     * @param sink 本 agent 的卡片通道：产卡工具随 agent 构造并绑定它，卡片只落在该通道上
      */
-    fun create(agentId: String, memory: Memory, sink: UiSink): BossAgent {
+    fun create(agentId: String, memory: Memory): BossAgent {
         val definition = requireNotNull(registry.getOrNull(NAME)) {
             "CockpitAgent definition not registered"
         }
-        return definition.spawnBoss(agentId, memory, scope(sink))
+        return definition.spawnBoss(agentId, memory, scope())
     }
 
     private fun providerFromBuildConfig(): AgentDefinition.Provider {
