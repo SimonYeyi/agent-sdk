@@ -256,7 +256,7 @@ internal class Pasture(
 
 /**
  * 保证 Final 的 content 可转述: 非空原样返回; 为 null(仅出现在可终结工具短路路径)
- * 时以最后一次迭代的助手文本 + 该批工具结果的文本部分按序拼装。
+ * 时以最后一次迭代那批工具结果的文本部分按序拼装。
  *
  * 空正文对前台消费方是协议的一部分——工具已把产出直接呈现给用户;但 beast 是
  * 后台 agent, Final 是其产出唯一出口(下游 task 的 context、BossAgent 汇总报告),
@@ -266,9 +266,8 @@ internal class Pasture(
  */
 private fun AgentEvent.Final.ensureContent(): AgentEvent.Final {
     if (result.message.content != null) return this
-    val last = result.iterationRecords.last()
-    val text = (listOfNotNull(last.callExplanation) + last.calls.map { call ->
+    val text = result.iterationRecords.last().calls.joinToString("\n") { call ->
         call.result.parts.filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
-    }).joinToString("\n")
+    }
     return AgentEvent.Final(result.copy(message = result.message.copy(content = text)))
 }
