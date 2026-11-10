@@ -23,6 +23,7 @@ import io.github.yeyi.agent.demo.agent.ui.registerDemoCardTemplates
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
 import io.github.yeyi.agent.genui.adapter.default.DefaultRenderAdapter
 import io.github.yeyi.agent.genui.adapter.default.registerDefaultComponents
+import io.github.yeyi.agent.genui.tool.GenUiTool
 import io.github.yeyi.agent.hook.HookPipeline
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.mcp.ClientInfo
@@ -82,6 +83,8 @@ object AgentRuntime {
         register(GetLocationTool())
         register(GetDateTimeTool())
         register(ChooseCityTool())
+        // 模型现场排版的通用卡片：内容不定型时用它，不必为每种内容各写一个工具
+        register(GenUiTool())
     }
 
     /**
@@ -128,7 +131,7 @@ object AgentRuntime {
     fun buildAgent(agentId: String, memory: Memory): Agent {
         return agent {
             id(agentId)
-            persona(AgentPersona(role = "你是一个 helpful 助手，优先使用工具完成任务。"))
+            persona(AgentPersona(role = "你是一个 helpful 助手，优先使用工具完成任务，结果最好以卡片的形式展示"))
             memory(memory)
             llmProvider(provider)
             // 产卡工具:卡片内嵌工具结果 metadata,随事件流与记忆链路送达消费方

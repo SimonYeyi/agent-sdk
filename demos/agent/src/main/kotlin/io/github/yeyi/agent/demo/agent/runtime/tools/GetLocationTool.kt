@@ -2,7 +2,7 @@ package io.github.yeyi.agent.demo.agent.runtime.tools
 
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
-import io.github.yeyi.agent.genui.tool.UiGenTool
+import io.github.yeyi.agent.genui.tool.UiTool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
@@ -22,7 +22,7 @@ import kotlinx.serialization.json.jsonObject
  * 经纬度等位置数据已随工具回执进入记忆，模型后续轮次据此执行导航；
  * 动作载荷里另有一份同样的绑定数据，随动作回流到应用，由应用决定是否喂给模型。
  */
-class GetLocationTool : UiGenTool() {
+class GetLocationTool : UiTool() {
 
     override val name: String = "get_location"
     override val description: String = "获取当前位置"

@@ -3,7 +3,7 @@ package io.github.yeyi.agent.demo.team.smartCockpit
 import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
-import io.github.yeyi.agent.genui.tool.UiGenTool
+import io.github.yeyi.agent.genui.tool.UiTool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.coroutines.delay
@@ -58,7 +58,7 @@ internal object A2uiNodes {
 }
 
 /** 独立工具：获取时间，产出 A2UI 时间卡。 */
-class GetTimeTool : UiGenTool() {
+class GetTimeTool : UiTool() {
     override val name = "get_time"
     override val description = "获取当前时间"
     override val toolSchema: ToolParameters = ToolParameters.Empty
@@ -92,7 +92,7 @@ class GetTimeTool : UiGenTool() {
 }
 
 /** 独立工具：获取日期，产出 A2UI 日期卡。 */
-class GetDateTool : UiGenTool() {
+class GetDateTool : UiTool() {
     override val name = "get_date"
     override val description = "获取当前日期"
     override val toolSchema: ToolParameters = ToolParameters.Empty
@@ -126,7 +126,7 @@ class GetDateTool : UiGenTool() {
 }
 
 /** 独立工具：获取车辆状态，产出 A2UI 车辆状态卡。 */
-class GetCarStatusTool : UiGenTool() {
+class GetCarStatusTool : UiTool() {
     override val name = "get_car_status"
     override val description = "获取车辆状态"
     override val toolSchema: ToolParameters = ToolParameters.Empty
@@ -165,7 +165,7 @@ class GetCarStatusTool : UiGenTool() {
 }
 
 /** 独立工具：获取能耗信息，产出 A2UI 能耗卡。 */
-class GetEnergyTool : UiGenTool() {
+class GetEnergyTool : UiTool() {
     override val name = "get_energy"
     override val description = "获取能耗信息"
     override val toolSchema: ToolParameters = ToolParameters.Empty
