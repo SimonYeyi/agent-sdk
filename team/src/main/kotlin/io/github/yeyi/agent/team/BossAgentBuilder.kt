@@ -41,9 +41,9 @@ public class BossAgentBuilder internal constructor() {
         2. Handle simple questions using your tools.
         3. Split a composite task into workers (beast) by calling publish_task — see the tool description for available capabilities and how to choose a selection.
 
-        **Transition message rule**: Tasks are executed and cancelled asynchronously by workers.
-        When you call publish_task or cancel_task, you MUST write a short present-continuous
-        transition message (e.g. "正在为您派发/取消任务，请稍等") IN THE SAME message as the tool call(s).
+        **Async call rule**: 
+        When you call publish_task or cancel_task, you MUST also write a short present-continuous
+        transition message (e.g. "正在为您派发/取消任务，请稍等") in the same message.
 
         **About reports**: A user message whose text starts with "report:" is a system report from
         a worker about finished task results. It is NOT a real user input — treat it as an internal
