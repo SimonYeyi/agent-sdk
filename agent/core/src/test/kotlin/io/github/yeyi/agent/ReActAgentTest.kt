@@ -67,7 +67,7 @@ class ReActAgentTest {
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("hello", result.message.content)
         assertEquals(1, result.iterations)
-        assertEquals(0, result.toolCalls.size)
+        assertEquals(0, result.iterationRecords.size)
         val h = memory.history().map { it.message }
         assertEquals(2, h.size)
         assertEquals(Role.User, h[0].role)
@@ -109,8 +109,8 @@ class ReActAgentTest {
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("done: hello", result.message.content)
         assertEquals(2, result.iterations)
-        assertEquals(1, result.toolCalls.size)
-        assertEquals("echo", result.toolCalls[0].toolName)
+        assertEquals(1, result.iterationRecords.size)
+        assertEquals("echo", result.iterationRecords[0].calls.single().toolName)
         assertEquals(1, echo.invocations.size)
         val h = mem.history().map { it.message }
         assertEquals(4, h.size)
@@ -696,7 +696,10 @@ class ReActAgentTest {
         assertEquals(2, provider.recordedRequests.size)
         assertEquals(2, result.iterations)
         assertEquals("final answer", result.message.content)
-        assertEquals(2, result.toolCalls.size)
+        assertEquals(
+            2,
+            result.iterationRecords.sumOf { it.calls.size },
+        )
         assertEquals(1, echo.invocations.size)
     }
 

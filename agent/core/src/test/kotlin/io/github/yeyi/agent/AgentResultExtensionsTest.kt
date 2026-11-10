@@ -28,7 +28,7 @@ class AgentResultExtensionsTest {
         val result = agent.run(AgentQuery.text("hello")).awaitResult()
         assertEquals("hi", result.message.content)
         assertEquals(1, result.iterations)
-        assertEquals(emptyList(), result.toolCalls)
+        assertEquals(emptyList(), result.iterationRecords)
     }
 
     @Test
@@ -37,7 +37,7 @@ class AgentResultExtensionsTest {
         val result = AgentResult(
             message = ChatMessage.Assistant(content = "hello"),
             iterations = 1,
-            toolCalls = emptyList(),
+            iterationRecords = emptyList(),
         )
         val flow = flowOf<AgentEvent>(
             AgentEvent.TextDelta("he"),

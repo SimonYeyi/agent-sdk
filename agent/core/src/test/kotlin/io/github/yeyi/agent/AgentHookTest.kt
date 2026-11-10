@@ -312,7 +312,7 @@ class AgentHookTest {
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         assertEquals("final", result.message.content)
-        assertEquals(1, result.toolCalls.size)
+        assertEquals(1, result.iterationRecords.single().calls.size)
     }
 
     @Test
@@ -452,10 +452,9 @@ class AgentHookTest {
             dispatcher = StandardTestDispatcher(testScheduler)
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
-        // The synthetic result MUST land in toolCalls (so AgentResult consumers see the call)
+        // The synthetic result MUST land in iterationRecords (so AgentResult consumers see the call)
         // even though no events were emitted.
-        assertEquals(1, result.toolCalls.size)
-        assertEquals("synthetic-from-hook", result.toolCalls[0].result.parts.text)
+        assertEquals("synthetic-from-hook", result.iterationRecords.single().calls.single().result.parts.text)
     }
 
     @Test
@@ -484,9 +483,9 @@ class AgentHookTest {
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         // The agent still completes (no throw). The synthetic error result is what the LLM saw.
         assertEquals("final", result.message.content)
-        assertEquals(1, result.toolCalls.size)
-        assertEquals("blocked by hook", result.toolCalls[0].result.parts.text)
-        assertTrue(result.toolCalls[0].result.isError)
+        val record = result.iterationRecords.single().calls.single()
+        assertEquals("blocked by hook", record.result.parts.text)
+        assertTrue(record.result.isError)
     }
 
     @Test
@@ -519,9 +518,8 @@ class AgentHookTest {
             dispatcher = StandardTestDispatcher(testScheduler)
         )
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
-        assertEquals(1, result.toolCalls.size)
         // EchoTool normally returns JsonObject text; hook rewrote it.
-        assertEquals("rewritten-by-hook", result.toolCalls[0].result.parts.text)
+        assertEquals("rewritten-by-hook", result.iterationRecords.single().calls.single().result.parts.text)
     }
 
     @Test
@@ -551,7 +549,7 @@ class AgentHookTest {
         val result = agent.run(AgentQuery.text("hi")).awaitResult()
         // exception in beforeToolCall 鈫?tool runs as if no hook short-circuited
         assertEquals("final", result.message.content)
-        assertEquals(1, result.toolCalls.size)
+        assertEquals(1, result.iterationRecords.single().calls.size)
     }
 
     @Test

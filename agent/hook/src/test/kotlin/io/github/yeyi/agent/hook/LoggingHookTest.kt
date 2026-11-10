@@ -1,10 +1,7 @@
 package io.github.yeyi.agent.hook
 
-import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.AgentResult
-import io.github.yeyi.agent.AgentPersona
-import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
@@ -12,8 +9,6 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
-import io.github.yeyi.agent.memory.InMemoryMemory
-import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.AgentHook
 import kotlinx.coroutines.test.runTest
@@ -130,12 +125,17 @@ class LoggingHookTest {
         val r = AgentResult(
             message = ChatMessage.Assistant(content = "done"),
             iterations = 5,
-            toolCalls = listOf(
-                AgentResult.ToolCallRecord(
-                    callId = "c1", toolName = "echo",
-                    arguments = JsonObject(emptyMap()),
-                    result = ToolExecutionResult.success("ok"),
-                    timestamp = java.time.Instant.now()
+            iterationRecords = listOf(
+                AgentResult.IterationRecord(
+                    callExplanation = null,
+                    calls = listOf(
+                        AgentResult.ToolCallRecord(
+                            callId = "c1", toolName = "echo",
+                            arguments = JsonObject(emptyMap()),
+                            result = ToolExecutionResult.success("ok"),
+                            timestamp = java.time.Instant.now()
+                        )
+                    )
                 )
             ),
             usage = null,
@@ -167,7 +167,7 @@ class LoggingHookTest {
             AgentResult(
                 message = ChatMessage.Assistant(content = "ok"),
                 iterations = 1,
-                toolCalls = emptyList(),
+                iterationRecords = emptyList(),
                 usage = null,
             )
         )

@@ -52,8 +52,8 @@ internal class AgentTurn(
     /** 本轮迭代计数 —— 自产累积量，非输入，故不进构造器。 */
     var iterations: Int = 0
 
-    /** 本轮工具调用记录 —— 同上。 */
-    val toolCalls: MutableList<AgentResult.ToolCallRecord> = mutableListOf()
+    /** 本轮按迭代分批的工具调用记录 —— 同上。 */
+    val iterationRecords: MutableList<AgentResult.IterationRecord> = mutableListOf()
 
     /**
      * 本轮当前迭代的上下文 —— 一轮迭代一份，迭代内所有钩子点共用同一个对象。

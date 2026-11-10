@@ -347,11 +347,12 @@ public class ReActAgent internal constructor(
         // finalizable(arguments, result) 基于自己本轮的执行结果与原始入参裁定可终结
         // （如失败拒绝终结、或按入参决定是否产卡），则直接进入终局协议，不再触发下一轮推理。
         // ReActAgent 不判断结果，只原样回传。
-        // 各工具的执行结果反查自 turn.toolCalls 的 ToolCallRecord（callTools 已按序追加）；
-        // 入参取自本轮 tool call，与执行时 dispatch 的入参一致。
+        // 各工具的执行结果反查自本次迭代记录（callTools 已追加）；入参取自本轮 tool call，
+        // 与执行时 dispatch 的入参一致。
+        val iterationCalls = turn.iterationRecords.last().calls
         val allToolFinalizable = response.message.toolCalls.all { call ->
             val tool = toolRegistry.getOrNull(call.name)
-            val result = turn.toolCalls.lastOrNull { it.callId == call.id }?.result
+            val result = iterationCalls.lastOrNull { it.callId == call.id }?.result
             tool is FinalizableTool && result != null && tool.finalizable(call.arguments, result)
         }
         if (allToolFinalizable) {
@@ -364,13 +365,15 @@ public class ReActAgent internal constructor(
     }
 
     private suspend fun callTools(turn: AgentTurn, response: ChatResponse) {
+        val content = response.message.content?.takeIf { it != "" }
         turn.events.emit(
             AgentEvent.ToolCallExplanation(
-                text = response.message.content?.takeIf { it != "" },
+                text = content,
                 toolCalls = response.message.toolCalls,
             )
         )
 
+        val records = mutableListOf<AgentResult.ToolCallRecord>()
         for (call in response.message.toolCalls) {
             turn.events.emit(AgentEvent.ToolCallStart(call))
             val synthetic = hook.safeInvoke { beforeToolCall(turn.iterationContext, call) }
@@ -385,7 +388,7 @@ public class ReActAgent internal constructor(
                 afterToolCall(turn.iterationContext, call, raw, synthetic != null, durMs)
             } ?: raw
 
-            turn.toolCalls += AgentResult.ToolCallRecord(
+            records += AgentResult.ToolCallRecord(
                 callId = call.id,
                 toolName = call.name,
                 arguments = call.arguments,
@@ -404,6 +407,7 @@ public class ReActAgent internal constructor(
 
             turn.events.emit(AgentEvent.ToolCallEnd(call, final))
         }
+        turn.iterationRecords += AgentResult.IterationRecord(callExplanation = content, calls = records)
     }
 
     /**
@@ -423,7 +427,7 @@ public class ReActAgent internal constructor(
         val result = AgentResult(
             message = response.message,
             iterations = turn.iterations,
-            toolCalls = turn.toolCalls.toList(),
+            iterationRecords = turn.iterationRecords.toList(),
             usage = response.usage,
         )
         try {

@@ -206,7 +206,7 @@ class PastureFinalContentTest {
         )))
         val update = deferred.await()
         assertEquals("plain answer", (update.event as AgentEvent.Final).result.message.content)
-        assertNull((update.event as AgentEvent.Final).result.toolCalls.firstOrNull())
+        assertEquals(emptyList(), (update.event as AgentEvent.Final).result.iterationRecords)
 
         scope.cancel()
     }
