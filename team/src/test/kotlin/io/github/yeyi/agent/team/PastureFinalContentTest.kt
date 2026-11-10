@@ -106,6 +106,75 @@ class PastureFinalContentTest {
     }
 
     @Test
+    fun `multi-batch round backfills only the last batch not all tool results`() = runBlocking {
+        // iter1: 普通工具(不可终结) → iter2: 终态工具短路。
+        // Final.content 为 null, 应只拼最后一批(FINAL_PAYLOAD), 不含早期批次的 OLD_RESULT。
+        val plainTool = object : Tool {
+            override val name = "plain"
+            override val description = "A regular tool."
+            override val parametersSchema: ToolParameters = ToolParameters.Empty
+            override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult =
+                ToolExecutionResult.success("OLD_RESULT")
+        }
+        val bb = BulletinBoard()
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val fake = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(
+                    message = ChatMessage.Assistant(
+                        content = null,
+                        toolCalls = listOf(ToolCall(id = "p1", name = "plain", arguments = JsonNull)),
+                    ),
+                    usage = null,
+                    finishReason = FinishReason.ToolCalls,
+                ),
+                ChatResponse(
+                    message = ChatMessage.Assistant(
+                        content = null,
+                        toolCalls = listOf(ToolCall(id = "c2", name = "card", arguments = JsonNull)),
+                    ),
+                    usage = null,
+                    finishReason = FinishReason.ToolCalls,
+                ),
+            )
+        )
+        val lazyToolReg = LazyToolRegistry().apply {
+            register(LazyTool(plainTool))
+            register(LazyTool(CardTool))
+        }
+        val assembler = BeastAssembler(
+            llmProvider = fake,
+            toolRegistry = null,
+            lazyToolRegistry = lazyToolReg,
+            toolsetRegistry = null,
+            skillRegistry = null,
+            subagentRegistry = null,
+            maxIterations = 5,
+            maxRounds = 5,
+        )
+        Pasture(assembler = assembler, scope = scope).observe(bb)
+
+        val deferred = async(start = CoroutineStart.UNDISPATCHED) {
+            withTimeout(5000) {
+                bb.progressEvents.filterIsInstance<TaskUpdate>()
+                    .first { it.event is AgentEvent.Final }
+            }
+        }
+        bb.publishEvent(TaskAssignments("query", listOf(
+            TaskAssignment("t1", Selection.Tool("card"), "two batches then short-circuit", null, emptyList()),
+        )))
+        val update = deferred.await()
+
+        val content = (update.event as AgentEvent.Final).result.message.content
+        assertTrue(content != null && content.contains("CARD_PAYLOAD"),
+            "backfilled content must carry the last batch result, got: $content")
+        assertTrue(content != null && !content.contains("OLD_RESULT"),
+            "backfilled content must NOT carry earlier batch results, got: $content")
+
+        scope.cancel()
+    }
+
+    @Test
     fun `normal Final keeps its own content untouched`() = runBlocking {
         val bb = BulletinBoard()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)

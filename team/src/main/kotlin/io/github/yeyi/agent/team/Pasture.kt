@@ -3,6 +3,7 @@ package io.github.yeyi.agent.team
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.llm.ContentPart
+import io.github.yeyi.agent.tool.ToolExecutionResult
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -166,14 +167,22 @@ internal class Pasture(
 
         // 3) launch job
         val job = scope.launch {
+            // 最后一批工具结果: ToolCallExplanation(每批工具的先导事件)清空,
+            // ToolCallEnd 追加 —— Final 无文本时拼装的就是最后一批, 而非整轮所有。
+            val lastBatchResults = mutableListOf<ToolExecutionResult>()
             beast.run(AgentQuery.text(userInput))
                 .onCompletion { beast.shutdown() }
                 .collect { event ->
                     when (event) {
+                        is AgentEvent.ToolCallExplanation -> lastBatchResults.clear()
+                        is AgentEvent.ToolCallEnd -> lastBatchResults.add(event.result)
                         is AgentEvent.Final -> {
-                            dagLock.withLock { dag[taskId]?.result = event.ensureContent() }
+                            dagLock.withLock {
+                                dag[taskId]?.result = event.ensureContent(lastBatchResults)
+                            }
                             handleTerminal(taskId, null)
                         }
+
                         is AgentEvent.Failed -> handleTerminal(taskId, event.cause)
                         // 取消终局：标 CANCELED（而非落进 else 被标 DONE——下游会拿到空结果）。
                         // Canceled 后 collect 正常结束、本回合不抛；node.job.cancel() 掐订阅时
@@ -255,17 +264,19 @@ internal class Pasture(
 
 /**
  * 保证 Final 的 content 可转述: 非空原样返回; 为 null(仅出现在可终结工具短路路径)
- * 时以本轮各工具结果的文本部分按序拼装。
+ * 时以最后一批工具结果的文本部分按序拼装。
  *
  * 空正文对前台消费方是协议的一部分——工具已把产出直接呈现给用户;但 beast 是
  * 后台 agent, Final 是其产出唯一出口(下游 task 的 context、BossAgent 汇总报告),
  * 故在此补齐, 让 [DagNode.result] 恒可读。
+ *
+ * 取「最后一批」而非 AgentResult.toolCalls 全量: 后者累积整轮所有迭代, 多轮
+ * 工具调用后再短路时, 早期批次的中间结果不属于本次产出。
  */
-private fun AgentEvent.Final.ensureContent(): AgentEvent.Final {
+private fun AgentEvent.Final.ensureContent(lastBatch: List<ToolExecutionResult>): AgentEvent.Final {
     if (result.message.content != null) return this
-    val text = result.toolCalls
-        .joinToString("\n") { record ->
-            record.result.parts.filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
-        }
+    val text = lastBatch.joinToString("\n") { result ->
+        result.parts.filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
+    }
     return AgentEvent.Final(result.copy(message = result.message.copy(content = text)))
 }
