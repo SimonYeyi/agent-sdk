@@ -157,7 +157,7 @@ public class GenUiTool(componentSpec: String? = null) : UiTool() {
             - component：组件名
             - bindings：组件属性表
             - children：子节点数组
-            - action：动作对象 {"label": "动作文案", "payload": "动作参数"}，无动作写 null
+            - action：动作对象 {"label": "动作文案", "payload": "动作参数。自由文本，和 label 一同作为回流文本，格式：label(payload)"}，无动作写 null
 
             排版规则：
             1. 层次不超过 3 层（Card → Column/Row → Text/Button/Divider）。
