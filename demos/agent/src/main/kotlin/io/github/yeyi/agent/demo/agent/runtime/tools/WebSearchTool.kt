@@ -1,9 +1,8 @@
 package io.github.yeyi.agent.demo.agent.runtime.tools
 
-import io.github.yeyi.agent.genui.ir.CardIr
-import io.github.yeyi.agent.genui.ir.TreeNode
-import io.github.yeyi.agent.genui.tool.UiTool
+import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
+import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import io.ktor.client.*
 import io.ktor.client.engine.cio.*
@@ -16,25 +15,18 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.net.URLEncoder
 
 /**
  * 网络搜索 Tool
- * 使用 Bing 搜索获取真实结果，产出一张文本卡。
- *
- * 卡片内嵌工具结果 metadata，随事件流实时送达渲染、随记忆链路持久化恢复。
- *
- * 产卡：IR 根节点直接为 Text（顶层文本节点，无 Card 外壳），
- * content 承载多行搜索结果文本。
+ * 使用 Bing 搜索获取真实结果，搜索结果文本作为工具回执返回给模型。
  */
-class WebSearchTool : UiTool() {
+class WebSearchTool : Tool {
     override val name = "web_search"
     override val description = "搜索互联网内容，使用 Bing 搜索"
 
-    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         schema = """
         {
           "type": "object",
@@ -51,10 +43,10 @@ class WebSearchTool : UiTool() {
 
     private val httpClient = HttpClient(CIO)
 
-    override suspend fun getResult(
+    override suspend fun execute(
         arguments: JsonElement,
         context: ToolExecutionContext
-    ): JsonElement {
+    ): ToolExecutionResult {
         val query = (arguments as JsonObject)["query"]?.jsonPrimitive?.content
             ?: throw IllegalArgumentException("missing 'query' field")
 
@@ -82,38 +74,13 @@ class WebSearchTool : UiTool() {
             throw IllegalStateException("搜索「$query」失败：${e.message}", e)
         }
 
-        return buildJsonObject {
-            put("query", JsonPrimitive(query))
-            put("text", JsonPrimitive(text))
-        }
-    }
-
-    override suspend fun buildCard(
-        arguments: JsonElement,
-        result: JsonElement?,
-        context: ToolExecutionContext,
-    ): CardIr? {
-        val obj = result?.jsonObject ?: return null
-        return CardIr(
-            instanceId = context.toolCallId,
-            root = TreeNode(
-                component = "Card",
-                children = listOf(
-                    TreeNode(
-                    component = "Text",
-                    bindings = buildJsonObject {
-                        put(
-                            "content",
-                            JsonPrimitive(obj.str("text"))
-                        )
-                    }
-                )),
-            ),
+        return ToolExecutionResult.success(
+            buildJsonObject {
+                put("query", JsonPrimitive(query))
+                put("text", JsonPrimitive(text))
+            }.toString()
         )
     }
-
-    private fun JsonObject.str(key: String): String =
-        (this[key] as? JsonPrimitive)?.contentOrNull ?: "-"
 
     private fun parseBingResults(html: String): List<String> {
         val results = mutableListOf<String>()
