@@ -139,7 +139,7 @@ class WeatherCardTool : UiTool() {
 
         fun text(content: String, vararg extra: Pair<String, String>): TreeNode {
             val bindings = buildJsonObject {
-                put("content", JsonPrimitive(content))
+                put("text", JsonPrimitive(content))
                 extra.forEach { (k, v) -> put(k, JsonPrimitive(v)) }
             }
             return TreeNode(component = "Text", bindings = bindings)
@@ -165,22 +165,22 @@ class WeatherCardTool : UiTool() {
                         component = "Row",
                         bindings = buildJsonObject {
                             put("spacing", JsonPrimitive(8))
-                            put("arrangement", JsonPrimitive("spaceBetween"))
-                            put("verticalAlignment", JsonPrimitive("center"))
+                            put("arrangement", JsonPrimitive("SpaceBetween"))
+                            put("verticalAlignment", JsonPrimitive("CenterVertically"))
                         },
                         children = listOf(
                             TreeNode(
                                 component = "Column",
                                 bindings = buildJsonObject { put("spacing", JsonPrimitive(2)) },
                                 children = listOf(
-                                    text(city, "style" to "title2", "weight" to "semibold"),
-                                    text(timeLabel, "style" to "caption", "color" to "secondary"),
+                                    text(city, "style" to "headlineSmall", "fontWeight" to "SemiBold"),
+                                    text(timeLabel, "style" to "labelSmall", "color" to "onSurfaceVariant"),
                                 ),
                             ),
                             text(
                                 "$temperature°",
-                                "style" to "largeTitle",
-                                "weight" to "bold",
+                                "style" to "headlineLarge",
+                                "fontWeight" to "Bold",
                                 "color" to "primary"
                             ),
                         ),
@@ -194,7 +194,7 @@ class WeatherCardTool : UiTool() {
                                 component = "Badge",
                                 bindings = buildJsonObject {
                                     put(
-                                        "content",
+                                        "text",
                                         JsonPrimitive(condition)
                                     )
                                 },
@@ -203,7 +203,7 @@ class WeatherCardTool : UiTool() {
                                 component = "Badge",
                                 bindings = buildJsonObject {
                                     put(
-                                        "content",
+                                        "text",
                                         JsonPrimitive("湿度 $humidity%")
                                     )
                                 },
@@ -212,7 +212,7 @@ class WeatherCardTool : UiTool() {
                                 component = "Badge",
                                 bindings = buildJsonObject {
                                     put(
-                                        "content",
+                                        "text",
                                         JsonPrimitive("风速 $wind km/h")
                                     )
                                 },
@@ -220,15 +220,15 @@ class WeatherCardTool : UiTool() {
                         ),
                     ),
                     TreeNode(component = "Divider", bindings = emptyMap()),
-                    text(description, "style" to "footnote", "color" to "secondary"),
+                    text(description, "style" to "labelMedium", "color" to "onSurfaceVariant"),
                     // 时间切换按钮：点击经 ActionEvent 回流触发新一轮推理
                     TreeNode(
                         component = "Row",
                         bindings = buildJsonObject { put("spacing", JsonPrimitive(8)) },
                         children = listOf(
-                            button(Action("查看现在天气", payload = city), "primary"),
-                            button(Action("查看明天天气", payload = city), "secondary"),
-                            button(Action("查看后天天气", payload = city), "secondary"),
+                            button(Action("查看现在天气", payload = city), "Primary"),
+                            button(Action("查看明天天气", payload = city), "Secondary"),
+                            button(Action("查看后天天气", payload = city), "Secondary"),
                         ),
                     ),
                 ),

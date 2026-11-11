@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -33,7 +34,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
 
 /**
- * default 适配器配套的 iOS 风格常用组件实现 + 注册入口。
+ * default 适配器配套的 Material3 风格常用组件实现 + 注册入口。
  *
  * 组件名与渲染层绑定（自研注册表 / A2UI 目录）保持同一套语义名：Card/Column/Row/Text/
  * Button/Badge/Divider/Spacer/Image。属性经 [TreeNode.bindings] 传入，全部带默认值，
@@ -71,10 +72,31 @@ internal fun Map<String, JsonElement>.floatValue(key: String, default: Float): F
 internal fun Map<String, JsonElement>.boolValue(key: String, default: Boolean): Boolean =
     (this[key] as? JsonPrimitive)?.booleanOrNull ?: default
 
-// ─────────────────────────── iOS 设计语言 ───────────────────────────
+// ─────────────────────────── 色板 ───────────────────────────
 
-/** iOS 系统色板：浅色模式取值，暗色模式由 MaterialTheme 动态语义覆盖。 */
+/**
+ * 色板：M3 colorScheme 角色 + 纯色名 + hex。
+ *
+ * M3 角色取浅色调色板的静态默认值（暗色模式不自动跟随——后续可改成 @Composable 读
+ * MaterialTheme.colorScheme）。纯色名是固定色值，覆盖 M3 角色之外的扩展色需求。
+ * hex 支持 #RRGGBB / #AARRGGBB。未命中返回 null，由调用方走默认值。
+ */
 internal object DefaultColors {
+    // M3 colorScheme 角色（浅色默认值）
+    val primary = Color(0xFF6750A4)
+    val secondary = Color(0xFF625B71)
+    val tertiary = Color(0xFF7D5260)
+    val error = Color(0xFFB3261E)
+    val surface = Color(0xFFFEF7FF)
+    val onSurface = Color(0xFF1D1B20)
+    val onSurfaceVariant = Color(0xFF49454F)
+    val outline = Color(0xFF79747E)
+    val outlineVariant = Color(0xFFCAC4D0)
+    val background = Color(0xFFFEF7FF)
+    val onBackground = Color(0xFF1D1B20)
+    val surfaceVariant = Color(0xFFE7E0EC)
+
+    // 纯色名（固定色值）
     val blue = Color(0xFF0A84FF)
     val green = Color(0xFF30D158)
     val red = Color(0xFFFF453A)
@@ -84,30 +106,32 @@ internal object DefaultColors {
     val purple = Color(0xFFBF5AF2)
     val pink = Color(0xFFFF375F)
     val indigo = Color(0xFF5E5CE6)
-    val gray = Color(0xFF8E8E93)
-    val secondaryLabel = Color(0xFF3C3C43).copy(alpha = 0.6f)
-    val tertiaryLabel = Color(0xFF3C3C43).copy(alpha = 0.3f)
-    val separator = Color(0xFFC6C6C8)
-    val fill = Color(0xFFEBEBF0)
-    val groupedBackground = Color(0xFFF2F2F7)
-    val blueTint = Color(0xFF0A84FF).copy(alpha = 0.12f)
 
-    /** 按语义名解析颜色：hex（#RRGGBB/#AARRGGBB）或 iOS 语义名，未命中返回 null。 */
-    fun named(name: String): Color? = when (name.trim().lowercase()) {
-        "blue", "primary", "tint" -> blue
+    /** 按名解析颜色：M3 colorScheme 角色名（camelCase）、纯色名（lowercase）、hex，未命中返回 null。 */
+    fun named(name: String): Color? = when (name.trim()) {
+        // M3 colorScheme 角色（与属性名同名、大小写敏感）
+        "primary" -> primary
+        "secondary" -> secondary
+        "tertiary" -> tertiary
+        "error" -> error
+        "surface" -> surface
+        "onSurface" -> onSurface
+        "onSurfaceVariant" -> onSurfaceVariant
+        "outline" -> outline
+        "outlineVariant" -> outlineVariant
+        "background" -> background
+        "onBackground" -> onBackground
+        "surfaceVariant" -> surfaceVariant
+        // 纯色名
+        "blue" -> blue
         "green" -> green
-        "red", "destructive" -> red
+        "red" -> red
         "orange" -> orange
         "yellow" -> yellow
         "teal" -> teal
         "purple" -> purple
         "pink" -> pink
         "indigo" -> indigo
-        "gray", "grey", "secondary", "secondarylabel" -> secondaryLabel
-        "tertiary", "tertiarylabel" -> tertiaryLabel
-        "fill" -> fill
-        "separator" -> separator
-        "background", "groupedbackground" -> groupedBackground
         "white" -> Color.White
         "black" -> Color.Black
         else -> null
@@ -133,52 +157,23 @@ internal fun parseHexColor(raw: String): Color? {
     }
 }
 
-/** iOS 字体排印：正文/标题/说明各档字号与字重，贴近 SF Pro 层级。 */
-internal object DefaultType {
-    val largeTitle = FontSizeSpec(34f, FontWeight.Bold)
-    val title1 = FontSizeSpec(28f, FontWeight.Bold)
-    val title2 = FontSizeSpec(22f, FontWeight.SemiBold)
-    val title3 = FontSizeSpec(20f, FontWeight.SemiBold)
-    val headline = FontSizeSpec(17f, FontWeight.SemiBold)
-    val body = FontSizeSpec(17f, FontWeight.Normal)
-    val callout = FontSizeSpec(16f, FontWeight.Normal)
-    val subheadline = FontSizeSpec(15f, FontWeight.Normal)
-    val footnote = FontSizeSpec(13f, FontWeight.Normal)
-    val caption = FontSizeSpec(12f, FontWeight.Medium)
-
-    fun named(name: String): FontSizeSpec? = when (name.trim().lowercase()) {
-        "largetitle" -> largeTitle
-        "title1" -> title1
-        "title2" -> title2
-        "title3" -> title3
-        "headline" -> headline
-        "body" -> body
-        "callout" -> callout
-        "subheadline" -> subheadline
-        "footnote" -> footnote
-        "caption" -> caption
-        else -> null
-    }
-
-    fun weight(name: String): FontWeight? = when (name.trim().lowercase()) {
-        "regular", "normal" -> FontWeight.Normal
-        "medium" -> FontWeight.Medium
-        "semibold", "semi" -> FontWeight.SemiBold
-        "bold" -> FontWeight.Bold
-        "light" -> FontWeight.Light
-        else -> null
-    }
+/** fontWeight 名 → Compose [FontWeight]，取值与 Compose 枚举同名、大小写敏感。 */
+internal fun fontWeight(name: String): FontWeight? = when (name.trim()) {
+    "Normal" -> FontWeight.Normal
+    "Medium" -> FontWeight.Medium
+    "SemiBold" -> FontWeight.SemiBold
+    "Bold" -> FontWeight.Bold
+    "Light" -> FontWeight.Light
+    else -> null
 }
-
-internal data class FontSizeSpec(val sp: Float, val weight: FontWeight)
 
 internal fun Map<String, JsonElement>.textAlign(key: String, default: TextAlign?): TextAlign? {
     val name = str(key)
     if (name.isEmpty()) return default
-    return when (name.trim().lowercase()) {
-        "start", "left" -> TextAlign.Start
-        "center" -> TextAlign.Center
-        "end", "right" -> TextAlign.End
+    return when (name.trim()) {
+        "Start" -> TextAlign.Start
+        "Center" -> TextAlign.Center
+        "End" -> TextAlign.End
         else -> default
     }
 }
@@ -186,10 +181,10 @@ internal fun Map<String, JsonElement>.textAlign(key: String, default: TextAlign?
 internal fun Map<String, JsonElement>.horizontalAlignment(default: Alignment.Horizontal): Alignment.Horizontal {
     val name = str("horizontalAlignment")
     if (name.isEmpty()) return default
-    return when (name.trim().lowercase()) {
-        "start", "left" -> Alignment.Start
-        "center" -> Alignment.CenterHorizontally
-        "end", "right" -> Alignment.End
+    return when (name.trim()) {
+        "Start" -> Alignment.Start
+        "CenterHorizontally" -> Alignment.CenterHorizontally
+        "End" -> Alignment.End
         else -> default
     }
 }
@@ -197,51 +192,51 @@ internal fun Map<String, JsonElement>.horizontalAlignment(default: Alignment.Hor
 internal fun Map<String, JsonElement>.verticalAlignment(default: Alignment.Vertical): Alignment.Vertical {
     val name = str("verticalAlignment")
     if (name.isEmpty()) return default
-    return when (name.trim().lowercase()) {
-        "top" -> Alignment.Top
-        "center" -> Alignment.CenterVertically
-        "bottom" -> Alignment.Bottom
+    return when (name.trim()) {
+        "Top" -> Alignment.Top
+        "CenterVertically" -> Alignment.CenterVertically
+        "Bottom" -> Alignment.Bottom
         else -> default
     }
 }
 
-/** Row 水平排列解析。 */
+/** Row 水平排列解析，取值与 Compose [Arrangement] 枚举同名、大小写敏感。 */
 internal fun Map<String, JsonElement>.horizontalArrangement(
     default: Arrangement.Horizontal,
 ): Arrangement.Horizontal {
     val name = str("arrangement")
     if (name.isEmpty()) return default
-    return when (name.trim().lowercase()) {
-        "start" -> Arrangement.Start
-        "center" -> Arrangement.Center
-        "end" -> Arrangement.End
-        "spacebetween" -> Arrangement.SpaceBetween
-        "spacearound" -> Arrangement.SpaceAround
-        "spaceevenly" -> Arrangement.SpaceEvenly
+    return when (name.trim()) {
+        "Start" -> Arrangement.Start
+        "Center" -> Arrangement.Center
+        "End" -> Arrangement.End
+        "SpaceBetween" -> Arrangement.SpaceBetween
+        "SpaceAround" -> Arrangement.SpaceAround
+        "SpaceEvenly" -> Arrangement.SpaceEvenly
         else -> default
     }
 }
 
-/** Column 垂直排列解析。 */
+/** Column 垂直排列解析，取值与 Compose [Arrangement] 枚举同名、大小写敏感。 */
 internal fun Map<String, JsonElement>.verticalArrangement(
     default: Arrangement.Vertical,
 ): Arrangement.Vertical {
     val name = str("arrangement")
     if (name.isEmpty()) return default
-    return when (name.trim().lowercase()) {
-        "top" -> Arrangement.Top
-        "center" -> Arrangement.Center
-        "bottom" -> Arrangement.Bottom
-        "spacebetween" -> Arrangement.SpaceBetween
-        "spacearound" -> Arrangement.SpaceAround
-        "spaceevenly" -> Arrangement.SpaceEvenly
+    return when (name.trim()) {
+        "Top" -> Arrangement.Top
+        "Center" -> Arrangement.Center
+        "Bottom" -> Arrangement.Bottom
+        "SpaceBetween" -> Arrangement.SpaceBetween
+        "SpaceAround" -> Arrangement.SpaceAround
+        "SpaceEvenly" -> Arrangement.SpaceEvenly
         else -> default
     }
 }
 
 // ─────────────────────────── 组件实现 ───────────────────────────
 
-/** 卡片容器：白色圆角矩形 + 柔和阴影，iOS 卡片语义。子内容经 children 插槽排布。 */
+/** 卡片容器：圆角矩形 + 柔和阴影，Material3 surface 语义。子内容经 children 插槽排布。 */
 @Composable
 public fun Card(node: TreeNode, children: @Composable () -> Unit) {
     val spacing = node.bindings.intValue("spacing", 12)
@@ -299,22 +294,43 @@ internal fun Row(node: TreeNode, children: @Composable () -> Unit) {
     }
 }
 
-/** 文本：content 必填，style/size/weight/color/align/maxLines 均可绑定，缺省走 body。 */
+/**
+ * 文本：text 必填，style/fontWeight/textAlign/color/maxLines 均可绑定，缺省走 bodyLarge。
+ *
+ * style 取 M3 typography 对应档位的 [TextStyle] 作基线（拿到 lineHeight / lineHeightStyle，
+ * 让 Compose 按字体度量自适应行高，避免裸 fontSize 时退化到平台默认行高——
+ * 中文大字号下偏紧、满行换行重叠）；fontWeight/textAlign/color 作为覆写——
+ * 显式绑了才覆写，未绑保留 M3 档位的默认值。style 名与 M3 档位同名、大小写敏感
+ * （headlineLarge / headlineMedium / ... / labelSmall），未命中走 bodyLarge。
+ */
 @Composable
 internal fun Text(node: TreeNode) {
-    val content = node.bindings.str("content")
-    if (content.isEmpty()) return
+    val text = node.bindings.str("text")
+    if (text.isEmpty()) return
 
-    val spec = node.bindings.str("style").let { DefaultType.named(it) } ?: DefaultType.body
-    val weight = DefaultType.weight(node.bindings.str("weight")) ?: spec.weight
-    val size = node.bindings.floatValue("size", spec.sp)
+    val typo = MaterialTheme.typography
+    val styles = mapOf(
+        "headlineLarge" to typo.headlineLarge,
+        "headlineMedium" to typo.headlineMedium,
+        "headlineSmall" to typo.headlineSmall,
+        "titleLarge" to typo.titleLarge,
+        "titleMedium" to typo.titleMedium,
+        "titleSmall" to typo.titleSmall,
+        "bodyLarge" to typo.bodyLarge,
+        "bodyMedium" to typo.bodyMedium,
+        "bodySmall" to typo.bodySmall,
+        "labelMedium" to typo.labelMedium,
+        "labelSmall" to typo.labelSmall,
+    )
+    val base = styles[node.bindings.str("style")] ?: typo.bodyLarge
+    val weight = fontWeight(node.bindings.str("fontWeight")) ?: base.fontWeight
     val color = node.bindings.color("color", MaterialTheme.colorScheme.onSurface)
-    val align = node.bindings.textAlign("align", default = null)
+    val align = node.bindings.textAlign("textAlign", default = null)
     val maxLines = node.bindings.intValue("maxLines", Int.MAX_VALUE)
 
     ComposeText(
-        text = content,
-        fontSize = size.sp,
+        text = text,
+        style = base,
         fontWeight = weight,
         color = color,
         textAlign = align,
@@ -323,63 +339,63 @@ internal fun Text(node: TreeNode) {
     )
 }
 
-/** iOS 风格按钮：variant 支持 primary/secondary/bordered/destructive/plain；未声明动作时渲染为禁用态静态文本。 */
+/** 按钮：variant 支持 primary/secondary/bordered/destructive/plain；未声明动作时渲染为禁用态静态文本。 */
 @Composable
 internal fun Button(node: TreeNode, scope: ActionScope) {
     val action = node.action
-    val label = action?.label ?: node.bindings.str("label", "按钮")
-    val variant = node.bindings.str("variant", "primary").lowercase()
+    val text = action?.label ?: node.bindings.str("text", "按钮")
+    val variant = node.bindings.str("variant", "Primary")
     val shape = RoundedCornerShape(10.dp)
 
     if (action == null) {
         // 节点未声明动作：渲染为禁用态静态文本，不绑定点击
         // （动作文案为空的节点由适配器整棵跳过，不会走到这里）
         ComposeText(
-            text = label,
+            text = text,
             fontSize = 15.sp,
             fontWeight = FontWeight.SemiBold,
-            color = DefaultColors.tertiaryLabel,
+            color = DefaultColors.outline,
         )
         return
     }
 
-    val (background, content, border) = when (variant) {
-        "secondary" -> Triple(DefaultColors.fill, DefaultColors.secondaryLabel, Color.Transparent)
-        "bordered" -> Triple(Color.Transparent, DefaultColors.blue, DefaultColors.blue.copy(alpha = 0.5f))
-        "destructive" -> Triple(DefaultColors.red, Color.White, Color.Transparent)
-        "plain" -> Triple(Color.Transparent, DefaultColors.blue, Color.Transparent)
-        else -> Triple(DefaultColors.blue, Color.White, Color.Transparent) // primary
+    val (containerColor, contentColor, border) = when (variant) {
+        "Secondary" -> Triple(DefaultColors.surfaceVariant, DefaultColors.onSurfaceVariant, Color.Transparent)
+        "Bordered" -> Triple(Color.Transparent, DefaultColors.primary, DefaultColors.primary.copy(alpha = 0.5f))
+        "Destructive" -> Triple(DefaultColors.error, Color.White, Color.Transparent)
+        "Plain" -> Triple(Color.Transparent, DefaultColors.primary, Color.Transparent)
+        else -> Triple(DefaultColors.primary, Color.White, Color.Transparent) // Primary
     }
 
     var modifier = Modifier
         .clip(shape)
-        .background(background)
+        .background(containerColor)
         .clickable { scope.emit(action) }
         .padding(horizontal = 14.dp, vertical = 7.dp)
     if (border != Color.Transparent) {
         modifier = modifier.border(1.dp, border, shape)
     }
     ComposeText(
-        text = label,
+        text = text,
         modifier = modifier,
         fontSize = 15.sp,
         fontWeight = FontWeight.SemiBold,
-        color = content,
+        color = contentColor,
     )
 }
 
-/** 小圆角标签：content 必填，color/textColor 可绑定。 */
+/** 小圆角标签：text 必填，containerColor/contentColor 可绑定。 */
 @Composable
 internal fun Badge(node: TreeNode) {
-    val content = node.bindings.str("content")
-    if (content.isEmpty()) return
-    val background = node.bindings.color("color", DefaultColors.fill)
-    val contentColor = node.bindings.color("textColor", DefaultColors.secondaryLabel)
+    val text = node.bindings.str("text")
+    if (text.isEmpty()) return
+    val containerColor = node.bindings.color("containerColor", DefaultColors.surfaceVariant)
+    val contentColor = node.bindings.color("contentColor", DefaultColors.onSurfaceVariant)
     ComposeText(
-        text = content,
+        text = text,
         modifier = Modifier
             .clip(RoundedCornerShape(7.dp))
-            .background(background)
+            .background(containerColor)
             .padding(horizontal = 8.dp, vertical = 3.dp),
         fontSize = 12.sp,
         fontWeight = FontWeight.Medium,
@@ -387,10 +403,10 @@ internal fun Badge(node: TreeNode) {
     )
 }
 
-/** 分隔线：默认 iOS separator 色，高度 0.5dp，color 可绑定。 */
+/** 分隔线：默认 outlineVariant 色，高度 0.5dp，color 可绑定。 */
 @Composable
 internal fun Divider(node: TreeNode) {
-    val color = node.bindings.color("color", DefaultColors.separator)
+    val color = node.bindings.color("color", DefaultColors.outlineVariant)
     Box(
         Modifier
             .fillMaxWidth()
@@ -412,13 +428,13 @@ internal fun Spacer(node: TreeNode) {
 internal fun Image(node: TreeNode) {
     val emoji = node.bindings.str("emoji", "🖼")
     val size = node.bindings.floatValue("size", 44f)
-    val background = node.bindings.color("background", DefaultColors.fill)
+    val containerColor = node.bindings.color("containerColor", DefaultColors.surfaceVariant)
     val shape = RoundedCornerShape(10.dp)
     Box(
         modifier = Modifier
             .size(size.dp)
             .clip(shape)
-            .background(background),
+            .background(containerColor),
         contentAlignment = Alignment.Center,
     ) {
         ComposeText(text = emoji, fontSize = (size * 0.45f).sp)
@@ -431,6 +447,6 @@ internal fun Fallback(node: TreeNode) {
     ComposeText(
         text = "⧗ ${node.component}",
         fontSize = 12.sp,
-        color = DefaultColors.tertiaryLabel,
+        color = DefaultColors.outline,
     )
 }

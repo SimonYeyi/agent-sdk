@@ -28,7 +28,7 @@ class GenUiToolTest {
 
     private val cardJson =
         """{"root":{"component":"Card","children":[{"component":"Text",""" +
-                """"bindings":{"content":"北京"}}]}}"""
+                """"bindings":{"text":"北京"}}]}}"""
 
     private fun context(
         reply: String,
@@ -60,7 +60,7 @@ class GenUiToolTest {
         val card = assertNotNull(returned.decodeCard())
         assertEquals("call_1", card.instanceId)
         assertEquals("Card", card.root.component)
-        assertEquals("北京", card.root.children.single().bindings["content"]!!.jsonPrimitive.content)
+        assertEquals("北京", card.root.children.single().bindings["text"]!!.jsonPrimitive.content)
     }
 
     @Test
@@ -96,14 +96,17 @@ class GenUiToolTest {
     }
 
     @Test
-    fun `生成失败时拒绝终结`() = runTest {
+    fun `格式不规范时降级为只装原始内容的卡片`() = runTest {
         val (ctx, _) = context("这不是 JSON")
         val tool = GenUiTool()
 
-        assertFailsWith<IllegalStateException> {
-            tool.execute(buildJsonObject { put("content", JsonPrimitive("x")) }, ctx)
-        }
-        assertFalse(tool.finalizable(buildJsonObject {}, ToolExecutionResult.error("failed")))
+        val returned = tool.execute(buildJsonObject { put("content", JsonPrimitive("x")) }, ctx)
+        val card = assertNotNull(returned.decodeCard())
+        // 降级路径：用 Card 包一个 Text 节点，原始内容作为文本展示（排版意图丢失，内容本身保住）
+        assertEquals("Card", card.root.component)
+        val textNode = card.root.children.single()
+        assertEquals("Text", textNode.component)
+        assertEquals("x", textNode.bindings["text"]!!.jsonPrimitive.content)
     }
 
     @Test

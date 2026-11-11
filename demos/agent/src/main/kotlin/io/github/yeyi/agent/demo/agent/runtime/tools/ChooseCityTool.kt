@@ -50,7 +50,7 @@ class ChooseCityTool : UiTool() {
                                 // label 是动作本身，且已含城市（按钮文案按城市区分），
                                 // 故不带参数——回流文案就是「查询北京的天气」
                                 bindings = buildJsonObject {
-                                    put("variant", JsonPrimitive("bordered"))
+                                    put("variant", JsonPrimitive("Bordered"))
                                 },
                                 action = Action("查询${city}的天气"),
                             )
@@ -64,7 +64,7 @@ class ChooseCityTool : UiTool() {
     /** 文本节点：IR 只带语义数据，视觉由 Text 组件默认形态决定。 */
     private fun textNode(content: String): TreeNode = TreeNode(
         component = "Text",
-        bindings = buildJsonObject { put("content", JsonPrimitive(content)) },
+        bindings = buildJsonObject { put("text", JsonPrimitive(content)) },
     )
 
     private companion object {

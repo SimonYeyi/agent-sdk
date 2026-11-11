@@ -59,7 +59,7 @@ class A2uiRenderAdapterTest {
                     root = TreeNode(
                         component = "Column",
                         children = listOf(
-                            TreeNode(component = "Text", bindings = mapOf("content" to JsonPrimitive("hello"))),
+                            TreeNode(component = "Text", bindings = mapOf("text" to JsonPrimitive("hello"))),
                             TreeNode(
                                 component = "Button",
                                 action = Action("选择", payload = "r1"),
@@ -221,16 +221,16 @@ class A2uiRenderAdapterTest {
                         children = listOf(
                             TreeNode(
                                 component = "Text",
-                                bindings = mapOf("content" to JsonPrimitive("北京 晴 26°C")),
+                                bindings = mapOf("text" to JsonPrimitive("北京 晴 26°C")),
                             ),
                             TreeNode(component = "Divider"),
                             TreeNode(
                                 component = "Column",
-                                bindings = mapOf("arrangement" to JsonPrimitive("spaceBetween")),
+                                bindings = mapOf("arrangement" to JsonPrimitive("SpaceBetween")),
                                 children = listOf(
                                     TreeNode(
                                         component = "Text",
-                                        bindings = mapOf("content" to JsonPrimitive("26°")),
+                                        bindings = mapOf("text" to JsonPrimitive("26°")),
                                     ),
                                     TreeNode(component = "Button", action = Action("查看明天", payload = "北京")),
                                 ),
@@ -264,7 +264,7 @@ class A2uiRenderAdapterTest {
                     instanceId = "card-7",
                     root = TreeNode(
                         component = "Button",
-                        bindings = mapOf("label" to JsonPrimitive("暂不可用")),
+                        bindings = mapOf("text" to JsonPrimitive("暂不可用")),
                     ),
                 ),
             ) {}
@@ -301,7 +301,7 @@ class A2uiRenderAdapterTest {
                         children = listOf(
                             TreeNode(
                                 component = "Column",
-                                bindings = mapOf("align" to JsonPrimitive("start")),
+                                bindings = mapOf("horizontalAlignment" to JsonPrimitive("Start")),
                                 children = listOf(
                                     TreeNode(
                                         component = "Text",
@@ -309,7 +309,7 @@ class A2uiRenderAdapterTest {
                                     ),
                                     TreeNode(
                                         component = "Row",
-                                        bindings = mapOf("justify" to JsonPrimitive("spaceBetween")),
+                                        bindings = mapOf("arrangement" to JsonPrimitive("SpaceBetween")),
                                         children = listOf(
                                             TreeNode(
                                                 component = "Text",
@@ -317,7 +317,7 @@ class A2uiRenderAdapterTest {
                                             ),
                                             TreeNode(
                                                 component = "Button",
-                                                bindings = mapOf("variant" to JsonPrimitive("primary")),
+                                                bindings = mapOf("variant" to JsonPrimitive("Primary")),
                                                 action = Action("确定"),
                                                 children = listOf(
                                                     TreeNode(

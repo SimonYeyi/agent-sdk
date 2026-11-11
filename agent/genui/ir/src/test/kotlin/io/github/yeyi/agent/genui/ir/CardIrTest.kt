@@ -18,7 +18,7 @@ class CardIrTest {
                     "summary" to JsonPrimitive("晴天 26°C"),
                 ),
                 children = listOf(
-                    TreeNode(component = "Text", bindings = mapOf("content" to JsonPrimitive("明天有雨"))),
+                    TreeNode(component = "Text", bindings = mapOf("text" to JsonPrimitive("明天有雨"))),
                     TreeNode(
                         component = "Button",
                         action = Action("刷新"),

@@ -106,7 +106,7 @@ public class GenUiTool(componentSpec: String? = null) : UiTool() {
         } catch (_: Exception) {
             TreeNode(
                 component = "Card", children = listOf(
-                    TreeNode("Text", bindings = mapOf("content" to JsonPrimitive(request.content)))
+                    TreeNode("Text", bindings = mapOf("text" to JsonPrimitive(request.content)))
                 )
             )
         }
@@ -199,9 +199,9 @@ private data class GenUiRequest(
 private val DEFAULT_COMPONENT_SPEC: String = """
     可用组件与属性：
     - Card：卡片外壳，整棵树的根用它。bindings：spacing（整数，元素间距）、padding（整数，内边距）
-    - Column：纵向容器。bindings：spacing（整数）、padding（整数）、arrangement（start/center/end/spaceBetween/spaceAround/spaceEvenly）、horizontalAlignment（start/center/end）
-    - Row：横向容器。bindings：spacing（整数）、padding（整数）、arrangement（start/center/end/spaceBetween/spaceAround/spaceEvenly）、verticalAlignment（start/center/end）
-    - Text：文本。bindings：content（必填）、style（largeTitle/title1/title2/title3/headline/body/callout/subheadline/footnote/caption）、weight（regular/medium/semibold/bold）、color（primary/secondary/blue/green/red/gray 或 #RRGGBB）、align（start/center/end）、maxLines（整数）
-    - Button：按钮，按钮文案写在 action.label（必填）。bindings：variant（primary/secondary/bordered/destructive/plain）
+    - Column：纵向容器。bindings：spacing（整数）、padding（整数）、arrangement（Top/Center/Bottom/SpaceBetween/SpaceAround/SpaceEvenly）、horizontalAlignment（Start/CenterHorizontally/End）
+    - Row：横向容器。bindings：spacing（整数）、padding（整数）、arrangement（Start/Center/End/SpaceBetween/SpaceAround/SpaceEvenly）、verticalAlignment（Top/CenterVertically/Bottom）
+    - Text：文本。bindings：text（必填）、style（headlineLarge/headlineMedium/headlineSmall/titleLarge/titleMedium/titleSmall/bodyLarge/bodyMedium/bodySmall/labelMedium/labelSmall）、fontWeight（Normal/Medium/SemiBold/Bold/Light）、color（primary/secondary/tertiary/error/onSurface/onSurfaceVariant/outline/outlineVariant/surface/surfaceVariant/background/onBackground 或 blue/green/red/orange/yellow/teal/purple/pink/indigo/white/black 或 #RRGGBB）、textAlign（Start/Center/End）、maxLines（整数）
+    - Button：按钮，按钮文案写在 action.label（必填）。bindings：variant（Primary/Secondary/Bordered/Destructive/Plain）
     - Divider：分隔线。bindings：color
 """.trimIndent()

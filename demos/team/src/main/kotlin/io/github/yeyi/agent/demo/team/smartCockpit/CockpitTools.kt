@@ -22,16 +22,16 @@ import kotlinx.serialization.json.jsonObject
 internal object A2uiNodes {
 
     /** 文本节点：IR 语义绑定 content（文案）+ style（样式词表，后端映射各自的 variant）。 */
-    fun text(content: String, style: String = "body"): TreeNode = TreeNode(
+    fun text(content: String, style: String = "bodyLarge"): TreeNode = TreeNode(
         component = "Text",
         bindings = buildJsonObject {
-            put("content", JsonPrimitive(content))
+            put("text", JsonPrimitive(content))
             put("style", JsonPrimitive(style))
         },
     )
 
     /** 字段行：label + value 两个文本并排（Row children 数组承载）。 */
-    fun fieldRow(label: String, value: String): TreeNode = row(text(label, "caption"), text(value))
+    fun fieldRow(label: String, value: String): TreeNode = row(text(label, "labelSmall"), text(value))
 
     /** 横向布局：IR Row。 */
     fun row(vararg children: TreeNode): TreeNode = TreeNode(component = "Row", children = children.toList())
@@ -47,7 +47,7 @@ internal object A2uiNodes {
      * （[io.github.yeyi.agent.genui.ir.Action.reflowable] 的组成）；
      * 需要带参数回流时由调用方在 [Action.payload] 给出。
      */
-    fun button(label: String, action: Action, variant: String = "secondary"): TreeNode = TreeNode(
+    fun button(label: String, action: Action, variant: String = "Secondary"): TreeNode = TreeNode(
         component = "Button",
         bindings = buildJsonObject {
             put("variant", JsonPrimitive(variant))
@@ -81,10 +81,10 @@ class GetTimeTool : UiTool() {
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("当前时间", "caption"),
-                    A2uiNodes.text(time, "title2"),
+                    A2uiNodes.text("当前时间", "labelSmall"),
+                    A2uiNodes.text(time, "headlineSmall"),
                     A2uiNodes.divider(),
-                    A2uiNodes.row(A2uiNodes.button("刷新时间", Action("刷新时间"), "primary")),
+                    A2uiNodes.row(A2uiNodes.button("刷新时间", Action("刷新时间"), "Primary")),
                 ),
             ),
         )
@@ -115,10 +115,10 @@ class GetDateTool : UiTool() {
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("当前日期", "caption"),
-                    A2uiNodes.text(date, "title2"),
+                    A2uiNodes.text("当前日期", "labelSmall"),
+                    A2uiNodes.text(date, "headlineSmall"),
                     A2uiNodes.divider(),
-                    A2uiNodes.row(A2uiNodes.button("刷新日期", Action("刷新日期"), "primary")),
+                    A2uiNodes.row(A2uiNodes.button("刷新日期", Action("刷新日期"), "Primary")),
                 ),
             ),
         )
@@ -151,13 +151,13 @@ class GetCarStatusTool : UiTool() {
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("车辆状态", "title3"),
+                    A2uiNodes.text("车辆状态", "titleLarge"),
                     A2uiNodes.divider(),
                     A2uiNodes.fieldRow("状态", obj.str("status")),
                     A2uiNodes.fieldRow("电量", obj.str("battery")),
                     A2uiNodes.fieldRow("里程", obj.str("mileage")),
                     A2uiNodes.divider(),
-                    A2uiNodes.row(A2uiNodes.button("刷新状态", Action("刷新状态"), "primary")),
+                    A2uiNodes.row(A2uiNodes.button("刷新状态", Action("刷新状态"), "Primary")),
                 ),
             ),
         )
@@ -190,12 +190,12 @@ class GetEnergyTool : UiTool() {
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("能耗信息", "title3"),
+                    A2uiNodes.text("能耗信息", "titleLarge"),
                     A2uiNodes.divider(),
                     A2uiNodes.fieldRow("百公里电耗", "${obj.str("consumption")} ${obj.str("unit")}"),
                     A2uiNodes.fieldRow("本次行程能耗", obj.str("total")),
                     A2uiNodes.divider(),
-                    A2uiNodes.row(A2uiNodes.button("刷新能耗", Action("刷新能耗"), "primary")),
+                    A2uiNodes.row(A2uiNodes.button("刷新能耗", Action("刷新能耗"), "Primary")),
                 ),
             ),
         )

@@ -63,7 +63,7 @@ class GetDateTimeTool : UiTool() {
     /** 文本节点：IR 只带语义数据，视觉由 Text 组件默认形态决定。 */
     private fun textNode(content: String): TreeNode = TreeNode(
         component = "Text",
-        bindings = buildJsonObject { put("content", JsonPrimitive(content)) },
+        bindings = buildJsonObject { put("text", JsonPrimitive(content)) },
     )
 
     /** 字段行：label + value 两个文本并排。 */

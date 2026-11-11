@@ -44,13 +44,13 @@ class AcTool : UiTool() {
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("空调控制", "title3"),
+                    A2uiNodes.text("空调控制", "titleLarge"),
                     A2uiNodes.divider(),
                     A2uiNodes.fieldRow("设定温度", "${obj.str("temperature")}°C"),
                     A2uiNodes.fieldRow("风速档位", obj.str("fanSpeed")),
                     A2uiNodes.divider(),
                     A2uiNodes.row(
-                        A2uiNodes.button("温度升高", Action("温度升高", payload = obj.str("temperature")), "primary"),
+                        A2uiNodes.button("温度升高", Action("温度升高", payload = obj.str("temperature")), "Primary"),
                         A2uiNodes.button("温度降低", Action("温度降低", payload = obj.str("temperature"))),
                     ),
                 ),
@@ -86,14 +86,14 @@ class SeatTool : UiTool() {
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("座椅控制", "title3"),
+                    A2uiNodes.text("座椅控制", "titleLarge"),
                     A2uiNodes.divider(),
                     A2uiNodes.fieldRow("座椅", obj.str("seat")),
                     A2uiNodes.fieldRow("加热档位", obj.str("heating")),
                     A2uiNodes.fieldRow("通风档位", obj.str("ventilation")),
                     A2uiNodes.divider(),
                     A2uiNodes.row(
-                        A2uiNodes.button("开启加热", Action("开启加热", payload = obj.str("seat")), "primary"),
+                        A2uiNodes.button("开启加热", Action("开启加热", payload = obj.str("seat")), "Primary"),
                         A2uiNodes.button("开启通风", Action("开启通风", payload = obj.str("seat"))),
                     ),
                 ),
@@ -137,13 +137,13 @@ class WindowTool : UiTool() {
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("车窗控制", "title3"),
+                    A2uiNodes.text("车窗控制", "titleLarge"),
                     A2uiNodes.divider(),
                     A2uiNodes.fieldRow("车窗", obj.str("position")),
                     A2uiNodes.fieldRow("状态", obj.str("state")),
                     A2uiNodes.divider(),
                     A2uiNodes.row(
-                        A2uiNodes.button("打开车窗", Action("打开车窗", payload = obj.str("position")), "primary"),
+                        A2uiNodes.button("打开车窗", Action("打开车窗", payload = obj.str("position")), "Primary"),
                         A2uiNodes.button("关闭车窗", Action("关闭车窗", payload = obj.str("position"))),
                     ),
                 ),
@@ -178,12 +178,12 @@ class AmbientLightTool : UiTool() {
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("氛围灯控制", "title3"),
+                    A2uiNodes.text("氛围灯控制", "titleLarge"),
                     A2uiNodes.divider(),
                     A2uiNodes.fieldRow("当前模式", obj.str("modeLabel")),
                     A2uiNodes.divider(),
                     A2uiNodes.row(
-                        A2uiNodes.button("放松", Action("切换氛围灯为放松模式"), "primary"),
+                        A2uiNodes.button("放松", Action("切换氛围灯为放松模式"), "Primary"),
                         A2uiNodes.button("派对", Action("切换氛围灯为派对模式")),
                         A2uiNodes.button("睡眠", Action("切换氛围灯为睡眠模式")),
                     ),
@@ -235,13 +235,13 @@ class NavigateTool : UiTool() {
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("导航", "title3"),
+                    A2uiNodes.text("导航", "titleLarge"),
                     A2uiNodes.divider(),
                     A2uiNodes.fieldRow("目的地", obj.str("destination")),
                     A2uiNodes.fieldRow("路线", obj.str("route")),
                     A2uiNodes.divider(),
                     A2uiNodes.row(
-                        A2uiNodes.button("开始导航", Action("开始导航", payload = obj.str("destination")), "primary"),
+                        A2uiNodes.button("开始导航", Action("开始导航", payload = obj.str("destination")), "Primary"),
                         A2uiNodes.button("重新规划", Action("重新规划路线", payload = obj.str("destination"))),
                     ),
                 ),
@@ -275,12 +275,12 @@ class DashCamTool : UiTool() {
             root = TreeNode(
                 component = "Card",
                 children = listOf(
-                    A2uiNodes.text("行车记录仪", "title3"),
+                    A2uiNodes.text("行车记录仪", "titleLarge"),
                     A2uiNodes.divider(),
                     A2uiNodes.fieldRow("状态", obj.str("state")),
                     A2uiNodes.divider(),
                     A2uiNodes.row(
-                        A2uiNodes.button("开始录制", Action("开始录制"), "primary"),
+                        A2uiNodes.button("开始录制", Action("开始录制"), "Primary"),
                         A2uiNodes.button("停止录制", Action("停止录制")),
                         A2uiNodes.button("抓拍", Action("抓拍一张照片")),
                     ),

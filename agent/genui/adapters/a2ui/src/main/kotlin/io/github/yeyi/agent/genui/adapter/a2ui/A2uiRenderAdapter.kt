@@ -171,7 +171,7 @@ public class A2uiRenderAdapter(
         out: MutableList<A2uiComponentPayload>,
         fallbackText: String = "",
     ) {
-        val content = node.bindings.text("content").ifEmpty { fallbackText }
+        val content = node.bindings.text("text").ifEmpty { fallbackText }
         // 官方 text 必填：没有文本就没有可渲染的东西
         if (content.isEmpty()) return
         val properties = LinkedHashMap<String, Any?>()
@@ -197,7 +197,7 @@ public class A2uiRenderAdapter(
     ) {
         val action = node.action
         if (action == null) {
-            flattenText(node, componentId, out, fallbackText = node.bindings.text("label"))
+            flattenText(node, componentId, out, fallbackText = node.bindings.text("text"))
             return
         }
         val properties = LinkedHashMap<String, Any?>()
@@ -330,47 +330,64 @@ private fun Map<String, JsonElement>.text(key: String): String =
 /**
  * IR 的文本样式 → 官方 Text 变体。
  *
- * IR 的样式词表（largeTitle/title1..3/headline/body/callout/subheadline/footnote/caption）
- * 比官方细，官方只有 h1~h5/caption/body，故取最接近的一档。
+ * IR 用 M3 typography 档位名（headlineLarge/.../labelSmall），官方只有 h1~h5/caption/body，
+ * 按字号档取最接近的一档。
  */
-private fun textVariant(style: String): String? = when (style.trim().lowercase()) {
-    "largetitle", "title1" -> "h1"
-    "title2" -> "h2"
-    "title3" -> "h3"
-    "headline" -> "h4"
-    "caption" -> "caption"
-    "body" -> "body"
+private fun textVariant(style: String): String? = when (style.trim()) {
+    "headlineLarge" -> "h1"
+    "headlineMedium" -> "h2"
+    "headlineSmall" -> "h3"
+    "titleLarge" -> "h3"
+    "titleMedium" -> "h4"
+    "titleSmall" -> "h5"
+    "bodyLarge" -> "body"
+    "bodyMedium" -> "body"
+    "bodySmall" -> "caption"
+    "labelMedium" -> "caption"
+    "labelSmall" -> "caption"
     else -> null
 }
 
 /**
  * IR 的按钮样式 → 官方 Button 变体。
  *
- * 官方只有 primary/secondary/borderless 三档；bordered、destructive 无对应，取次强调的 secondary。
+ * IR 用 PascalCase（Primary/Secondary/Bordered/Destructive/Plain），官方只有
+ * primary/secondary/borderless 三档；Bordered、Destructive 无对应，取次强调的 secondary。
  */
-private fun buttonVariant(variant: String): String? = when (variant.trim().lowercase()) {
-    "primary" -> "primary"
-    "secondary" -> "secondary"
-    "plain" -> "borderless"
-    "bordered", "destructive" -> "secondary"
+private fun buttonVariant(variant: String): String? = when (variant.trim()) {
+    "Primary" -> "primary"
+    "Secondary" -> "secondary"
+    "Plain" -> "borderless"
+    "Bordered", "Destructive" -> "secondary"
     else -> null
 }
 
-/** IR 的排列 → 官方 justify（官方取值：start/center/end/spaceBetween/spaceAround/spaceEvenly）。 */
-private fun justify(arrangement: String): String? = when (arrangement.trim().lowercase()) {
-    "start", "top" -> "start"
-    "center" -> "center"
-    "end", "bottom" -> "end"
-    "spacebetween" -> "spaceBetween"
-    "spacearound" -> "spaceAround"
-    "spaceevenly" -> "spaceEvenly"
+/**
+ * IR 的排列 → 官方 justify。
+ *
+ * IR 用 Compose [androidx.compose.foundation.layout.Arrangement] 枚举名（Start/Center/End/SpaceBetween/SpaceAround/SpaceEvenly/
+ * Top/Bottom），官方 justify 取值 start/center/end/spaceBetween/spaceAround/spaceEvenly。
+ * Top/Bottom（Column 的纵向排列）映射到 start/end——官方 justify 只有横向语义。
+ */
+private fun justify(arrangement: String): String? = when (arrangement.trim()) {
+    "Start", "Top" -> "start"
+    "Center" -> "center"
+    "End", "Bottom" -> "end"
+    "SpaceBetween" -> "spaceBetween"
+    "SpaceAround" -> "spaceAround"
+    "SpaceEvenly" -> "spaceEvenly"
     else -> null
 }
 
-/** IR 的对齐 → 官方 align（官方取值：start/center/end/stretch）。 */
-private fun align(alignment: String): String? = when (alignment.trim().lowercase()) {
-    "start", "left", "top" -> "start"
-    "center" -> "center"
-    "end", "right", "bottom" -> "end"
+/**
+ * IR 的对齐 → 官方 align。
+ *
+ * IR 用 Compose [androidx.compose.ui.Alignment] 枚举名（Start/CenterHorizontally/CenterVertically/End/Top/Bottom），
+ * 官方 align 取值 start/center/end/stretch。
+ */
+private fun align(alignment: String): String? = when (alignment.trim()) {
+    "Start", "Top" -> "start"
+    "Center", "CenterHorizontally", "CenterVertically" -> "center"
+    "End", "Bottom" -> "end"
     else -> null
 }
