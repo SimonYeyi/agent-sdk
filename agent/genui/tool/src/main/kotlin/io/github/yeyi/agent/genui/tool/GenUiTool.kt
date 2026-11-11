@@ -38,7 +38,7 @@ import kotlinx.serialization.json.contentOrNull
  *
  * @param componentSpec 交给生成模型的组件词汇表（组件名与可用属性说明）
  */
-public class GenUiTool(private val componentSpec: String = DEFAULT_COMPONENT_SPEC) : UiTool() {
+public class GenUiTool(componentSpec: String? = null) : UiTool() {
 
     override val name: String = "gen_ui_tool"
 
@@ -56,6 +56,8 @@ public class GenUiTool(private val componentSpec: String = DEFAULT_COMPONENT_SPE
          "required":["content"]}
         """.trimIndent()
     )
+
+    private val componentSpec = componentSpec ?: DEFAULT_COMPONENT_SPEC
 
     /** 本工具必然出卡：不给模型 show_ui 参数。 */
     override val isShowUiOptional: Boolean = false
@@ -179,7 +181,7 @@ private data class GenUiRequest(
  * 自研后端渲染成占位文本），列进来等于让模型生成看不见的节点。
  * 渲染层组件更多时，把完整词汇表注入 [GenUiTool] 的构造参数。
  */
-public val DEFAULT_COMPONENT_SPEC: String = """
+private val DEFAULT_COMPONENT_SPEC: String = """
     可用组件与属性：
     - Card：卡片外壳，整棵树的根用它。bindings：spacing（整数，元素间距）、padding（整数，内边距）
     - Column：纵向容器。bindings：spacing（整数）、padding（整数）、arrangement（start/center/end/spaceBetween/spaceAround/spaceEvenly）、horizontalAlignment（start/center/end）
