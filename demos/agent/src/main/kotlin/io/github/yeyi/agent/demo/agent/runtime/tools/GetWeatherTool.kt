@@ -147,7 +147,10 @@ class WeatherCardTool : UiTool() {
 
         fun button(action: Action, variant: String): TreeNode = TreeNode(
             component = "Button",
-            bindings = buildJsonObject { put("variant", JsonPrimitive(variant)) },
+            bindings = buildJsonObject {
+                put("variant", JsonPrimitive(variant))
+                put("weight", JsonPrimitive(1f))
+            },
             action = action,
         )
 
@@ -221,14 +224,17 @@ class WeatherCardTool : UiTool() {
                     ),
                     TreeNode(component = "Divider", bindings = emptyMap()),
                     text(description, "style" to "labelMedium", "color" to "onSurfaceVariant"),
-                    // 时间切换按钮：点击经 ActionEvent 回流触发新一轮推理
+                    // 时间切换按钮：三按钮各绑 weight=1 等宽分配 Row 剩余宽度，点击经 ActionEvent 回流触发新一轮推理
                     TreeNode(
                         component = "Row",
-                        bindings = buildJsonObject { put("spacing", JsonPrimitive(8)) },
+                        bindings = buildJsonObject {
+                            put("spacing", JsonPrimitive(8))
+                            put("verticalAlignment", JsonPrimitive("CenterVertically"))
+                        },
                         children = listOf(
-                            button(Action("查看现在天气", payload = city), "Primary"),
-                            button(Action("查看明天天气", payload = city), "Secondary"),
-                            button(Action("查看后天天气", payload = city), "Secondary"),
+                            button(Action("现在天气", payload = city), "Primary"),
+                            button(Action("明天天气", payload = city), "Secondary"),
+                            button(Action("后天天气", payload = city), "Secondary"),
                         ),
                     ),
                 ),

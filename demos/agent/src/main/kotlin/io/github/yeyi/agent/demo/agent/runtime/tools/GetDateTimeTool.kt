@@ -45,31 +45,42 @@ class GetDateTimeTool : UiTool() {
             instanceId = context.toolCallId,
             root = TreeNode(
                 component = "Card",
+                bindings = buildJsonObject {
+                    put("spacing", JsonPrimitive(12))
+                    put("padding", JsonPrimitive(16))
+                },
                 children = listOf(
-                    textNode("🕐 当前时间"),
-                    TreeNode(component = "Divider"),
-                    TreeNode(
-                        component = "Column",
-                        children = listOf(
-                            fieldRow("日期", d.str("date")),
-                            fieldRow("时间", d.str("time")),
-                        ),
-                    ),
+                    // 标题：emoji + titleLarge，作为卡片视觉锚点
+                    text("🕐 当前时间", "style" to "titleLarge", "fontWeight" to "SemiBold"),
+                    TreeNode(component = "Divider", bindings = emptyMap()),
+                    // 字段行：label/value 用 SpaceBetween 撑开，label 弱化、value 强调
+                    fieldRow("日期", d.str("date")),
+                    fieldRow("时间", d.str("time")),
                 ),
             ),
         )
     }
 
-    /** 文本节点：IR 只带语义数据，视觉由 Text 组件默认形态决定。 */
-    private fun textNode(content: String): TreeNode = TreeNode(
-        component = "Text",
-        bindings = buildJsonObject { put("text", JsonPrimitive(content)) },
-    )
+    /** 文本节点：带可选样式覆写，缺省走 Text 组件默认形态。 */
+    private fun text(content: String, vararg extra: Pair<String, String>): TreeNode {
+        val bindings = buildJsonObject {
+            put("text", JsonPrimitive(content))
+            extra.forEach { (k, v) -> put(k, JsonPrimitive(v)) }
+        }
+        return TreeNode(component = "Text", bindings = bindings)
+    }
 
-    /** 字段行：label + value 两个文本并排。 */
+    /** 字段行：label（弱化）+ value（强调）用 SpaceBetween 撑开整行。 */
     private fun fieldRow(label: String, value: String): TreeNode = TreeNode(
         component = "Row",
-        children = listOf(textNode(label), textNode(value)),
+        bindings = buildJsonObject {
+            put("arrangement", JsonPrimitive("SpaceBetween"))
+            put("verticalAlignment", JsonPrimitive("CenterVertically"))
+        },
+        children = listOf(
+            text(label, "style" to "labelMedium", "color" to "onSurfaceVariant"),
+            text(value, "style" to "bodyMedium", "fontWeight" to "Medium"),
+        ),
     )
 
     private fun JsonObject.str(key: String): String =

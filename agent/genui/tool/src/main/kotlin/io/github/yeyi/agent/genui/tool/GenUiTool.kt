@@ -33,14 +33,11 @@ import kotlinx.serialization.json.contentOrNull
  * 渲染层注册了哪些组件，故默认给出两个渲染后端都支持的交集组件集；
  * 渲染层有更多组件时，由使用方把完整词汇表注入进来。
  *
- * 生成失败的处理分两类：
- * - 模型没回内容（reply 为空）：无可降级素材，抛异常，由工具执行链路统一转为错误回执，
- *   模型下一轮感知失败并重试。
- * - 模型回了内容但格式不规范（不是合法 JSON、不是 JSON 对象、缺 root 节点、
- *   组件树非法、根节点动作文案为空等生成式模型常见的格式抖动）：降级为一棵只装
- *   原始 content 的 Text 节点——排版意图丢了，但用户至少能看到内容本身，
- *   不至于因生成式模型的格式失误让整轮空转。intent 在降级路径中丢弃（它只是排版意图，
- *   不影响内容呈现）。
+ * 生成失败的处理：reply 为空（模型没回内容）或格式不规范（不是合法 JSON、不是 JSON 对象、
+ * 缺 root 节点、组件树非法、根节点动作文案为空等生成式模型常见的格式抖动）一律降级为
+ * Card 包一个只装原始 content 的 Text 节点——排版意图丢了，但用户至少能看到内容本身，
+ * 不至于因生成式模型的格式失误让整轮空转。intent 在降级路径中丢弃（它只是排版意图，
+ * 不影响内容呈现）。
  *
  * @param componentSpec 交给生成模型的组件词汇表（组件名与可用属性说明）
  */
@@ -90,19 +87,17 @@ public class GenUiTool(componentSpec: String? = null) : UiTool() {
         request: GenUiRequest,
         context: ToolExecutionContext
     ): CardIr {
-        val response = context.agentContext.llmProvider.chat(
-            ChatRequest(
-                messages = listOf(
-                    ChatMessage.System("$UI_GENERATOR_CONTRACT\n\n$componentSpec"),
-                    ChatMessage.User(listOf(ContentPart.Text(userPrompt(request)))),
-                ),
-            )
-        )
-        val reply = response.message.content?.takeIf { it.isNotBlank() }
-            ?: throw IllegalStateException("UI 生成模型没有返回内容")
         // 卡片锚点用本次工具调用 id：与工具结果消息一一对应，渲染顺序即消息顺序
         val root = try {
-            parseRoot(reply)
+            val response = context.agentContext.llmProvider.chat(
+                ChatRequest(
+                    messages = listOf(
+                        ChatMessage.System("$UI_GENERATOR_CONTRACT\n\n$componentSpec"),
+                        ChatMessage.User(listOf(ContentPart.Text(userPrompt(request)))),
+                    ),
+                )
+            )
+            parseRoot(response.message.content!!)
         } catch (_: Exception) {
             TreeNode(
                 component = "Card", children = listOf(
@@ -201,7 +196,10 @@ private val DEFAULT_COMPONENT_SPEC: String = """
     - Card：卡片外壳，整棵树的根用它。bindings：spacing（整数，元素间距）、padding（整数，内边距）
     - Column：纵向容器。bindings：spacing（整数）、padding（整数）、arrangement（Top/Center/Bottom/SpaceBetween/SpaceAround/SpaceEvenly）、horizontalAlignment（Start/CenterHorizontally/End）
     - Row：横向容器。bindings：spacing（整数）、padding（整数）、arrangement（Start/Center/End/SpaceBetween/SpaceAround/SpaceEvenly）、verticalAlignment（Top/CenterVertically/Bottom）
-    - Text：文本。bindings：text（必填）、style（headlineLarge/headlineMedium/headlineSmall/titleLarge/titleMedium/titleSmall/bodyLarge/bodyMedium/bodySmall/labelMedium/labelSmall）、fontWeight（Normal/Medium/SemiBold/Bold/Light）、color（primary/secondary/tertiary/error/onSurface/onSurfaceVariant/outline/outlineVariant/surface/surfaceVariant/background/onBackground 或 blue/green/red/orange/yellow/teal/purple/pink/indigo/white/black 或 #RRGGBB）、textAlign（Start/Center/End）、maxLines（整数）
-    - Button：按钮，按钮文案写在 action.label（必填）。bindings：variant（Primary/Secondary/Bordered/Destructive/Plain）
+    - Text：文本。bindings：text（必填）、style（headlineLarge/headlineMedium/headlineSmall/titleLarge/titleMedium/titleSmall/bodyLarge/bodyMedium/bodySmall/labelMedium/labelSmall）、fontWeight（Normal/Medium/SemiBold/Bold/Light）、color（primary/secondary/tertiary/error/onSurface/onSurfaceVariant/outline/outlineVariant/surface/surfaceVariant/background/onBackground 或 blue/green/red/orange/yellow/teal/purple/pink/indigo/white/black 或 #RRGGBB / #AARRGGBB）、textAlign（Start/Center/End）、maxLines（整数）
+    - Button：按钮，按钮文案写在 action.label（必填）。bindings：variant（Primary/Secondary/Bordered/Destructive/Plain）、weight（浮点，>0 时按比例分配 Row 剩余宽度，仅 Row 内生效）
+    - Badge：小圆角标签。bindings：text（必填）、containerColor、contentColor（颜色取值同 Text.color）
     - Divider：分隔线。bindings：color
+    - Spacer：固定占位。bindings：width（浮点）、height（浮点），仅一个方向生效
+    - Image：图片占位（emoji 于圆角色块）。bindings：emoji（默认 🖼）、size（浮点，默认 44）、containerColor
 """.trimIndent()

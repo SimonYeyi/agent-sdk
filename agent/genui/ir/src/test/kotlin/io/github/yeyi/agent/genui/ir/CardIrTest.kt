@@ -49,18 +49,18 @@ class CardIrTest {
 
     @Test
     fun `回流文案 动作带参数时为 label 加参数`() {
-        assertEquals("查看明天天气（北京）", Action("查看明天天气", payload = "北京").reflowable)
+        assertEquals("明天天气（北京）", Action("明天天气", payload = "北京").reflowable)
     }
 
     @Test
     fun `回流文案不进协议 序列化只有文案与参数`() {
-        val json = Json.encodeToString(Action("查看明天天气", payload = "北京"))
+        val json = Json.encodeToString(Action("明天天气", payload = "北京"))
 
-        assertEquals("""{"label":"查看明天天气","payload":"北京"}""", json)
+        assertEquals("""{"label":"明天天气","payload":"北京"}""", json)
     }
 
     @Test
     fun `回流文案 动作无参数时只有 label`() {
-        assertEquals("查看明天天气", Action("查看明天天气").reflowable)
+        assertEquals("明天天气", Action("明天天气").reflowable)
     }
 }

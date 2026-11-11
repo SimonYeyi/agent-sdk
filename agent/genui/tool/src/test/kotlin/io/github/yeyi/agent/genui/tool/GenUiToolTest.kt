@@ -156,7 +156,7 @@ class GenUiToolTest {
     }
 
     @Test
-    fun `模型没回内容时判失败`() = runTest {        val llm = FakeLlmProvider(
+    fun `模型没回内容时降级为只装原始内容的卡片`() = runTest {        val llm = FakeLlmProvider(
             nonStreamResponses = listOf(
                 ChatResponse(
                     ChatMessage.Assistant(content = null),
@@ -169,9 +169,13 @@ class GenUiToolTest {
             agentContext = testAgentContext(llmProvider = llm),
         )
 
-        assertFailsWith<IllegalStateException> {
-            GenUiTool().execute(buildJsonObject { put("content", JsonPrimitive("x")) }, ctx)
-        }
+        val returned = GenUiTool().execute(buildJsonObject { put("content", JsonPrimitive("x")) }, ctx)
+        val card = assertNotNull(returned.decodeCard())
+        // reply 为空：直接降级，与格式不规范同一路径（Card 包 Text，原始内容作为文本展示）
+        assertEquals("Card", card.root.component)
+        val textNode = card.root.children.single()
+        assertEquals("Text", textNode.component)
+        assertEquals("x", textNode.bindings["text"]!!.jsonPrimitive.content)
     }
 
     @Test

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column as ComposeColumn
 import androidx.compose.foundation.layout.Row as ComposeRow
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -16,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text as ComposeText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -32,6 +34,15 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+
+/**
+ * 当前渲染位置所在的 [RowScope]：Row 渲染子节点时提供，Column 不提供。
+ *
+ * 让子组件（如 Button）能用 `Modifier.weight()` 按比例分配 Row 剩余宽度——
+ * weight 是 RowScope 专属扩展，组件函数本身不在 RowScope 接收者里，故经此 local 桥接。
+ * 取不到（null）说明当前不在 Row 里，weight 绑定不生效。
+ */
+internal val LocalRowScope = compositionLocalOf<RowScope?> { null }
 
 /**
  * default 适配器配套的 Material3 风格常用组件实现 + 注册入口。
@@ -274,7 +285,13 @@ internal fun Column(node: TreeNode, children: @Composable () -> Unit) {
     }
 }
 
-/** 横向容器：spacing/arrangement/padding/alignment 均经 bindings 传入，缺省为最常用形态。 */
+/**
+ * 横向容器：spacing/arrangement/padding/alignment 均经 bindings 传入，缺省为最常用形态。
+ *
+ * Row 渲染子节点时提供 [LocalRowScope]，让子组件（如 Button）能绑 `weight`（浮点）
+ * 按比例分配剩余宽度——三个按钮各绑 weight=1 即等宽，避免窄屏下 wrap-content 按钮被挤到文案换行。
+ * weight 只在 Row 里生效（Column 不提供 LocalRowScope）。
+ */
 @Composable
 internal fun Row(node: TreeNode, children: @Composable () -> Unit) {
     val spacing = node.bindings.intValue("spacing", 0)
@@ -290,7 +307,9 @@ internal fun Row(node: TreeNode, children: @Composable () -> Unit) {
         horizontalArrangement = arrangement,
         verticalAlignment = node.bindings.verticalAlignment(Alignment.CenterVertically),
     ) {
-        children()
+        androidx.compose.runtime.CompositionLocalProvider(LocalRowScope provides this) {
+            children()
+        }
     }
 }
 
@@ -339,13 +358,24 @@ internal fun Text(node: TreeNode) {
     )
 }
 
-/** 按钮：variant 支持 primary/secondary/bordered/destructive/plain；未声明动作时渲染为禁用态静态文本。 */
+/**
+ * 按钮：variant 支持 Primary/Secondary/Bordered/Destructive/Plain；未声明动作时渲染为禁用态静态文本。
+ *
+ * 默认形态：wrap-content（宽度跟文案走）+ 文案左对齐 + 横向 16dp / 纵向 8dp 内边距。
+ * 绑定 `weight`（浮点）时按比例分配 Row 剩余宽度——三个按钮各绑 weight=1 在 Row 里等宽，
+ * 避免窄屏下 wrap-content 按钮被挤到文案换行；weight 只在 Row 里生效（依赖 [LocalRowScope]）。
+ * 文案强制单行（maxLines=1），空间实在不够时省略号截断而非纵向换行。
+ * modifier 顺序：weight → clip → background → border → padding → clickable → 文字——
+ * background 画在 clip 裁剪的完整盒子上（含 padding 区域），padding 把文字往里推，
+ * 按钮是个完整色块而非文字紧贴背景边缘。
+ */
 @Composable
 internal fun Button(node: TreeNode, scope: ActionScope) {
     val action = node.action
     val text = action?.label ?: node.bindings.str("text", "按钮")
     val variant = node.bindings.str("variant", "Primary")
     val shape = RoundedCornerShape(10.dp)
+    val weight = node.bindings.floatValue("weight", 0f)
 
     if (action == null) {
         // 节点未声明动作：渲染为禁用态静态文本，不绑定点击
@@ -367,20 +397,33 @@ internal fun Button(node: TreeNode, scope: ActionScope) {
         else -> Triple(DefaultColors.primary, Color.White, Color.Transparent) // Primary
     }
 
-    var modifier = Modifier
+    // weight 须在 RowScope 里才生效：从 LocalRowScope 桥接，没拿到说明不在 Row 里（weight 不生效）
+    val rowScope = LocalRowScope.current
+    val weightModifier = if (weight > 0f && rowScope != null) {
+        with(rowScope) { Modifier.weight(weight) }
+    } else {
+        Modifier
+    }
+
+    // background 画在 clip 裁剪的完整盒子上（含 padding 区域），padding 把文字往里推
+    var modifier = weightModifier
         .clip(shape)
         .background(containerColor)
-        .clickable { scope.emit(action) }
-        .padding(horizontal = 14.dp, vertical = 7.dp)
     if (border != Color.Transparent) {
         modifier = modifier.border(1.dp, border, shape)
     }
+    modifier = modifier
+        .padding(horizontal = 16.dp, vertical = 8.dp)
+        .clickable { scope.emit(action) }
     ComposeText(
         text = text,
         modifier = modifier,
         fontSize = 15.sp,
         fontWeight = FontWeight.SemiBold,
         color = contentColor,
+        textAlign = TextAlign.Start,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
     )
 }
 

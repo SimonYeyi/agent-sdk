@@ -11,7 +11,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.yeyi.agent.genui.adapter.default.DefaultRenderAdapter
 import io.github.yeyi.agent.genui.adapter.default.Card
@@ -57,10 +56,11 @@ private fun LocationCard(node: TreeNode, scope: ActionScope) {
         FieldRow("经度", node.bindingText("longitude"))
         // 模板自持按钮：动作是模板自己的声明，点击经 scope 回流；
         // 参数取工具给的城市，随动作回流到应用，由应用决定是否喂给模型。
+        // 颜色用 M3 colorScheme.primary，与 default Button 组件 Primary variant 同色（DefaultColors.primary）
         val action = Action("开启导航", payload = node.bindingText("city"))
         Button(
             onClick = { scope.emit(action) },
-            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0A84FF)),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
         ) {
             Text(action.label)
         }
