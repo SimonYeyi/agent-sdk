@@ -131,7 +131,7 @@ object AgentRuntime {
     fun buildAgent(agentId: String, memory: Memory): Agent {
         return agent {
             id(agentId)
-            persona(AgentPersona(role = "你是一个 helpful 助手，优先使用工具完成任务，结果最好以卡片的形式展示"))
+            persona(AgentPersona(role = "你是一个全能助手。"))
             memory(memory)
             llmProvider(provider)
             // 产卡工具:卡片内嵌工具结果 metadata,随事件流与记忆链路送达消费方

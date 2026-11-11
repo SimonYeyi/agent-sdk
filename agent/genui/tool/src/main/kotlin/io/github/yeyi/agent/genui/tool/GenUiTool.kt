@@ -38,15 +38,14 @@ import kotlinx.serialization.json.contentOrNull
  *
  * @param componentSpec 交给生成模型的组件词汇表（组件名与可用属性说明）
  */
-public class GenUiTool(
-    private val componentSpec: String = DEFAULT_COMPONENT_SPEC,
-) : UiTool() {
+public class GenUiTool(private val componentSpec: String = DEFAULT_COMPONENT_SPEC) : UiTool() {
 
     override val name: String = "gen_ui_tool"
 
-    override val description: String =
-        "生成 UI 卡片。当需要将最终结果以 UI 的形式友好地向用户展示时使用" +
-                "（会立即出卡并结束本轮，不可与其他工具同时调用）"
+    override val description: String = "生成 UI 卡片。用法：\n" +
+            "1.利用自身已有知识作答，无须调用，直接输出最终回复即可\n" +
+            "2.调用了其他工具，且最终回复的核心是数字信息或列表项，必须调用本工具\n" +
+            "3.此外，如果最终回复是大块长文本，无须调用本工具"
 
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
         """
@@ -119,7 +118,8 @@ public class GenUiTool(
             ?: throw IllegalStateException("UI 生成模型返回的不是合法 JSON：${raw.take(200)}")
         val obj = element as? JsonObject
             ?: throw IllegalStateException("UI 生成模型返回的不是 JSON 对象：${raw.take(200)}")
-        val rootElement = obj["root"] ?: obj.takeIf { "component" in it }
+        val rootElement = obj["root"]
+            ?: obj.takeIf { "component" in it }
             ?: throw IllegalStateException("UI 生成模型返回的 JSON 缺少 root 节点：${raw.take(200)}")
         val root = runCatching {
             Json.decodeFromJsonElement(TreeNode.serializer(), rootElement)
