@@ -33,8 +33,14 @@ import kotlinx.serialization.json.contentOrNull
  * 渲染层注册了哪些组件，故默认给出两个渲染后端都支持的交集组件集；
  * 渲染层有更多组件时，由使用方把完整词汇表注入进来。
  *
- * 生成失败（模型没回内容、回的不是 JSON、组件树非法）一律抛异常：
- * 由工具执行链路统一转为错误回执，模型下一轮感知失败并重试。
+ * 生成失败的处理分两类：
+ * - 模型没回内容（reply 为空）：无可降级素材，抛异常，由工具执行链路统一转为错误回执，
+ *   模型下一轮感知失败并重试。
+ * - 模型回了内容但格式不规范（不是合法 JSON、不是 JSON 对象、缺 root 节点、
+ *   组件树非法、根节点动作文案为空等生成式模型常见的格式抖动）：降级为一棵只装
+ *   原始 content 的 Text 节点——排版意图丢了，但用户至少能看到内容本身，
+ *   不至于因生成式模型的格式失误让整轮空转。intent 在降级路径中丢弃（它只是排版意图，
+ *   不影响内容呈现）。
  *
  * @param componentSpec 交给生成模型的组件词汇表（组件名与可用属性说明）
  */
@@ -95,7 +101,16 @@ public class GenUiTool(componentSpec: String? = null) : UiTool() {
         val reply = response.message.content?.takeIf { it.isNotBlank() }
             ?: throw IllegalStateException("UI 生成模型没有返回内容")
         // 卡片锚点用本次工具调用 id：与工具结果消息一一对应，渲染顺序即消息顺序
-        return CardIr(instanceId = context.toolCallId, root = parseRoot(reply))
+        val root = try {
+            parseRoot(reply)
+        } catch (_: Exception) {
+            TreeNode(
+                component = "Card", children = listOf(
+                    TreeNode("Text", bindings = mapOf("content" to JsonPrimitive(request.content)))
+                )
+            )
+        }
+        return CardIr(instanceId = context.toolCallId, root = root)
     }
 
     /** 待排版内容交给生成模型的话术：内容与展示意图两段。 */
