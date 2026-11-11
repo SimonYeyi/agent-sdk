@@ -44,7 +44,7 @@ public class GenUiTool(private val componentSpec: String = DEFAULT_COMPONENT_SPE
 
     override val description: String = "生成 UI 卡片。用法：\n" +
             "1.利用自身已有知识作答，无须调用，直接输出最终回复即可\n" +
-            "2.调用了其他工具，且最终回复的核心是数字信息或列表项，必须调用本工具\n" +
+            "2.调用了其他工具，且最终回复的核心是数字、列表项、信息点，必须调用本工具\n" +
             "3.此外，如果最终回复是大块长文本，无须调用本工具"
 
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
