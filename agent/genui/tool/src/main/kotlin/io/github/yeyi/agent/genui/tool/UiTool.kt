@@ -74,11 +74,11 @@ public abstract class UiTool : Tool, FinalizableTool {
 
         /** show_ui 的参数描述：交给模型的判据。 */
         internal const val SHOW_UI_DESCRIPTION =
-            "是否把本调用的结果或参数以卡片的形式展示给用户（必传）。"+
+            "是否把本调用的结果或参数以卡片的形式展示给用户（必传）。" +
                     "当本调用只是推理的中间步骤时，传 false（此时只回执数据、不出卡）；" +
-                    "当本调用已经完全符合用户意图时，传 true（无回执，出卡告知用户答案）；"+
-                    "当本调用是在向用户提问，需要用户作答时，必须传 true（不出卡用户就看不到问题）；"+
-                    "当本调用需要同时产出多个时，必须全部传 false（出多张同类型卡会造成用户困惑）。"
+                    "当本调用本身完全符合用户意图时，传 true（无回执，出卡告知用户答案）；" +
+                    "当本调用是在向用户提问，需要用户作答时，必须传 true（不出卡用户就看不到问题）；" +
+                    "当需要同时产出多个本调用（同名不同参）时，必须全部传 false（出多张同类型卡会造成用户困惑）。"
 
         /**
          * 卡片在工具结果 metadata 中的固定键名。
@@ -196,13 +196,11 @@ public abstract class UiTool : Tool, FinalizableTool {
         // 又无数据又不出卡：本轮什么都没交付给用户，模型也无从读到什么。
         // 按需出卡的工具，措辞指向模型侧的修法：带 show_ui=true 重新调用。
         if (!showCard && result == null) {
-            error(
-                if (isShowUiOptional) {
-                    "$name produced neither a result nor a card: call it again with show_ui=true"
-                } else {
-                    "$name produced neither a result nor a card: a card tool must return data in getResult"
-                }
-            )
+            if (isShowUiOptional) {
+                error("$name produced neither a result nor a card: call it again with show_ui=true")
+            } else {
+                error("$name produced neither a result nor a card: a card tool must return data in getResult")
+            }
         }
         val card = if (showCard) buildCard(origArgs, result, context) else null
         // 模型要求出卡就必须真有卡片：没有卡片就没有交付给用户的东西
