@@ -26,7 +26,7 @@ import kotlinx.serialization.json.contentOrNull
  * 再发一次请求（系统提示给出组件词汇与输出契约，用户消息给出待排版内容）
  * → 模型回的 JSON 解码为组件树 → 卡片编码进结果 metadata，随事件流送达渲染。
  *
- * 与普通 UiTool 的不同：本工具没有 show_ui（[isShowUiOptional] = false）——
+ * 与普通 UiTool 的不同：本工具没有 show_ui（[alwaysShowUi] = true）——
  * 它就是「出卡」这件事本身，必然产卡、必然终结本轮（卡片交到用户手上，本轮到此为止）。
  *
  * 组件词汇由构造参数 [componentSpec] 决定：IR 是后端中立的，工具不知道
@@ -60,7 +60,7 @@ public class GenUiTool(componentSpec: String? = null) : UiTool() {
     private val componentSpec = componentSpec ?: DEFAULT_COMPONENT_SPEC
 
     /** 本工具必然出卡：不给模型 show_ui 参数。 */
-    override val isShowUiOptional: Boolean = false
+    override val alwaysShowUi: Boolean = true
 
     /** 产卡前先把内容交给生成模型排版，解码出组件树。 */
     override suspend fun buildCard(
