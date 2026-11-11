@@ -209,6 +209,31 @@ class GenUiToolTest {
     }
 
     @Test
+    fun `必然出卡 不给模型 show_ui 参数`() = runTest {
+        val schema = GenUiTool().parametersSchema
+        val obj = Json.parseToJsonElement((schema as ToolParameters.JsonSchema).schema).jsonObject
+        // 本工具就是「出卡」这件事本身：模型没有 show_ui 可表态，schema 里也不该出现
+        assertFalse("show_ui" in obj["properties"]!!.jsonObject)
+        val required = (obj["required"] as? kotlinx.serialization.json.JsonArray).orEmpty()
+            .map { it.jsonPrimitive.content }
+        assertFalse("show_ui" in required)
+    }
+
+    @Test
+    fun `不传 show_ui 也出卡并终结本轮`() = runTest {
+        val (ctx, _) = context(cardJson)
+        val tool = GenUiTool()
+
+        val returned = tool.execute(
+            buildJsonObject { put("content", JsonPrimitive("北京今天晴")) },
+            ctx,
+        )
+
+        assertEquals("Card", assertNotNull(returned.decodeCard()).root.component)
+        assertTrue(tool.finalizable(buildJsonObject {}, returned))
+    }
+
+    @Test
     fun `注入的组件词汇表进入系统提示`() = runTest {
         val (ctx, llm) = context(cardJson)
 

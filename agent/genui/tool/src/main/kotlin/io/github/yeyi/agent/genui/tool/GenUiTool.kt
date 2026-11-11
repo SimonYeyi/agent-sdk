@@ -6,10 +6,7 @@ import io.github.yeyi.agent.genui.ir.isRenderable
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ContentPart
-import io.github.yeyi.agent.tool.FinalizableTool
-import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
-import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -20,16 +17,17 @@ import kotlinx.serialization.json.contentOrNull
 /**
  * 生成卡片工具：把内容交给模型，由模型现场生成卡片 IR。
  *
- * 与 [UiTool] 的分工：UiTool 的卡片由开发者手写（子类实现 [UiTool.buildCard]），
- * 适合结构固定、字段已知的场景（天气卡、定位卡）；本工具的卡片由模型现场排版，
- * 适合「把这段结果做成一张卡」这种开放内容——不必为每种内容各写一个工具。
+ * 继承 [UiTool]，复用其产卡接线（BusinessResult → [buildCard] → 编码进 metadata → 终结本轮）：
+ * UiTool 的卡片由开发者手写，适合结构固定、字段已知的场景（天气卡、定位卡）；
+ * 本工具的卡片由模型现场排版，适合「把这段结果做成一张卡」这种开放内容——
+ * 不必为每种内容各写一个工具。
  *
  * 流程：主模型把要展示的内容交给本工具 → 本工具用 agent 的 LLM provider
  * 再发一次请求（系统提示给出组件词汇与输出契约，用户消息给出待排版内容）
  * → 模型回的 JSON 解码为组件树 → 卡片编码进结果 metadata，随事件流送达渲染。
  *
- * 与 UiTool 的另一处不同：本工具没有 show_ui——它就是「出卡」这件事本身，
- * 必然产卡、必然终结本轮（卡片交到用户手上，本轮到此为止）。
+ * 与普通 UiTool 的不同：本工具没有 show_ui（[isShowUiOptional] = false）——
+ * 它就是「出卡」这件事本身，必然产卡、必然终结本轮（卡片交到用户手上，本轮到此为止）。
  *
  * 组件词汇由构造参数 [componentSpec] 决定：IR 是后端中立的，工具不知道
  * 渲染层注册了哪些组件，故默认给出两个渲染后端都支持的交集组件集；
@@ -42,7 +40,7 @@ import kotlinx.serialization.json.contentOrNull
  */
 public class GenUiTool(
     private val componentSpec: String = DEFAULT_COMPONENT_SPEC,
-) : Tool, FinalizableTool {
+) : UiTool() {
 
     override val name: String = "gen_ui_tool"
 
@@ -50,7 +48,7 @@ public class GenUiTool(
         "生成 UI 卡片。当需要将最终结果以 UI 的形式友好地向用户展示时使用" +
                 "（会立即出卡并结束本轮，不可与其他工具同时调用）"
 
-    override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
         """
         {"type":"object",
          "properties":{
@@ -60,15 +58,15 @@ public class GenUiTool(
         """.trimIndent()
     )
 
-    override suspend fun execute(
+    /** 本工具必然出卡：不给模型 show_ui 参数。 */
+    override val isShowUiOptional: Boolean = false
+
+    /** 产卡前先把内容交给生成模型排版，解码出组件树。 */
+    override suspend fun buildCard(
         arguments: JsonElement,
+        result: JsonElement?,
         context: ToolExecutionContext
-    ): ToolExecutionResult {
-        val request = parseRequest(arguments)
-        val card = generateCard(request, context)
-        // 内容已由主模型给出，模型不必再读一遍卡片：回执只告知卡片已送达
-        return ToolExecutionResult.success(UiTool.CARD_SHOWN_NOTE, encodeCard(card))
-    }
+    ): CardIr = generateCard(parseRequest(arguments), context)
 
     /** 入参解析：content 必传，intent 可选。 */
     private fun parseRequest(arguments: JsonElement): GenUiRequest {

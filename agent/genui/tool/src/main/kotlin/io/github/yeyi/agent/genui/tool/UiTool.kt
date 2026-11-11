@@ -21,13 +21,18 @@ import kotlinx.serialization.json.put
 /**
  * 声明「本工具产出可交互卡片」的抽象基类，实现 [Tool] 与 [FinalizableTool]。
  *
- * 本轮出不出卡、结不终结，完全由模型逐次传入的框架参数 show_ui 决定：
- * - show_ui=true：出卡，并终结本轮——卡片已经交到用户手上，本轮到此为止，等用户回复
- *   或点选卡片动作；
- * - show_ui=false：不出卡，也不终结——本轮只是推理的中间步骤，模型看到回执后自行决定下一步。
+ * 分两类：
+ * - **按需出卡**（默认，[isShowUiOptional] = true）：本轮出不出卡、结不终结，由模型逐次
+ *   传入的框架参数 show_ui 决定——show_ui=true 出卡并终结本轮（卡片已经交到用户手上，
+ *   本轮到此为止，等用户回复或点选卡片动作）；show_ui=false 不出卡、不终结——本轮只是
+ *   推理的中间步骤，模型看到回执后自行决定下一步。
+ * - **必然出卡**（[isShowUiOptional] = false）：工具本身就是「出卡」这件事，承载的内容
+ *   非得给用户看不可（如把结果现场排成一张卡）。此时不给模型 show_ui 参数——不必问，
+ *   每次调用都出卡并终结本轮。
  *
- * show_ui 在 schema 里声明为必传：模型每次调用都得表态出不出卡；真缺省时（模型没传）
- * 由运行时兜底为 false——不出卡、不终结。
+ * 按需出卡时，show_ui 在 schema 里声明为必传：模型每次调用都得表态出不出卡；
+ * 真缺省时（模型没传）由运行时兜底为 false——不出卡、不终结。
+ * 必然出卡的工具没有 show_ui，一律按出卡处理。
  *
  * 卡片是**非轮次阻塞**的：卡片发射后本轮按正常协议走完，
  * 用户点击卡片动作经 [io.github.yeyi.agent.genui.ir.ActionEvent]
@@ -45,7 +50,7 @@ import kotlinx.serialization.json.put
  * 典型如卡片即问询的场景）；发射接线由 final [execute] 统一收口，
  * 卡片落在工具调用的 ToolCallStart/End 区间内，锚点天然对齐。
  *
- * show_ui 由基类并入给模型的 schema（子类的业务 schema 一行不改），并声明为必传。
+ * 按需出卡时 show_ui 由基类并入给模型的 schema（子类的业务 schema 一行不改）。
  * 模型要出卡时传 true——「查天气」过程中顺手调一次的定位工具不必出卡，
  * 只有本次结果本身就是给用户的答案（或要向用户提问）才传 true。
  *
@@ -96,11 +101,24 @@ public abstract class UiTool : Tool, FinalizableTool {
     protected abstract val toolSchema: ToolParameters
 
     /**
-     * 模型可见的 schema：业务 schema 与框架参数 show_ui 的合并结果。
+     * 是否只在模型要求时才出卡（show_ui 由模型逐次决定）。
+     *
+     * true（默认）：schema 并入必传参数 show_ui，出卡与否、终结与否全看模型表态；
+     * false：工具必然出卡并终结本轮，schema 不并入 show_ui，模型也无从讨价还价。
+     *
+     * 必然出卡者适用于「内容本身就是给用户的最终答案」的工具（如生成卡片工具），
+     * 需要中途取数的中间步骤工具必须保持 true。
+     */
+    protected open val isShowUiOptional: Boolean = true
+
+    /**
+     * 模型可见的 schema：业务 schema 与框架参数 show_ui 的合并结果；必然出卡时原样透出业务 schema。
      *
      * final：合并由基类统一收口，子类只声明 [toolSchema]，不直接覆写模型的入参形态。
      */
-    final override val parametersSchema: ToolParameters by lazy { withShowUi(toolSchema) }
+    final override val parametersSchema: ToolParameters by lazy {
+        if (isShowUiOptional) withShowUi(toolSchema) else toolSchema
+    }
 
     /**
      * 业务结果：本轮工具结果的唯一来源，取数结果原样存入 agent 记忆。
@@ -133,14 +151,14 @@ public abstract class UiTool : Tool, FinalizableTool {
      * @param result [getResult] 的取数结果
      * @param context 本轮执行上下文
      */
-    protected abstract fun buildCard(
+    protected abstract suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext
     ): CardIr?
 
     /**
-     * 可终结裁决：由 show_ui 与执行成败共同决定。
+     * 可终结裁决：由出卡与否与执行成败共同决定（必然出卡的工具恒出卡）。
      *
      * 出卡即终结：卡片已经交到用户手上，本轮到此为止，等用户回复或点选卡片动作；
      * 不出卡就不终结——模型看到回执后自行决定下一步（中间步骤工具调用不打断推理链）。
@@ -176,9 +194,15 @@ public abstract class UiTool : Tool, FinalizableTool {
         val origArgs = withoutShowUi(arguments)
         val result = getResult(origArgs, context)
         // 又无数据又不出卡：本轮什么都没交付给用户，模型也无从读到什么。
-        // 措辞指向模型侧的修法：带 show_ui=true 重新调用。
+        // 按需出卡的工具，措辞指向模型侧的修法：带 show_ui=true 重新调用。
         if (!showCard && result == null) {
-            error("$name produced neither a result nor a card: call it again with show_ui=true")
+            error(
+                if (isShowUiOptional) {
+                    "$name produced neither a result nor a card: call it again with show_ui=true"
+                } else {
+                    "$name produced neither a result nor a card: a card tool must return data in getResult"
+                }
+            )
         }
         val card = if (showCard) buildCard(origArgs, result, context) else null
         // 模型要求出卡就必须真有卡片：没有卡片就没有交付给用户的东西
@@ -201,9 +225,13 @@ public abstract class UiTool : Tool, FinalizableTool {
         return ToolExecutionResult.success(receipt, metadata)
     }
 
-    /** 模型是否要求本轮出卡：模型没传时兜底为不出卡、不终结。 */
+    /**
+     * 本轮是否出卡：必然出卡的工具恒为 true；
+     * 按需出卡看模型传的 show_ui，模型没传时兜底为不出卡、不终结。
+     */
     private fun showCard(arguments: JsonElement): Boolean =
-        ((arguments as? JsonObject)?.get(SHOW_UI_PARAM) as? JsonPrimitive)?.booleanOrNull ?: false
+        !isShowUiOptional ||
+                ((arguments as? JsonObject)?.get(SHOW_UI_PARAM) as? JsonPrimitive)?.booleanOrNull ?: false
 
     /**
      * 业务入参：剥掉框架参数 show_ui。
@@ -213,8 +241,8 @@ public abstract class UiTool : Tool, FinalizableTool {
      */
     private fun withoutShowUi(arguments: JsonElement): JsonElement {
         if (arguments !is JsonObject) return arguments
-        val business = arguments.filterKeys { it != SHOW_UI_PARAM }
-        return if (business.size == arguments.size) arguments else JsonObject(business)
+        val origArgs = arguments.filterKeys { it != SHOW_UI_PARAM }
+        return if (origArgs.size == arguments.size) arguments else JsonObject(origArgs)
     }
 
     /**

@@ -70,7 +70,7 @@ class GetTimeTool : UiTool() {
         }
     }
 
-    override fun buildCard(
+    override suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext,
@@ -104,7 +104,7 @@ class GetDateTool : UiTool() {
         }
     }
 
-    override fun buildCard(
+    override suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext,
@@ -140,7 +140,7 @@ class GetCarStatusTool : UiTool() {
         }
     }
 
-    override fun buildCard(
+    override suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext,
@@ -179,7 +179,7 @@ class GetEnergyTool : UiTool() {
         }
     }
 
-    override fun buildCard(
+    override suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext,

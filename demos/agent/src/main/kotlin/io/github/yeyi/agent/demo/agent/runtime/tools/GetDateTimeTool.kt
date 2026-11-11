@@ -35,7 +35,7 @@ class GetDateTimeTool : UiTool() {
             put("time", JsonPrimitive(Instant.now().toString()))
         }
 
-    override fun buildCard(
+    override suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext,

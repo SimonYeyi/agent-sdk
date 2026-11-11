@@ -33,7 +33,7 @@ class AcTool : UiTool() {
         }
     }
 
-    override fun buildCard(
+    override suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext,
@@ -75,7 +75,7 @@ class SeatTool : UiTool() {
         }
     }
 
-    override fun buildCard(
+    override suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext,
@@ -126,7 +126,7 @@ class WindowTool : UiTool() {
         }
     }
 
-    override fun buildCard(
+    override suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext,
@@ -167,7 +167,7 @@ class AmbientLightTool : UiTool() {
         }
     }
 
-    override fun buildCard(
+    override suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext,
@@ -224,7 +224,7 @@ class NavigateTool : UiTool() {
         }
     }
 
-    override fun buildCard(
+    override suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext,
@@ -264,7 +264,7 @@ class DashCamTool : UiTool() {
         }
     }
 
-    override fun buildCard(
+    override suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext,

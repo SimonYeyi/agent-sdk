@@ -37,7 +37,7 @@ class GetLocationTool : UiTool() {
             put("longitude", JsonPrimitive(113.5678))
         }
 
-    override fun buildCard(
+    override suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext,

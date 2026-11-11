@@ -57,7 +57,7 @@ class UiToolTest {
             return data
         }
 
-        override fun buildCard(
+        override suspend fun buildCard(
             arguments: JsonElement,
             result: JsonElement?,
             context: ToolExecutionContext
@@ -281,7 +281,7 @@ class UiToolTest {
             ): JsonElement =
                 error("card generation failed")
 
-            override fun buildCard(
+            override suspend fun buildCard(
                 arguments: JsonElement,
                 result: JsonElement?,
                 context: ToolExecutionContext

@@ -88,7 +88,7 @@ class WebSearchTool : UiTool() {
         }
     }
 
-    override fun buildCard(
+    override suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext,

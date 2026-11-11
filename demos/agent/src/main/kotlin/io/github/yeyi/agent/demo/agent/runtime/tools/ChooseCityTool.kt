@@ -26,7 +26,7 @@ class ChooseCityTool : UiTool() {
     override val description: String = "当需要跟用户确定城市时使用（该工具需要用户作答，不可和其他工具同时调用）"
     override val toolSchema: ToolParameters = ToolParameters.Empty
 
-    override fun buildCard(
+    override suspend fun buildCard(
         arguments: JsonElement,
         result: JsonElement?,
         context: ToolExecutionContext
