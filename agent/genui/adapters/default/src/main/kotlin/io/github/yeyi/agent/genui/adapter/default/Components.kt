@@ -428,7 +428,8 @@ internal fun Text(node: TreeNode) {
 }
 
 /**
- * 按钮：variant 支持 Primary/Secondary/Bordered/Destructive/Plain；未声明动作时渲染为禁用态静态文本。
+ * 按钮：variant 支持 Primary/Secondary/Bordered/Destructive/Plain；未声明 action 时按 M3 禁用态渲染
+ * （灰底灰字、不绑 clickable）——保留按钮形态让用户认出"这是个按钮但当前不可点",而非退化成纯文本。
  *
  * 默认形态：wrap-content（宽度跟文案走）+ 文案左对齐 + 横向 12dp / 纵向 6dp 内边距 + 最小高度 40dp。
  * 绑定 `weight`（浮点）时按比例分配 Row 剩余宽度——三个按钮各绑 weight=1 在 Row 里等宽，
@@ -458,21 +459,11 @@ internal fun Button(node: TreeNode, scope: ActionScope) {
     val baseStyle = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
     val autoSize = TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = 15.sp, stepSize = 1.sp)
 
-    if (action == null) {
-        // 节点未声明动作：渲染为禁用态静态文本，不绑定点击
-        // （动作文案为空的节点由适配器整棵跳过，不会走到这里）
-        BasicText(
-            text = text,
-            style = baseStyle,
-            autoSize = autoSize,
-            color = { DefaultColors.outline },
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        return
-    }
-
-    val (containerColor, contentColor, border) = when (variant) {
+    // 禁用态(无 action):M3 灰底灰字,不绑 clickable。保留按钮形态而非退化成纯文本——
+    // 让用户认出"这是个按钮但当前不可点",视觉上 variant 仍可见(主色按钮禁用后变成灰底)。
+    val (containerColor, contentColor, border) = if (action == null) {
+        Triple(DefaultColors.surfaceVariant, DefaultColors.outline, Color.Transparent)
+    } else when (variant) {
         "Secondary" -> Triple(DefaultColors.surfaceVariant, DefaultColors.onSurfaceVariant, Color.Transparent)
         "Bordered" -> Triple(Color.Transparent, DefaultColors.primary, DefaultColors.primary.copy(alpha = 0.5f))
         "Destructive" -> Triple(DefaultColors.error, Color.White, Color.Transparent)
@@ -498,8 +489,10 @@ internal fun Button(node: TreeNode, scope: ActionScope) {
     if (border != Color.Transparent) {
         modifier = modifier.border(1.dp, border, shape)
     }
+    if (action != null) {
+        modifier = modifier.clickable { scope.emit(action) }
+    }
     modifier = modifier
-        .clickable { scope.emit(action) }
         .defaultMinSize(minHeight = 40.dp)
         .padding(horizontal = 12.dp, vertical = 6.dp)
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
