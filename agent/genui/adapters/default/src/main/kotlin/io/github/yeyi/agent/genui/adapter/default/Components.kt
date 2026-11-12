@@ -430,7 +430,7 @@ internal fun Text(node: TreeNode) {
 /**
  * 按钮：variant 支持 Primary/Secondary/Bordered/Destructive/Plain；未声明动作时渲染为禁用态静态文本。
  *
- * 默认形态：wrap-content（宽度跟文案走）+ 文案左对齐 + 横向 16dp / 纵向 8dp 内边距 + 最小高度 40dp。
+ * 默认形态：wrap-content（宽度跟文案走）+ 文案左对齐 + 横向 12dp / 纵向 6dp 内边距 + 最小高度 40dp。
  * 绑定 `weight`（浮点）时按比例分配 Row 剩余宽度——三个按钮各绑 weight=1 在 Row 里等宽，
  * 避免窄屏下 wrap-content 按钮被挤到文案换行；weight 只在 Row 里生效（依赖 [LocalRowScope]）。
  *
@@ -441,7 +441,8 @@ internal fun Text(node: TreeNode) {
  * autoSize 降字号后按钮高度不缩(最小 40dp 兜底),文案在按钮盒子里垂直居中——
  * 否则字号小了按钮变矮、文字偏顶,视觉上"偏小"且不齐。
  *
- * modifier 顺序：weight → clip → background → border → padding → clickable → Box(居中) → 文字——
+ * modifier 顺序：weight → clip → background → border → clickable → defaultMinSize → padding → Box(居中) → 文字——
+ * clickable 在 padding 之前,确保整个按钮(含 padding 区)可点且 ripple 覆盖完整色块；
  * background 画在 clip 裁剪的完整盒子上（含 padding 区域），padding 把文字往里推，
  * 按钮是个完整色块而非文字紧贴背景边缘。
  */
@@ -488,6 +489,8 @@ internal fun Button(node: TreeNode, scope: ActionScope) {
     }
 
     // background 画在 clip 裁剪的完整盒子上（含 padding 区域），padding 把文字往里推；
+    // clickable 在 padding 之前——整个按钮(含 padding 区)可点且 ripple 覆盖完整色块,
+    // 否则只有 padding 后的 inner box 能点,按 padding 区无响应。
     // defaultMinSize 保高度 40dp,autoSize 降字号后按钮不变矮、文字在 Box 里垂直居中
     var modifier = weightModifier
         .clip(shape)
@@ -496,9 +499,9 @@ internal fun Button(node: TreeNode, scope: ActionScope) {
         modifier = modifier.border(1.dp, border, shape)
     }
     modifier = modifier
-        .defaultMinSize(minHeight = 40.dp)
-        .padding(horizontal = 16.dp, vertical = 8.dp)
         .clickable { scope.emit(action) }
+        .defaultMinSize(minHeight = 40.dp)
+        .padding(horizontal = 12.dp, vertical = 6.dp)
     Box(modifier = modifier, contentAlignment = Alignment.Center) {
         BasicText(
             text = text,
