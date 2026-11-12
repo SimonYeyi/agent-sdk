@@ -164,14 +164,20 @@ public class A2uiRenderAdapter(
         }
     }
 
-    /** Text：官方 `text` 必填；`style` 映射为官方 `variant`（官方只有 h1~h5/caption/body）。 */
+    /** Text：官方 `text` 必填；`style` 映射为官方 `variant`（官方只有 h1~h5/caption/body）。
+     *  行内 span（Text 的 Span children）退化为拼接纯文本——a2ui 协议无行内样式概念。 */
     private fun flattenText(
         node: TreeNode,
         componentId: String,
         out: MutableList<A2uiComponentPayload>,
         fallbackText: String = "",
     ) {
-        val content = node.bindings.text("text").ifEmpty { fallbackText }
+        val spanChildren = node.children.filter { it.component == "Span" }
+        val content = if (spanChildren.isNotEmpty()) {
+            spanChildren.joinToString("") { it.bindings.text("text") }
+        } else {
+            node.bindings.text("text")
+        }.ifEmpty { fallbackText }
         // 官方 text 必填：没有文本就没有可渲染的东西
         if (content.isEmpty()) return
         val properties = LinkedHashMap<String, Any?>()

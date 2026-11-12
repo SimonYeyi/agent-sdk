@@ -22,9 +22,16 @@ import kotlinx.serialization.json.contentOrNull
  * 本工具的卡片由模型现场排版，适合「把这段结果做成一张卡」这种开放内容——
  * 不必为每种内容各写一个工具。
  *
- * 流程：主模型把要展示的内容交给本工具 → 本工具用 agent 的 LLM provider
- * 再发一次请求（系统提示给出组件词汇与输出契约，用户消息给出待排版内容）
- * → 模型回的 JSON 解码为组件树 → 卡片编码进结果 metadata，随事件流送达渲染。
+ * 流程（降级链 md → LLM → fallback）：
+ * - content 是 markdown 时程序直接解析为 IR（[parseMarkdown]），跳过 LLM——省一次往返、
+ *   确定性强。intent 在此路径下忽略（md 已自带结构，意图无意义）。
+ * - 非 md 或 md 解析失败时，用 agent 的 LLM provider 再发一次请求（系统提示给出组件词汇
+ *   与输出契约，用户消息给出待排版内容 + intent），模型回的 JSON 解码为组件树。
+ * - LLM 也失败时（reply 为空、格式不规范等生成式模型常见的格式抖动）降级为 Card 包
+ *   一个只装原始 content 的 Text 节点——排版意图丢了，但用户至少能看到内容本身，
+ *   不至于因生成式模型的格式失误让整轮空转。
+ *
+ * 卡片编码进结果 metadata，随事件流送达渲染。
  *
  * 与普通 UiTool 的不同：本工具没有 show_ui（[alwaysShowUi] = true）——
  * 它就是「出卡」这件事本身，必然产卡、必然终结本轮（卡片交到用户手上，本轮到此为止）。
@@ -33,12 +40,6 @@ import kotlinx.serialization.json.contentOrNull
  * 渲染层注册了哪些组件，故默认给出两个渲染后端都支持的交集组件集；
  * 渲染层有更多组件时，由使用方把完整词汇表注入进来。
  *
- * 生成失败的处理：reply 为空（模型没回内容）或格式不规范（不是合法 JSON、不是 JSON 对象、
- * 缺 root 节点、组件树非法、根节点动作文案为空等生成式模型常见的格式抖动）一律降级为
- * Card 包一个只装原始 content 的 Text 节点——排版意图丢了，但用户至少能看到内容本身，
- * 不至于因生成式模型的格式失误让整轮空转。intent 在降级路径中丢弃（它只是排版意图，
- * 不影响内容呈现）。
- *
  * @param componentSpec 交给生成模型的组件词汇表（组件名与可用属性说明）
  */
 public class GenUiTool(componentSpec: String? = null) : UiTool() {
@@ -46,16 +47,14 @@ public class GenUiTool(componentSpec: String? = null) : UiTool() {
     override val name: String = "gen_ui_tool"
 
     override val description: String = "生成 UI 卡片。用法：\n" +
-            "1.利用自身已有知识作答，无须调用，直接输出最终回复即可\n" +
-            "2.调用了其他工具，且最终回复的核心是数字、列表项、信息点，必须调用本工具\n" +
-            "3.此外，如果最终回复是大块长文本，无须调用本工具"
+            "当最终回复的核心信息是实体项、实体列表等可结构化表达的数据时使用，以清晰地向用户展示"
 
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
         """
         {"type":"object",
          "properties":{
            "content":{"type":"string","description":"要展示给用户的内容：卡片承载的正文、要点或数据说明"},
-           "intent":{"type":"string","description":"展示意图（可选）：期望的卡片形态，如「做成对比表」「做成待办清单」；留空由生成器自行设计"}},
+           "intent":{"type":"string","description":"一句话说明展示意图（可选）。如「做成对比表」「做成待办清单」；留空由生成器自行设计"}},
          "required":["content"]}
         """.trimIndent()
     )
@@ -82,31 +81,49 @@ public class GenUiTool(componentSpec: String? = null) : UiTool() {
         return GenUiRequest(content = content, intent = intent)
     }
 
-    /** 生成卡片：把内容交给模型排版，解码模型回的组件树。 */
+    /**
+     * 生成卡片：降级链 md → LLM → fallback,各自失败返回 null,由 `?:` 串起。
+     *
+     * - md 路径:content 是 markdown 时程序解析为 IR,跳过 LLM（省一次往返、确定性强）。
+     *   intent 在此路径下忽略——md 已自带结构,意图无意义。
+     * - LLM 路径:非 md 或 md 解析失败时走模型排版。
+     * - fallback:LLM 也失败时降级为 Card 包单个 Text,原始 content 作为文本展示。
+     */
     private suspend fun generateCard(
         request: GenUiRequest,
         context: ToolExecutionContext
     ): CardIr {
         // 卡片锚点用本次工具调用 id：与工具结果消息一一对应，渲染顺序即消息顺序
-        val root = try {
-            val response = context.agentContext.llmProvider.chat(
-                ChatRequest(
-                    messages = listOf(
-                        ChatMessage.System("$UI_GENERATOR_CONTRACT\n\n$componentSpec"),
-                        ChatMessage.User(listOf(ContentPart.Text(userPrompt(request)))),
-                    ),
-                )
-            )
-            parseRoot(response.message.content!!)
-        } catch (_: Exception) {
-            TreeNode(
-                component = "Card", children = listOf(
-                    TreeNode("Text", bindings = mapOf("text" to JsonPrimitive(request.content)))
-                )
-            )
-        }
+        val root = parseMarkdown(request.content)
+            ?: generateViaLlm(request, context)
+            ?: fallbackRoot(request.content)
         return CardIr(instanceId = context.toolCallId, root = root)
     }
+
+    /** LLM 排版:成功返回 TreeNode,失败(模型没回内容/格式不规范/抛异常)返回 null。 */
+    private suspend fun generateViaLlm(
+        request: GenUiRequest,
+        context: ToolExecutionContext
+    ): TreeNode? = try {
+        val response = context.agentContext.llmProvider.chat(
+            ChatRequest(
+                messages = listOf(
+                    ChatMessage.System("$UI_GENERATOR_CONTRACT\n\n$componentSpec"),
+                    ChatMessage.User(listOf(ContentPart.Text(userPrompt(request)))),
+                ),
+            )
+        )
+        parseRoot(response.message.content!!)
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
+
+    /** 兜底:Card 包单个 Text,原始 content 作为文本展示。 */
+    private fun fallbackRoot(content: String): TreeNode = TreeNode(
+        component = "Card",
+        children = listOf(TreeNode("Text", bindings = mapOf("text" to JsonPrimitive(content)))),
+    )
 
     /** 待排版内容交给生成模型的话术：内容与展示意图两段。 */
     private fun userPrompt(request: GenUiRequest): String = buildString {
@@ -196,7 +213,8 @@ private val DEFAULT_COMPONENT_SPEC: String = """
     - Card：卡片外壳，整棵树的根用它。bindings：spacing（整数，元素间距）、padding（整数，内边距）
     - Column：纵向容器。bindings：spacing（整数）、padding（整数）、arrangement（Top/Center/Bottom/SpaceBetween/SpaceAround/SpaceEvenly）、horizontalAlignment（Start/CenterHorizontally/End）
     - Row：横向容器。bindings：spacing（整数）、padding（整数）、arrangement（Start/Center/End/SpaceBetween/SpaceAround/SpaceEvenly）、verticalAlignment（Top/CenterVertically/Bottom）
-    - Text：文本。bindings：text（必填）、style（headlineLarge/headlineMedium/headlineSmall/titleLarge/titleMedium/titleSmall/bodyLarge/bodyMedium/bodySmall/labelMedium/labelSmall）、fontWeight（Normal/Medium/SemiBold/Bold/Light）、color（primary/secondary/tertiary/error/onSurface/onSurfaceVariant/outline/outlineVariant/surface/surfaceVariant/background/onBackground 或 blue/green/red/orange/yellow/teal/purple/pink/indigo/white/black 或 #RRGGBB / #AARRGGBB）、textAlign（Start/Center/End）、maxLines（整数）
+    - Text：文本。bindings：text（必填,或经 Span children 给出）、style（headlineLarge/headlineMedium/headlineSmall/titleLarge/titleMedium/titleSmall/bodyLarge/bodyMedium/bodySmall/labelMedium/labelSmall）、fontWeight（Normal/Medium/SemiBold/Bold/Light）、color（primary/secondary/tertiary/error/onSurface/onSurfaceVariant/outline/outlineVariant/surface/surfaceVariant/background/onBackground 或 blue/green/red/orange/yellow/teal/purple/pink/indigo/white/black 或 #RRGGBB / #AARRGGBB）、textAlign（Start/Center/End）、maxLines（整数）、weight（浮点,>0 时按比例分配 Row 剩余宽度,仅 Row 内生效）。行内加粗用 Span children 表达（见 Span）,避免 Row 多 Text 窄屏换行错乱
+    - Span：Text 的行内样式片段,不当独立组件渲染。bindings：text（必填）、bold（布尔,默认 false）。Text 含 Span children 时各段文字合并成带行内样式的整段文本,Text 自身的 text 与 fontWeight 忽略
     - Button：按钮，按钮文案写在 action.label（必填）。bindings：variant（Primary/Secondary/Bordered/Destructive/Plain）、weight（浮点，>0 时按比例分配 Row 剩余宽度，仅 Row 内生效）
     - Badge：小圆角标签。bindings：text（必填）、containerColor、contentColor（颜色取值同 Text.color）
     - Divider：分隔线。bindings：color

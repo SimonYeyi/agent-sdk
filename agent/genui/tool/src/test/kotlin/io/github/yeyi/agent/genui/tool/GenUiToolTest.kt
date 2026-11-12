@@ -252,4 +252,64 @@ class GenUiToolTest {
         assertTrue(system.contains("OnlyOne"))
         assertFalse(system.contains("Badge"))
     }
+
+    @Test
+    fun `md content 跳过 LLM 直接程序解析`() = runTest {
+        val (ctx, llm) = context(cardJson)
+
+        val returned = GenUiTool().execute(
+            buildJsonObject { put("content", JsonPrimitive("# 标题\n\n段落")) },
+            ctx,
+        )
+
+        // md 路径不调 LLM
+        assertTrue(llm.recordedRequests.isEmpty())
+        val card = assertNotNull(returned.decodeCard())
+        assertEquals("Card", card.root.component)
+        // 标题 + 段落 两个子节点
+        assertEquals(2, card.root.children.size)
+        assertEquals("headlineLarge", card.root.children[0].bindings["style"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `非 md content 走 LLM 路径`() = runTest {
+        val (ctx, llm) = context(cardJson)
+
+        GenUiTool().execute(
+            buildJsonObject { put("content", JsonPrimitive("北京今天晴")) },
+            ctx,
+        )
+
+        // 非 md → 走 LLM
+        assertEquals(1, llm.recordedRequests.size)
+    }
+
+    @Test
+    fun `md content 带 intent 时忽略 intent 仍走 md 路径`() = runTest {
+        val (ctx, llm) = context(cardJson)
+
+        GenUiTool().execute(
+            buildJsonObject {
+                put("content", JsonPrimitive("# 标题"))
+                put("intent", JsonPrimitive("做成待办清单"))
+            },
+            ctx,
+        )
+
+        // md 路径忽略 intent,不调 LLM
+        assertTrue(llm.recordedRequests.isEmpty())
+    }
+
+    @Test
+    fun `md 解析返回 null 时回退 LLM`() = runTest {
+        // `#标签` 无空格,非 md,parseMarkdown 返回 null → 回退 LLM
+        val (ctx, llm) = context(cardJson)
+
+        GenUiTool().execute(
+            buildJsonObject { put("content", JsonPrimitive("#标签")) },
+            ctx,
+        )
+
+        assertEquals(1, llm.recordedRequests.size)
+    }
 }

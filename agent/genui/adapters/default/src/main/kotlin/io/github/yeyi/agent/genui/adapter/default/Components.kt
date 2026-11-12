@@ -23,10 +23,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.yeyi.agent.genui.ir.TreeNode
@@ -314,19 +317,25 @@ internal fun Row(node: TreeNode, children: @Composable () -> Unit) {
 }
 
 /**
- * 文本：text 必填，style/fontWeight/textAlign/color/maxLines 均可绑定，缺省走 bodyLarge。
+ * 文本：text 必填（或经 Span children 给出），style/fontWeight/textAlign/color/maxLines/weight 均可绑定，缺省走 bodyLarge。
+ *
+ * 两种文本形态：
+ * - 纯文本：bindings.text 给出整段文字
+ * - 行内 span：children 装多个 `Span` 子节点（component="Span", bindings.text + bindings.bold），
+ *   各段文字合并成一个 [androidx.compose.ui.text.AnnotatedString]——加粗段套 [SpanStyle](fontWeight=Bold)。
+ *   span 形态下文本自然换行，不会因 Row 横向排列窄屏错乱；Text 自身不带 fontWeight（加粗语义经 span 表达）。
  *
  * style 取 M3 typography 对应档位的 [TextStyle] 作基线（拿到 lineHeight / lineHeightStyle，
  * 让 Compose 按字体度量自适应行高，避免裸 fontSize 时退化到平台默认行高——
  * 中文大字号下偏紧、满行换行重叠）；fontWeight/textAlign/color 作为覆写——
  * 显式绑了才覆写，未绑保留 M3 档位的默认值。style 名与 M3 档位同名、大小写敏感
  * （headlineLarge / headlineMedium / ... / labelSmall），未命中走 bodyLarge。
+ *
+ * 绑定 `weight`（浮点）时按比例分配 Row 剩余宽度——表格里每列 Text 各绑 weight=1 即等宽，
+ * 让列在 Row 里对齐；weight 只在 Row 里生效（依赖 [LocalRowScope]，与 [Button] 同一机制）。
  */
 @Composable
 internal fun Text(node: TreeNode) {
-    val text = node.bindings.str("text")
-    if (text.isEmpty()) return
-
     val typo = MaterialTheme.typography
     val styles = mapOf(
         "headlineLarge" to typo.headlineLarge,
@@ -346,11 +355,48 @@ internal fun Text(node: TreeNode) {
     val color = node.bindings.color("color", MaterialTheme.colorScheme.onSurface)
     val align = node.bindings.textAlign("textAlign", default = null)
     val maxLines = node.bindings.intValue("maxLines", Int.MAX_VALUE)
+    val rowScope = LocalRowScope.current
+    val weightValue = node.bindings.floatValue("weight", 0f)
+    val weightModifier = if (weightValue > 0f && rowScope != null) {
+        with(rowScope) { Modifier.weight(weightValue) }
+    } else {
+        Modifier
+    }
 
+    val spanChildren = node.children.filter { it.component == "Span" }
+    if (spanChildren.isEmpty()) {
+        val text = node.bindings.str("text")
+        if (text.isEmpty()) return
+        ComposeText(
+            text = text,
+            modifier = weightModifier,
+            style = base,
+            fontWeight = weight,
+            color = color,
+            textAlign = align,
+            maxLines = if (maxLines > 0) maxLines else Int.MAX_VALUE,
+            overflow = if (maxLines > 0) TextOverflow.Ellipsis else TextOverflow.Clip,
+        )
+        return
+    }
+
+    val annotated = buildAnnotatedString {
+        spanChildren.forEach { span ->
+            val segText = span.bindings.str("text")
+            if (segText.isEmpty()) return@forEach
+            val bold = span.bindings.boolValue("bold", false)
+            if (bold) {
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(segText) }
+            } else {
+                append(segText)
+            }
+        }
+    }
+    if (annotated.isEmpty()) return
     ComposeText(
-        text = text,
+        text = annotated,
+        modifier = weightModifier,
         style = base,
-        fontWeight = weight,
         color = color,
         textAlign = align,
         maxLines = if (maxLines > 0) maxLines else Int.MAX_VALUE,
