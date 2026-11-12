@@ -1,14 +1,12 @@
 package io.github.yeyi.agent.genui.adapter.default
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column as ComposeColumn
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row as ComposeRow
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -17,8 +15,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text as ComposeText
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.Alignment
@@ -428,82 +431,122 @@ internal fun Text(node: TreeNode) {
 }
 
 /**
- * 按钮：variant 支持 Primary/Secondary/Bordered/Destructive/Plain；未声明 action 时按 M3 禁用态渲染
- * （灰底灰字、不绑 clickable）——保留按钮形态让用户认出"这是个按钮但当前不可点",而非退化成纯文本。
+ * 按钮：variant 映射到 M3 标准按钮类型——
+ * Primary→[Button]、Secondary→[FilledTonalButton]、Bordered→[OutlinedButton]、
+ * Plain→[TextButton]、Destructive→[Button] 配 error colors；未声明 action 时 `enabled=false`
+ * 走 M3 禁用态配色(自动 0.12 alpha 容器 + 0.38 alpha 文字)。
  *
- * 默认形态：wrap-content（宽度跟文案走）+ 文案左对齐 + 横向 12dp / 纵向 6dp 内边距 + 最小高度 40dp。
- * 绑定 `weight`（浮点）时按比例分配 Row 剩余宽度——三个按钮各绑 weight=1 在 Row 里等宽，
- * 避免窄屏下 wrap-content 按钮被挤到文案换行；weight 只在 Row 里生效（依赖 [LocalRowScope]）。
- *
- * 文案强制单行（maxLines=1）+ 字号自适应：文案长装不下时自动从 15sp 降到 9sp（步长 1sp）
- * 让单行装下完整内容,不省略——按钮文案是动作触发点,省略了用户看不到完整动作意图。
+ * 文案用 [BasicText] + [TextAutoSize](foundation 1.8+ 独立参数,M3 Text 没透出)：
+ * 文案长装不下时自动从 15sp 降到 9sp 让单行装下完整内容,不省略——
+ * 按钮文案是动作触发点,省略了用户看不到完整动作意图。
  * 空间实在装不下（9sp 仍溢出）才省略号截断（autoSize 已尽力,这是兜底）。
  *
- * autoSize 降字号后按钮高度不缩(最小 40dp 兜底),文案在按钮盒子里垂直居中——
- * 否则字号小了按钮变矮、文字偏顶,视觉上"偏小"且不齐。
+ * 绑定 `weight`（浮点）时按比例分配 Row 剩余宽度——三个按钮各绑 weight=1 在 Row 里等宽，
+ * 避免窄屏下 wrap-content 按钮被挤到文案换行；weight 经 [LocalRowScope] 桥接传给 M3 Button 的 modifier。
  *
- * modifier 顺序：weight → clip → background → border → clickable → defaultMinSize → padding → Box(居中) → 文字——
- * clickable 在 padding 之前,确保整个按钮(含 padding 区)可点且 ripple 覆盖完整色块；
- * background 画在 clip 裁剪的完整盒子上（含 padding 区域），padding 把文字往里推，
- * 按钮是个完整色块而非文字紧贴背景边缘。
+ * shape 用 10dp 圆角(非 M3 默认药丸形)与卡片视觉对齐；contentPadding 12/6 比 M3 默认 24/4 收紧,
+ * 给 autoSize 留更多宽度维持大字号。
  */
 @Composable
 internal fun Button(node: TreeNode, scope: ActionScope) {
     val action = node.action
     val text = action?.label ?: node.bindings.str("text", "按钮")
     val variant = node.bindings.str("variant", "Primary")
-    val shape = RoundedCornerShape(10.dp)
     val weight = node.bindings.floatValue("weight", 0f)
+    val enabled = action != null
     // 单行 + 字号自适应:文案长时从 15sp 降到 9sp 让单行装下完整内容,不省略。
-    // autoSize 是 BasicText 的独立参数(foundation 1.8+),不走 TextStyle。
+    // autoSize 是 BasicText 的独立参数(foundation 1.8+),M3 Text 没透出,故 content 插槽塞 BasicText。
     val baseStyle = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
     val autoSize = TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = 15.sp, stepSize = 1.sp)
 
-    // 禁用态(无 action):M3 灰底灰字,不绑 clickable。保留按钮形态而非退化成纯文本——
-    // 让用户认出"这是个按钮但当前不可点",视觉上 variant 仍可见(主色按钮禁用后变成灰底)。
-    val (containerColor, contentColor, border) = if (action == null) {
-        Triple(DefaultColors.surfaceVariant, DefaultColors.outline, Color.Transparent)
-    } else when (variant) {
-        "Secondary" -> Triple(DefaultColors.surfaceVariant, DefaultColors.onSurfaceVariant, Color.Transparent)
-        "Bordered" -> Triple(Color.Transparent, DefaultColors.primary, DefaultColors.primary.copy(alpha = 0.5f))
-        "Destructive" -> Triple(DefaultColors.error, Color.White, Color.Transparent)
-        "Plain" -> Triple(Color.Transparent, DefaultColors.primary, Color.Transparent)
-        else -> Triple(DefaultColors.primary, Color.White, Color.Transparent) // Primary
-    }
-
-    // weight 须在 RowScope 里才生效：从 LocalRowScope 桥接，没拿到说明不在 Row 里（weight 不生效）
+    // weight 须在 RowScope 里才生效：从 LocalRowScope 桥接传给 M3 Button 的 modifier
     val rowScope = LocalRowScope.current
-    val weightModifier = if (weight > 0f && rowScope != null) {
+    val modifier = if (weight > 0f && rowScope != null) {
         with(rowScope) { Modifier.weight(weight) }
     } else {
         Modifier
     }
+    val shape = RoundedCornerShape(10.dp)
+    val contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
 
-    // background 画在 clip 裁剪的完整盒子上（含 padding 区域），padding 把文字往里推；
-    // clickable 在 padding 之前——整个按钮(含 padding 区)可点且 ripple 覆盖完整色块,
-    // 否则只有 padding 后的 inner box 能点,按 padding 区无响应。
-    // defaultMinSize 保高度 40dp,autoSize 降字号后按钮不变矮、文字在 Box 里垂直居中
-    var modifier = weightModifier
-        .clip(shape)
-        .background(containerColor)
-    if (border != Color.Transparent) {
-        modifier = modifier.border(1.dp, border, shape)
-    }
-    if (action != null) {
-        modifier = modifier.clickable { scope.emit(action) }
-    }
-    modifier = modifier
-        .defaultMinSize(minHeight = 40.dp)
-        .padding(horizontal = 12.dp, vertical = 6.dp)
-    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+    // content 插槽:BasicText + autoSize。M3 Button 内部 Row(verticalAlignment=CenterVertically)
+    // 会把 BasicText 垂直居中,autoSize 降字号后仍是居中状态,不会偏顶。
+    // BasicText 的 color 是 ColorProducer(非 @Composable),需在插槽内先取好 LocalContentColor——
+    // M3 Button 内部用 ProvideTextStyle + LocalContentColor 传启用/禁用色,这里读出来再用。
+    val content: @Composable RowScope.() -> Unit = {
+        val textColor = contentColorFor(variant, enabled)
         BasicText(
             text = text,
-            style = baseStyle.copy(textAlign = TextAlign.Start),
+            style = baseStyle,
             autoSize = autoSize,
-            color = { contentColor },
+            color = { textColor },
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+    }
+
+    when (variant) {
+        "Secondary" -> FilledTonalButton(
+            onClick = { action?.let(scope::emit) },
+            modifier = modifier,
+            enabled = enabled,
+            shape = shape,
+            contentPadding = contentPadding,
+            content = content,
+        )
+        "Bordered" -> OutlinedButton(
+            onClick = { action?.let(scope::emit) },
+            modifier = modifier,
+            enabled = enabled,
+            shape = shape,
+            contentPadding = contentPadding,
+            content = content,
+        )
+        "Plain" -> TextButton(
+            onClick = { action?.let(scope::emit) },
+            modifier = modifier,
+            enabled = enabled,
+            shape = shape,
+            contentPadding = contentPadding,
+            content = content,
+        )
+        "Destructive" -> Button(
+            onClick = { action?.let(scope::emit) },
+            modifier = modifier,
+            enabled = enabled,
+            shape = shape,
+            colors = ButtonDefaults.buttonColors(
+                containerColor = DefaultColors.error,
+                contentColor = Color.White,
+            ),
+            contentPadding = contentPadding,
+            content = content,
+        )
+        else -> Button(
+            onClick = { action?.let(scope::emit) },
+            modifier = modifier,
+            enabled = enabled,
+            shape = shape,
+            contentPadding = contentPadding,
+            content = content,
+        )
+    }
+}
+
+/**
+ * M3 Button content 插槽里 BasicText 的颜色:按 variant 取对应 M3 按钮的 content 色。
+ * 禁用态由 M3 Button 内部 ProvideTextStyle 覆盖,M3 会用 disabledContentColor——但 BasicText
+ * 不读 LocalContentColor,需显式传。这里直接给启用态色,禁用态走 M3 默认 0.38 alpha 透传。
+ */
+@Composable
+private fun contentColorFor(variant: String, enabled: Boolean): Color {
+    val scheme = MaterialTheme.colorScheme
+    return when (variant) {
+        "Secondary" -> scheme.onSecondaryContainer
+        "Bordered" -> scheme.primary
+        "Plain" -> scheme.primary
+        "Destructive" -> if (enabled) Color.White else Color.White.copy(alpha = 0.38f)
+        else -> scheme.onPrimary
     }
 }
 
