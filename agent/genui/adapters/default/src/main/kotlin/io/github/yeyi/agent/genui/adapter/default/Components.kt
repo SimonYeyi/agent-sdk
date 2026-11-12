@@ -437,15 +437,15 @@ internal fun Text(node: TreeNode) {
  * 走 M3 禁用态配色(自动 0.12 alpha 容器 + 0.38 alpha 文字)。
  *
  * 文案用 [BasicText] + [TextAutoSize](foundation 1.8+ 独立参数,M3 Text 没透出)：
- * 文案长装不下时自动从 15sp 降到 9sp 让单行装下完整内容,不省略——
+ * 默认 16sp,文案长装不下时降到 12sp 让单行装下完整内容,不省略——
  * 按钮文案是动作触发点,省略了用户看不到完整动作意图。
- * 空间实在装不下（9sp 仍溢出）才省略号截断（autoSize 已尽力,这是兜底）。
+ * 12sp 是可读下限,不再更低(9sp 视觉上"字很小");实在装不下(12sp 仍溢出)才省略号截断。
  *
  * 绑定 `weight`（浮点）时按比例分配 Row 剩余宽度——三个按钮各绑 weight=1 在 Row 里等宽，
  * 避免窄屏下 wrap-content 按钮被挤到文案换行；weight 经 [LocalRowScope] 桥接传给 M3 Button 的 modifier。
  *
- * shape 用 10dp 圆角(非 M3 默认药丸形)与卡片视觉对齐；contentPadding 12/6 比 M3 默认 24/4 收紧,
- * 给 autoSize 留更多宽度维持大字号。
+ * shape 用 10dp 圆角(非 M3 默认药丸形)与卡片视觉对齐；contentPadding 横向 8dp 收紧,
+ * 给文字更多宽度,避免 autoSize 在 weight 按钮里过早触发降字号。
  */
 @Composable
 internal fun Button(node: TreeNode, scope: ActionScope) {
@@ -454,10 +454,10 @@ internal fun Button(node: TreeNode, scope: ActionScope) {
     val variant = node.bindings.str("variant", "Primary")
     val weight = node.bindings.floatValue("weight", 0f)
     val enabled = action != null
-    // 单行 + 字号自适应:文案长时从 15sp 降到 9sp 让单行装下完整内容,不省略。
-    // autoSize 是 BasicText 的独立参数(foundation 1.8+),M3 Text 没透出,故 content 插槽塞 BasicText。
-    val baseStyle = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
-    val autoSize = TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = 15.sp, stepSize = 1.sp)
+    // 单行 + 字号自适应:默认 16sp,装不下降到 12sp。12sp 是可读下限,不再更低——
+    // 之前 minFontSize=9sp 降得太狠,视觉上"字很小"。autoSize 是 BasicText 独立参数(foundation 1.8+)。
+    val baseStyle = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+    val autoSize = TextAutoSize.StepBased(minFontSize = 12.sp, maxFontSize = 16.sp, stepSize = 0.5.sp)
 
     // weight 须在 RowScope 里才生效：从 LocalRowScope 桥接传给 M3 Button 的 modifier
     val rowScope = LocalRowScope.current
@@ -467,7 +467,7 @@ internal fun Button(node: TreeNode, scope: ActionScope) {
         Modifier
     }
     val shape = RoundedCornerShape(10.dp)
-    val contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+    val contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
 
     // content 插槽:BasicText + autoSize。M3 Button 内部 Row(verticalAlignment=CenterVertically)
     // 会把 BasicText 垂直居中,autoSize 降字号后仍是居中状态,不会偏顶。
