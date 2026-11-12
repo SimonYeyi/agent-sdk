@@ -8,12 +8,15 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column as ComposeColumn
 import androidx.compose.foundation.layout.Row as ComposeRow
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text as ComposeText
 import androidx.compose.runtime.Composable
@@ -427,11 +430,18 @@ internal fun Text(node: TreeNode) {
 /**
  * 按钮：variant 支持 Primary/Secondary/Bordered/Destructive/Plain；未声明动作时渲染为禁用态静态文本。
  *
- * 默认形态：wrap-content（宽度跟文案走）+ 文案左对齐 + 横向 16dp / 纵向 8dp 内边距。
+ * 默认形态：wrap-content（宽度跟文案走）+ 文案左对齐 + 横向 16dp / 纵向 8dp 内边距 + 最小高度 40dp。
  * 绑定 `weight`（浮点）时按比例分配 Row 剩余宽度——三个按钮各绑 weight=1 在 Row 里等宽，
  * 避免窄屏下 wrap-content 按钮被挤到文案换行；weight 只在 Row 里生效（依赖 [LocalRowScope]）。
- * 文案强制单行（maxLines=1），空间实在不够时省略号截断而非纵向换行。
- * modifier 顺序：weight → clip → background → border → padding → clickable → 文字——
+ *
+ * 文案强制单行（maxLines=1）+ 字号自适应：文案长装不下时自动从 15sp 降到 9sp（步长 1sp）
+ * 让单行装下完整内容,不省略——按钮文案是动作触发点,省略了用户看不到完整动作意图。
+ * 空间实在装不下（9sp 仍溢出）才省略号截断（autoSize 已尽力,这是兜底）。
+ *
+ * autoSize 降字号后按钮高度不缩(最小 40dp 兜底),文案在按钮盒子里垂直居中——
+ * 否则字号小了按钮变矮、文字偏顶,视觉上"偏小"且不齐。
+ *
+ * modifier 顺序：weight → clip → background → border → padding → clickable → Box(居中) → 文字——
  * background 画在 clip 裁剪的完整盒子上（含 padding 区域），padding 把文字往里推，
  * 按钮是个完整色块而非文字紧贴背景边缘。
  */
@@ -442,15 +452,21 @@ internal fun Button(node: TreeNode, scope: ActionScope) {
     val variant = node.bindings.str("variant", "Primary")
     val shape = RoundedCornerShape(10.dp)
     val weight = node.bindings.floatValue("weight", 0f)
+    // 单行 + 字号自适应:文案长时从 15sp 降到 9sp 让单行装下完整内容,不省略。
+    // autoSize 是 BasicText 的独立参数(foundation 1.8+),不走 TextStyle。
+    val baseStyle = TextStyle(fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+    val autoSize = TextAutoSize.StepBased(minFontSize = 9.sp, maxFontSize = 15.sp, stepSize = 1.sp)
 
     if (action == null) {
         // 节点未声明动作：渲染为禁用态静态文本，不绑定点击
         // （动作文案为空的节点由适配器整棵跳过，不会走到这里）
-        ComposeText(
+        BasicText(
             text = text,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = DefaultColors.outline,
+            style = baseStyle,
+            autoSize = autoSize,
+            color = { DefaultColors.outline },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
         return
     }
@@ -471,7 +487,8 @@ internal fun Button(node: TreeNode, scope: ActionScope) {
         Modifier
     }
 
-    // background 画在 clip 裁剪的完整盒子上（含 padding 区域），padding 把文字往里推
+    // background 画在 clip 裁剪的完整盒子上（含 padding 区域），padding 把文字往里推；
+    // defaultMinSize 保高度 40dp,autoSize 降字号后按钮不变矮、文字在 Box 里垂直居中
     var modifier = weightModifier
         .clip(shape)
         .background(containerColor)
@@ -479,18 +496,19 @@ internal fun Button(node: TreeNode, scope: ActionScope) {
         modifier = modifier.border(1.dp, border, shape)
     }
     modifier = modifier
+        .defaultMinSize(minHeight = 40.dp)
         .padding(horizontal = 16.dp, vertical = 8.dp)
         .clickable { scope.emit(action) }
-    ComposeText(
-        text = text,
-        modifier = modifier,
-        fontSize = 15.sp,
-        fontWeight = FontWeight.SemiBold,
-        color = contentColor,
-        textAlign = TextAlign.Start,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-    )
+    Box(modifier = modifier, contentAlignment = Alignment.Center) {
+        BasicText(
+            text = text,
+            style = baseStyle.copy(textAlign = TextAlign.Start),
+            autoSize = autoSize,
+            color = { contentColor },
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }
 
 /** 小圆角标签：text 必填，containerColor/contentColor 可绑定。 */
