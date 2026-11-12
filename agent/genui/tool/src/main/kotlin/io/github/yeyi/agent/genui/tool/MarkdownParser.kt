@@ -30,8 +30,9 @@ import kotlinx.serialization.json.buildJsonObject
  * - 段落（连续非空行）→ `Text(style=bodyLarge)`
  * - `> quote` → `Row(background=surfaceVariant, padding=12)` 包 `Text(style=bodyMedium, color=onSurfaceVariant)`（引用块用浅底色圆角块 set apart,不保留 `>` 前缀）
  * - `---` → `Divider()`
- * - 表格 → `Column(spacing=8)` > 多个 `Row(spacing=8)`（表头 + 数据行）> 多个 `Text(weight=1, maxLines=1)`。
- *   表头行 `fontWeight=Bold`,数据行 Normal;每列 Text 绑 `weight=1` 等宽分配 Row 剩余宽度（依赖 Row 内 weight）。
+ * - 表格 → `Column(spacing=8)` > 多个 `Row(spacing=8)`（表头 + 数据行）> 多个 `Text(weight=1)`。
+ *   表头行 `fontWeight=Bold`,数据行 Normal;每列 Text 绑 `weight=1` 等宽分配 Row 剩余宽度（依赖 Row 内 weight）,
+ *   内容长时自然换行显示完整（不绑 maxLines,不省略——省略了用户看不到完整信息）。
  *
  * ## 加粗（行内 span）
  *
@@ -273,7 +274,8 @@ private fun tryParseTable(lines: List<String>, startIndex: Int): TableParseResul
     return TableParseResult(root, i)
 }
 
-/** 表格一行的 IR：`Row(spacing=8)` > 多个 `Text(weight=1, maxLines=1)`。表头加 Bold,数据行 Normal。 */
+/** 表格一行的 IR：`Row(spacing=8)` > 多个 `Text(weight=1)`。表头加 Bold,数据行 Normal。
+ *  每列 Text 绑 weight=1 等宽分配 Row 剩余宽度,内容长时自然换行显示完整(不绑 maxLines,不省略)。 */
 private fun tableRowNode(
     cells: List<String>,
     isHeader: Boolean,
@@ -285,7 +287,6 @@ private fun tableRowNode(
             put("text", JsonPrimitive(text))
             put("style", JsonPrimitive("bodyMedium"))
             put("weight", JsonPrimitive(1f))
-            put("maxLines", JsonPrimitive(1))
             if (isHeader) put("fontWeight", JsonPrimitive("Bold"))
         }
         TreeNode(component = "Text", bindings = bindings)

@@ -176,13 +176,13 @@ class MarkdownParserTest {
         assertEquals("8", table.bindings["spacing"]!!.jsonPrimitive.content)
         // 表头 + 2 数据行
         assertEquals(3, table.children.size)
-        // 表头行：Bold + weight=1 + maxLines=1
+        // 表头行：Bold + weight=1（不绑 maxLines,内容长时自然换行显示完整）
         val headerRow = table.children[0]
         assertEquals("Row", headerRow.component)
         assertEquals("城市", headerRow.children[0].bindings["text"]!!.jsonPrimitive.content)
         assertEquals("Bold", headerRow.children[0].bindings["fontWeight"]!!.jsonPrimitive.content)
         assertEquals("1.0", headerRow.children[0].bindings["weight"]!!.jsonPrimitive.content)
-        assertEquals("1", headerRow.children[0].bindings["maxLines"]!!.jsonPrimitive.content)
+        assertFalse("maxLines" in headerRow.children[0].bindings)
         // 数据行：无 Bold,weight=1
         val dataRow = table.children[1]
         assertEquals("Row", dataRow.component)
