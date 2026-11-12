@@ -2,7 +2,7 @@ package io.github.yeyi.agent.demo.agent.runtime.tools
 
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
-import io.github.yeyi.agent.genui.tool.UiTool
+import io.github.yeyi.agent.genui.tool.WithUiTool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import kotlinx.serialization.json.JsonElement
@@ -23,7 +23,7 @@ import java.time.LocalDate
  * 渲染由 DefaultRenderAdapter 递归查表完成，工具不感知任何渲染细节。
  * IR 只携带语义数据（content），视觉效果由基础组件默认形态决定。
  */
-class GetDateTimeTool : UiTool() {
+class GetDateTimeTool : WithUiTool() {
 
     override val name: String = "get_datetime"
     override val description: String = "返回当前日期与时间"

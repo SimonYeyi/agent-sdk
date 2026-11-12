@@ -62,7 +62,7 @@ import kotlinx.serialization.json.put
  * 子 agent 继承父 agent 的工具实例（连同产卡行为），与继承父的 llmProvider、memory 同属一种继承。
  * 产卡工具实例因此是 agent 私有的：不要在工具里持有跨 agent 的状态（缓存、限流计数）。
  */
-public abstract class UiTool : Tool, FinalizableTool {
+public abstract class WithUiTool : Tool, FinalizableTool {
 
     internal companion object {
         /** 回执里告知模型「卡片已展示给用户」，避免它把同样内容在正文里再讲一遍。 */
@@ -83,7 +83,7 @@ public abstract class UiTool : Tool, FinalizableTool {
         /**
          * 卡片在工具结果 metadata 中的固定键名。
          *
-         * 写入侧与读取侧都在本模块内维护：[UiTool] 执行时把卡片 IR 编码进
+         * 写入侧与读取侧都在本模块内维护：[WithUiTool] 执行时把卡片 IR 编码进
          * [ToolExecutionResult.metadata] 的此键，由归档层提取到
          * [io.github.yeyi.agent.memory.MemoryEntry.metadata] 走记忆链路原生持久化；
          * 消费方（如界面层）恢复时经 [MemoryEntry.decodeCard] 读取解码渲染，
@@ -291,16 +291,16 @@ public abstract class UiTool : Tool, FinalizableTool {
 /**
  * 卡片 IR 编码进工具结果 metadata 的固定写法：写入侧统一走这里，读取侧走 [decodeCard]。
  *
- * 产卡工具（[UiTool] 子类）与模型生成卡片的工具（[GenUiTool]）共用这一条通道，
- * 消费方只认 [UiTool.CARD_METADATA_KEY] 一个键。
+ * 产卡工具（[WithUiTool] 子类）与模型生成卡片的工具（[GenUiTool]）共用这一条通道，
+ * 消费方只认 [WithUiTool.CARD_METADATA_KEY] 一个键。
  */
 internal fun encodeCard(card: CardIr): JsonObject =
-    buildJsonObject { put(UiTool.CARD_METADATA_KEY, Json.encodeToJsonElement(card)) }
+    buildJsonObject { put(WithUiTool.CARD_METADATA_KEY, Json.encodeToJsonElement(card)) }
 
 /**
  * 从工具结果 metadata 读取产卡工具内嵌的卡片 IR；无卡片返回 null。
  *
- * 与 [UiTool] 的写入互为镜像：产卡工具把卡片 IR 编码进 [UiTool.CARD_METADATA_KEY]，
+ * 与 [WithUiTool] 的写入互为镜像：产卡工具把卡片 IR 编码进 [WithUiTool.CARD_METADATA_KEY]，
  * 随 [io.github.yeyi.agent.AgentEvent.ToolCallEnd] 实时送达消费方渲染。
  * metadata 携带该键但内容非法时直接抛序列化异常（fail-fast）。
  */
@@ -309,13 +309,13 @@ public fun ToolExecutionResult.decodeCard(): CardIr? = metadata.decodeCard()
 /**
  * 从记忆条目顶层 metadata 读取产卡工具内嵌的卡片 IR；无卡片返回 null。
  *
- * 与 [UiTool] 的写入互为镜像：产卡工具把卡片 IR 编码进 [UiTool.CARD_METADATA_KEY]
+ * 与 [WithUiTool] 的写入互为镜像：产卡工具把卡片 IR 编码进 [WithUiTool.CARD_METADATA_KEY]
  * （经归档层落到本条目顶层 metadata），消费方（如界面层）恢复时调用本扩展解码渲染，
  * 无需感知键名细节。metadata 携带该键但内容非法时直接抛序列化异常（fail-fast）。
  */
 public fun MemoryEntry.decodeCard(): CardIr? = metadata.decodeCard()
 
 private fun JsonObject?.decodeCard(): CardIr? {
-    val cardJson = this?.get(UiTool.CARD_METADATA_KEY) ?: return null
+    val cardJson = this?.get(WithUiTool.CARD_METADATA_KEY) ?: return null
     return Json.decodeFromJsonElement(CardIr.serializer(), cardJson)
 }

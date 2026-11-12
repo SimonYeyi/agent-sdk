@@ -2,7 +2,7 @@ package io.github.yeyi.agent.demo.agent.runtime.tools
 
 import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.genui.ir.CardIr
-import io.github.yeyi.agent.genui.tool.UiTool
+import io.github.yeyi.agent.genui.tool.WithUiTool
 import io.github.yeyi.agent.genui.tool.decodeCard
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.ToolExecutionContext
@@ -32,7 +32,7 @@ class AllToolsTest {
      */
     private suspend fun executeAndDecodeCard(
         agentId: String = "agent_1",
-        makeTool: () -> UiTool,
+        makeTool: () -> WithUiTool,
     ): Pair<ToolExecutionResult, CardIr?> {
         val result = makeTool().execute(
             buildJsonObject { put("show_ui", JsonPrimitive(true)) },

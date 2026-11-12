@@ -17,7 +17,7 @@ import kotlinx.serialization.json.contentOrNull
 /**
  * 生成卡片工具：把内容交给模型，由模型现场生成卡片 IR。
  *
- * 继承 [UiTool]，复用其产卡接线（BusinessResult → [buildCard] → 编码进 metadata → 终结本轮）：
+ * 继承 [WithUiTool]，复用其产卡接线（BusinessResult → [buildCard] → 编码进 metadata → 终结本轮）：
  * UiTool 的卡片由开发者手写，适合结构固定、字段已知的场景（天气卡、定位卡）；
  * 本工具的卡片由模型现场排版，适合「把这段结果做成一张卡」这种开放内容——
  * 不必为每种内容各写一个工具。
@@ -42,7 +42,7 @@ import kotlinx.serialization.json.contentOrNull
  *
  * @param componentSpec 交给生成模型的组件词汇表（组件名与可用属性说明）
  */
-public class GenUiTool(componentSpec: String? = null) : UiTool() {
+public class GenUiTool(componentSpec: String? = null) : WithUiTool() {
 
     override val name: String = "gen_ui_tool"
 

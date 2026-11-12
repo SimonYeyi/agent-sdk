@@ -3,7 +3,7 @@ package io.github.yeyi.agent.demo.agent.runtime.tools
 import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
-import io.github.yeyi.agent.genui.tool.UiTool
+import io.github.yeyi.agent.genui.tool.WithUiTool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.tool.compression.CompressTool
@@ -96,11 +96,11 @@ val getWeatherTool = CompressTool(
 /**
  * 天气卡片产卡工具：查询天气并对外发射 iOS 风格天气卡。
  *
- * 与 [getWeatherTool] 同名同数据源，但继承 [UiTool] 产卡：
+ * 与 [getWeatherTool] 同名同数据源，但继承 [WithUiTool] 产卡：
  * 卡片内嵌工具结果 metadata，随事件流实时送达渲染、随记忆链路持久化恢复；
  * 卡片内嵌时间切换按钮（现在/明天/后天），点击经 ActionEvent 回流触发新一轮推理。
  */
-class WeatherCardTool : UiTool() {
+class WeatherCardTool : WithUiTool() {
 
     override val name: String = "get_weather"
     override val description: String = "当需要查询指定地点的天气情况时使用"

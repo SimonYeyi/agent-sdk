@@ -3,7 +3,7 @@ package io.github.yeyi.agent.demo.team.smartCockpit
 import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.CardIr
 import io.github.yeyi.agent.genui.ir.TreeNode
-import io.github.yeyi.agent.genui.tool.UiTool
+import io.github.yeyi.agent.genui.tool.WithUiTool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolParameters
 import io.github.yeyi.agent.toolset.Toolset
@@ -18,7 +18,7 @@ import kotlinx.serialization.json.jsonPrimitive
 
 // ===== 舒适控制工具集 =====
 
-class AcTool : UiTool() {
+class AcTool : WithUiTool() {
     override val name = "ac_control"
     override val description = "空调控制"
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
@@ -59,7 +59,7 @@ class AcTool : UiTool() {
     }
 }
 
-class SeatTool : UiTool() {
+class SeatTool : WithUiTool() {
     override val name = "seat_control"
     override val description = "座椅控制"
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
@@ -109,7 +109,7 @@ fun comfortControlToolset(): Toolset = Toolset("comfort_control", "座舱舒适�
 
 // ===== 车内环境工具集 =====
 
-class WindowTool : UiTool() {
+class WindowTool : WithUiTool() {
     override val name = "window_control"
     override val description = "车窗控制"
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
@@ -152,7 +152,7 @@ class WindowTool : UiTool() {
     }
 }
 
-class AmbientLightTool : UiTool() {
+class AmbientLightTool : WithUiTool() {
     override val name = "ambient_light_control"
     override val description = "氛围灯控制"
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
@@ -209,7 +209,7 @@ fun cabinEnvironmentToolset(): Toolset = Toolset("cabin_environment", "车内环
 
 // ===== 驾驶辅助工具集 =====
 
-class NavigateTool : UiTool() {
+class NavigateTool : WithUiTool() {
     override val name = "navigate"
     override val description = "导航到目的地"
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
@@ -250,7 +250,7 @@ class NavigateTool : UiTool() {
     }
 }
 
-class DashCamTool : UiTool() {
+class DashCamTool : WithUiTool() {
     override val name = "dash_cam_control"
     override val description = "行车记录仪控制"
     override val toolSchema: ToolParameters = ToolParameters.JsonSchema(

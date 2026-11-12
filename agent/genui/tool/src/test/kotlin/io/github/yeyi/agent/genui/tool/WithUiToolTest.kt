@@ -33,13 +33,13 @@ import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
-class UiToolTest {
+class WithUiToolTest {
 
-    private class FakeUiTool(
+    private class FakeWithUiTool(
         private val data: JsonElement?,
         private val card: CardIr?,
         schema: ToolParameters = ToolParameters.Empty,
-    ) : UiTool() {
+    ) : WithUiTool() {
         var getResultArguments: JsonElement? = null
         var buildCardData: JsonElement? = null
         var buildCardArguments: JsonElement? = null
@@ -97,7 +97,7 @@ class UiToolTest {
         JsonObject(mapOf("city" to JsonPrimitive("上海"), "show_ui" to JsonPrimitive(true)))
 
     /** 模型看到的 schema：基类把业务 schema 与框架参数 show_ui 合并后的结果。 */
-    private fun modelSchema(tool: UiTool): JsonObject {
+    private fun modelSchema(tool: WithUiTool): JsonObject {
         val schema = tool.parametersSchema
         assertTrue(schema is ToolParameters.JsonSchema, "expected merged JsonSchema, got $schema")
         return Json.parseToJsonElement((schema as ToolParameters.JsonSchema).schema).jsonObject
@@ -105,13 +105,13 @@ class UiToolTest {
 
     /** 产卡工具写入结果 metadata 的形态：CARD_METADATA_KEY -> 编码后的卡片 IR。 */
     private fun cardMetadata(card: CardIr): JsonObject =
-        buildJsonObject { put(UiTool.CARD_METADATA_KEY, Json.encodeToJsonElement(card)) }
+        buildJsonObject { put(WithUiTool.CARD_METADATA_KEY, Json.encodeToJsonElement(card)) }
 
     @Test
     fun `execute 接线 getResult 结果进 buildCard 并编码进结果 metadata`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         val card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text"))
-        val tool = FakeUiTool(data, card)
+        val tool = FakeWithUiTool(data, card)
 
         val returned = tool.execute(showCardArgs, context(agentId = "agent_1"))
 
@@ -128,7 +128,7 @@ class UiToolTest {
     fun `execute 回执为结构化数据文本`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         val card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text"))
-        val tool = FakeUiTool(data, card)
+        val tool = FakeWithUiTool(data, card)
 
         val returned = tool.execute(showCardArgs, context())
 
@@ -146,7 +146,7 @@ class UiToolTest {
     fun `无业务结果时回执只有卡片已展示告知`() = runTest {
         // 卡片即问询：无业务数据可回执，回执只剩「卡片已展示给用户」
         val card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text"))
-        val tool = FakeUiTool(
+        val tool = FakeWithUiTool(
             data = null,
             card = card,
         )
@@ -165,7 +165,7 @@ class UiToolTest {
     @Test
     fun `产卡后卡片可经结果 metadata 读取 随记忆链路持久化`() = runTest {
         val card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text"))
-        val tool = FakeUiTool(
+        val tool = FakeWithUiTool(
             data = null,
             card = card,
         )
@@ -200,7 +200,7 @@ class UiToolTest {
     @Test
     fun `无业务结果又不出卡时判失败`() = runTest {
         // 既无数据回执又不出卡：本轮什么都没交付给用户
-        val tool = FakeUiTool(
+        val tool = FakeWithUiTool(
             data = null,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
         )
@@ -212,7 +212,7 @@ class UiToolTest {
 
     @Test
     fun `既无数据又不出卡时错误回执指向模型侧的修法`() = runTest {
-        val tool = FakeUiTool(
+        val tool = FakeWithUiTool(
             data = null,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
         )
@@ -227,7 +227,7 @@ class UiToolTest {
     @Test
     fun `出卡即终结 卡片交到用户手上本轮到此为止`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        val tool = FakeUiTool(
+        val tool = FakeWithUiTool(
             data = data,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
         )
@@ -240,7 +240,7 @@ class UiToolTest {
     @Test
     fun `show_ui=true 却未产出卡片时判失败不终结`() = runTest {
         // 模型要求出卡就必须真有卡片：没有卡片就没有交付给用户的东西
-        val tool = FakeUiTool(
+        val tool = FakeWithUiTool(
             data = null,
             card = null,
         )
@@ -252,7 +252,7 @@ class UiToolTest {
     @Test
     fun `show_ui=false 时不调用 buildCard 且不终结`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        val tool = FakeUiTool(
+        val tool = FakeWithUiTool(
             data = data,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
         )
@@ -270,7 +270,7 @@ class UiToolTest {
 
     @Test
     fun `错误回执拒绝终结`() = runTest {
-        val tool = object : UiTool() {
+        val tool = object : WithUiTool() {
             override val name: String = "flaky_card"
             override val description: String = "flaky"
             override val toolSchema: ToolParameters = ToolParameters.Empty
@@ -304,11 +304,11 @@ class UiToolTest {
     fun `两个 agent 各自的产卡工具卡片互不串味`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
         // 产卡工具随 agent 构造：每个 agent 一份实例，卡片编码进各自结果 metadata
-        val toolA = FakeUiTool(
+        val toolA = FakeWithUiTool(
             data,
             CardIr(instanceId = "call_a", root = TreeNode(component = "Text")),
         )
-        val toolB = FakeUiTool(
+        val toolB = FakeWithUiTool(
             data,
             CardIr(instanceId = "call_b", root = TreeNode(component = "Text")),
         )
@@ -324,7 +324,7 @@ class UiToolTest {
     @Test
     fun `show_ui 缺省时不出卡也不终结`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        val tool = FakeUiTool(
+        val tool = FakeWithUiTool(
             data = data,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
         )
@@ -340,7 +340,7 @@ class UiToolTest {
     @Test
     fun `框架参数 show_ui 不渗进业务入参`() = runTest {
         val data = JsonObject(mapOf("city" to JsonPrimitive("北京")))
-        val tool = FakeUiTool(
+        val tool = FakeWithUiTool(
             data = data,
             card = CardIr(instanceId = "call_1", root = TreeNode(component = "Text")),
         )
@@ -361,7 +361,7 @@ class UiToolTest {
         val businessSchema = ToolParameters.JsonSchema(
             """{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}"""
         )
-        val tool = FakeUiTool(
+        val tool = FakeWithUiTool(
             data = null,
             card = null,
             schema = businessSchema,
@@ -383,7 +383,7 @@ class UiToolTest {
 
     @Test
     fun `业务 schema 不是 JSON 对象时判装配错误`() = runTest {
-        val tool = FakeUiTool(
+        val tool = FakeWithUiTool(
             data = null,
             card = null,
             schema = ToolParameters.JsonSchema("""[1,2,3]"""),
@@ -396,7 +396,7 @@ class UiToolTest {
 
     @Test
     fun `业务 schema 不是合法 JSON 时判装配错误`() = runTest {
-        val tool = FakeUiTool(
+        val tool = FakeWithUiTool(
             data = null,
             card = null,
             schema = ToolParameters.JsonSchema("""{"type":"object",""""),
@@ -407,7 +407,7 @@ class UiToolTest {
 
     @Test
     fun `业务 schema 自带 show_ui 属性时判装配错误`() = runTest {
-        val tool = FakeUiTool(
+        val tool = FakeWithUiTool(
             data = null,
             card = null,
             schema = ToolParameters.JsonSchema(
@@ -422,7 +422,7 @@ class UiToolTest {
 
     @Test
     fun `无业务参数的工具也给模型 show_ui`() = runTest {
-        val tool = FakeUiTool(data = null, card = null)
+        val tool = FakeWithUiTool(data = null, card = null)
 
         val properties = modelSchema(tool)["properties"]!!.jsonObject
 
