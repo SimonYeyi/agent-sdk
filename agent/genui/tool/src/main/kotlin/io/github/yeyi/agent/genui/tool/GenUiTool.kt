@@ -211,8 +211,8 @@ private data class GenUiRequest(
 private val DEFAULT_COMPONENT_SPEC: String = """
     可用组件与属性：
     - Card：卡片外壳，整棵树的根用它。bindings：spacing（整数，元素间距）、padding（整数，内边距）
-    - Column：纵向容器。bindings：spacing（整数）、padding（整数）、arrangement（Top/Center/Bottom/SpaceBetween/SpaceAround/SpaceEvenly）、horizontalAlignment（Start/CenterHorizontally/End）
-    - Row：横向容器。bindings：spacing（整数）、padding（整数）、arrangement（Start/Center/End/SpaceBetween/SpaceAround/SpaceEvenly）、verticalAlignment（Top/CenterVertically/Bottom）
+    - Column：纵向容器。bindings：spacing（整数）、padding（整数）、arrangement（Top/Center/Bottom/SpaceBetween/SpaceAround/SpaceEvenly）、horizontalAlignment（Start/CenterHorizontally/End）、background（颜色名或 hex,取值同 Text.color,绑了画 8dp 圆角浅底色块,用于引用块/强调区块等 set apart 视觉）
+    - Row：横向容器。bindings：spacing（整数）、padding（整数）、arrangement（Start/Center/End/SpaceBetween/SpaceAround/SpaceEvenly）、verticalAlignment（Top/CenterVertically/Bottom）、background（同 Column.background）
     - Text：文本。bindings：text（必填,或经 Span children 给出）、style（headlineLarge/headlineMedium/headlineSmall/titleLarge/titleMedium/titleSmall/bodyLarge/bodyMedium/bodySmall/labelMedium/labelSmall）、fontWeight（Normal/Medium/SemiBold/Bold/Light）、color（primary/secondary/tertiary/error/onSurface/onSurfaceVariant/outline/outlineVariant/surface/surfaceVariant/background/onBackground 或 blue/green/red/orange/yellow/teal/purple/pink/indigo/white/black 或 #RRGGBB / #AARRGGBB）、textAlign（Start/Center/End）、maxLines（整数）、weight（浮点,>0 时按比例分配 Row 剩余宽度,仅 Row 内生效）。行内加粗用 Span children 表达（见 Span）,避免 Row 多 Text 窄屏换行错乱
     - Span：Text 的行内样式片段,不当独立组件渲染。bindings：text（必填）、bold（布尔,默认 false）。Text 含 Span children 时各段文字合并成带行内样式的整段文本,Text 自身的 text 与 fontWeight 忽略
     - Button：按钮，按钮文案写在 action.label（必填）。bindings：variant（Primary/Secondary/Bordered/Destructive/Plain）、weight（浮点，>0 时按比例分配 Row 剩余宽度，仅 Row 内生效）

@@ -268,7 +268,12 @@ public fun Card(node: TreeNode, children: @Composable () -> Unit) {
     }
 }
 
-/** 纵向容器：spacing/arrangement/padding/alignment 均经 bindings 传入，缺省为最常用形态。 */
+/**
+ * 纵向容器：spacing/arrangement/padding/alignment/background 均经 bindings 传入，缺省为最常用形态。
+ *
+ * 绑定 `background`（颜色名或 hex，取值同 Text.color）时画 8dp 圆角色块作底——
+ * 引用块、强调区块等「set apart」的视觉用此表达,不必为每种语义各造组件。
+ */
 @Composable
 internal fun Column(node: TreeNode, children: @Composable () -> Unit) {
     val spacing = node.bindings.intValue("spacing", 0)
@@ -279,8 +284,14 @@ internal fun Column(node: TreeNode, children: @Composable () -> Unit) {
     } else {
         node.bindings.verticalArrangement(default = Arrangement.Top)
     }
+    val bg = node.bindings.color("background", Color.Transparent)
+    val modifier = if (bg != Color.Transparent) {
+        Modifier.clip(RoundedCornerShape(8.dp)).background(bg).padding(padding.dp)
+    } else {
+        Modifier.padding(padding.dp)
+    }
     ComposeColumn(
-        modifier = Modifier.padding(padding.dp),
+        modifier = modifier,
         horizontalAlignment = node.bindings.horizontalAlignment(Alignment.Start),
         verticalArrangement = arrangement,
     ) {
@@ -289,7 +300,10 @@ internal fun Column(node: TreeNode, children: @Composable () -> Unit) {
 }
 
 /**
- * 横向容器：spacing/arrangement/padding/alignment 均经 bindings 传入，缺省为最常用形态。
+ * 横向容器：spacing/arrangement/padding/alignment/background 均经 bindings 传入，缺省为最常用形态。
+ *
+ * 绑定 `background`（颜色名或 hex，取值同 Text.color）时画 8dp 圆角色块作底——
+ * 引用块、强调区块等「set apart」的视觉用此表达,不必为每种语义各造组件。
  *
  * Row 渲染子节点时提供 [LocalRowScope]，让子组件（如 Button）能绑 `weight`（浮点）
  * 按比例分配剩余宽度——三个按钮各绑 weight=1 即等宽，避免窄屏下 wrap-content 按钮被挤到文案换行。
@@ -305,8 +319,14 @@ internal fun Row(node: TreeNode, children: @Composable () -> Unit) {
     } else {
         node.bindings.horizontalArrangement(default = Arrangement.Start)
     }
+    val bg = node.bindings.color("background", Color.Transparent)
+    val modifier = if (bg != Color.Transparent) {
+        Modifier.clip(RoundedCornerShape(8.dp)).background(bg).padding(padding.dp)
+    } else {
+        Modifier.padding(padding.dp)
+    }
     ComposeRow(
-        modifier = Modifier.padding(padding.dp),
+        modifier = modifier,
         horizontalArrangement = arrangement,
         verticalAlignment = node.bindings.verticalAlignment(Alignment.CenterVertically),
     ) {

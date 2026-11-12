@@ -28,7 +28,7 @@ import kotlinx.serialization.json.buildJsonObject
  * - `- item`/`* item` → 连续同类项合并成 `Column(spacing=4)`,每个 `Text(text="• $item", style=bodyLarge)`
  * - `1. item` → 连续同类项合并成 `Column(spacing=4)`,每个 `Text(text="$n. $item", style=bodyLarge)`（保留原序号）
  * - 段落（连续非空行）→ `Text(style=bodyLarge)`
- * - `> quote` → `Text(text="> $text", style=bodyMedium, color=onSurfaceVariant)`（引用块用 Text 弱化 + `>` 前缀,不用 Card 包,避免嵌套卡）
+ * - `> quote` → `Row(background=surfaceVariant, padding=12)` 包 `Text(style=bodyMedium, color=onSurfaceVariant)`（引用块用浅底色圆角块 set apart,不保留 `>` 前缀）
  * - `---` → `Divider()`
  * - 表格 → `Column(spacing=8)` > 多个 `Row(spacing=8)`（表头 + 数据行）> 多个 `Text(weight=1, maxLines=1)`。
  *   表头行 `fontWeight=Bold`,数据行 Normal;每列 Text 绑 `weight=1` 等宽分配 Row 剩余宽度（依赖 Row 内 weight）。
@@ -126,10 +126,16 @@ internal fun parseMarkdown(content: String): TreeNode? {
             line.quoteText() != null -> {
                 flushParagraph()
                 flushList()
-                children += textNode(
-                    "> ${line.quoteText()!!}",
-                    style = "bodyMedium",
-                    color = "onSurfaceVariant",
+                // 引用块：Row 带浅底色圆角块包文本，set apart 而非保留 > 前缀（像控制台输出）
+                children += TreeNode(
+                    component = "Row",
+                    bindings = buildJsonObject {
+                        put("background", JsonPrimitive("surfaceVariant"))
+                        put("padding", JsonPrimitive(12))
+                    },
+                    children = listOf(
+                        textNode(line.quoteText()!!, style = "bodyMedium", color = "onSurfaceVariant"),
+                    ),
                 )
             }
 

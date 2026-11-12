@@ -78,11 +78,16 @@ class MarkdownParserTest {
     }
 
     @Test
-    fun `引用块映射为 bodyMedium onSurfaceVariant 保留前缀`() {
+    fun `引用块映射为 Row 带底色包 Text`() {
         val root = parseMarkdown("> 引用文本")!!
-        val text = root.children.single()
+        val row = root.children.single()
+        assertEquals("Row", row.component)
+        assertEquals("surfaceVariant", row.bindings["background"]!!.jsonPrimitive.content)
+        assertEquals("12", row.bindings["padding"]!!.jsonPrimitive.content)
+        val text = row.children.single()
         assertEquals("Text", text.component)
-        assertEquals("> 引用文本", text.bindings["text"]!!.jsonPrimitive.content)
+        // 不保留 > 前缀
+        assertEquals("引用文本", text.bindings["text"]!!.jsonPrimitive.content)
         assertEquals("bodyMedium", text.bindings["style"]!!.jsonPrimitive.content)
         assertEquals("onSurfaceVariant", text.bindings["color"]!!.jsonPrimitive.content)
     }
