@@ -27,7 +27,7 @@ import io.github.yeyi.agent.demo.agent.vm.SessionUiState
 import io.github.yeyi.agent.demo.agent.vm.SessionViewModel
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
 import io.github.yeyi.agent.genui.ir.ActionEvent
-import io.github.yeyi.agent.llm.ChatMessage
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -240,13 +240,9 @@ private fun ChatArea(
         }
     }
 
-    // 标记是否触发了加载更多（用于区分初始加载和加载更多完成）
-    var loadMoreTriggered by remember { mutableStateOf(false) }
-
     // 下拉加载更多：滚动到顶部时触发
     LaunchedEffect(listState.firstVisibleItemIndex) {
         if (listState.firstVisibleItemIndex == 0 && uiState.hasMorePages && !uiState.isLoadingMore && displayItems.isNotEmpty()) {
-            loadMoreTriggered = true
             onLoadMore()
         }
     }
@@ -254,20 +250,23 @@ private fun ChatArea(
     // chaser: 内容变化时,仅在 autoScroll(底部状态)下把视图追到底部。
     // offset 用 Int.MAX_VALUE 会 clamp 到最大滚动位,即最后一项底边贴住
     // 视口底、不能再上划——这正是"完全贴底"。
+    // loadMore 完成后是否追底也由 autoScroll 决定:用户在顶部时 autoScroll==false,
+    // chaser 不追底,LazyColumn 的 stable-key keep-position 自然保持视觉位置。
+    //
+    // 修概率性"恢复后停在顶部":scrollToItem 在 listState 未 attach 时会挂起,
+    // 若 chaser 协程被 key 变化取消(liveBubble 流式增量、isLoading 翻转等),
+    // scrollToItem 不会执行完——列表停在初始 position 0。先等首次 layout 完成
+    // (totalItemsCount > 0)再 scrollToItem,绕开 attach 竞态。
     val currentSessionId = uiState.currentSession?.id
     LaunchedEffect(currentSessionId, uiState.liveBubble?.text, visibleItems.size, uiState.isLoading, uiState.isLoadingMore) {
-        if (visibleItems.isNotEmpty()) {
-            // 加载更多完成后（isLoadingMore: true → false）不滚动，保持在当前位置
-            if (loadMoreTriggered) {
-                loadMoreTriggered = false
-                return@LaunchedEffect
-            }
-            // 会话切换:重置追底状态,让新会话从底部开始
-            if (uiState.isLoading) autoScroll = true
-            if (autoScroll) {
-                val lastIndex = if (uiState.isLoading) visibleItems.size else visibleItems.size - 1
-                listState.scrollToItem(lastIndex, Int.MAX_VALUE)
-            }
+        if (visibleItems.isEmpty()) return@LaunchedEffect
+        // 会话切换/loadinging 重置追底状态,让新轮次从底部开始
+        if (uiState.isLoading) autoScroll = true
+        if (autoScroll) {
+            snapshotFlow { listState.layoutInfo.totalItemsCount > 0 }
+                .first { it }
+            val lastIndex = if (uiState.isLoading) visibleItems.size else visibleItems.size - 1
+            listState.scrollToItem(lastIndex, Int.MAX_VALUE)
         }
     }
 
