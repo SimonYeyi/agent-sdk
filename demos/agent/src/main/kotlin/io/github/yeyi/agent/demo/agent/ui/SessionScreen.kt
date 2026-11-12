@@ -16,6 +16,10 @@ import androidx.compose.runtime.*
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.yeyi.agent.demo.agent.vm.UiMessage
@@ -215,6 +219,27 @@ private fun ChatArea(
         displayItems.filter { it !is UiMessage.ToolExecution }
     }
 
+    // autoScroll: 是否处于"底部状态"。仅在此状态下新内容才追底滚屏;
+    // 用户上滑查看旧消息后置 false,滑回底部/发消息/清屏后恢复 true。
+    // 解决:页面刚恢复时消息异步加载完成会让 visibleItems.size 从 0 变 N,
+    // 无条件追底会把用户已上滑的位置拉回底部。
+    var autoScroll by remember { mutableStateOf(true) }
+
+    // 用户手势检测:nestedScroll 的 onPreScroll 在每帧滚动前同步回调,
+    // source 由手势链路直接标注 UserInput。这是第一手信号,不经过任何
+    // 协程取消/竞争窗口;程序 scrollToItem 直接改 scrollPosition,不经过
+    // nestedScroll dispatch,不会误触发。
+    val userDragConnection = remember {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (source == NestedScrollSource.UserInput) {
+                    autoScroll = false
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
     // 标记是否触发了加载更多（用于区分初始加载和加载更多完成）
     var loadMoreTriggered by remember { mutableStateOf(false) }
 
@@ -226,7 +251,9 @@ private fun ChatArea(
         }
     }
 
-    // 会话切换或新消息时滚动到底部（加载更多完成时保持位置）
+    // chaser: 内容变化时,仅在 autoScroll(底部状态)下把视图追到底部。
+    // offset 用 Int.MAX_VALUE 会 clamp 到最大滚动位,即最后一项底边贴住
+    // 视口底、不能再上划——这正是"完全贴底"。
     val currentSessionId = uiState.currentSession?.id
     LaunchedEffect(currentSessionId, uiState.liveBubble?.text, visibleItems.size, uiState.isLoading, uiState.isLoadingMore) {
         if (visibleItems.isNotEmpty()) {
@@ -235,8 +262,33 @@ private fun ChatArea(
                 loadMoreTriggered = false
                 return@LaunchedEffect
             }
-            val lastIndex = if (uiState.isLoading) visibleItems.size else visibleItems.size - 1
-            listState.scrollToItem(lastIndex, Int.MAX_VALUE)
+            // 会话切换:重置追底状态,让新会话从底部开始
+            if (uiState.isLoading) autoScroll = true
+            if (autoScroll) {
+                val lastIndex = if (uiState.isLoading) visibleItems.size else visibleItems.size - 1
+                listState.scrollToItem(lastIndex, Int.MAX_VALUE)
+            }
+        }
+    }
+
+    // resumer: 滚动落定且"几何贴底"时恢复底部状态。
+    // 贴底 = 最后一项底边(offset+size)不超过视口底(viewportEndOffset),含容差:
+    // - 恰好贴底: == viewportEndOffset
+    // - 内容不足一屏: 底边在视口底之上(<)——滚不动,天然底部状态
+    // - 用户下划离开底部: 最后一项底边超出视口底(>)——判 false,不恢复
+    LaunchedEffect(listState) {
+        snapshotFlow {
+            val info = listState.layoutInfo
+            val last = info.visibleItemsInfo.lastOrNull()
+            val atBottom = info.totalItemsCount == 0 ||
+                (last != null && last.index == info.totalItemsCount - 1 &&
+                    last.offset + last.size <= info.viewportEndOffset + 2)
+            listState.isScrollInProgress to atBottom
+        }
+        .collect { (scrolling, atBottom) ->
+            if (!scrolling && atBottom) {
+                autoScroll = true
+            }
         }
     }
 
@@ -248,6 +300,7 @@ private fun ChatArea(
                     .weight(1f)
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
+                    .nestedScroll(userDragConnection)
             ) {
                 // 已到顶部，无更多消息（显示在列表最上方）
                 if (!uiState.hasMorePages) {
