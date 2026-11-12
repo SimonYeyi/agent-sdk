@@ -4,6 +4,7 @@ import io.github.yeyi.agent.config.AgentDefinition
 import io.github.yeyi.agent.config.AgentRegistry
 import io.github.yeyi.agent.config.AgentScope
 import io.github.yeyi.agent.demo.team.BuildConfig
+import io.github.yeyi.agent.genui.tool.GenUiTool
 import io.github.yeyi.agent.memory.Memory
 import io.github.yeyi.agent.skill.SkillRegistry
 import io.github.yeyi.agent.subagent.SubagentRegistry
@@ -41,7 +42,7 @@ object CockpitAgent {
         provider = providerFromBuildConfig(),
         maxIterations = 40,
         maxMemoryRounds = 40,
-        tools = listOf("get_time", "get_date", "get_car_status", "get_energy"),
+        tools = listOf("get_time", "get_date", "get_car_status", "get_energy", "gen_ui_tool"),
         toolsets = listOf("comfort_control", "cabin_environment", "driving_assist"),
         skills = listOf("driving_mode", "rest_mode", "movie_mode", "go_home"),
         subagents = listOf("media_expert", "navigation_expert"),
@@ -54,6 +55,7 @@ object CockpitAgent {
         toolRegistry = ToolRegistry().apply {
             register(GetTimeTool())
             register(GetDateTool())
+            register(GenUiTool())
         },
         lazyToolRegistry = LazyToolRegistry().apply {
             register(LazyTool(GetCarStatusTool()))
