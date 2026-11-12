@@ -54,7 +54,7 @@ public class GenUiTool(componentSpec: String? = null) : WithUiTool() {
         {"type":"object",
          "properties":{
            "content":{"type":"string","description":"要展示给用户的内容：卡片承载的正文、要点或数据说明"},
-           "intent":{"type":"string","description":"一句话说明展示意图（可选）。如「做成对比表」「做成待办清单」；留空由生成器自行设计"}},
+           "intent":{"type":"string","description":"一句话说明展示意图，如「做成对比表」「做成待办清单」（content 是 md 格式时不填）。"}},
          "required":["content"]}
         """.trimIndent()
     )
