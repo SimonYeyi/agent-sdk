@@ -27,6 +27,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonElement
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
@@ -90,11 +91,14 @@ class PastureFinalContentTest {
         withTimeout(5000) { while (terminalUpdates.none { it.taskId == "t2" }) kotlinx.coroutines.delay(20) }
         collector.cancel()
 
-        // t1 的 Final 必须已补齐 content (来自 card 工具结果)
+        // t1 的 Final 必须已补齐 content (来自 card 工具结果)。
+        // 新格式带 label 多行块,只断言包含工具结果文本即可,不锁死整体格式。
         val t1Content = terminalUpdates.first { it.taskId == "t1" }.event.let {
             (it as AgentEvent.Final).result.message.content
         }
-        assertEquals("CARD_PAYLOAD", t1Content)
+        assertNotNull(t1Content)
+        assertTrue(t1Content.contains("CARD_PAYLOAD"), "t1 content should carry card payload, got: $t1Content")
+        assertTrue(t1Content.contains("工具调用：card()"), "t1 content should label tool call, got: $t1Content")
 
         // t2 收到的 userInput 里带上 t1 的产出
         val t2Request = fake.recordedRequests.last()

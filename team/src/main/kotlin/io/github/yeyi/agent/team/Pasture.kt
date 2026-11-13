@@ -2,7 +2,7 @@ package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
-import io.github.yeyi.agent.llm.ContentPart
+import io.github.yeyi.agent.subagent.contentNotNull
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -23,7 +23,7 @@ private class DagNode(
     var job: Job? = null,
     // 上游结果缓存: key=上游 taskId, value=Final event.content(给下游 task 的 context prepend 用)
     val upstreamResults: MutableMap<String, String> = mutableMapOf(),
-    // 从 beast 来的终态。content 已在写入前经 [ensureContent] 补齐, 消费方无需再判空。
+    // 从 beast 来的终态。content 已在写入前经 [contentNotNull] 补齐, 消费方无需再判空。
     var result: AgentEvent.Final? = null,
     // 从 beast 来的 failed 或 pasture 自己产生的异常
     var error: Throwable? = null,
@@ -171,7 +171,10 @@ internal class Pasture(
                 .collect { event ->
                     when (event) {
                         is AgentEvent.Final -> {
-                            dagLock.withLock { dag[taskId]?.result = event.ensureContent() }
+                            dagLock.withLock {
+                                dag[taskId]?.result =
+                                    event.copy(result = event.result.contentNotNull())
+                            }
                             handleTerminal(taskId, null)
                         }
 
@@ -252,31 +255,4 @@ internal class Pasture(
             }
         }
     }
-}
-
-/**
- * 保证 Final 的 content 可转述: 非空原样返回; 为 null(仅出现在可终结工具短路路径)
- * 时以最后一次迭代那批工具的参数与结果文本部分按序拼装。
- *
- * 空正文对前台消费方是协议的一部分——工具已把产出直接呈现给用户;但 beast 是
- * 后台 agent, Final 是其产出唯一出口(下游 task 的 context、BossAgent 汇总报告),
- * 故在此补齐, 让 [DagNode.result] 恒可读。
- *
- * 取「最后一次迭代」而非全部记录: 早期批次的中间结果不属于本次产出。
- *
- * 参数也拼入: 可终结工具短路时, 终态信息可能承载在参数里,
- * 工具结果本身可能为空或仅状态确认——只取结果会丢掉关键语义。
- */
-private fun AgentEvent.Final.ensureContent(): AgentEvent.Final {
-    if (result.message.content != null) return this
-    val text = buildString {
-        appendLine("最后一轮工具调用情况：")
-        result.iterationRecords.last().calls.forEachIndexed { i, call ->
-            val args = call.arguments.toString().takeIf { it.isNotBlank() && it != "{}" }.orEmpty()
-            val output = call.result.parts.filterIsInstance<ContentPart.Text>().joinToString("\n") { it.text }
-            appendLine("[${i + 1}] 工具调用：${call.toolName}($args)")
-            if (output.isNotEmpty()) appendLine("调用结果：$output")
-        }
-    }.trimEnd()
-    return AgentEvent.Final(result.copy(message = result.message.copy(content = text)))
 }
