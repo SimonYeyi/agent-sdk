@@ -4,6 +4,7 @@ import androidx.a2ui.compose.ui.A2uiCatalog
 import androidx.a2ui.compose.ui.A2uiMessageProcessor as createA2uiMessageProcessor
 import androidx.a2ui.engine.catalog.A2uiCoreCatalog
 import androidx.a2ui.model.processor.A2uiMessageProcessor
+import androidx.a2ui.model.processor.A2uiSurfaceModel
 import androidx.a2ui.model.protocol.A2uiClientErrorMessage
 import androidx.a2ui.model.protocol.A2uiClientEventMessage
 import androidx.a2ui.model.protocol.A2uiComponentPayload
@@ -12,7 +13,9 @@ import androidx.a2ui.model.protocol.A2uiUpdateComponentsMessage
 import androidx.compose.material3.a2ui.A2uiSurface
 import androidx.compose.material3.a2ui.A2uiSurfaceDefaults
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
 import io.github.yeyi.agent.genui.ir.Action
 import io.github.yeyi.agent.genui.ir.ActionEvent
@@ -122,11 +125,24 @@ public class A2uiRenderAdapter(
 
     @Composable
     override fun RenderCard(card: CardIr, onAction: (ActionEvent) -> Unit) {
-        project(card, onAction)
-        val surface = processor.activeSurfaces
-            .collectAsState()
-            .value
-            .firstOrNull { it.id == card.instanceId }
+        // project 只在 instanceId 变化时跑一次:滑动经过时 LazyColumn 频繁 recompose,
+        // 旧实现每次都进 project(虽 projected 守卫保证只投递一次消息,但 map 查找 + volatile 写 + CAS 都跑)。
+        // LaunchedEffect 让首组合才投递,后续 recompose 不再进。
+        LaunchedEffect(card.instanceId) {
+            project(card, onAction)
+        }
+        // onAction 是父级 lambda,每次重组引用都可能变;project 只跑一次,后续更新靠这里。
+        // SideEffect 在组合后跑,首次早于 LaunchedEffect 此时 session 还没建,?. 安全跳过。
+        SideEffect {
+            sessions[card.instanceId]?.onAction = onAction
+        }
+        // 独立订阅自己的 surface:旧实现 collectAsState 整个 activeSurfaces,N 张可见卡
+        // 任一变化触发全部重组(N²)。produceState 让每张卡只在自己 surface 变化时重组。
+        val surface = produceState<A2uiSurfaceModel?>(initialValue = null, card.instanceId) {
+            processor.activeSurfaces.collect { surfaces ->
+                value = surfaces.firstOrNull { it.id == card.instanceId }
+            }
+        }.value
         if (surface != null) {
             A2uiSurface(
                 surfaceModel = surface,
