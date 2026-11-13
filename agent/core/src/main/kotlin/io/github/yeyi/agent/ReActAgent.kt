@@ -314,7 +314,7 @@ public class ReActAgent internal constructor(
 
     private suspend fun loopOnce(turn: AgentTurn): AgentResult? {
         // 检查点①：迭代头注入。Instruct 在此进入 memory，本轮 buildRequest 即生效
-        if (!turn.steering.isEmpty()) consumeSteering(turn)
+        if (!turn.steering.isEmpty()) consumeSteering(turn, null)
 
         val context = buildContext(turn.iterations).also {
             // 上下文挂到轮次上：一轮迭代一份，迭代内的钩子点共用同一个对象 ——
@@ -407,7 +407,7 @@ public class ReActAgent internal constructor(
 
             turn.events.emit(AgentEvent.ToolCallEnd(call, final))
         }
-        turn.iterationRecords += AgentResult.IterationRecord(callExplanation = content, calls = records)
+        turn.iterationRecords += AgentResult.IterationRecord(content, records)
     }
 
     /**
@@ -416,20 +416,20 @@ public class ReActAgent internal constructor(
      * 若在途指令 (steer) 非空，放弃终局返回 null，强制再跑一轮让 LLM 带着指令重新作答。
      */
     private suspend fun finalize(turn: AgentTurn, response: ChatResponse): AgentResult? {
-        // 终局：Final 抢占 + 终局。与 steer() 闸门下互斥。
-        turn.lock.lock()
-        if (!turn.steering.isEmpty()) {
-            turn.lock.unlock()
-            // 指令已注入 memory，抢占 Final，强制再跑一轮让 LLM 带着新指令重新作答
-            consumeSteering(turn)
-            return null
-        }
         val result = AgentResult(
             message = response.message,
             iterations = turn.iterations,
             iterationRecords = turn.iterationRecords.toList(),
             usage = response.usage,
         )
+        // 终局：Final 抢占 + 终局。与 steer() 闸门下互斥。
+        turn.lock.lock()
+        if (!turn.steering.isEmpty()) {
+            turn.lock.unlock()
+            // 指令已注入 memory，抢占 Final，强制再跑一轮让 LLM 带着新指令重新作答
+            consumeSteering(turn, if (response.message.content == null) null else result)
+            return null
+        }
         try {
             hook.safeInvoke { onRunCompleted(turn.iterationContext, result) }
             // 终局：还槽 + 关门（闸内）。
@@ -449,19 +449,20 @@ public class ReActAgent internal constructor(
     }
 
     /**
-     * 消费在途指令 —— 排空信箱，逐条写入记忆。
+     * 消费在途指令 —— 排空信箱,逐条写入记忆,一次发出单个 [AgentEvent.Steering]。
      *
-     * 写入即"纳入推理"：指令进了本轮对话，随下一次模型请求生效。故每条指令
-     * 入记忆后发一个 [AgentEvent.Steering] —— 收集方据此渲染用户输入，
-     * 渲染时刻与记忆里的事实一致（不会先渲染、后落记忆）。
+     * 写入即"纳入推理"：指令进了本轮对话，随下一次模型请求生效。[preemptedResult] 携带
+     * 本轮被抢占的产出（正常收敛路径非空，检查点①与短路路径为 null），随指令一并发出让
+     * 前端不丢这段已入记忆但未发 [AgentEvent.Final] 的文本。
      */
-    private suspend fun consumeSteering(turn: AgentTurn) {
-        turn.steering.drain().forEach { query ->
+    private suspend fun consumeSteering(turn: AgentTurn, preemptedResult: AgentResult?) {
+        val queries = turn.steering.drain().takeIf { it.isNotEmpty() } ?: return
+        queries.forEach { query ->
             // steer 注入的指令默认标 "steering"；调用方显式带 label 时优先采用
             modalityAdapter.archive(ChatMessage.User(query.parts))
                 .addToMemory(memory, label = query.label ?: "steering")
-            turn.events.emit(AgentEvent.Steering(query))
         }
+        turn.events.emit(AgentEvent.Steering(queries, preemptedResult))
     }
 
     private suspend fun llmCallWithContextOverflowHandle(

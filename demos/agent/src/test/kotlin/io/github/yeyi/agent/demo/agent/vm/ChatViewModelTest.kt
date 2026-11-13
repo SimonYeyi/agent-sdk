@@ -324,7 +324,8 @@ class ChatViewModelTest {
 
         /** 模拟 core 的消费：指令入卷，该轮事件流发出 [AgentEvent.Steering]。 */
         fun consumeSteering() {
-            pendingSteerings.forEach { channels.lastOrNull()?.trySend(AgentEvent.Steering(it)) }
+            if (pendingSteerings.isEmpty()) return
+            channels.lastOrNull()?.trySend(AgentEvent.Steering(pendingSteerings.toList(), null))
             pendingSteerings.clear()
         }
     }

@@ -558,8 +558,11 @@ class SteerableTest {
         advanceUntilIdle()
 
         val steering = events.filterIsInstance<AgentEvent.Steering>()
-        assertEquals(1, steering.size, "消费一条指令 ⟺ 一个 Steering 事件")
-        assertEquals("switch to plan B", steering[0].query.parts.text)
+        assertEquals(1, steering.size, "消费一批指令 ⟺ 一个 Steering 事件")
+        assertEquals("switch to plan B", steering[0].queries.single().parts.text)
+        // 抢占路径补发本轮产出:iter1 的 Final 文本已入记忆但没发 Final 事件,
+        // Steering 携带它让前端不丢这段产出。检查点①/短路路径为 null,这里测检查点②。
+        assertEquals("first answer", steering[0].preemptedResult?.message?.content)
 
         // 事件发出时指令已在记忆里：渲染时刻与事实一致
         assertTrue(memoryHasInstruction(mem, "switch to plan B"), "Steering 事件发出时指令应已在记忆里")

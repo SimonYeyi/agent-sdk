@@ -263,12 +263,15 @@ class ChatViewModel(
                 // 在途指令已入卷（进了本轮对话，随下一次模型请求生效）：
                 // 像普通用户消息一样入列 —— 渲染时刻与记忆里的事实一致，
                 // 用户看得见自己注入的指令（否则输入框清空后消息就"消失"了）。
-                _messages.update {
-                    it + UiMessage.User(
-                        text = event.query.parts.text,
-                        id = nextUiId(),
-                    )
+                // 顺序:被抢占的本轮产出在前,注入的指令在后 —— 时间线上 LLM 先答完,
+                // steer 才挤进来抢占,渲染顺序与之一致。
+                val finalMsg = event.preemptedResult?.message?.content?.let {
+                    UiMessage.Assistant(it, id = nextUiId())
                 }
+                val userMsgs = event.queries.map { query ->
+                    UiMessage.User(text = query.parts.text, id = nextUiId())
+                }
+                _messages.update { it + listOfNotNull(finalMsg) + userMsgs }
                 // 签收时的提示到这儿归位：指令已经进了对话。
                 _steerHint.value = null
             }

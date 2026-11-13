@@ -110,8 +110,15 @@ public sealed interface AgentEvent {
      * 同步可得，此刻它还没进对话）；**本事件是入卷**（指令进了记忆，即将成为
      * 模型看得见的内容）。轮次若在消费前终结，指令随轮作废 —— 既没有本事件，
      * 记忆里也没有它，两边一致。
+     *
+     * [preemptedResult] 携带本轮被抢占的产出:正常收敛路径 LLM 已生成 Final 文本并入记忆,
+     * 但因在途指令未消费而没发 [Final] 事件,此处补发让前端不丢这段产出;
+     * 检查点①(迭代头注入)与可终结短路路径无产出,为 null。
      */
-    public data class Steering(public val query: AgentQuery) : AgentEvent
+    public data class Steering(
+        public val queries: List<AgentQuery>,
+        public val preemptedResult: AgentResult?
+    ) : AgentEvent
 }
 
 /** 终局事件族（Final / Failed / Canceled）—— 供 core 与下游模块统一判定终态。 */
