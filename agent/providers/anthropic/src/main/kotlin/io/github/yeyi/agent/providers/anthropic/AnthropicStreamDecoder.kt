@@ -22,12 +22,14 @@ internal fun decodeAnthropicSse(lines: Flow<String>): Flow<ChatResponseEvent> = 
 
     lines.collect { line ->
         when {
-            line.startsWith("event: ") -> {
-                pendingEvent = line.removePrefix("event: ").trim()
+            // SSE 允许 `field:value` 与 `field: value` 两种写法,冒号后空格可选。
+            // 阿里云 dashscope 走无空格变体,Anthropic 官方带空格,trim 兼容两者。
+            line.startsWith("event:") -> {
+                pendingEvent = line.removePrefix("event:").trim()
             }
-            line.startsWith("data: ") -> {
+            line.startsWith("data:") -> {
                 if (pendingData.isNotEmpty()) pendingData.append('\n')
-                pendingData.append(line.removePrefix("data: "))
+                pendingData.append(line.removePrefix("data:").trimStart())
             }
             line.isBlank() -> {
                 val event = pendingEvent
