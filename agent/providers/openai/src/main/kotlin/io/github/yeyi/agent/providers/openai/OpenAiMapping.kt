@@ -86,7 +86,7 @@ internal fun mapToOpenAi(
  */
 private fun thinkingFields(thinkingType: OpenAiThinkingType): Triple<OpenAiThinkingConfig?, Boolean?, String?> {
     val enabled: Boolean = (thinkingType != OpenAiThinkingType.DISABLED)
-    val effort = if (enabled) "high" else "minimal"
+    val effort = if (enabled) "high" else "none"
     return Triple(OpenAiThinkingConfig(type = thinkingType), enabled, effort)
 }
 
