@@ -245,7 +245,14 @@ internal class MemoryCompressor(
         val length = pricing(chars)
         val request = ChatRequest(
             messages = buildList {
-                add(ChatMessage.System("请将以下对话内容压缩为一份${length}字以内的摘要，保留关键结论和信息。要求：先归纳话题，再将每个话题压缩成以下格式：\n问：<用户话题>\n答：<助手回复>"))
+                add(
+                    ChatMessage.System(
+                        "请将以下对话内容压缩为一份${length}字以内的摘要。要求：先归纳话题，再将每个话题压缩为：\n" +
+                            "用户话题：<用户话题>\n" +
+                            "推理过程：<关键执行与决策步骤，含文件路径与代码位置、配置与数值变更、失败方案及原因>\n" +
+                            "助手回复：<最终结论>\n"
+                    )
+                )
                 addAll(rendered)
             },
             temperature = 0.3,
