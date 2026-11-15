@@ -5,6 +5,7 @@ import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.LlmProvider
+import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.llm.toTextMessage
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -115,11 +116,24 @@ internal class RoundsBoundedMemory(
     }
 
     private suspend fun generateSummary(messages: List<ChatMessage>): Summary {
-        val length = (maxRounds * (1 - retainRatio) * 2 * 30).toInt()
         val rendered = messages.map { it.toTextMessage() }
+        // 按实际输入字数取 8% 压缩比；上限 = 压缩窗口轮数 × 250 字/轮保真度，
+        // 由 maxRounds 估算（大上下文才会调大 maxRounds），总量天花板 = 上限 × maxSummaries
+        val inputChars = rendered.sumOf { message ->
+            when (message) {
+                is ChatMessage.User -> message.parts.text.length
+                is ChatMessage.Assistant -> (message.content?.length ?: 0) +
+                    message.toolCalls.sumOf { it.name.length + it.arguments.toString().length }
+                is ChatMessage.ToolResult -> message.parts.text.length
+                is ChatMessage.System -> message.content.length
+            }
+        }
+        val minimum = 800
+        val maximum = (maxRounds * (1 - retainRatio) * 250).toInt().coerceAtLeast(minimum)
+        val length = (inputChars * 0.08).toInt().coerceIn(minimum, maximum)
         val request = ChatRequest(
             messages = buildList {
-                add(ChatMessage.System("请将以下对话内容压缩为一段${length}字以内的摘要，保留关键结论和信息。压缩时保持以下格式：\n问：用户问题\n答：你的回答"))
+                add(ChatMessage.System("请将以下对话内容压缩为一份${length}字以内的摘要，保留关键结论和信息。要求：先归纳话题，再将每个话题压缩成以下格式：\n问：<用户话题>\n答：<助手回复>"))
                 addAll(rendered)
             },
             temperature = 0.3,

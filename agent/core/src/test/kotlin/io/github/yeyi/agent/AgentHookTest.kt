@@ -182,7 +182,7 @@ class AgentHookTest {
             override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { /* not used */ }
         }
         // 预填历史,让 crop 的 truncate 有足够素材可裁剪
-        // (单条非系统消息会触发 IllegalStateException,见 RoundsBoundedMemory.kt:230-232)。
+        // (单条非系统消息会触发 IllegalStateException,见 RoundsBoundedMemory.truncate 开头的守卫)。
         val memory = InMemoryMemory().apply {
             add(ChatMessage.User(listOf(ContentPart.Text("prev-1"))))
             add(ChatMessage.Assistant("prev-a-1"))
