@@ -11,7 +11,11 @@ import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.text
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
@@ -1155,8 +1159,8 @@ class RoundsBoundedMemoryTest {
     }
 
     @Test
-    fun `compressSummaries merges when exceeding maxSummaries`() = runTest {
-        // When summaries.size >= maxSummaries (10), compressSummaries merges older ones
+    fun `sliding eviction drops oldest summaries beyond capacity`() = runTest {
+        // 摘要不再归并：条数超 10 时滑出最旧，零额外 LLM 调用
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = (1..15).map {
                 ChatResponse(ChatMessage.Assistant(content = "summary$it"), finishReason = FinishReason.Stop)
@@ -1165,7 +1169,7 @@ class RoundsBoundedMemoryTest {
         val memory = RoundsBoundedMemory(
             underlying = InMemoryMemory(),
             llmProvider = llmProvider,
-            maxRounds = 1, // Force frequent compressions
+            maxRounds = 1, // 每个新 user 都触发一次压缩，快速累积摘要条数
         )
         memory.attachHook(
             EmptyAgentHook(),
@@ -1174,8 +1178,6 @@ class RoundsBoundedMemoryTest {
             )
         )
 
-        // Add many rounds to trigger multiple compressions
-        // With maxRounds=1, each new user triggers compression
         (1..12).forEach { i ->
             memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
@@ -1185,10 +1187,14 @@ class RoundsBoundedMemoryTest {
         val summarySystem = history.map { it.message }.filterIsInstance<ChatMessage.System>().firstOrNull()
         assertTrue(summarySystem != null, "Should have summary message")
 
-        // After merging, we should have fewer than 10 summaries
-        val summaryContent = summarySystem.content
-        assertTrue(summaryContent.contains("summaries"))
-        // The merge should have reduced the count
+        // u2..u12 共 11 次压缩事件 → 11 条摘要；容量 10，最旧的 summary1 已滑出
+        val summaries = Json.parseToJsonElement(summarySystem.content)
+            .jsonObject["summaries"]!!.jsonArray
+        assertEquals(10, summaries.size, "Eviction should cap summaries at maxSummaries")
+        assertEquals("summary2", (summaries.first().jsonObject["content"] as JsonPrimitive).content)
+        assertEquals("summary11", (summaries.last().jsonObject["content"] as JsonPrimitive).content)
+        // 归并已删除：每个压缩事件恰好一次 LLM 调用，无归并追加调用
+        assertEquals(11, llmProvider.recordedRequests.size)
     }
 
     @Test

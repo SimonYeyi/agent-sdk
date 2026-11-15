@@ -82,12 +82,12 @@ internal class RoundsBoundedMemory(
 
         hook?.beforeMemoryCompress(agentContext, summaries.toList())
 
-        // 3. 原文压缩生成摘要；随后按需归并（触发判据与定价都在压缩器内）
+        // 3. 原文压缩生成摘要；超容量/超字数则滑出最旧，不做二次压缩
         val compressedMessages = history.filterIndexed { index, _ -> index in compressedIndices }
         val summary = compressor.compressOriginal(compressedMessages.map { it.message })
 
         summaries.add(summary)
-        compressor.compressSummaries(summaries)
+        evictOldestSummary(summaries)
 
         // 4. 重建 underlying —— 基于 MemoryEntry 操作，保留窗口消息的元数据跨重建存活
         rebuildUnderlying(history, retainedIndices, summaries)
@@ -95,6 +95,23 @@ internal class RoundsBoundedMemory(
         this.summaries = summaries
 
         hook?.afterMemoryCompress(agentContext, summaries.toList())
+    }
+
+    /**
+     * 摘要滑出：条数超 10 或总字数超 1750×maxRounds（= 10 × original 单条 cap
+     * = 0.175 × 预估窗口，1 万字/轮）时移出最旧，零 LLM 调用。
+     * 取消归并的理由：归并是唯一要求模型单次写 remaining=1225×maxRounds 字的调用点，
+     * 删掉它即删掉对模型输出上限的依赖——剩余的原文压缩产出 ≤175×maxRounds 字，
+     * maxTokens=350×maxRounds，现实档位（≤100）距任何输出硬限都有数倍余量。
+     * 代价与好处：历史地平线有限 ≈ 0.3×maxRounds（保留窗口）+ 10×0.7×maxRounds = 7.3×maxRounds 轮，
+     * 第 11 条进来时第 1 条被真实遗忘；换来滑出前每条摘要只经过一次压缩、无归并链式损耗。
+     */
+    private fun evictOldestSummary(summaries: MutableList<Summary>) {
+        val maxSummaries = 10
+        val summaryBudget = maxRounds * 1750
+        while (summaries.size > maxSummaries) summaries.removeAt(0)
+        // 字数护栏：预算是提示词软约束，单条可能超标，累积漂移靠移出最旧收口
+        while (summaries.size > 1 && summaries.sumOf { it.content.length } > summaryBudget) summaries.removeAt(0)
     }
 
     private suspend fun rebuildUnderlying(
@@ -215,8 +232,8 @@ internal class RoundsBoundedMemory(
 }
 
 /**
- * LLM 摘要压缩器。核心压缩方法的共性参数 = 内容 + 定价公式（字数 → 预算），
- * 原文压缩与摘要归并的差异全部收敛在各自的定价 lambda 里；不碰记忆存储。
+ * LLM 摘要压缩器。核心压缩 = 内容 + 定价公式（字数 → 预算）；不碰记忆存储。
+ * 原文压缩是系统唯一的压缩调用点，摘要的滑出/存储策略在 RoundsBoundedMemory。
  */
 internal class MemoryCompressor(
     private val maxRounds: Int,
@@ -268,49 +285,16 @@ internal class MemoryCompressor(
     }
 
     /**
-     * 辅助·原文压缩：窗口原文 → 单条摘要，留 8%。
+     * 原文压缩：窗口原文 → 单条摘要，留 8%。
      * 下限 800 防极小窗口算出几十字预算、退化成无意义摘要；
      * 上限 = 压缩窗口轮数 × 250 字/轮保真度。
+     * 产出 ≤175×maxRounds 字 → maxTokens = 350×maxRounds，档位 ≤100 时对 64k
+     * 输出硬限仍有 1.8 倍余量——全系统只有这一种调用，无需知道模型输出上限。
      */
     suspend fun compressOriginal(messages: List<ChatMessage>): Summary {
         val minimum = 800
         val maximum = (maxRounds * (1 - retainRatio) * 250).toInt().coerceAtLeast(minimum)
         return compress(messages) { (it * 0.08).toInt().coerceIn(minimum, maximum) }
-    }
-
-    /**
-     * 辅助·摘要归并：条数封顶或总文本超上限时归并，比例 0.8、不设下限，产物就地写回。
-     * 摘要总上限 = maxSummaries × original 单条 cap = 1750×maxRounds
-     * （= 0.175 × 预估上下文窗口，1 万字/轮）——恰好装下 10 条满格 original，
-     * 字数触发不抢跑条数触发，归并节奏统一为每 10 个压缩事件一次，0.8 如实兑现。
-     * 已知取舍：
-     * - "总量恒不超上限"靠 LLM 遵守字数预算（maxTokens 给 2× 头寸）；
-     *   keep 超标致 remaining 转负时钳至 800，待新 original 轮换出 keep 后自愈；
-     * - 归并产物钉死值（密集稳态 ≈1225×maxRounds 字）随 maxRounds 线性增长，
-     *   档位约 26+ 时 maxTokens 突破单次调用输出包络（64k），分片归并挂账后续。
-     */
-    suspend fun compressSummaries(summaries: MutableList<Summary>) {
-        val maxSummaries = 10
-        // 摘要总上限 = 10 × original 单条 cap（175×maxRounds），即 0.175 × 预估上下文窗口
-        val summaryBudget = maxRounds * 1750
-
-        val needsMerge = summaries.size >= maxSummaries ||
-                summaries.sumOf { it.content.length } > summaryBudget
-        if (!needsMerge) return
-
-        val keepCount = (maxSummaries * retainRatio).toInt().coerceAtLeast(1)
-        val toMerge = summaries.dropLast(keepCount)
-        val keep = summaries.takeLast(keepCount)
-        if (toMerge.isEmpty()) return
-
-        val summaryMessages = toMerge.map { ChatMessage.System(it.content) }
-        // 字数上限是提示词软约束，keep 超标可致 remaining 转负；钳至正下限保证请求恒合法
-        val remaining = (summaryBudget - keep.sumOf { it.content.length }).coerceAtLeast(800)
-        val merged = compress(summaryMessages) { (it * 0.8).toInt().coerceAtMost(remaining) }
-
-        summaries.clear()
-        summaries.add(merged)
-        summaries.addAll(keep)
     }
 }
 
