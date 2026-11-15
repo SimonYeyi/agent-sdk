@@ -225,7 +225,10 @@ internal class MemoryCompressor(
 ) {
     /**
      * 核心压缩：渲染输入、测字数、按 pricing 得出预算字数、调 LLM 产出 Summary。
-     * maxTokens 统一封顶，防大预算突破 provider 输出硬限（Claude 64k / GPT 16k / Qwen 8k）。
+     * maxTokens = 预算 ×2，不设全局上限：它是保险丝不是输出考核线——头寸贴换算率
+     * （中文 1 字 ≈ 1~1.5 token）会让正常波动误触发截断；全局封顶既救不了小输出限
+     * provider（请求照样超限），反而把能写满额的大输出限 provider 砍成静默截断。
+     * 预算超模型输出硬限时由 provider 明确拒绝，失败可见。
      */
     private suspend fun compress(
         messages: List<ChatMessage>,
@@ -256,7 +259,7 @@ internal class MemoryCompressor(
                 addAll(rendered)
             },
             temperature = 0.3,
-            maxTokens = minOf(length * 2, 16000)
+            maxTokens = length * 2
         )
 
         val summaryText = llmProvider.chat(request).message.content
