@@ -165,7 +165,7 @@ class AgentHookTest {
     @Test
     fun `internal context overflow retry does not duplicate LLM hooks`() = runTest {
         val hook = RecordingHook()
-        // 第一次 chat() 抛 context overflow,触发 handleContextOverflow + 内部重试,第二次成功。
+        // 第一次 chat() 抛 context overflow,触发 crop + 内部重试,第二次成功。
         // 关键不变量:重试收敛在 llmCallWithContextOverflowHandle 内部,对 hook 透明;
         // 1 次 ask 仍对应 1 对 beforeLlmCall/afterLlmResponse。
         val provider = object : LlmProvider {
@@ -181,8 +181,8 @@ class AgentHookTest {
             }
             override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { /* not used */ }
         }
-        // 预填历史,让 handleContextOverflow 的 truncateByCoefficient 有足够素材可裁剪
-        // (单条非系统消息会触发 IllegalStateException,见 RoundsBoundedMemory.kt:242-244)。
+        // 预填历史,让 crop 的 truncate 有足够素材可裁剪
+        // (单条非系统消息会触发 IllegalStateException,见 RoundsBoundedMemory.kt:230-232)。
         val memory = InMemoryMemory().apply {
             add(ChatMessage.User(listOf(ContentPart.Text("prev-1"))))
             add(ChatMessage.Assistant("prev-a-1"))

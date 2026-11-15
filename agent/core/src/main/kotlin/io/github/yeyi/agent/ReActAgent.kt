@@ -474,7 +474,7 @@ public class ReActAgent internal constructor(
         } catch (e: Throwable) {
             e.takeIf { it.isContextOverflow() }
                 ?.let { log.warn(it) }
-                ?.let { memory.handleContextOverflow() }
+                ?.let { memory.crop() }
                 ?.let { llmCallWithContextOverflowHandle(buildRequest(), turn) }
                 ?: throw e
         }

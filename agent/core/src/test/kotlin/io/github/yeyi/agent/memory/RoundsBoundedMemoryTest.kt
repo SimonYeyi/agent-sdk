@@ -2,7 +2,6 @@ package io.github.yeyi.agent.memory
 
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.EmptyAgentHook
-import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.ChatMessage
@@ -11,7 +10,6 @@ import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.text
-import io.github.yeyi.agent.tool.Tool
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonNull
 import java.time.Instant
@@ -584,8 +582,8 @@ class RoundsBoundedMemoryTest {
     }
 
     @Test
-    fun `compressRounds retains last round including its tool messages`() = runTest {
-        // Test that compressRounds (called during add()) retains rounds including tool messages
+    fun `compress retains last round including its tool messages`() = runTest {
+        // Test that compress (called during add()) retains rounds including tool messages
         // Using maxRounds=5 and retainRatio=0.3 gives retainWindow=1
         // So the last round is retained fully (with tool calls), earlier rounds are summarized
         val llmProvider = FakeLlmProvider(
@@ -642,7 +640,7 @@ class RoundsBoundedMemoryTest {
     }
 
     @Test
-    fun `removeCompressWindowToolMessages returns false when nothing to remove`() = runTest {
+    fun `cropToolMessages returns false when nothing to remove`() = runTest {
         val memory = RoundsBoundedMemory(
             underlying = InMemoryMemory(),
             llmProvider = FakeLlmProvider(),
@@ -671,7 +669,7 @@ class RoundsBoundedMemoryTest {
     }
 
     @Test
-    fun `truncateByCoefficient removes 30 percent of rounds`() = runTest {
+    fun `truncate removes 30 percent of rounds`() = runTest {
         // Provide enough responses for compression
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = (1..15).map {
@@ -711,7 +709,7 @@ class RoundsBoundedMemoryTest {
     }
 
     @Test
-    fun `truncateByCoefficient when only one round left keeps system plus users`() = runTest {
+    fun `truncate when only one round left keeps system plus users`() = runTest {
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = (1..5).map {
                 ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
@@ -744,7 +742,7 @@ class RoundsBoundedMemoryTest {
     }
 
     @Test
-    fun `handleContextOverflow uses two-layer strategy`() = runTest {
+    fun `crop uses two-layer strategy`() = runTest {
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = (1..10).map {
                 ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
@@ -801,7 +799,7 @@ class RoundsBoundedMemoryTest {
     }
 
     @Test
-    fun `handleContextOverflow preserves recent rounds in retain window`() = runTest {
+    fun `crop preserves recent rounds in retain window`() = runTest {
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = (1..20).map {
                 ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
@@ -832,8 +830,8 @@ class RoundsBoundedMemoryTest {
     }
 
     @Test
-    fun `compressRounds summarizes old rounds and retains only recent rounds`() = runTest {
-        // Test that compressRounds (called via add()) summarizes old rounds into LLM summary
+    fun `compress summarizes old rounds and retains only recent rounds`() = runTest {
+        // Test that compress (called via add()) summarizes old rounds into LLM summary
         // and retains only the last retainWindow rounds with their tool messages
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = (1..5).map {
@@ -877,9 +875,9 @@ class RoundsBoundedMemoryTest {
     }
 
     @Test
-    fun `handleContextOverflow removes tool messages from compress window`() = runTest {
-        // Directly test handleContextOverflow - first layer: removeCompressWindowToolMessages
-        // Provide LLM responses for the add() calls that trigger compressRounds
+    fun `crop removes tool messages from compress window`() = runTest {
+        // Directly test crop - first layer: cropToolMessages
+        // Provide LLM responses for the add() calls that trigger compress
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = (1..10).map {
                 ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
@@ -917,8 +915,8 @@ class RoundsBoundedMemoryTest {
             .filter { it.toolCalls.isNotEmpty() }
         assertTrue(beforeToolResults.size > 0, "setup: should have tool results")
 
-        // Directly call handleContextOverflow
-        memory.handleContextOverflow()
+        // Directly call crop
+        memory.crop()
 
         val afterHistory = memory.history()
         val afterToolResults = afterHistory.map { it.message }.filterIsInstance<ChatMessage.ToolResult>()
@@ -934,9 +932,9 @@ class RoundsBoundedMemoryTest {
     }
 
     @Test
-    fun `handleContextOverflow truncates when tool removal returns false`() = runTest {
-        // Test second layer: when removeCompressWindowToolMessages returns false,
-        // truncateByCoefficient should be called
+    fun `crop truncates when tool removal returns false`() = runTest {
+        // Test second layer: when cropToolMessages returns false,
+        // truncate should be called
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = (1..20).map {
                 ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
@@ -955,8 +953,8 @@ class RoundsBoundedMemoryTest {
         )
 
         // Add 15 rounds without tool messages
-        // No tool messages in compress window -> removeCompressWindowToolMessages returns false
-        // -> truncateByCoefficient should be called
+        // No tool messages in compress window -> cropToolMessages returns false
+        // -> truncate should be called
         (1..15).forEach { i ->
             memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
             memory.add(ChatMessage.Assistant(content = "a$i"))
@@ -966,13 +964,13 @@ class RoundsBoundedMemoryTest {
         val beforeUserCount = beforeHistory.count { it.message is ChatMessage.User }
         assertTrue(beforeUserCount > 1, "setup: should have more than 1 user before truncation")
 
-        // Directly call handleContextOverflow
-        memory.handleContextOverflow()
+        // Directly call crop
+        memory.crop()
 
         val afterHistory = memory.history()
         val afterUserCount = afterHistory.count { it.message is ChatMessage.User }
 
-        // truncateByCoefficient should have reduced the user count
+        // truncate should have reduced the user count
         assertTrue(
             afterUserCount < beforeUserCount,
             "Truncation should reduce user count: before=$beforeUserCount, after=$afterUserCount"
@@ -980,7 +978,7 @@ class RoundsBoundedMemoryTest {
     }
 
     @Test
-    fun `handleContextOverflow stops at minimum one round`() = runTest {
+    fun `crop stops at minimum one round`() = runTest {
         // Test the boundary: when toRetain < 1, only System + User are kept
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = (1..5).map {
@@ -999,11 +997,11 @@ class RoundsBoundedMemoryTest {
             )
         )
 
-        // Only 1 round - this triggers the toRetain < 1 boundary in truncateByCoefficient
+        // Only 1 round - this triggers the toRetain < 1 boundary in truncate
         memory.add(ChatMessage.User(listOf(ContentPart.Text("u1"))))
         memory.add(ChatMessage.Assistant(content = "a1"))
 
-        memory.handleContextOverflow()
+        memory.crop()
 
         val history = memory.history()
         // Should have at least System and User
@@ -1049,7 +1047,7 @@ class RoundsBoundedMemoryTest {
 
     @Test
     fun `getCompressWindowIndices excludes retained indices`() = runTest {
-        // Test that compressRounds correctly identifies which indices to compress
+        // Test that compress correctly identifies which indices to compress
         // The compress window (indices to summarize) excludes the retained window
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = (1..5).map {
@@ -1123,10 +1121,10 @@ class RoundsBoundedMemoryTest {
     }
 
     @Test
-    fun `truncateByCoefficient removes 30 percent of rounds when called directly`() = runTest {
-        // This tests truncateByCoefficient indirectly through handleContextOverflow
-        // Since truncateByCoefficient is private, we test it via the scenario that triggers it:
-        // When removeCompressWindowToolMessages has nothing to remove, truncation kicks in
+    fun `truncate removes 30 percent of rounds when called directly`() = runTest {
+        // This tests truncate indirectly through crop
+        // Since truncate is private, we test it via the scenario that triggers it:
+        // When cropToolMessages has nothing to remove, truncation kicks in
         val llmProvider = FakeLlmProvider(
             nonStreamResponses = (1..5).map {
                 ChatResponse(ChatMessage.Assistant(content = "s$it"), finishReason = FinishReason.Stop)
@@ -1194,7 +1192,7 @@ class RoundsBoundedMemoryTest {
     }
 
     @Test
-    fun `truncateByCoefficient stops at minimum one round`() = runTest {
+    fun `truncate stops at minimum one round`() = runTest {
         // Test the boundary: when currentRounds=1, toRemove=1, toRetain=0
         // should trigger the edge case branch that keeps only System + User
         val llmProvider = FakeLlmProvider(
@@ -1229,7 +1227,7 @@ class RoundsBoundedMemoryTest {
     }
 
     @Test
-    fun `truncateByCoefficient repeated truncations converge to minimum`() = runTest {
+    fun `truncate repeated truncations converge to minimum`() = runTest {
         // Simulate multiple 0.3 truncations until we converge to minimum
         // This tests that the math converges properly
         // Start with many rounds, repeatedly truncate by 30%

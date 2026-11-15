@@ -14,7 +14,6 @@ internal class RoundsBoundedMemory(
     private val maxRounds: Int = 20,
     private val llmProvider: LlmProvider,
 ) : Memory {
-
     private val retainRatio: Double = 0.3
     private val maxSummaries: Int = 10
     private var summaries: MutableList<Summary>? = null
@@ -33,10 +32,7 @@ internal class RoundsBoundedMemory(
 
         if (entry.message is ChatMessage.User) {
             val currentRounds = underlying.history().count { it.message is ChatMessage.User }
-            val retainWindow = (maxRounds * retainRatio).toInt()
-            if (currentRounds > maxRounds) {
-                compressRounds(retainWindow)
-            }
+            if (currentRounds > maxRounds) compress()
         }
     }
 
@@ -71,7 +67,7 @@ internal class RoundsBoundedMemory(
             } ?: emptyList()
     }
 
-    private suspend fun compressRounds(retainWindow: Int) {
+    private suspend fun compress(retainWindow: Int = (maxRounds * retainRatio).toInt()) {
         val summaries = this.summaries!!.toMutableList()
         val history = underlying.history()
 
@@ -189,22 +185,19 @@ internal class RoundsBoundedMemory(
         }
     }
 
-    internal suspend fun handleContextOverflow() {
+    internal suspend fun crop() {
         hook?.beforeMemoryCompress(agentContext, summaries!!)
-        if (removeCompressWindowToolMessages().not()) {
-            truncateByCoefficient()
-        }
+        if (cropToolMessages().not()) truncate()
         hook?.afterMemoryCompress(agentContext, summaries!!)
     }
 
     /**
      * 移除压缩窗口内的工具消息（Assistant.toolCalls + ToolResult），
      * 保留窗口内的消息不动。用于 context 超限时的第一层兜底。
-     * @return 被移除的消息数量
+     * @return 是否有工具消息被移除；false 时调用方应退到第二层 truncate
      */
-    private suspend fun removeCompressWindowToolMessages(): Boolean {
+    private suspend fun cropToolMessages(retainWindow: Int = (maxRounds * retainRatio).toInt()): Boolean {
         val history = underlying.history()
-        val retainWindow = (maxRounds * retainRatio).toInt()
         val retainedIndices = extractRetainedIndices(history, retainWindow)
         val compressIndices = getCompressWindowIndices(history, retainedIndices)
 
@@ -228,17 +221,17 @@ internal class RoundsBoundedMemory(
     }
 
     /**
-     * 按轮次裁剪旧消息，用 0.3 系数，硬裁剪不调 LLM。
+     * 按轮次裁剪旧消息，系数默认 0.3，硬裁剪不调 LLM。
      * 裁剪完整的一轮（从 User 到下一个 User 之前的所有消息）。
      * 用于 context 超限时的第二层兜底。
      */
-    private suspend fun truncateByCoefficient() {
+    private suspend fun truncate(coefficient: Double = 0.3) {
         val history = underlying.history()
         if (history.count { it.message !is ChatMessage.System } <= 1) {
             throw IllegalStateException("Cannot truncate by coefficient: only one user message.")
         }
         val currentRounds = history.count { it.message is ChatMessage.User }
-        val toRemove = (currentRounds * 0.3).toInt().coerceAtLeast(1)
+        val toRemove = (currentRounds * coefficient).toInt().coerceAtLeast(1)
         val toRetain = currentRounds - toRemove
 
         // 只剩一轮对话的情况
