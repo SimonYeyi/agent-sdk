@@ -181,12 +181,12 @@ class RoundsBoundedMemoryTest {
         }
 
         val history = memory.history()
-        // 多次压缩后,所有 summary 都应累积进同一个 System 消息(列表形式)
+        // 滑出前逐字累积：旧摘要一经产出不再被改写（无归并链式损耗的契约）
         val summaryMsg = history.first().message as ChatMessage.System
-        val json = summaryMsg.content
-        assertTrue(json.contains("\"summaries\""))
-        assertTrue(json.contains("s1"))
-        assertTrue(json.contains("s2"))
+        val contents = Json.parseToJsonElement(summaryMsg.content)
+            .jsonObject["summaries"]!!.jsonArray
+            .map { (it.jsonObject["content"] as JsonPrimitive).content }
+        assertEquals(listOf("s1", "s2"), contents)
     }
 
     @Test
@@ -1195,6 +1195,148 @@ class RoundsBoundedMemoryTest {
         assertEquals("summary11", (summaries.last().jsonObject["content"] as JsonPrimitive).content)
         // 归并已删除：每个压缩事件恰好一次 LLM 调用，无归并追加调用
         assertEquals(11, llmProvider.recordedRequests.size)
+    }
+
+    @Test
+    fun `char budget eviction drops oldest before capacity reached`() = runTest {
+        // maxRounds=1 → 总预算 1750 字；单条 1000 字时 2 条就超字数，字数护栏先于条数触发
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..5).map { i ->
+                ChatResponse(
+                    ChatMessage.Assistant(content = "e$i".padEnd(1000, 'x')),
+                    finishReason = FinishReason.Stop
+                )
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 1,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            testAgentContext(
+                memory = ReadOnlyMemory(memory),
+            )
+        )
+
+        (1..6).forEach { i ->
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        val summaries = Json.parseToJsonElement(
+            (memory.history().first().message as ChatMessage.System).content
+        ).jsonObject["summaries"]!!.jsonArray
+        assertEquals(1, summaries.size, "总字数超预算即滑出，不等条数满 10")
+        assertTrue(
+            (summaries.first().jsonObject["content"] as JsonPrimitive).content.startsWith("e5"),
+            "幸存的应是最新一条"
+        )
+    }
+
+    @Test
+    fun `after hook snapshot reflects eviction at capacity`() = runTest {
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..15).map {
+                ChatResponse(ChatMessage.Assistant(content = "summary$it"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 1,
+        )
+        val afterSnapshots = mutableListOf<List<Summary>>()
+        val hook = object : EmptyAgentHook() {
+            override suspend fun afterMemoryCompress(
+                context: AgentContext,
+                summaries: List<Summary>
+            ) {
+                afterSnapshots += summaries
+            }
+        }
+        memory.attachHook(
+            hook,
+            testAgentContext(
+                memory = ReadOnlyMemory(memory),
+            )
+        )
+
+        (1..12).forEach { i ->
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        // 11 次事件：after 快照长度 1..10 后封顶；第 11 次的快照已滑出 summary1
+        assertEquals(List(10) { it + 1 } + 10, afterSnapshots.map { it.size })
+        val last = afterSnapshots.last()
+        assertEquals("summary2", last.first().content)
+        assertEquals("summary11", last.last().content)
+    }
+
+    @Test
+    fun `pricing floors at 800 chars and maxTokens doubles the budget`() = runTest {
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = listOf(
+                ChatResponse(ChatMessage.Assistant(content = "s"), finishReason = FinishReason.Stop)
+            )
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 1,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            testAgentContext(
+                memory = ReadOnlyMemory(memory),
+            )
+        )
+
+        (1..2).forEach { i ->
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        val request = llmProvider.recordedRequests.single()
+        val prompt = (request.messages.first() as ChatMessage.System).content
+        // 小窗口 0.08×字数远低于 800 → 取下限
+        assertTrue("压缩为一份800字以内" in prompt, "实际 prompt: ${prompt.take(60)}")
+        assertEquals(1600, request.maxTokens, "maxTokens = 预算 ×2")
+    }
+
+    @Test
+    fun `pricing caps at round fidelity budget for oversized windows`() = runTest {
+        // maxRounds=20 → 上限 = 20×0.7×250 = 3500 字；5 万字窗口按 0.08 算得 4000+，须被压回 3500
+        val llmProvider = FakeLlmProvider(
+            nonStreamResponses = (1..3).map {
+                ChatResponse(ChatMessage.Assistant(content = "s"), finishReason = FinishReason.Stop)
+            }
+        )
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = llmProvider,
+            maxRounds = 20,
+        )
+        memory.attachHook(
+            EmptyAgentHook(),
+            testAgentContext(
+                memory = ReadOnlyMemory(memory),
+            )
+        )
+
+        memory.add(ChatMessage.User(listOf(ContentPart.Text("x".repeat(50_000)))))
+        memory.add(ChatMessage.Assistant(content = "a1"))
+        (2..22).forEach { i ->
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        val request = llmProvider.recordedRequests.single()
+        val prompt = (request.messages.first() as ChatMessage.System).content
+        assertTrue("压缩为一份3500字以内" in prompt, "实际 prompt: ${prompt.take(60)}")
+        assertEquals(7000, request.maxTokens, "maxTokens = 预算 ×2")
     }
 
     @Test

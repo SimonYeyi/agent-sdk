@@ -13,10 +13,9 @@ import kotlinx.serialization.json.Json
 internal class RoundsBoundedMemory(
     private val underlying: Memory,
     private val maxRounds: Int = 20,
-    llmProvider: LlmProvider,
+    private val llmProvider: LlmProvider,
 ) : Memory {
     private val retainRatio: Double = 0.3
-    private val compressor = MemoryCompressor(maxRounds, retainRatio, llmProvider)
     private var summaries: MutableList<Summary>? = null
 
     private var hook: AgentHook? = null
@@ -84,7 +83,7 @@ internal class RoundsBoundedMemory(
 
         // 3. 原文压缩生成摘要；超容量/超字数则滑出最旧，不做二次压缩
         val compressedMessages = history.filterIndexed { index, _ -> index in compressedIndices }
-        val summary = compressor.compressOriginal(compressedMessages.map { it.message })
+        val summary = compressOriginal(compressedMessages.map { it.message })
 
         summaries.add(summary)
         evictOldestSummary(summaries)
@@ -95,6 +94,52 @@ internal class RoundsBoundedMemory(
         this.summaries = summaries
 
         hook?.afterMemoryCompress(agentContext, summaries.toList())
+    }
+
+    /**
+     * 原文压缩：窗口原文 → 单条摘要，留 8%，全系统唯一的压缩调用点。
+     * 下限 800 防极小窗口算出几十字预算、退化成无意义摘要；
+     * 上限 = 压缩窗口轮数 × 250 字/轮保真度，产出 ≤175×maxRounds 字，
+     * maxTokens=350×maxRounds，现实档位（≤100）距任何模型输出硬限都有数倍余量，
+     * 无需知道模型输出上限。
+     * maxTokens = 预算 ×2，不设全局上限：它是保险丝不是输出考核线——头寸贴换算率
+     * （中文 1 字 ≈ 1~1.5 token）会让正常波动误触发截断；全局封顶既救不了小输出限
+     * provider（请求照样超限），反而把能写满额的大输出限 provider 砍成静默截断。
+     */
+    private suspend fun compressOriginal(messages: List<ChatMessage>): Summary {
+        val rendered = messages.map { it.toTextMessage() }
+        val chars = rendered.sumOf { message ->
+            when (message) {
+                is ChatMessage.User -> message.parts.text.length
+                is ChatMessage.Assistant -> (message.content?.length ?: 0) +
+                        message.toolCalls.sumOf { it.name.length + it.arguments.toString().length }
+
+                is ChatMessage.ToolResult -> message.parts.text.length
+                is ChatMessage.System -> message.content.length
+            }
+        }
+        val minimum = 800
+        val maximum = (maxRounds * (1 - retainRatio) * 250).toInt().coerceAtLeast(minimum)
+        val length = (chars * 0.08).toInt().coerceIn(minimum, maximum)
+        val request = ChatRequest(
+            messages = buildList {
+                add(
+                    ChatMessage.System(
+                        "请将以下对话内容压缩为一份${length}字以内的摘要。要求：先归纳话题，再将每个话题压缩为：\n" +
+                                "用户话题：<用户话题>\n" +
+                                "推理过程：<关键执行与决策步骤，含文件路径与代码位置、配置与数值变更、失败方案及原因>\n" +
+                                "助手回复：<最终结论>\n"
+                    )
+                )
+                addAll(rendered)
+            },
+            temperature = 0.3,
+            maxTokens = length * 2
+        )
+
+        val summaryText = llmProvider.chat(request).message.content
+            ?: throw IllegalStateException("LLM summary generation failed: empty response")
+        return Summary(summaryText)
     }
 
     /**
@@ -110,8 +155,8 @@ internal class RoundsBoundedMemory(
         val maxSummaries = 10
         val summaryBudget = maxRounds * 1750
         while (summaries.size > maxSummaries) summaries.removeAt(0)
-        // 字数护栏：预算是提示词软约束，单条可能超标，累积漂移靠移出最旧收口
-        while (summaries.size > 1 && summaries.sumOf { it.content.length } > summaryBudget) summaries.removeAt(0)
+        // 字数护栏：累积漂移靠移出最旧收口
+        while (summaries.sumOf { it.content.length } > summaryBudget) summaries.removeAt(0)
     }
 
     private suspend fun rebuildUnderlying(
@@ -228,73 +273,6 @@ internal class RoundsBoundedMemory(
         // 用 extractRetainedIndices 从后往前保留 toRetain 轮
         val retainedIndices = extractRetainedIndices(history, toRetain)
         rebuildUnderlying(history, retainedIndices, summaries!!)
-    }
-}
-
-/**
- * LLM 摘要压缩器。核心压缩 = 内容 + 定价公式（字数 → 预算）；不碰记忆存储。
- * 原文压缩是系统唯一的压缩调用点，摘要的滑出/存储策略在 RoundsBoundedMemory。
- */
-internal class MemoryCompressor(
-    private val maxRounds: Int,
-    private val retainRatio: Double,
-    private val llmProvider: LlmProvider,
-) {
-    /**
-     * 核心压缩：渲染输入、测字数、按 pricing 得出预算字数、调 LLM 产出 Summary。
-     * maxTokens = 预算 ×2，不设全局上限：它是保险丝不是输出考核线——头寸贴换算率
-     * （中文 1 字 ≈ 1~1.5 token）会让正常波动误触发截断；全局封顶既救不了小输出限
-     * provider（请求照样超限），反而把能写满额的大输出限 provider 砍成静默截断。
-     * 预算超模型输出硬限时由 provider 明确拒绝，失败可见。
-     */
-    private suspend fun compress(
-        messages: List<ChatMessage>,
-        pricing: (chars: Int) -> Int
-    ): Summary {
-        val rendered = messages.map { it.toTextMessage() }
-        val chars = rendered.sumOf { message ->
-            when (message) {
-                is ChatMessage.User -> message.parts.text.length
-                is ChatMessage.Assistant -> (message.content?.length ?: 0) +
-                        message.toolCalls.sumOf { it.name.length + it.arguments.toString().length }
-
-                is ChatMessage.ToolResult -> message.parts.text.length
-                is ChatMessage.System -> message.content.length
-            }
-        }
-        val length = pricing(chars)
-        val request = ChatRequest(
-            messages = buildList {
-                add(
-                    ChatMessage.System(
-                        "请将以下对话内容压缩为一份${length}字以内的摘要。要求：先归纳话题，再将每个话题压缩为：\n" +
-                            "用户话题：<用户话题>\n" +
-                            "推理过程：<关键执行与决策步骤，含文件路径与代码位置、配置与数值变更、失败方案及原因>\n" +
-                            "助手回复：<最终结论>\n"
-                    )
-                )
-                addAll(rendered)
-            },
-            temperature = 0.3,
-            maxTokens = length * 2
-        )
-
-        val summaryText = llmProvider.chat(request).message.content
-            ?: throw IllegalStateException("LLM summary generation failed: empty response")
-        return Summary(summaryText)
-    }
-
-    /**
-     * 原文压缩：窗口原文 → 单条摘要，留 8%。
-     * 下限 800 防极小窗口算出几十字预算、退化成无意义摘要；
-     * 上限 = 压缩窗口轮数 × 250 字/轮保真度。
-     * 产出 ≤175×maxRounds 字 → maxTokens = 350×maxRounds，档位 ≤100 时对 64k
-     * 输出硬限仍有 1.8 倍余量——全系统只有这一种调用，无需知道模型输出上限。
-     */
-    suspend fun compressOriginal(messages: List<ChatMessage>): Summary {
-        val minimum = 800
-        val maximum = (maxRounds * (1 - retainRatio) * 250).toInt().coerceAtLeast(minimum)
-        return compress(messages) { (it * 0.08).toInt().coerceIn(minimum, maximum) }
     }
 }
 
