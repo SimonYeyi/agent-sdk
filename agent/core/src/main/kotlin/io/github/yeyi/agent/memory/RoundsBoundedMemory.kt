@@ -279,16 +279,20 @@ internal class MemoryCompressor(
     }
 
     /**
-     * 辅助·摘要归并：条数封顶或总文本超摘要预算时（内部判定），把旧摘要按 80% 保留归并——
-     * 输入已是摘要，再按压缩比切丢掉的就是信息本体。
-     * 不设下限：小输入小输出是正确行为，硬凑下限既注水又突破总预算；
-     * 上限 = 总预算扣除保留条后的余量，总量恒不超预算
-     * （keep 最坏占 525×maxRounds，恒小于 800×maxRounds 的预算，余量恒正）。产物就地写回。
+     * 辅助·摘要归并：条数封顶或总文本超上限时归并，比例 0.8、不设下限，产物就地写回。
+     * 摘要总上限 = maxSummaries × original 单条 cap = 1750×maxRounds
+     * （= 0.175 × 预估上下文窗口，1 万字/轮）——恰好装下 10 条满格 original，
+     * 字数触发不抢跑条数触发，归并节奏统一为每 10 个压缩事件一次，0.8 如实兑现。
+     * 已知取舍：
+     * - "总量恒不超上限"靠 LLM 遵守字数预算（maxTokens 给 2× 头寸）；
+     *   keep 超标致 remaining 转负时钳至 800，待新 original 轮换出 keep 后自愈；
+     * - 归并产物钉死值（密集稳态 ≈1225×maxRounds 字）随 maxRounds 线性增长，
+     *   档位约 26+ 时 maxTokens 突破单次调用输出包络（64k），分片归并挂账后续。
      */
     suspend fun compressSummaries(summaries: MutableList<Summary>) {
         val maxSummaries = 10
-        // 摘要总文本预算 = 0.08 × 预估窗口（按 1 万字/轮估），超了即触发归并
-        val summaryBudget = maxRounds * 800
+        // 摘要总上限 = 10 × original 单条 cap（175×maxRounds），即 0.175 × 预估上下文窗口
+        val summaryBudget = maxRounds * 1750
 
         val needsMerge = summaries.size >= maxSummaries ||
                 summaries.sumOf { it.content.length } > summaryBudget
@@ -300,7 +304,8 @@ internal class MemoryCompressor(
         if (toMerge.isEmpty()) return
 
         val summaryMessages = toMerge.map { ChatMessage.System(it.content) }
-        val remaining = summaryBudget - keep.sumOf { it.content.length }
+        // 字数上限是提示词软约束，keep 超标可致 remaining 转负；钳至正下限保证请求恒合法
+        val remaining = (summaryBudget - keep.sumOf { it.content.length }).coerceAtLeast(800)
         val merged = compress(summaryMessages) { (it * 0.8).toInt().coerceAtMost(remaining) }
 
         summaries.clear()
