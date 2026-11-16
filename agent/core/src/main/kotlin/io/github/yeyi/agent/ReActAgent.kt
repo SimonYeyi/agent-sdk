@@ -322,10 +322,9 @@ public class ReActAgent internal constructor(
             turn.iterationContext = it
         }
 
-        val request = buildRequest()
-
-        val finalRequest = hook.safeInvoke { beforeLlmCall(context, request) } ?: request
-        val response = llmCallWithContextOverflowHandle(finalRequest, turn)
+        var request = buildRequest()
+        hook.safeInvoke { beforeLlmCall(context, request) }?.also { request = it }
+        val response = llmCallWithContextOverflowHandle(request, turn)
         hook.safeInvoke { afterLlmResponse(context, response) }
 
         response.message.addToMemory(memory)
@@ -473,11 +472,10 @@ public class ReActAgent internal constructor(
         return try {
             turn.llmCall(request)
         } catch (e: Throwable) {
-            e.takeIf { it.isContextOverflow() }
-                ?.let { log.warn(it) }
-                ?.let { memory.crop(withHook = retryCount == 0) }
-                ?.let { llmCallWithContextOverflowHandle(buildRequest(), turn, retryCount + 1) }
-                ?: throw e
+            if (e.isContextOverflow().not()) throw e
+            log.warn("memory overflow, performing crop", e)
+            memory.crop(withHook = retryCount == 0)
+            llmCallWithContextOverflowHandle(buildRequest(), turn, retryCount + 1)
         }
     }
 

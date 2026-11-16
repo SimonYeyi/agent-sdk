@@ -8,6 +8,7 @@ import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.llm.toTextMessage
+import io.github.yeyi.agent.log.log
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -90,6 +91,7 @@ internal class RoundsBoundedMemory(
                 compressOriginal(compressedMessages.map { it.message })
             } catch (e: Throwable) {
                 if (e.isContextOverflow().not()) throw e
+                log.warn("memory compression overflow, falling back to truncate", e)
                 truncate(); return@invokeWithHook
             }
 
