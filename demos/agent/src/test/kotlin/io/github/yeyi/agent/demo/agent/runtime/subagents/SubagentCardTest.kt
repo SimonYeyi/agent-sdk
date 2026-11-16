@@ -18,7 +18,6 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlin.test.Test
 import kotlin.test.assertEquals
-import kotlin.test.assertFailsWith
 import kotlin.test.assertTrue
 
 /**
@@ -60,12 +59,10 @@ class SubagentCardTest {
         )
         val sub = subagent("locator", "查位置", instruction = "调用 get_location 查当前位置")
 
-        // 产卡工具出卡即终结：子 agent 的回合以空正文收尾，委派结果为空内容错误。
-        // 继承来的产卡工具在子 agent 上下文中正常出卡终结，无通道绑定也不影响链路。
-        val failure = assertFailsWith<IllegalStateException> {
-            sub.activate(SubagentTask("查当前位置"), SubagentContext(parentContext))
-        }
-        assertTrue(failure.message!!.contains("returned empty content"))
+        // 产卡工具出卡即终结：子 agent 的 Final 无正文，contentNotNull 会兜底为
+        // "最后一轮工具调用情况"摘要，而非抛空正文错误。
+        val result = sub.activate(SubagentTask("查当前位置"), SubagentContext(parentContext))
+        assertTrue(result.contains("get_location"), "子 agent 空正文应兜底为工具调用摘要，实际：$result")
 
         // 卡片编码进工具结果 metadata：消费方经 ToolExecutionResult.decodeCard 读取渲染
         val executed = locationTool.execute(
