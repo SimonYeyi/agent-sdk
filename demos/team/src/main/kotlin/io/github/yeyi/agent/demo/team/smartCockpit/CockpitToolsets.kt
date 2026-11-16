@@ -21,7 +21,7 @@ import kotlinx.serialization.json.jsonPrimitive
 class AcTool : WithUiTool() {
     override val name = "ac_control"
     override val description = "空调控制"
-    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val parametersSchema0: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"temperature":{"type":"number"},"fanSpeed":{"type":"number"}},"required":["temperature"]}"""
     )
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -62,7 +62,7 @@ class AcTool : WithUiTool() {
 class SeatTool : WithUiTool() {
     override val name = "seat_control"
     override val description = "座椅控制"
-    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val parametersSchema0: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"seat":{"type":"string"},"heating":{"type":"number"},"ventilation":{"type":"number"}},"required":["seat"]}"""
     )
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -112,7 +112,7 @@ fun comfortControlToolset(): Toolset = Toolset("comfort_control", "座舱舒适�
 class WindowTool : WithUiTool() {
     override val name = "window_control"
     override val description = "车窗控制"
-    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val parametersSchema0: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"position":{"type":"string"},"action":{"type":"string","enum":["open","close"]}},"required":["position","action"]}"""
     )
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -155,7 +155,7 @@ class WindowTool : WithUiTool() {
 class AmbientLightTool : WithUiTool() {
     override val name = "ambient_light_control"
     override val description = "氛围灯控制"
-    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val parametersSchema0: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"mode":{"type":"string","enum":["normal","relax","party","sleep"]}},"required":["mode"]}"""
     )
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -212,7 +212,7 @@ fun cabinEnvironmentToolset(): Toolset = Toolset("cabin_environment", "车内环
 class NavigateTool : WithUiTool() {
     override val name = "navigate"
     override val description = "导航到目的地"
-    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val parametersSchema0: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"destination":{"type":"string"},"route":{"type":"string"}},"required":["destination"]}"""
     )
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
@@ -253,7 +253,7 @@ class NavigateTool : WithUiTool() {
 class DashCamTool : WithUiTool() {
     override val name = "dash_cam_control"
     override val description = "行车记录仪控制"
-    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val parametersSchema0: ToolParameters = ToolParameters.JsonSchema(
         """{"type":"object","properties":{"action":{"type":"string","enum":["start","stop","snapshot"]}},"required":["action"]}"""
     )
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {

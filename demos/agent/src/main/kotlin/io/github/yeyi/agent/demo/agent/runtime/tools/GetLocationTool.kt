@@ -26,7 +26,7 @@ class GetLocationTool : WithUiTool() {
 
     override val name: String = "get_location"
     override val description: String = "获取当前位置"
-    override val toolSchema: ToolParameters = ToolParameters.Empty
+    override val parametersSchema0: ToolParameters = ToolParameters.Empty
 
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
         buildJsonObject {

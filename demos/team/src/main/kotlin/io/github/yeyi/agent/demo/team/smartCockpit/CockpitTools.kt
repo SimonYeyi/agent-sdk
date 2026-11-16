@@ -61,7 +61,7 @@ internal object A2uiNodes {
 class GetTimeTool : WithUiTool() {
     override val name = "get_time"
     override val description = "获取当前时间"
-    override val toolSchema: ToolParameters = ToolParameters.Empty
+    override val parametersSchema0: ToolParameters = ToolParameters.Empty
 
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
         delay(200)
@@ -95,7 +95,7 @@ class GetTimeTool : WithUiTool() {
 class GetDateTool : WithUiTool() {
     override val name = "get_date"
     override val description = "获取当前日期"
-    override val toolSchema: ToolParameters = ToolParameters.Empty
+    override val parametersSchema0: ToolParameters = ToolParameters.Empty
 
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
         delay(100)
@@ -129,7 +129,7 @@ class GetDateTool : WithUiTool() {
 class GetCarStatusTool : WithUiTool() {
     override val name = "get_car_status"
     override val description = "获取车辆状态"
-    override val toolSchema: ToolParameters = ToolParameters.Empty
+    override val parametersSchema0: ToolParameters = ToolParameters.Empty
 
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
         delay(2500)
@@ -168,7 +168,7 @@ class GetCarStatusTool : WithUiTool() {
 class GetEnergyTool : WithUiTool() {
     override val name = "get_energy"
     override val description = "获取能耗信息"
-    override val toolSchema: ToolParameters = ToolParameters.Empty
+    override val parametersSchema0: ToolParameters = ToolParameters.Empty
 
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement {
         delay(2000)

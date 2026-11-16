@@ -27,7 +27,7 @@ class GetDateTimeTool : WithUiTool() {
 
     override val name: String = "get_datetime"
     override val description: String = "返回当前日期与时间"
-    override val toolSchema: ToolParameters = ToolParameters.Empty
+    override val parametersSchema0: ToolParameters = ToolParameters.Empty
 
     override suspend fun getResult(arguments: JsonElement, context: ToolExecutionContext): JsonElement =
         buildJsonObject {

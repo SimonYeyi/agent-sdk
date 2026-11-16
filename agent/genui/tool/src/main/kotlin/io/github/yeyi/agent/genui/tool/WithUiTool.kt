@@ -45,7 +45,7 @@ import kotlinx.serialization.json.put
  * 本基类不支持阻塞式 UI——动作事件一律回流到新一轮；一旦做成阻塞等待，
  * 用户就只剩下「在卡片按钮上点选」这一条回复路径，失去了用自然语言选择回复的能力。
  *
- * 子类必须复写两处：[toolSchema] 声明业务入参、[buildCard] 完成 UI 映射；
+ * 子类必须复写两处：[parametersSchema0] 声明业务入参、[buildCard] 完成 UI 映射；
  * [getResult] 取业务数据（不复写则本轮无数据可回执，此时只得出卡，
  * 典型如卡片即问询的场景）；发射接线由 final [execute] 统一收口，
  * 卡片落在工具调用的 ToolCallStart/End 区间内，锚点天然对齐。
@@ -98,7 +98,7 @@ public abstract class WithUiTool : Tool, FinalizableTool {
      * 模型看到的形态是它与框架参数 show_ui 合并后的结果（见 [parametersSchema]），
      * 子类只管业务入参，不必操心框架参数。
      */
-    protected abstract val toolSchema: ToolParameters
+    protected abstract val parametersSchema0: ToolParameters
 
     /**
      * 是否必然出卡（每次调用都出卡并终结本轮，不给模型 show_ui 参数）。
@@ -114,10 +114,10 @@ public abstract class WithUiTool : Tool, FinalizableTool {
     /**
      * 模型可见的 schema：业务 schema 与框架参数 show_ui 的合并结果；必然出卡时原样透出业务 schema。
      *
-     * final：合并由基类统一收口，子类只声明 [toolSchema]，不直接覆写模型的入参形态。
+     * final：合并由基类统一收口，子类只声明 [parametersSchema0]，不直接覆写模型的入参形态。
      */
     final override val parametersSchema: ToolParameters by lazy {
-        if (alwaysShowUi) toolSchema else withShowUi(toolSchema)
+        if (alwaysShowUi) parametersSchema0 else withShowUi(parametersSchema0)
     }
 
     /**
@@ -261,17 +261,17 @@ public abstract class WithUiTool : Tool, FinalizableTool {
             is ToolParameters.JsonSchema -> {
                 val parsed = runCatching { Json.parseToJsonElement(schema.schema) }.getOrNull()
                     ?: throw IllegalArgumentException(
-                        "$name 的 toolSchema 不是合法 JSON，无法并入框架参数 $SHOW_UI_PARAM"
+                        "$name 的 parametersSchema0 不是合法 JSON，无法并入框架参数 $SHOW_UI_PARAM"
                     )
                 parsed as? JsonObject
                     ?: throw IllegalArgumentException(
-                        "$name 的 toolSchema 必须是 JSON 对象，无法并入框架参数 $SHOW_UI_PARAM"
+                        "$name 的 parametersSchema0 必须是 JSON 对象，无法并入框架参数 $SHOW_UI_PARAM"
                     )
             }
         }
         val properties = (base["properties"] as? JsonObject) ?: JsonObject(emptyMap())
         require(SHOW_UI_PARAM !in properties) {
-            "$name 的 toolSchema 已有同名属性 $SHOW_UI_PARAM，与框架参数冲突"
+            "$name 的 parametersSchema0 已有同名属性 $SHOW_UI_PARAM，与框架参数冲突"
         }
         val showUiProperty = buildJsonObject {
             put("type", "boolean")

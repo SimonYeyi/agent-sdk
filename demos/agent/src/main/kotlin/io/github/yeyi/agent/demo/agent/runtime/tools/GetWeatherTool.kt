@@ -105,7 +105,7 @@ class WeatherCardTool : WithUiTool() {
     override val name: String = "get_weather"
     override val description: String = "当需要查询指定地点的天气情况时使用"
 
-    override val toolSchema: ToolParameters =
+    override val parametersSchema0: ToolParameters =
         ToolParameters.JsonSchema(SchemaGenerator.generateSchema(GetWeatherRequest.serializer()))
 
     override suspend fun getResult(

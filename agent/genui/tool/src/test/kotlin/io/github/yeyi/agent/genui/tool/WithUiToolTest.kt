@@ -47,7 +47,7 @@ class WithUiToolTest {
 
         override val name: String = "fake_tool"
         override val description: String = "fake"
-        override val toolSchema: ToolParameters = schema
+        override val parametersSchema0: ToolParameters = schema
 
         override suspend fun getResult(
             arguments: JsonElement,
@@ -273,7 +273,7 @@ class WithUiToolTest {
         val tool = object : WithUiTool() {
             override val name: String = "flaky_card"
             override val description: String = "flaky"
-            override val toolSchema: ToolParameters = ToolParameters.Empty
+            override val parametersSchema0: ToolParameters = ToolParameters.Empty
 
             override suspend fun getResult(
                 arguments: JsonElement,

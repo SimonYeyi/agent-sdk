@@ -49,7 +49,7 @@ public class GenUiTool(componentSpec: String? = null) : WithUiTool() {
     override val description: String = "生成 UI 卡片。用法：\n" +
             "当最终回复的核心信息是实体项、实体列表等可结构化表达的数据时使用，以清晰地向用户展示"
 
-    override val toolSchema: ToolParameters = ToolParameters.JsonSchema(
+    override val parametersSchema0: ToolParameters = ToolParameters.JsonSchema(
         """
         {"type":"object",
          "properties":{
