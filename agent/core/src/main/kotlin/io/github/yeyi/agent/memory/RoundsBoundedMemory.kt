@@ -2,6 +2,7 @@ package io.github.yeyi.agent.memory
 
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentHook
+import io.github.yeyi.agent.isContextOverflow
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.LlmProvider
@@ -79,21 +80,27 @@ internal class RoundsBoundedMemory(
 
         if (compressedIndices.isEmpty()) return
 
-        hook?.beforeMemoryCompress(agentContext, summaries.toList())
+        invokeWithHook {
+            // 3. 原文压缩生成摘要；超容量/超字数则滑出最旧，不做二次压缩。
+            //    压缩 LLM 超限时降级为硬裁剪：新条目已写入 underlying，若超限不降级，
+            //    后续每轮越界 add 都会重试仍超限的压缩，记忆永远无法越过 maxRounds。
+            val compressedMessages =
+                history.filterIndexed { index, _ -> index in compressedIndices }
+            val summary = try {
+                compressOriginal(compressedMessages.map { it.message })
+            } catch (e: Throwable) {
+                if (e.isContextOverflow().not()) throw e
+                truncate(); return@invokeWithHook
+            }
 
-        // 3. 原文压缩生成摘要；超容量/超字数则滑出最旧，不做二次压缩
-        val compressedMessages = history.filterIndexed { index, _ -> index in compressedIndices }
-        val summary = compressOriginal(compressedMessages.map { it.message })
+            summaries.add(summary)
+            evictOldestSummary(summaries)
 
-        summaries.add(summary)
-        evictOldestSummary(summaries)
+            // 4. 重建 underlying —— 基于 MemoryEntry 操作，保留窗口消息的元数据跨重建存活
+            rebuildUnderlying(history, retainedIndices, summaries)
 
-        // 4. 重建 underlying —— 基于 MemoryEntry 操作，保留窗口消息的元数据跨重建存活
-        rebuildUnderlying(history, retainedIndices, summaries)
-
-        this.summaries = summaries
-
-        hook?.afterMemoryCompress(agentContext, summaries.toList())
+            this.summaries = summaries
+        }
     }
 
     /**
@@ -213,10 +220,15 @@ internal class RoundsBoundedMemory(
         }
     }
 
-    internal suspend fun crop() {
-        hook?.beforeMemoryCompress(agentContext, summaries!!)
-        if (cropToolMessages().not()) truncate()
-        hook?.afterMemoryCompress(agentContext, summaries!!)
+    private suspend fun invokeWithHook(action: suspend () -> Unit) {
+        hook?.beforeMemoryCompress(agentContext, summaries!!.toList())
+        action.invoke()
+        hook?.afterMemoryCompress(agentContext, summaries!!.toList())
+    }
+
+    internal suspend fun crop(withHook: Boolean) {
+        val action = suspend { if (cropToolMessages().not()) truncate() }
+        if (withHook) invokeWithHook(action) else action.invoke()
     }
 
     /**

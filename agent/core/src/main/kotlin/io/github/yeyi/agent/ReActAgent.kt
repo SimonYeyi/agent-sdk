@@ -467,15 +467,16 @@ public class ReActAgent internal constructor(
 
     private suspend fun llmCallWithContextOverflowHandle(
         request: ChatRequest,
-        turn: AgentTurn
+        turn: AgentTurn,
+        retryCount: Int = 0
     ): ChatResponse {
         return try {
             turn.llmCall(request)
         } catch (e: Throwable) {
             e.takeIf { it.isContextOverflow() }
                 ?.let { log.warn(it) }
-                ?.let { memory.crop() }
-                ?.let { llmCallWithContextOverflowHandle(buildRequest(), turn) }
+                ?.let { memory.crop(withHook = retryCount == 0) }
+                ?.let { llmCallWithContextOverflowHandle(buildRequest(), turn, retryCount + 1) }
                 ?: throw e
         }
     }

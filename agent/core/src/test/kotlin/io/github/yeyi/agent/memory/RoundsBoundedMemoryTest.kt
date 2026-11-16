@@ -1,15 +1,21 @@
 package io.github.yeyi.agent.memory
 
 import io.github.yeyi.agent.AgentContext
+import io.github.yeyi.agent.AgentException
 import io.github.yeyi.agent.EmptyAgentHook
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
+import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ToolCall
 import io.github.yeyi.agent.llm.text
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -98,6 +104,36 @@ class RoundsBoundedMemoryTest {
         // 摘要以 System 消息注入,内容是 SummaryContainer JSON,不再有 [SUMMARY]/[/SUMMARY] marker
         val first = history.first().message as ChatMessage.System
         assertTrue(first.content.contains("\"summaries\""))
+    }
+
+    @Test
+    fun `add does not fail when compression LLM call overflows context`() = runTest {
+        // 压缩 LLM 调用抛出 ContextOverflow 时应降级硬裁剪，而不是让 add 向外抛异常；
+        // 否则新条目已写入 underlying，后续每轮越界 add 都会重试仍超限的压缩，
+        // 记忆永远无法推进，形成软性卡死。
+        val overflow = object : LlmProvider {
+            override val name: String = "overflow"
+            override suspend fun chat(request: ChatRequest): ChatResponse =
+                throw AgentException.ContextOverflow("context length exceeded")
+            override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = emptyFlow()
+        }
+        val memory = RoundsBoundedMemory(
+            underlying = InMemoryMemory(),
+            llmProvider = overflow,
+            maxRounds = 2,
+        )
+
+        // 连续多轮越界 add：修复前会在第 3 个 user 处抛异常；修复后全部正常返回
+        (1..5).forEach { i ->
+            memory.add(ChatMessage.User(listOf(ContentPart.Text("u$i"))))
+            memory.add(ChatMessage.Assistant(content = "a$i"))
+        }
+
+        val history = memory.history()
+        assertTrue(
+            history.any { (it.message as? ChatMessage.User)?.contentOrFirstText() == "u5" },
+            "最新一条 user 应保留，证明 add 未中断、记忆链路持续推进"
+        )
     }
 
     @Test
@@ -920,7 +956,7 @@ class RoundsBoundedMemoryTest {
         assertTrue(beforeToolResults.size > 0, "setup: should have tool results")
 
         // Directly call crop
-        memory.crop()
+        memory.crop(withHook = true)
 
         val afterHistory = memory.history()
         val afterToolResults = afterHistory.map { it.message }.filterIsInstance<ChatMessage.ToolResult>()
@@ -969,7 +1005,7 @@ class RoundsBoundedMemoryTest {
         assertTrue(beforeUserCount > 1, "setup: should have more than 1 user before truncation")
 
         // Directly call crop
-        memory.crop()
+        memory.crop(withHook = true)
 
         val afterHistory = memory.history()
         val afterUserCount = afterHistory.count { it.message is ChatMessage.User }
@@ -1005,7 +1041,7 @@ class RoundsBoundedMemoryTest {
         memory.add(ChatMessage.User(listOf(ContentPart.Text("u1"))))
         memory.add(ChatMessage.Assistant(content = "a1"))
 
-        memory.crop()
+        memory.crop(withHook = true)
 
         val history = memory.history()
         // Should have at least System and User
