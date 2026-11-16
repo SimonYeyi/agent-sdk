@@ -212,7 +212,7 @@ class OpenAiMappingTest {
         // 三种方言一起写: thinking 对象 + enable_thinking + reasoning_effort
         assertEquals(OpenAiThinkingConfig(OpenAiThinkingType.DISABLED), out.thinking)
         assertEquals(false, out.enableThinking)
-        assertEquals("minimal", out.reasoningEffort)
+        assertEquals("none", out.reasoningEffort)
     }
 
     @Test
@@ -247,7 +247,7 @@ class OpenAiMappingTest {
         // 通义千问 / DashScope 部署的 DeepSeek 认 enable_thinking
         assertTrue(json.contains(""""enable_thinking":false"""), "actual: $json")
         // OpenAI 官方 o 系 / GPT-5 认 reasoning_effort
-        assertTrue(json.contains(""""reasoning_effort":"minimal""""), "actual: $json")
+        assertTrue(json.contains(""""reasoning_effort":"none""""), "actual: $json")
     }
 
     @Test

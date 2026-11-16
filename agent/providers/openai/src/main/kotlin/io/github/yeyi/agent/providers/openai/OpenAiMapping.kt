@@ -79,7 +79,7 @@ internal fun mapToOpenAi(
  * 国内厂商对"思考"概念字段不一：
  * - `thinking: {"type": ...}` —— Kimi K2 / GLM / DeepSeek / 豆包 / MiniMax 等
  * - `enable_thinking: bool` —— 通义千问（DashScope 兼容模式）等
- * - `reasoning_effort: "high"/"minimal"` —— OpenAI 官方 o 系 / GPT-5 无布尔开关
+ * - `reasoning_effort: "high"/"none"` —— OpenAI 官方 o 系 / GPT-5 无布尔开关
  *
  * [thinkingType] 即 `thinking.type` 的完整取值（含 [OpenAiThinkingType.DISABLED]），
  * 开启/关闭状态由枚举本身表达，其余方言字段按同状态推导，目标厂商识别哪个就用哪个。
