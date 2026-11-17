@@ -83,16 +83,16 @@ internal class RoundsBoundedMemory(
 
         invokeWithHook {
             // 3. 原文压缩生成摘要；超容量/超字数则滑出最旧，不做二次压缩。
-            //    压缩 LLM 超限时降级为硬裁剪：新条目已写入 underlying，若超限不降级，
-            //    后续每轮越界 add 都会重试仍超限的压缩，记忆永远无法越过 maxRounds。
+            //    压缩 LLM 超限时降级裁剪工具消息腾出上下文，让本轮流程继续，下一轮 add 重新触发压缩；
+            //    删不动工具消息时 crop 内部再退到硬裁（truncate）。
             val compressedMessages =
                 history.filterIndexed { index, _ -> index in compressedIndices }
             val summary = try {
                 compressOriginal(compressedMessages.map { it.message })
             } catch (e: Throwable) {
                 if (e.isContextOverflow().not()) throw e
-                log.warn("memory compression overflow, falling back to truncate", e)
-                truncate(); return@invokeWithHook
+                log.warn("memory overflow during compression, performing crop", e)
+                crop(withHook = false); return@invokeWithHook
             }
 
             summaries.add(summary)
