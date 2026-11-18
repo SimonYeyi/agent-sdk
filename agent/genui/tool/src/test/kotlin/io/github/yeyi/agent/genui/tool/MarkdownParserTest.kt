@@ -215,6 +215,55 @@ class MarkdownParserTest {
     }
 
     @Test
+    fun `表格数据单元格加粗拆成 Span`() {
+        val root = parseMarkdown("| 城市 | 天气 |\n|---|---|\n| **北京** 晴 | 多云 |")!!
+        val table = root.children.single()
+        val dataRow = table.children[1]
+        // 第一列含混合 **bold** → Text 带 Span children，且保留 weight=1 等宽
+        val boldCell = dataRow.children[0]
+        assertEquals("Text", boldCell.component)
+        assertEquals(2, boldCell.children.size)
+        assertEquals("Span", boldCell.children[0].component)
+        assertEquals("北京", boldCell.children[0].bindings["text"]!!.jsonPrimitive.content)
+        assertEquals("true", boldCell.children[0].bindings["bold"]!!.jsonPrimitive.content)
+        assertEquals("Span", boldCell.children[1].component)
+        assertEquals(" 晴", boldCell.children[1].bindings["text"]!!.jsonPrimitive.content)
+        assertEquals("false", boldCell.children[1].bindings["bold"]!!.jsonPrimitive.content)
+        assertEquals("1.0", boldCell.bindings["weight"]!!.jsonPrimitive.content)
+        assertFalse("text" in boldCell.bindings)
+        // 第二列无加粗 → 直接 Text + weight=1
+        val plainCell = dataRow.children[1]
+        assertEquals("Text", plainCell.component)
+        assertEquals("多云", plainCell.bindings["text"]!!.jsonPrimitive.content)
+        assertTrue(plainCell.children.isEmpty())
+        assertEquals("1.0", plainCell.bindings["weight"]!!.jsonPrimitive.content)
+    }
+
+    @Test
+    fun `表格数据单元格整段加粗收敛为 Bold`() {
+        // 整段都是 **bold**（无普通文本）→ 单段 Text 带 fontWeight=Bold
+        val root = parseMarkdown("| 城市 |\n|---|\n| **北京** |")!!
+        val dataCell = root.children.single().children[1].children[0]
+        assertEquals("Text", dataCell.component)
+        assertEquals("北京", dataCell.bindings["text"]!!.jsonPrimitive.content)
+        assertEquals("Bold", dataCell.bindings["fontWeight"]!!.jsonPrimitive.content)
+        assertEquals("1.0", dataCell.bindings["weight"]!!.jsonPrimitive.content)
+        assertTrue(dataCell.children.isEmpty())
+    }
+
+    @Test
+    fun `表头单元格剥星号整段 Bold`() {
+        val root = parseMarkdown("| **重点** | 列 |\n|---|---|\n| 1 | 2 |")!!
+        val headerRow = root.children.single().children[0]
+        val headerCell = headerRow.children[0]
+        assertEquals("Text", headerCell.component)
+        assertEquals("重点", headerCell.bindings["text"]!!.jsonPrimitive.content)
+        assertEquals("Bold", headerCell.bindings["fontWeight"]!!.jsonPrimitive.content)
+        assertEquals("1.0", headerCell.bindings["weight"]!!.jsonPrimitive.content)
+        assertTrue(headerCell.children.isEmpty())
+    }
+
+    @Test
     fun `表格单元格数不足时用空串补齐`() {
         val root = parseMarkdown("| a | b | c |\n|---|---|---|\n| x | y |")!!
         val table = root.children.single()

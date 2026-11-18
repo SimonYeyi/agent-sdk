@@ -283,13 +283,13 @@ private fun tableRowNode(
 ): TreeNode {
     val children = (0 until columnCount).map { index ->
         val text = cells.getOrElse(index) { "" }
-        val bindings = buildJsonObject {
-            put("text", JsonPrimitive(text))
-            put("style", JsonPrimitive("bodyMedium"))
-            put("weight", JsonPrimitive(1f))
-            if (isHeader) put("fontWeight", JsonPrimitive("Bold"))
-        }
-        TreeNode(component = "Text", bindings = bindings)
+        // 单元格也支持行内 **bold**：表头整段 Bold（剥 **），数据行走 span 拆分
+        textNode(
+            text = text,
+            style = "bodyMedium",
+            fontWeight = if (isHeader) "Bold" else null,
+            weight = 1f,
+        )
     }
     return TreeNode(
         component = "Row",
@@ -313,19 +313,21 @@ private fun textNode(
     text: String,
     style: String,
     fontWeight: String? = null,
-    color: String? = null
+    color: String? = null,
+    weight: Float? = null
 ): TreeNode {
     // 整段统一字重（标题）:内部 ** 无意义,剥掉走单段
     if (fontWeight != null) {
-        return textNodeOf(text.replace("**", ""), style, fontWeight, color)
+        return textNodeOf(text.replace("**", ""), style, fontWeight, color, weight)
     }
     val segments = splitBoldSegments(text)
     if (segments.size == 1) {
-        return textNodeOf(segments[0].text, style, if (segments[0].bold) "Bold" else null, color)
+        return textNodeOf(segments[0].text, style, if (segments[0].bold) "Bold" else null, color, weight)
     }
     val baseBindings = buildJsonObject {
         put("style", JsonPrimitive(style))
         if (color != null) put("color", JsonPrimitive(color))
+        if (weight != null) put("weight", JsonPrimitive(weight))
     }
     return TreeNode(
         component = "Text",
@@ -370,12 +372,19 @@ private fun splitBoldSegments(text: String): List<Segment> {
 
 private data class Segment(val text: String, val bold: Boolean)
 
-private fun textNodeOf(text: String, style: String, fontWeight: String?, color: String?): TreeNode {
+private fun textNodeOf(
+    text: String,
+    style: String,
+    fontWeight: String?,
+    color: String?,
+    weight: Float? = null
+): TreeNode {
     val bindings = buildJsonObject {
         put("text", JsonPrimitive(text))
         put("style", JsonPrimitive(style))
         if (fontWeight != null) put("fontWeight", JsonPrimitive(fontWeight))
         if (color != null) put("color", JsonPrimitive(color))
+        if (weight != null) put("weight", JsonPrimitive(weight))
     }
     return TreeNode(component = "Text", bindings = bindings)
 }
