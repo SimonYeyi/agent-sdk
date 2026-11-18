@@ -32,14 +32,14 @@ public fun AgentDefinition.spawn(agentId: String, memory: Memory, scope: AgentSc
         llmProvider(resolveInfo.llmProvider)
         memory(memory, maxMemoryRounds)
         maxIterations(maxIterations)
+        scope.hook?.let { hook(it) }
+        scope.modalityAdapter?.let { modalityAdapter(it) }
         resolveInfo.toolRegistry?.let { tools(it) }
         resolveInfo.lazyToolRegistry?.let { lazyTools(it) }
         resolveInfo.toolsetRegistry?.let { toolsets(it) }
         resolveInfo.skillRegistry?.let { skills(it) }
         resolveInfo.subagentRegistry?.let { subagents(it) }
         resolveInfo.mcpRegistry?.let { mcps(it) }
-        scope.hook?.let { hook(it) }
-        scope.modalityAdapter?.let { modalityAdapter(it) }
     } as ReActAgent
     return SpawnedAgent(delegate, resolveInfo.mcpRegistry)
 }
