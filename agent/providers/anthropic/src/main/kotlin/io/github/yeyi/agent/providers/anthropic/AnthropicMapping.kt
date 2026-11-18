@@ -62,13 +62,14 @@ internal fun mapToAnthropic(
             inputSchema = tool.parametersSchema,
         )
     }
-    // Anthropic 要求 thinking enabled 时 max_tokens 必须大于 budget_tokens，否则 API 返回 400。
-    // 未显式传 maxTokens 时兜底为 budget + 输出余量，保证开启即合法。
+    // max_tokens 语义：thinking 关闭时即正文输出上限；开启时是思考 + 正文的总上限，
+    // 必须大于 budget_tokens 否则 API 返回 400，故开启时在正文额度之上叠加思考预算，
+    // 保证思考消耗时正文仍有 DEFAULT_MAX_OUTPUT_TOKENS 可用，不被思考挤占。
     val maxTokens: Int = if (thinking) {
-        val floor = DEFAULT_THINKING_BUDGET + DEFAULT_OUTPUT_TOKEN_MARGIN
+        val floor = DEFAULT_THINKING_BUDGET + DEFAULT_MAX_OUTPUT_TOKENS
         max(request.maxTokens ?: floor, floor)
     } else {
-        request.maxTokens ?: 1024
+        request.maxTokens ?: DEFAULT_MAX_OUTPUT_TOKENS
     }
     return AnthropicChatRequest(
         model = model,
@@ -95,8 +96,8 @@ private fun thinking(enabled: Boolean): AnthropicThinking =
 /** 开启思考模式时默认的 token 预算。 */
 private const val DEFAULT_THINKING_BUDGET: Int = 4096
 
-/** thinking 开启时输出余量：max_tokens 必须大于 budget_tokens，默认兜底为 budget + 该余量。 */
-private const val DEFAULT_OUTPUT_TOKEN_MARGIN: Int = 1024
+/** 未显式指定 maxTokens 时的默认输出额度：非思考模式即 max_tokens，思考模式为正文额度。 */
+private const val DEFAULT_MAX_OUTPUT_TOKENS: Int = 10240
 
 internal fun mapAnthropicToCore(response: AnthropicChatResponse): ChatResponse {
     val text = response.content.filterIsInstance<AnthropicContentBlock.Text>()
