@@ -10,13 +10,13 @@ import io.github.yeyi.agent.AgentResult
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.memory.InMemoryMemory
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -531,5 +531,132 @@ class BossAgentTest {
 
         assertEquals(1, report.count { it is AgentEvent.Canceled }, "Canceled must be emitted exactly once: $report")
         assertTrue(report.last() is AgentEvent.Canceled, "report must end with Canceled: $report")
+    }
+
+    /**
+     * 回归：报告轮合并 — 报告轮在途时累计的多个终态结果（同一轮次多个任务 / 多个落空 Cancellation
+     * 各自产出的结果）在下一轮被一次性 drain 合并为单条文本，一次 innerAgent.runStream 消费，
+     * 而非旧实现的"每条结果各启动一轮"的碎片化调度。
+     *
+     * 判别口径是 LLM 调用次数：不合并时为 user + seed 报告 + a + b 共 4 次，
+     * 合并后为 user + seed 报告 + 合并报告共 3 次，且合并轮的输入同时包含 a、b 两个结果。
+     */
+    @Test
+    fun `multiple completed results merge into a single report round`() = runBlocking {
+        val recordedInputs = mutableListOf<String>()
+        val slowReportLlm = object : LlmProvider {
+            override val name = "slow-report-recording"
+            private var index = 0
+            private val responses = listOf(
+                ChatResponse(message = ChatMessage.Assistant(content = "waiting"), finishReason = FinishReason.Stop),
+                ChatResponse(message = ChatMessage.Assistant(content = "seed-settled"), finishReason = FinishReason.Stop),
+                ChatResponse(message = ChatMessage.Assistant(content = "merged-settled"), finishReason = FinishReason.Stop),
+            )
+
+            private fun nextResponse(request: ChatRequest): ChatResponse {
+                val lastUserMsg = request.messages.lastOrNull { it is ChatMessage.User }
+                if (lastUserMsg != null) {
+                    recordedInputs.add(
+                        (lastUserMsg as ChatMessage.User).parts.firstOrNull { it is ContentPart.Text }
+                            ?.let { (it as ContentPart.Text).text } ?: ""
+                    )
+                }
+                return responses[index++]
+            }
+
+            override suspend fun chat(request: ChatRequest): ChatResponse = nextResponse(request)
+
+            override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
+                val i = index
+                val response = nextResponse(request)
+                // 慢化 seed 报告轮（第 2 个 LLM 调用），制造 a、b 结果在报告轮在途时累计的窗口。
+                if (i == 1) delay(500)
+                response.message.content?.takeIf { it.isNotEmpty() }
+                    ?.let { emit(ChatResponseEvent.ContentDelta(it)) }
+                emit(ChatResponseEvent.Done(response.usage, response.finishReason))
+            }
+        }
+
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val innerAgent = agent {
+            llmProvider(slowReportLlm)
+            memory(InMemoryMemory(), 20)
+            maxIterations(5)
+        }
+        val boss = BossAgent(innerAgent as Streamable, scope)
+        val bb = BulletinBoard()
+        boss.attach(bb)
+
+        // 先 run 一轮初始化 currentRound，否则 handleTaskAssignments 会因 currentRound 未初始化而失败
+        val initJob = launch { boss.run(AgentQuery.text("init")).collect { } }
+        withTimeout(5000) { initJob.join() }
+
+        // seed 任务终态 → 触发 seed 报告轮（第 2 个 LLM 调用，进入 500ms 延迟窗口）
+        bb.publishEvent(
+            TaskAssignments(
+                query = "init",
+                tasks = listOf(
+                    TaskAssignment(
+                        taskId = "seed",
+                        selection = Selection.Tool("dummy"),
+                        task = "do seed",
+                        context = null,
+                        dependsOn = emptyList(),
+                    )
+                )
+            )
+        )
+        bb.progressEvent(
+            TaskUpdate("seed", AgentEvent.Final(AgentResult(ChatMessage.Assistant("seed-result"), 1, emptyList(), null)))
+        )
+
+        // 等 seed 报告轮开跑并挂起在延迟窗口（chatStream 已在延迟前记录输入）
+        withTimeout(5000) { while (recordedInputs.size < 2) delay(10) }
+
+        // 报告轮在途期间，两个任务各自终态 → 两个结果先后入队（state=RUNNING，decide 早退仅入队）
+        bb.publishEvent(
+            TaskAssignments(
+                query = "init",
+                tasks = listOf(
+                    TaskAssignment(
+                        taskId = "a",
+                        selection = Selection.Tool("dummy"),
+                        task = "do a",
+                        context = null,
+                        dependsOn = emptyList(),
+                    )
+                )
+            )
+        )
+        bb.progressEvent(
+            TaskUpdate("a", AgentEvent.Final(AgentResult(ChatMessage.Assistant("a-result"), 1, emptyList(), null)))
+        )
+        bb.publishEvent(
+            TaskAssignments(
+                query = "init",
+                tasks = listOf(
+                    TaskAssignment(
+                        taskId = "b",
+                        selection = Selection.Tool("dummy"),
+                        task = "do b",
+                        context = null,
+                        dependsOn = emptyList(),
+                    )
+                )
+            )
+        )
+        bb.progressEvent(
+            TaskUpdate("b", AgentEvent.Final(AgentResult(ChatMessage.Assistant("b-result"), 1, emptyList(), null)))
+        )
+
+        // seed 报告轮结束后，drain 合并 a、b 为一个报告轮（第 3 个 LLM 调用）
+        withTimeout(5000) { while (recordedInputs.size < 3) delay(10) }
+        delay(200) // 等合并报告轮自然收尾
+        boss.shutdown()
+
+        assertEquals(3, recordedInputs.size, "合并后应恰为 3 次 LLM 调用，实际: $recordedInputs")
+        val merged = recordedInputs[2]
+        assertTrue(merged.contains("- a: a-result"), "合并轮应包含 a 的结果: $merged")
+        assertTrue(merged.contains("- b: b-result"), "合并轮应包含 b 的结果: $merged")
     }
 }

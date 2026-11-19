@@ -426,9 +426,9 @@ public class BossAgent internal constructor(
                     return
                 }
 
-                pendingResultEvents.tryReceive().getOrNull()?.let { result ->
+                drainPendingResults()?.let { merged ->
                     state.value = BossState.RUNNING
-                    scope.launch { runResultRound(result) }
+                    scope.launch { runResultRound(merged) }
                     return
                 }
 
@@ -436,6 +436,23 @@ public class BossAgent internal constructor(
                     state.value = BossState.WAITING
                 }
             }
+        }
+
+        /**
+         * 排空 [pendingResultEvents] 队列，把期间累积的所有结果按换行拼成一条文本。
+         *
+         * 单次 decide 内一次性 drain 全部结果，替代旧的"每次取一条、各自启动一轮"的碎片化
+         * 调度：同一轮次结束时多个 task 的终态汇报（以及落空 Cancellation 的提示）会先后
+         * 入队，此处合并为一次 innerAgent.runStream 消费。队列空则返回 null，decide 落回 WAITING。
+         */
+        private fun drainPendingResults(): String? {
+            val sb = StringBuilder()
+            while (true) {
+                val result = pendingResultEvents.tryReceive().getOrNull() ?: break
+                if (sb.isNotEmpty()) sb.append('\n')
+                sb.append(result)
+            }
+            return sb.toString().takeIf { it.isNotEmpty() }
         }
     }
 
