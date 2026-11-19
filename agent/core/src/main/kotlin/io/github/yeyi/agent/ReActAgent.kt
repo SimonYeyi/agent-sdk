@@ -55,7 +55,7 @@ public class ReActAgent internal constructor(
     private val maxIterations: Int,
     private val hook: AgentHook = NoOpAgentHook,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
-) : Agent, Agent.Streamable, Agent.Steerable, Agent.Cancelable, Agent.Shutdownable {
+) : Agent, Agent.Streamable, Agent.Steerable, Agent.Feedable, Agent.Cancelable, Agent.Shutdownable {
     private val memory = RoundsBoundedMemory(RepairedMemory(memory), maxRounds, llmProvider)
 
     /**
@@ -136,6 +136,28 @@ public class ReActAgent internal constructor(
             // 重读槽位再试，指令才能落到新一轮上。
             if (delivered) return true
         }
+    }
+
+    /**
+     * 空闲期投喂 —— 活跃或已关闭时返回 false，空闲则把消息写入 memory，交给 [scope] 异步处理。
+     *
+     * false 统一标记「未投喂」（存在活跃回合 或 已关闭），与 [steer] 一致不抛异常。
+     * 空闲时提交后台写入并同步返回 true；true 只代表「已接受」，消息尚未进 memory，
+     * 故 feed 后立即 run 可能赶不上本轮首轮 buildRequest，延后到后续迭代或下一次 run
+     * 才生效。判空与写入分离不引入消息对风险：两者同为本地协程调度，远快于 LLM 推理，
+     * 必然在写 Assistant(toolCalls) 之前完成。
+     *
+     * fire-and-forget 尾部语义：与 [shutdown] 并发时后台协程可能被 scope 取消而静默丢失；
+     * 后台写入异常由 scope 兜底，feed 无从得知。均在终态/极端并发下出现。
+     */
+    override fun feed(query: AgentQuery): Boolean {
+        if (!scope.isActive) return false
+        if (activeTurn.get() != null) return false
+        scope.launch {
+            modalityAdapter.archive(ChatMessage.User(query.parts))
+                .addToMemory(memory, query.label)
+        }
+        return true
     }
 
     /**
@@ -460,7 +482,7 @@ public class ReActAgent internal constructor(
         queries.forEach { query ->
             // steer 注入的指令默认标 "steering"；调用方显式带 label 时优先采用
             modalityAdapter.archive(ChatMessage.User(query.parts))
-                .addToMemory(memory, label = query.label ?: "steering")
+                .addToMemory(memory, label = query.label)
         }
         turn.events.emit(AgentEvent.Steering(queries, preemptedResult))
     }

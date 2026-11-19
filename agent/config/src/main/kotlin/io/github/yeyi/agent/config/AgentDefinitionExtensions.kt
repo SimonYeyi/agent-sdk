@@ -63,8 +63,8 @@ public fun AgentDefinition.spawn(agentId: String, memory: Memory, scope: AgentSc
 public class SpawnedAgent internal constructor(
     private val delegate: ReActAgent,
     private val mcpRegistry: McpRegistry? = null
-) : Agent by delegate, Streamable by delegate, Steerable by delegate, Agent.Cancelable by delegate,
-    Shutdownable {
+) : Agent by delegate, Streamable by delegate, Steerable by delegate, Agent.Feedable by delegate,
+    Agent.Cancelable by delegate, Shutdownable {
 
     /** 永久关闭 Agent 并回收资源（MCP 子进程等）。幂等，可重复调用。 */
     override fun shutdown() {

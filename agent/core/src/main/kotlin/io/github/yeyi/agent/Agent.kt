@@ -103,6 +103,43 @@ public interface Agent {
     }
 
     /**
+     * 空闲期消息注入能力。
+     *
+     * 当 Agent **没有**正在执行的回合时，[feed] 把消息注入对话记忆，但不启动回合；
+     * 注入的消息随之后的下一次 [Agent.run] 生效。与 [Agent.Steerable.steer] 正交：
+     * steer 面向活跃回合的在途注入，feed 面向空闲期的预置注入。
+     *
+     * 返回值即投喂结果：
+     * - `true`：已接受投喂，消息异步写入记忆，随后续 [Agent.run] 生效
+     * - `false`：未投喂——存在活跃回合，或 Agent 已关闭
+     *
+     * **投喂是异步写入记忆**：`true` 只表示「已接受」，消息由 agent 私有 scope 在后台写入记忆，
+     * 正常随之后的下一次 [Agent.run] 生效；不承诺立即可见——feed 后立刻 [Agent.run]
+     * 可能赶不上该 run 的首轮请求，延后到后续迭代或下一次 run 才被感知。
+     * 若与 [Agent.Shutdownable.shutdown] 并发，尚未写入的消息可能随 scope 一并取消而丢弃。
+     *
+     * **`false` 仅表示未投喂**：不承诺其原因、也不隐含后续指引——失败后如何分流
+     * 由调用方自行决定（先 [Agent.Steerable.steer] 探测活跃，或直接 [Agent.run] 另起）。
+     *
+     * 典型用法：
+     * ```
+     * if (!agent.steer(query)) {
+     *     agent.feed(query)   // 无活跃回合：不启动，仅预置
+     * }
+     * ```
+     */
+    public interface Feedable {
+        /**
+         * 空闲期投喂一条消息，不启动回合。
+         *
+         * @param query 待注入的消息，支持文本 + 多模态
+         * @return `true` 表示已接受投喂（异步写入记忆，随后续 [Agent.run] 生效；shutdown 时可能被丢弃）；
+         *   `false` 表示未投喂（存在活跃回合，或 Agent 已关闭）
+         */
+        public fun feed(query: AgentQuery): Boolean
+    }
+
+    /**
      * 回合中断能力。
      *
      * 仅实现本接口的 Agent 才可被 [cancel] 打断当前回合——调用方应通过
