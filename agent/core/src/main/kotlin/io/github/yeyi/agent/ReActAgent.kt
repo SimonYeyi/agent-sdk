@@ -3,6 +3,7 @@ package io.github.yeyi.agent
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.llm.ChatResponseEvent
@@ -322,7 +323,7 @@ public class ReActAgent internal constructor(
             turn.iterationContext = it
         }
 
-        var request = buildRequest()
+        var request = buildRequest(turn.iterations)
         hook.safeInvoke { beforeLlmCall(context, request) }?.also { request = it }
         val response = llmCallWithContextOverflowHandle(request, turn)
         hook.safeInvoke { afterLlmResponse(context, response) }
@@ -475,19 +476,36 @@ public class ReActAgent internal constructor(
             if (e.isContextOverflow().not()) throw e
             log.warn("memory overflow, performing crop", e)
             memory.crop(withHook = retryCount == 0)
-            llmCallWithContextOverflowHandle(buildRequest(), turn, retryCount + 1)
+            llmCallWithContextOverflowHandle(buildRequest(turn.iterations), turn, retryCount + 1)
         }
     }
 
-    private suspend fun buildRequest(): ChatRequest {
+    private suspend fun buildRequest(iteration: Int): ChatRequest {
         val messages = modalityAdapter.resolve(memory.history()).map { it.toChatMessage() }
         return ChatRequest(
             messages = buildList {
                 add(ChatMessage.System(persona.toString()))
                 addAll(messages)
+                convergenceWarning(iteration)?.let { add(it) }
             },
             tools = toolRegistry.all().map(Tool::toDefinition)
         )
+    }
+
+    /**
+     * 临近迭代上限时的收敛提醒 —— 模型对 [maxIterations] 无感知，不提醒会一路调工具
+     * 直到被硬截断。这里在最后 3 轮按剩余次数注入，最后一轮要求直接给结论；作为运行态
+     * 提示注入请求末尾、不写入记忆，避免污染对话历史。
+     */
+    private fun convergenceWarning(iteration: Int): ChatMessage.User? {
+        val remaining = maxIterations - iteration
+        if (remaining !in 0..2) return null
+        val text = when (remaining) {
+            0 -> "这是最后一次迭代机会，请立即停止调用工具，直接基于已有信息给出最终结论。"
+            1 -> "剩余 1 次迭代机会，请尽快收敛并给出结论。"
+            else -> "剩余 2 次迭代机会，请开始收敛，减少不必要的工具调用。"
+        }
+        return ChatMessage.User(listOf(ContentPart.Text("<warning>$text</warning>")))
     }
 
     private fun buildContext(currentIteration: Int) = AgentContext(
