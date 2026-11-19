@@ -100,10 +100,13 @@ class PastureFinalContentTest {
         assertTrue(t1Content.contains("CARD_PAYLOAD"), "t1 content should carry card payload, got: $t1Content")
         assertTrue(t1Content.contains("工具调用：card()"), "t1 content should label tool call, got: $t1Content")
 
-        // t2 收到的 userInput 里带上 t1 的产出
+        // t2 收到的 userInput 里带上 t1 的产出（收敛提醒会作为额外 User 消息追加在末尾，
+        // 故不能取 last User，需聚合全部 User 文本再判断）。
         val t2Request = fake.recordedRequests.last()
-        val userText = t2Request.messages.filterIsInstance<ChatMessage.User>().last().parts
-            .joinToString("\n") { (it as io.github.yeyi.agent.llm.ContentPart.Text).text }
+        val userText = t2Request.messages.filterIsInstance<ChatMessage.User>()
+            .flatMap { it.parts }
+            .filterIsInstance<io.github.yeyi.agent.llm.ContentPart.Text>()
+            .joinToString("\n") { it.text }
         assertTrue(userText.contains("CARD_PAYLOAD"), "downstream context should carry upstream output, got: $userText")
 
         scope.cancel()

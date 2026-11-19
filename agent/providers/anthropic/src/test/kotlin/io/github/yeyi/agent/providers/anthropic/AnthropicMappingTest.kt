@@ -245,7 +245,7 @@ class AnthropicMappingTest {
         // 未显式传 maxTokens 时兜底为 budget + 输出余量。
         val req = ChatRequest(messages = listOf(ChatMessage.User(listOf(ContentPart.Text("hi")))))
         val mapped = mapToAnthropic("claude-sonnet-4-6", req, thinking = true)
-        assertEquals(4096 + 1024, mapped.maxTokens)
+        assertEquals(4096 + 10240, mapped.maxTokens)
         assertTrue(mapped.maxTokens > (mapped.thinking as AnthropicThinking).budgetTokens!!)
     }
 
