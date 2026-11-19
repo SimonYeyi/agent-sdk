@@ -88,10 +88,11 @@ class FeedableTest {
     }
 
     @Test
-    fun `feed returns false when a round is active`() = runTest(UnconfinedTestDispatcher()) {
+    fun `feed steers into the active round instead of rejecting`() = runTest(UnconfinedTestDispatcher()) {
         val provider = ControllableLlmProvider(
             listOf(
-                ChatResponse(ChatMessage.Assistant(content = "done"), finishReason = FinishReason.Stop)
+                ChatResponse(ChatMessage.Assistant(content = "done"), finishReason = FinishReason.Stop),
+                ChatResponse(ChatMessage.Assistant(content = "done-again"), finishReason = FinishReason.Stop),
             )
         )
         val mem = InMemoryMemory()
@@ -108,12 +109,22 @@ class FeedableTest {
         )
 
         backgroundScope.launch { agent.run(AgentQuery.text("hi")).collect { } }
-        advanceUntilIdle() // run 挂在 chat() 的 gate 上，轮次活跃
+        advanceUntilIdle() // run 挂在 chat() 的 gate[0] 上，轮次活跃
 
-        assertFalse(agent.feed(AgentQuery.text("rejected")))
+        // 活跃期 feed 走 steer 在途注入，返回 true（不再因活跃而 false）
+        assertTrue(agent.feed(AgentQuery.text("in-flight instruction")))
 
-        provider.completeNext() // 释放 gate，收掉 run
+        provider.completeNext() // 释放 gate[0]，终局被 steer 抢占 → 跑第二轮
         advanceUntilIdle()
+        provider.completeNext() // 释放 gate[1]，第二轮正常收尾
+        advanceUntilIdle()
+
+        val injected = mem.history().any { entry ->
+            val msg = entry.message
+            msg is ChatMessage.User &&
+                    msg.parts.any { it is ContentPart.Text && it.text.contains("in-flight instruction") }
+        }
+        assertTrue(injected, "fed instruction should be injected into the active round's memory")
     }
 
     @Test

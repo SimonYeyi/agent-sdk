@@ -659,4 +659,126 @@ class BossAgentTest {
         assertTrue(merged.contains("- a: a-result"), "合并轮应包含 a 的结果: $merged")
         assertTrue(merged.contains("- b: b-result"), "合并轮应包含 b 的结果: $merged")
     }
+
+    /**
+     * 回归：Boss 的 feed 委托给 innerAgent —— 空闲时预置上下文不启动轮次，
+     * 内容写入 innerAgent 记忆并随下一次 run 的请求被感知；Boss 关闭后 feed 拒绝。
+     */
+    @Test
+    fun `feed delegates to inner agent and reaches next run`() = runBlocking {
+        val recordedUserTexts = mutableListOf<String>()
+        val provider = object : LlmProvider {
+            override val name = "recording-stream"
+            private var index = 0
+            private val responses = listOf(
+                ChatResponse(message = ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop),
+            )
+
+            override suspend fun chat(request: ChatRequest): ChatResponse = responses[index++]
+
+            override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
+                val i = index++
+                recordedUserTexts.add(
+                    request.messages
+                        .filterIsInstance<ChatMessage.User>()
+                        .flatMap { it.parts }
+                        .filterIsInstance<ContentPart.Text>()
+                        .joinToString("\n") { it.text }
+                )
+                val response = responses[i]
+                response.message.content?.takeIf { it.isNotEmpty() }
+                    ?.let { emit(ChatResponseEvent.ContentDelta(it)) }
+                emit(ChatResponseEvent.Done(response.usage, response.finishReason))
+            }
+        }
+
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val innerAgent = agent {
+            llmProvider(provider)
+            memory(InMemoryMemory(), 20)
+            maxIterations(5)
+        }
+        val boss = BossAgent(innerAgent as Streamable, scope)
+        val bb = BulletinBoard()
+        boss.attach(bb)
+
+        // 空闲：投喂接受
+        assertTrue(boss.feed(AgentQuery.text("pre-fed context")), "idle feed should be accepted")
+        delay(100) // 等 feed 异步写入 innerAgent 记忆
+
+        val initJob = launch { boss.run(AgentQuery.text("hi")).collect { } }
+        withTimeout(5000) { initJob.join() }
+
+        assertTrue(
+            recordedUserTexts.first().contains("pre-fed context"),
+            "fed message should reach innerAgent's next request, got: ${recordedUserTexts.first()}",
+        )
+
+        boss.shutdown()
+        // 关闭后投喂拒绝
+        assertFalse(boss.feed(AgentQuery.text("rejected")), "feed after shutdown should be rejected")
+    }
+
+    /**
+     * 回归：Boss 的 feed 委托 innerAgent —— 空闲时 innerAgent 无活跃回合走 feed 预置，
+     * 活跃时（用户轮在途）innerAgent 的 feed 内部改走 steer 在途注入。
+     * 两种状态都投喂成功，feed 不再在活跃期返回 false 让外部无处分流。
+     * 活跃期投喂以 [AgentEvent.Steering] 入卷证明指令实际注入运行中的回合，而非仅返回 true。
+     */
+    @Test
+    fun `feed injects steering during active round and presets during idle`() = runBlocking {
+        val active = CompletableDeferred<Unit>()
+        val provider = object : LlmProvider {
+            override val name = "slow-active"
+            private var index = 0
+            private val responses = listOf(
+                ChatResponse(message = ChatMessage.Assistant(content = "first"), finishReason = FinishReason.Stop),
+                ChatResponse(message = ChatMessage.Assistant(content = "second"), finishReason = FinishReason.Stop),
+            )
+
+            override suspend fun chat(request: ChatRequest): ChatResponse = responses[index++]
+
+            override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {
+                val i = index
+                if (i == 0) {
+                    active.complete(Unit)
+                    delay(500) // 慢化首个用户轮，制造活跃窗口
+                }
+                val response = responses[index++]
+                response.message.content?.takeIf { it.isNotEmpty() }
+                    ?.let { emit(ChatResponseEvent.ContentDelta(it)) }
+                emit(ChatResponseEvent.Done(response.usage, response.finishReason))
+            }
+        }
+
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+        val innerAgent = agent {
+            llmProvider(provider)
+            memory(InMemoryMemory(), 20)
+            maxIterations(5)
+        }
+        val boss = BossAgent(innerAgent as Streamable, scope)
+        val bb = BulletinBoard()
+        runBlocking { boss.attach(bb) }
+
+        // 空闲：无活跃回合，steer 落空 → 退化为 feed 预置
+        assertTrue(boss.feed(AgentQuery.text("feed-idle")), "idle feed should be accepted")
+
+        // 启动慢用户轮，等待进入活跃窗口
+        val events = mutableListOf<AgentEvent>()
+        val runJob = launch { boss.run(AgentQuery.text("hi")).collect { events.add(it) } }
+        withTimeout(5000) { active.await() }
+
+        // 活跃：feed 改走 steer 在途注入 → 返回 true（不再 false）
+        assertTrue(boss.feed(AgentQuery.text("feed-active")), "active feed should steer and return true")
+
+        withTimeout(5000) { runJob.join() }
+        // 在途指令入卷证明不丢：活跃投喂以 Steering 事件送达运行中的回合
+        assertTrue(
+            events.any { it is AgentEvent.Steering },
+            "active feed should be delivered as Steering: $events",
+        )
+
+        boss.shutdown()
+    }
 }

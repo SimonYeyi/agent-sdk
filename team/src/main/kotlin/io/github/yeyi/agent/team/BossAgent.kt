@@ -101,7 +101,7 @@ public class BossAgent internal constructor(
     private val innerAgent: Agent.Streamable,
     private val scope: CoroutineScope,
     private val onShutdown: () -> Unit = {},
-) : Agent, Agent.Shutdownable {
+) : Agent, Agent.Shutdownable, Agent.Feedable {
     public companion object {
         /** 系统报告标签 — 任务完成汇报以 `AgentQuery.text(result, label = REPORT_LABEL)` 注入 innerAgent，
          *  随记忆条目持久化，UI 可据此渲染"系统"气泡，模型侧通过 `report: content` 前缀感知。 */
@@ -198,6 +198,15 @@ public class BossAgent internal constructor(
         // 由 runUserRound 完成时注销，未跑到的轮次由 shutdown 兜底补发终局。
         return userRound.events.transformWhile { event -> emit(event); !event.isTerminal }
     }
+
+    /**
+     * 投喂 —— 委托给 [innerAgent] 的 [Agent.Feedable]。
+     *
+     * Boss 的对话记忆与在途回合完全承载于 innerAgent（用户轮与报告轮均经 innerAgent.runStream
+     * 驱动），投喂必须落进 innerAgent 才能被感知，故直接委托，不另设投喂路径。
+     */
+    override fun feed(query: AgentQuery): Boolean =
+        (innerAgent as? Agent.Feedable)?.feed(query) ?: false
 
     /**
      * 关闭 BossAgent — 取消 [scope], 停止所有 boss/pasture 的后台任务,
