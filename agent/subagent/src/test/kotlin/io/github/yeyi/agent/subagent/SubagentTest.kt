@@ -245,34 +245,34 @@ class SubagentTest {
     }
 
     @Test
-    fun `activate uses explicit tools minus subagent-named ones when subagent tools is non-empty`() = runTest {
-        val explicitKeep = StubTool("keep_me")
-        val explicitDrop = StubTool("subagent_something")
+    fun `activate drops load and dynamic subagent tools but keeps names merely containing subagent`() = runTest {
+        val kept = StubTool("search_subagent_dir")
+        val loadTool = StubTool("load_subagent")
+        val dynamicTool = StubTool("dynamic_subagent")
         val llm = StubLlmProvider()
-        val sub = StubSubagent("coder", tools = listOf(explicitKeep, explicitDrop))
+        val sub = StubSubagent("coder", tools = listOf(kept, loadTool, dynamicTool))
         val ctx = SubagentContext(stubAgentContext(llm, tools = listOf(
             StubTool("from_main_only"),
         )))
         sub.activate(SubagentTask("x"), ctx)
         val visible = llm.chatRequests.single().tools.map { it.name }.toSet()
-        assertEquals(setOf("keep_me"), visible)
+        assertEquals(setOf("search_subagent_dir"), visible)
     }
 
     @Test
-    fun `activate filters out subagent-named tools from main set when subagent tools is null`() = runTest {
+    fun `activate falls back to main set dropping only load and dynamic subagent tools`() = runTest {
         val keep = StubTool("keep_me")
-        val dispatchedSubagentA = StubTool("subagent_dispatch")
-        val dispatchedSubagentB = StubTool("load_subagent")
+        val containsButNotCapability = StubTool("subagent_dispatch")
+        val loadTool = StubTool("load_subagent")
+        val dynamicTool = StubTool("dynamic_subagent")
         val llm = StubLlmProvider()
         val sub = StubSubagent("coder")  // tools = null → falls back to filtered main set
         val ctx = SubagentContext(stubAgentContext(llm, tools = listOf(
-            keep, dispatchedSubagentA, dispatchedSubagentB,
+            keep, containsButNotCapability, loadTool, dynamicTool,
         )))
         sub.activate(SubagentTask("x"), ctx)
         val visible = llm.chatRequests.single().tools.map { it.name }.toSet()
-        assertTrue(visible.contains("keep_me"))
-        assertFalse(visible.contains("subagent_dispatch"), "must filter by Subagent.CAPABILITY_TYPE containment")
-        assertFalse(visible.contains("load_subagent"), "must filter by Subagent.CAPABILITY_TYPE containment")
+        assertEquals(setOf("keep_me", "subagent_dispatch"), visible)
     }
 
     @Test

@@ -8,10 +8,8 @@ import io.github.yeyi.agent.capability.CapabilityPlugin
  * 仅供 Subagent 模块内部 `subagents(registry, ...)` 扩展函数使用;
  * 外部调用方应直接使用扩展函数,不感知本类。
  */
-internal class SubagentPlugin(
-    registry: SubagentRegistry,
-    enableDelegateAdaptMode: Boolean = true,
-) : CapabilityPlugin<Subagent, SubagentTask, SubagentContext>(registry, enableDelegateAdaptMode) {
+internal class SubagentPlugin(registry: SubagentRegistry) :
+    CapabilityPlugin<Subagent, SubagentTask, SubagentContext>(registry, true) {
 
     override fun contextFactory(): SubagentContextFactory = SubagentContextFactory()
 

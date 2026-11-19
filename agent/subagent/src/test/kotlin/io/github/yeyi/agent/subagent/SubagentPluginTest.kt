@@ -5,8 +5,6 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.memory.Memory
 import kotlin.test.Test
 import kotlin.test.assertContains
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
 
 class SubagentPluginTest {
 
@@ -41,31 +39,5 @@ class SubagentPluginTest {
         plugin.install(context)
         val toolNames = context.tools.map { it.name }
         assertContains(toolNames, "load_subagent")
-    }
-
-    @Test
-    fun `install in one-to-one mode installs per-subagent tools`() {
-        val registry = SubagentRegistry().apply {
-            register(StubSubagent("alpha"))
-            register(StubSubagent("beta"))
-        }
-        val plugin = SubagentPlugin(registry, enableDelegateAdaptMode = false)
-        val context = FakePluginContext()
-        plugin.install(context)
-        val toolNames = context.tools.map { it.name }
-        assertContains(toolNames, "subagent_alpha")
-        assertContains(toolNames, "subagent_beta")
-        assertFalse("load_subagent" in toolNames)
-    }
-
-    @Test
-    fun `install respects enableDelegateAdaptMode toggle`() {
-        val registry = SubagentRegistry().apply { register(StubSubagent("x")) }
-        val delegateContext = FakePluginContext()
-        val oneToOneContext = FakePluginContext()
-        SubagentPlugin(registry, enableDelegateAdaptMode = true).install(delegateContext)
-        SubagentPlugin(registry, enableDelegateAdaptMode = false).install(oneToOneContext)
-        assertContains(delegateContext.tools.map { it.name }, "load_subagent")
-        assertFalse("load_subagent" in oneToOneContext.tools.map { it.name })
     }
 }

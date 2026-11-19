@@ -252,17 +252,21 @@ class DynamicSubagentTest {
     fun `execute inherits all filtered main tools`() = runTest {
         val keep = StubTool("read_file")
         val keep2 = StubTool("write_file")
-        val staticSubagent = StubTool("subagent_dispatch")
+        val containsSubagent = StubTool("subagent_dispatch")
         val dynamicSelf = StubTool("dynamic_subagent")
         val llm = StubLlmProvider(listOf(chatResponse("ok")))
         val tool = DynamicSubagentTool()
-        val ctx = toolCtx(stubAgentContext(llm, tools = listOf(keep, keep2, staticSubagent, dynamicSelf)))
+        val ctx = toolCtx(stubAgentContext(llm, tools = listOf(keep, keep2, containsSubagent, dynamicSelf)))
         val args = buildJsonObject {
             put("subagents", buildJsonArray { add(agentJson(role = "p", task = "t")) })
         }
         tool.execute(args, ctx)
         val visible = llm.chatRequests.single().tools.map { it.name }.toSet()
-        assertEquals(setOf("read_file", "write_file"), visible, "subagent must inherit all main tools minus subagent ones")
+        assertEquals(
+            setOf("read_file", "write_file", "subagent_dispatch"),
+            visible,
+            "subagent must inherit main tools minus load/dynamic subagent tools",
+        )
     }
 
     @Test
