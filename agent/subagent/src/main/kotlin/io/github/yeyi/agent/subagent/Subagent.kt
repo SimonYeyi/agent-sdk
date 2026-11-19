@@ -61,7 +61,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
             "${subagentTask.context}\n\n${subagentTask.task}"
         }
         return sub.run(AgentQuery.text(userMessage)).awaitResult()
-            .contentNotNull().message.content!!
+            .fillNullContent().message.content!!
     }
 
     public companion object {
@@ -82,7 +82,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
  * 参数也拼入: 可终结工具短路时, 终态信息可能承载在参数里, 工具结果本身可能为空或仅状态
  * 确认 —— 只取结果会丢掉关键语义。JsonNull / `{}` / 空白视为无参数,输出 `name()`。
  */
-public fun AgentResult.contentNotNull(): AgentResult {
+public fun AgentResult.fillNullContent(): AgentResult {
     if (message.content != null) return this
     val text = buildString {
         appendLine("最后一轮工具调用情况：")

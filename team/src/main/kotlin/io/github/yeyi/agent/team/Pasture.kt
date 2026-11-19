@@ -2,7 +2,7 @@ package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
-import io.github.yeyi.agent.subagent.contentNotNull
+import io.github.yeyi.agent.subagent.fillNullContent
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -23,7 +23,7 @@ private class DagNode(
     var job: Job? = null,
     // 上游结果缓存: key=上游 taskId, value=Final event.content(给下游 task 的 context prepend 用)
     val upstreamResults: MutableMap<String, String> = mutableMapOf(),
-    // 从 beast 来的终态。content 已在写入前经 [contentNotNull] 补齐, 消费方无需再判空。
+    // 从 beast 来的终态。content 已在写入前经 [fillNullContent] 补齐, 消费方无需再判空。
     var result: AgentEvent.Final? = null,
     // 从 beast 来的 failed 或 pasture 自己产生的异常
     var error: Throwable? = null,
@@ -173,7 +173,7 @@ internal class Pasture(
                         is AgentEvent.Final -> {
                             dagLock.withLock {
                                 dag[taskId]?.result =
-                                    event.copy(result = event.result.contentNotNull())
+                                    event.copy(result = event.result.fillNullContent())
                             }
                             handleTerminal(taskId, null)
                         }

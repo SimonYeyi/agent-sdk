@@ -59,7 +59,7 @@ class SubagentCardTest {
         )
         val sub = subagent("locator", "查位置", instruction = "调用 get_location 查当前位置")
 
-        // 产卡工具出卡即终结：子 agent 的 Final 无正文，contentNotNull 会兜底为
+        // 产卡工具出卡即终结：子 agent 的 Final 无正文，fillNullContent 会兜底为
         // "最后一轮工具调用情况"摘要，而非抛空正文错误。
         val result = sub.activate(SubagentTask("查当前位置"), SubagentContext(parentContext))
         assertTrue(result.contains("get_location"), "子 agent 空正文应兜底为工具调用摘要，实际：$result")
