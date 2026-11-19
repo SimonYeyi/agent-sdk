@@ -40,7 +40,7 @@ internal class DynamicSubagentTool : Tool {
     override val name: String = "dynamic_subagent"
 
     override val description: String =
-        "当需要同时推进多个互不依赖的子任务时（如多角度分析、批量处理、对比实验），MUST 调用 dynamic_subagent 工具。而不是使用多个 function calling 直接发起工具调用，因为它们将会被串行处理。"
+        "动态生成多个子代理。当需要同时推进多个互不依赖的子任务时（如多角度分析、批量处理、对比实验）使用。"
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
         """
