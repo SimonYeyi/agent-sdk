@@ -70,8 +70,7 @@ public interface Subagent : Capability<SubagentTask, SubagentContext> {
 }
 
 /**
- * 保证 `AgentResult.message.content` 可读: 非空原样返回; 为 null(仅出现在可终结工具短路路径)
- * 时以最后一次迭代那批工具的参数与结果文本部分按序拼装。
+ * 提供非空的 `content` 给下游 agent(不可用于 UI 展示): 非空原样返回; 为 null(仅出现在可终结工具短路路径)时以最后一次迭代那批工具的参数与结果文本部分按序拼装。
  *
  * 子 agent(被调度的下游 agent)的 Final 可能 content 为 null —— 跑了工具短路、没生成最终
  * 正文,但上游消费方(父 agent 的 context prepend)需要知晓执行结果,故在此
