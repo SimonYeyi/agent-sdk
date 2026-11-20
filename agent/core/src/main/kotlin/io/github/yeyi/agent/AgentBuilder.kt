@@ -13,7 +13,7 @@ import java.util.UUID
 /**
  * DSL builder for [Agent]. Obtain an instance via the top-level [agent] factory function.
  *
- * `build()` produces a [ReActAgent] configured from the current builder state.
+ * `build()` produces an [OmniAgent] configured from the current builder state.
  *
  * ## Validation
  *
@@ -149,7 +149,7 @@ public class AgentBuilder {
     }
 
     /**
-     * Terminal operation: snapshots the current builder state and returns a fresh [ReActAgent].
+     * Terminal operation: snapshots the current builder state and returns a fresh [OmniAgent].
      *
      * Re-calling `build()` on the same builder produces two independent agents (the captured
      * tool registry, memory, and hook are passed through by reference, so reusing
@@ -157,7 +157,7 @@ public class AgentBuilder {
      *
      * @throws IllegalArgumentException if [llmProvider] has not been set.
      */
-    public fun build(): Agent {
+    public fun build(): OmniAgent {
         val provider = requireNotNull(llmProvider) { "llmProvider must be set" }
         val modalityAdapter = modalityAdapter
             ?: DefaultModalityAdapter((memory as? MediaArchivable)?.mediaArchive)
@@ -179,7 +179,7 @@ public class AgentBuilder {
 }
 
 /**
- * Top-level DSL factory: builds and returns an [Agent] by applying [block] to a fresh
+ * Top-level DSL factory: builds and returns an [OmniAgent] by applying [block] to a fresh
  * [AgentBuilder] and immediately calling `build()`.
  *
  * Usage:
@@ -192,8 +192,8 @@ public class AgentBuilder {
  * ```
  *
  * @param block configuration block executed against a fresh [AgentBuilder].
- * @return a new [Agent] (specifically a [ReActAgent]) ready to run.
+ * @return a new [OmniAgent] ready to run.
  * @throws IllegalArgumentException if [AgentBuilder.llmProvider] is not set inside [block].
  */
-public fun agent(block: AgentBuilder.() -> Unit): Agent =
+public fun agent(block: AgentBuilder.() -> Unit): OmniAgent =
     AgentBuilder().apply(block).build()

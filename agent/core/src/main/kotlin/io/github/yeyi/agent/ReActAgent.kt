@@ -55,7 +55,7 @@ public class ReActAgent internal constructor(
     private val maxIterations: Int,
     private val hook: AgentHook = NoOpAgentHook,
     dispatcher: CoroutineDispatcher = Dispatchers.Default,
-) : Agent, Agent.Streamable, Agent.Steerable, Agent.Feedable, Agent.Cancelable, Agent.Shutdownable {
+) : OmniAgent {
     private val memory = RoundsBoundedMemory(RepairedMemory(memory), maxRounds, llmProvider)
 
     /**

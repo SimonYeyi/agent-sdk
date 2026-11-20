@@ -1,12 +1,9 @@
 package io.github.yeyi.agent.config
 
-import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.Agent.Shutdownable
-import io.github.yeyi.agent.Agent.Steerable
-import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentPersona
-import io.github.yeyi.agent.ReActAgent
+import io.github.yeyi.agent.OmniAgent
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.mcp.McpRegistry
 import io.github.yeyi.agent.mcp.mcps
@@ -40,15 +37,14 @@ public fun AgentDefinition.spawn(agentId: String, memory: Memory, scope: AgentSc
         resolveInfo.skillRegistry?.let { skills(it) }
         resolveInfo.subagentRegistry?.let { subagents(it) }
         resolveInfo.mcpRegistry?.let { mcps(it) }
-    } as ReActAgent
+    }
     return SpawnedAgent(delegate, resolveInfo.mcpRegistry)
 }
 
 /**
- * spawn 产物：实现 [Agent] 的委托包装，并实现 [Shutdownable] 提供整体关闭。
- *
- * 本类只承担 shutdown 的额外职责（反注册 MCP 子进程资源），run / runStream /
- * steer / cancel 通过 `by` 委托底层 [ReActAgent]，行为与其原生语义完全一致：
+ * spawn 产物：以 `by` 委托整体转发底层 [OmniAgent]，仅对 [Shutdownable.shutdown]
+ * 追加 MCP 资源回收职责，其余能力（run / runStream / steer / feed / cancel）与
+ * delegate 原生语义完全一致：
  * shutdown 后 [run] / [runStream] 因 delegate 的 runTurn 守卫抛 [IllegalStateException]，
  * [steer] 返回 false、[cancel] 返回 null。
  *
@@ -61,10 +57,9 @@ public fun AgentDefinition.spawn(agentId: String, memory: Memory, scope: AgentSc
  * 在途回合以 [AgentEvent.Canceled] 收尾——收集方按事件分支判断，不再 catch 取消异常。
  */
 public class SpawnedAgent internal constructor(
-    private val delegate: ReActAgent,
+    private val delegate: OmniAgent,
     private val mcpRegistry: McpRegistry? = null
-) : Agent by delegate, Streamable by delegate, Steerable by delegate, Agent.Feedable by delegate,
-    Agent.Cancelable by delegate, Shutdownable {
+) : OmniAgent by delegate {
 
     /** 永久关闭 Agent 并回收资源（MCP 子进程等）。幂等，可重复调用。 */
     override fun shutdown() {

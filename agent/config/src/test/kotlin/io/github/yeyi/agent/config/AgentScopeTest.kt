@@ -7,7 +7,6 @@ import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
-import io.github.yeyi.agent.ReActAgent
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.memory.MemoryEntry
@@ -420,7 +419,7 @@ class AgentScopeTest {
             agent {
                 llmProvider(GatedLlm(started, gate))
                 memory(InMemoryMemory())
-            } as ReActAgent
+            }
         )
 
         // 收集进外部列表：断言留在测试协程上，避免 launch 内的断言失败被吞掉。
@@ -446,7 +445,7 @@ class AgentScopeTest {
             agent {
                 llmProvider(GatedLlm(started, gate))
                 memory(InMemoryMemory())
-            } as ReActAgent
+            }
         )
 
         val events = mutableListOf<AgentEvent>()
@@ -480,7 +479,7 @@ class AgentScopeTest {
         val delegate = agent {
             llmProvider(StubLlm)
             memory(InMemoryMemory())
-        } as ReActAgent
+        }
         val spawned = SpawnedAgent(delegate)
 
         val events = spawned.run(AgentQuery.text("ping")).toList()
@@ -501,7 +500,7 @@ class AgentScopeTest {
             agent {
                 llmProvider(llm)
                 memory(InMemoryMemory())
-            } as ReActAgent
+            }
         )
 
         val flow = spawned.run(AgentQuery.text("ping"))
@@ -526,7 +525,7 @@ class AgentScopeTest {
             agent {
                 llmProvider(GatedLlm(started, gate))
                 memory(InMemoryMemory())
-            } as ReActAgent
+            }
         )
 
         val events = mutableListOf<AgentEvent>()
@@ -554,7 +553,7 @@ class AgentScopeTest {
             agent {
                 llmProvider(llm)
                 memory(InMemoryMemory())
-            } as ReActAgent
+            }
         )
 
         val flow = spawned.runStream(AgentQuery.text("ping"))
@@ -578,7 +577,7 @@ class AgentScopeTest {
         val delegate = agent {
             llmProvider(StubLlm)
             memory(InMemoryMemory())
-        } as ReActAgent
+        }
         val spawned = SpawnedAgent(delegate)
         spawned.shutdown()
 
@@ -598,7 +597,7 @@ class AgentScopeTest {
             agent {
                 llmProvider(GatedLlm(started, gate))
                 memory(InMemoryMemory())
-            } as ReActAgent
+            }
         )
 
         spawned.run(AgentQuery.text("ping")) // 不 collect

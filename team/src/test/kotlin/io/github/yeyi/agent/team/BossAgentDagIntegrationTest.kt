@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.team
 
-import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
@@ -135,7 +134,7 @@ class BossAgentDagIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent as Streamable, scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
 
         return boss to bb
@@ -154,7 +153,7 @@ class BossAgentDagIntegrationTest {
             io.github.yeyi.agent.memory.InMemoryMemory().let { memory(it, 20) }
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent as Streamable, scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
         return boss to bb
     }
@@ -485,7 +484,7 @@ class BossAgentDagIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent as Streamable, scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
 
         val report = mutableListOf<AgentEvent>()
@@ -668,7 +667,7 @@ class BossAgentDagIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent as Streamable, scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
 
         val report = mutableListOf<AgentEvent>()

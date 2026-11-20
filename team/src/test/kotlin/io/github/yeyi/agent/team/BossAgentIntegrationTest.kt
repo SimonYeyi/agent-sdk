@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.team
 
-import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.fakes.FakeLlmProvider
@@ -116,7 +115,7 @@ class BossAgentIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent as Streamable, scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
 
         // 用 launch(UNDISPATCHED) 同步挂上 boss.report collector,无需 delay 屏障.
@@ -218,7 +217,7 @@ class BossAgentIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent as Streamable, scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
 
         val report = mutableListOf<AgentEvent>()
@@ -265,7 +264,7 @@ class BossAgentIntegrationTest {
             tool(cancelTask)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent as Streamable, scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
 
         val events = boss.run(AgentQuery.text("帮我跑 echo")).toList()

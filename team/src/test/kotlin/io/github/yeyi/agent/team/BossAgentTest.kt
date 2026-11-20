@@ -3,10 +3,10 @@
 package io.github.yeyi.agent.team
 
 import io.github.yeyi.agent.Agent
-import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
 import io.github.yeyi.agent.AgentResult
+import io.github.yeyi.agent.OmniAgent
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.llm.ChatMessage
@@ -62,7 +62,7 @@ class BossAgentTest {
             memory(InMemoryMemory(), 20)
             maxIterations(1) // single-turn agent
         }
-        val boss = BossAgent(innerAgent as Streamable, scope)
+        val boss = BossAgent(innerAgent, scope)
         runBlocking { boss.attach(bb) }
         return boss to bb
     }
@@ -147,12 +147,12 @@ class BossAgentTest {
     }
 
     /**
-     * Streamable 包装：第一次 runStream（用户轮）正常委托，
+     * OmniAgent 包装：第一次 runStream（用户轮）正常委托，
      * 第二次 runStream（报告轮）直接抛 ShutdownError —— 模拟「报告轮已受理但 inner 已先被 shutdown」。
      */
     private class ShutdownErrorOnSecondRunStream(
-        private val delegate: Agent.Streamable,
-    ) : Agent.Streamable by delegate {
+        private val delegate: OmniAgent,
+    ) : OmniAgent by delegate {
         private val callCount = java.util.concurrent.atomic.AtomicInteger()
 
         override fun runStream(query: AgentQuery): Flow<AgentEvent> {
@@ -488,7 +488,7 @@ class BossAgentTest {
             memory(InMemoryMemory(), 20)
             maxIterations(1)
         }
-        val boss = BossAgent(ShutdownErrorOnSecondRunStream(innerAgent as Streamable), scope)
+        val boss = BossAgent(ShutdownErrorOnSecondRunStream(innerAgent), scope)
         val bb = BulletinBoard()
         runBlocking { boss.attach(bb) }
 
@@ -584,7 +584,7 @@ class BossAgentTest {
             memory(InMemoryMemory(), 20)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent as Streamable, scope)
+        val boss = BossAgent(innerAgent, scope)
         val bb = BulletinBoard()
         boss.attach(bb)
 
@@ -699,7 +699,7 @@ class BossAgentTest {
             memory(InMemoryMemory(), 20)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent as Streamable, scope)
+        val boss = BossAgent(innerAgent, scope)
         val bb = BulletinBoard()
         boss.attach(bb)
 
@@ -757,7 +757,7 @@ class BossAgentTest {
             memory(InMemoryMemory(), 20)
             maxIterations(5)
         }
-        val boss = BossAgent(innerAgent as Streamable, scope)
+        val boss = BossAgent(innerAgent, scope)
         val bb = BulletinBoard()
         runBlocking { boss.attach(bb) }
 

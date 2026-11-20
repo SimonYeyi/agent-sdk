@@ -213,3 +213,21 @@ public interface Agent {
         public fun shutdown()
     }
 }
+
+/**
+ * 标准全能力组合接口 —— [Agent] 基础契约与全部可选能力的一站式聚合，自身不引入新成员。
+ *
+ * 作为 `agent {}` DSL 的返回类型：调用方拿到即全能力，无需逐项 `is` 探测，也无需感知
+ * 具体实现类。实现者按能力正交实现各成员接口后声明本接口即得全能力面；委托包装以
+ * `by delegate` 整体转发，成员接口扩容时包装自动同步，无需逐项补委托。
+ *
+ * 本接口不是全体 Agent 的必备契约：能力子集型 Agent（如调度器）按需切片实现，异构
+ * Agent 协作仍以能力探测为默认姿势；一般参数签名按需声明所需能力接口，勿默认要求本类型。
+ */
+public interface OmniAgent :
+    Agent,
+    Agent.Streamable,
+    Agent.Steerable,
+    Agent.Feedable,
+    Agent.Cancelable,
+    Agent.Shutdownable

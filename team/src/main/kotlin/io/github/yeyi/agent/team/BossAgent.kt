@@ -3,11 +3,11 @@ package io.github.yeyi.agent.team
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
+import io.github.yeyi.agent.OmniAgent
 import io.github.yeyi.agent.isTerminal
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
@@ -98,11 +98,19 @@ public data class TasksState(
 
 // ===== BossAgent =====
 
+/**
+ * 调度型 agent —— 内部持有 [innerAgent]，以「用户轮 / 报告轮」双队列串行驱动其推理：
+ * [run] 受理用户轮（多次 run 内部排队），报告轮由任务终态触发、事件经 [report] 热流流出。
+ *
+ * 能力面：[Agent.Steerable.steer] 与 [Agent.Feedable.feed] 以 `by` 纯委托 [innerAgent]、
+ * 不加改写；[shutdown] 在委托关闭 innerAgent 之外追加 boss 侧收尾。注入 / 投喂内容无
+ * 独立输出通道，落点随当前或下一轮生效——是用户轮还是报告轮由调度器决定，两者皆预期。
+ */
 public class BossAgent internal constructor(
-    private val innerAgent: Agent.Streamable,
+    private val innerAgent: OmniAgent,
     private val scope: CoroutineScope,
     private val onShutdown: () -> Unit = {},
-) : Agent, Agent.Steerable, Agent.Feedable, Agent.Shutdownable {
+) : Agent, Agent.Steerable by innerAgent, Agent.Feedable by innerAgent, Agent.Shutdownable {
     public companion object {
         /** 系统报告标签 — 任务完成汇报以 `AgentQuery.text(result, label = REPORT_LABEL)` 注入 innerAgent，
          *  随记忆条目持久化，UI 可据此渲染"系统"气泡，模型侧通过 `report: content` 前缀感知。 */
@@ -201,32 +209,6 @@ public class BossAgent internal constructor(
     }
 
     /**
-     * 在途指令注入 —— 委托给 [innerAgent] 的 [Agent.Steerable]。
-     *
-     * Boss 的活跃回合（用户轮或报告轮）完全承载于 innerAgent（经 innerAgent.runStream 驱动），
-     * 注入必须落进 innerAgent 的当前回合才能随该回合生效，故直接委托。Boss 空闲时（innerAgent
-     * 无活跃回合）返回 `false`。
-     *
-     * 注入落点不由调用方决定：注入内容无独立输出通道，随当前活跃轮生效——该轮是用户轮还是
-     * 报告轮，取决于此刻调度器在跑哪一个，两者皆是预期语义。
-     */
-    override fun steer(query: AgentQuery): Boolean =
-        (innerAgent as? Agent.Steerable)?.steer(query) ?: false
-
-    /**
-     * 投喂 —— 委托给 [innerAgent] 的 [Agent.Feedable]（非活跃期注入：写记忆、随下一轮推理生效）。
-     *
-     * Boss 的对话记忆完全承载于 innerAgent（用户轮与报告轮均经 innerAgent.runStream 驱动），
-     * 投喂必须落进 innerAgent 才能被感知，故直接委托，不另设投喂路径。活跃期返回 null
-     * （拒绝注入）；空闲期返回写入 [Job]。
-     *
-     * 投喂落点不由调用方决定：投喂内容无独立输出通道，随下一轮生效——该轮是用户轮还是
-     * 报告轮，取决于谁先被调度器启动，两者皆是预期语义。
-     */
-    override fun feed(query: AgentQuery): Job? =
-        (innerAgent as? Agent.Feedable)?.feed(query)
-
-    /**
      * 关闭 BossAgent — 取消 [scope], 停止所有 boss/pasture 的后台任务,
      * 并对所有未结束 round 补发 [AgentEvent.Canceled] 终局事件终止进行中的 run flow.
      * 之后 boss LLM 不会再被新事件触发; pasture 的 running jobs 也会被取消.
@@ -244,7 +226,7 @@ public class BossAgent internal constructor(
         // 内层 agent 的执行域必须显式终止：架构 1 靠 scope.cancel() 的结构化并发
         // 隐式级联杀死 inner 执行体；架构 2 下 inner 回合跑在自己的私有 scope，
         // 该级联失效 —— 不显式 shutdown，boss 关闭后 inner 仍会烧 token 到自然终局。
-        (innerAgent as? Agent.Shutdownable)?.shutdown()
+        innerAgent.shutdown()
         scope.cancel(cause); onShutdown()
     }
 

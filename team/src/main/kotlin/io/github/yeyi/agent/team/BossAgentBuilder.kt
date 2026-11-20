@@ -1,6 +1,5 @@
 package io.github.yeyi.agent.team
 
-import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.agent
@@ -219,7 +218,7 @@ public class BossAgentBuilder internal constructor() {
             toolRegistry0?.let { tools(it.all()) }
         }
 
-        return BossAgent(innerAgent as Streamable, scope) { mcpRegistry0?.unregisterAll() }
+        return BossAgent(innerAgent, scope) { mcpRegistry0?.unregisterAll() }
     }
 }
 
