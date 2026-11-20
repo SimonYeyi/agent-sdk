@@ -204,8 +204,11 @@ public class BossAgent internal constructor(
      * 在途指令注入 —— 委托给 [innerAgent] 的 [Agent.Steerable]。
      *
      * Boss 的活跃回合（用户轮或报告轮）完全承载于 innerAgent（经 innerAgent.runStream 驱动），
-     * 注入必须落进 innerAgent 的当前回合才能随该回合生效，故直接委托。Boss 空闲时 innerAgent
-     * 也无活跃回合、返回 false —— 调用方据此回落到 [feed] 预置，串行覆盖「活跃注入、空闲预置」。
+     * 注入必须落进 innerAgent 的当前回合才能随该回合生效，故直接委托。Boss 空闲时（innerAgent
+     * 无活跃回合）返回 `false`。
+     *
+     * 注入落点不由调用方决定：注入内容无独立输出通道，随当前活跃轮生效——该轮是用户轮还是
+     * 报告轮，取决于此刻调度器在跑哪一个，两者皆是预期语义。
      */
     override fun steer(query: AgentQuery): Boolean =
         (innerAgent as? Agent.Steerable)?.steer(query) ?: false
@@ -213,10 +216,12 @@ public class BossAgent internal constructor(
     /**
      * 投喂 —— 委托给 [innerAgent] 的 [Agent.Feedable]（非活跃期注入：写记忆、随下一轮推理生效）。
      *
-     * Boss 的对话记忆与在途回合完全承载于 innerAgent（用户轮与报告轮均经 innerAgent.runStream
-     * 驱动），投喂必须落进 innerAgent 才能被感知，故直接委托，不另设投喂路径。活跃期返回
-     * null（拒绝注入 —— 活跃期注入应先经 [steer]，返回 `false` 才轮到本方法）；空闲期返回
-     * 写入 [Job]。
+     * Boss 的对话记忆完全承载于 innerAgent（用户轮与报告轮均经 innerAgent.runStream 驱动），
+     * 投喂必须落进 innerAgent 才能被感知，故直接委托，不另设投喂路径。活跃期返回 null
+     * （拒绝注入）；空闲期返回写入 [Job]。
+     *
+     * 投喂落点不由调用方决定：投喂内容无独立输出通道，随下一轮生效——该轮是用户轮还是
+     * 报告轮，取决于谁先被调度器启动，两者皆是预期语义。
      */
     override fun feed(query: AgentQuery): Job? =
         (innerAgent as? Agent.Feedable)?.feed(query)

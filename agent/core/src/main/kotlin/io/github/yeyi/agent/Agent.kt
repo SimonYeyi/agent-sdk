@@ -118,8 +118,8 @@ public interface Agent {
      * - [Feedable.feed] 管**非活跃期**注入 —— 仅在无活跃回合时写记忆，随下一轮推理生效；
      *   活跃时拒绝注入（返回 `null`）。
      *
-     * 调用方须**先 [Steerable.steer] 探测状态**（勿先 feed、以 `null` 反推活跃）：steer 返回 `false`
-     * （无活跃回合）再 feed；返回 `true` 则已由 steer 注入，不必再 feed。
+     * 可通过前置 [Steerable.steer] 以防 [feed] 遭拒：steer 返回 `false`（无活跃回合）后紧接
+     * feed 必定成功；返回 `true` 则内容已由 steer 注入在途回合，不必再 feed。
      *
      * [feed] 返回写入任务的句柄 [Job]（非 suspend），与 [Cancelable.cancel] 风格对齐：
      * 调用方可自主选择是否 [Job.join] 等待写入完成。
@@ -134,7 +134,7 @@ public interface Agent {
          *
          * @param query 待投喂的消息，支持文本 + 多模态
          * @return 写记忆任务的句柄 [Job]，join 它即确保消息已落进记忆；
-         *   `null` 表示拒绝注入（Agent 已关闭，或存在活跃回合 —— 应先 [Steerable.steer]，而不是直接 [feed]）
+         *   `null` 表示拒绝注入（Agent 已关闭，或存在活跃回合——可先通过 [Steerable.steer] 探测性注入）
          */
         public fun feed(query: AgentQuery): Job?
     }

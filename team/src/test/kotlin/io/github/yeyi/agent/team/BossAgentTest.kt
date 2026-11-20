@@ -772,7 +772,7 @@ class BossAgentTest {
         // 活跃：用 steer 在途注入（Boss 的 steer 委托 innerAgent.steer）
         assertTrue(boss.steer(AgentQuery.text("feed-active")), "active steer should be accepted")
 
-        // 活跃：feed 拒绝注入（非活跃期注入原语，活跃时应走 steer）
+        // 活跃：feed 拒绝注入（活跃期注入是 steer 的职责）
         assertNull(boss.feed(AgentQuery.text("feed-active-null")), "active feed should be rejected")
 
         withTimeout(5000) { runJob.join() }
