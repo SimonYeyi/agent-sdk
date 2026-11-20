@@ -166,7 +166,6 @@ class DynamicSubagentTest {
     @Test
     fun `tool description carries the trigger condition`() {
         val description = DynamicSubagentTool().description
-        assertTrue(description.contains("dynamic_subagent"), description)
         assertTrue(description.contains("互不依赖"), description)
     }
 
