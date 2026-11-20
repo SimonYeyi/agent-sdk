@@ -3,9 +3,9 @@ package io.github.yeyi.agent.demo.agent.vm
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
+import io.github.yeyi.agent.OmniAgent
 import io.github.yeyi.agent.demo.agent.runtime.AgentRuntime
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
 import io.github.yeyi.agent.genui.ir.ActionEvent
@@ -53,7 +53,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     // 会话场景 agent 语义上就是长驻的：与 ChatViewModel 的单实例对齐，
     // 不再逐条消息新建（每次新建会在架构 2 下遗留仍持有在途回合的私有 scope）。
     // 换会话 = 换 memory，故切走前必须 shutdown 作废旧实例。
-    private var agent: io.github.yeyi.agent.Agent? = null
+    private var agent: OmniAgent? = null
 
     /** 渲染后端：UI 层经 [UiRenderAdapter.RenderCard] 渲染卡片，demo 全局共用 AgentRuntime 装配。 */
     val cardAdapter: UiRenderAdapter get() = AgentRuntime.cardAdapter
@@ -189,9 +189,8 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
                 _uiState.value = _uiState.value.copy(error = e.message, isLoading = false)
                 return@launch
             }
-            // 会话 UI 依赖流式增量；Agent 未实现 Streamable 时降级为批式路径。
-            val eventFlow = (agent as? Streamable)?.runStream(AgentQuery.text(inputText))
-                ?: agent.run(AgentQuery.text(inputText))
+            // 会话 UI 依赖流式增量，直连 runStream —— OmniAgent 的原生能力。
+            val eventFlow = agent.runStream(AgentQuery.text(inputText))
             eventFlow
                 // 轮次收尾挂在流的完成上：终局事件后流完成、订阅被取消，两者都会执行。
                 // isLoading 兜底复位，防止异常路径残留 LoadingBubble。
@@ -321,7 +320,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     }
 
     /** 新 agent：以 session.id 作为身份标识，产卡工具随它构造。 */
-    private fun newAgent(session: Session): io.github.yeyi.agent.Agent {
+    private fun newAgent(session: Session): OmniAgent {
         return AgentRuntime.buildAgent(session.id, session.memory)
     }
 
@@ -329,7 +328,7 @@ public class SessionViewModel(application: Application) : AndroidViewModel(appli
     private fun releaseAgent() {
         val old = agent
         agent = null
-        (old as? io.github.yeyi.agent.Agent.Shutdownable)?.shutdown()
+        old?.shutdown()
     }
 
     /**

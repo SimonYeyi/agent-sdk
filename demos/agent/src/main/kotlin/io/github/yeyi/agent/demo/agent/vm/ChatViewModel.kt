@@ -3,9 +3,9 @@ package io.github.yeyi.agent.demo.agent.vm
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.yeyi.agent.Agent
-import io.github.yeyi.agent.Agent.Streamable
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentQuery
+import io.github.yeyi.agent.OmniAgent
 import io.github.yeyi.agent.demo.agent.runtime.AgentRuntime
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
 import io.github.yeyi.agent.genui.ir.ActionEvent
@@ -26,10 +26,10 @@ enum class RunMode { STREAM, BATCH }
 data class LiveBubble(val id: String, val text: String)
 
 class ChatViewModel(
-    agentFactory: ((Memory, String) -> Agent)? = null,
+    agentFactory: ((Memory, String) -> OmniAgent)? = null,
 ) : ViewModel() {
 
-    private val agentFactory: (Memory, String) -> Agent =
+    private val agentFactory: (Memory, String) -> OmniAgent =
         agentFactory ?: { memory, agentId ->
             AgentRuntime.buildAgent(agentId = agentId, memory = memory)
         }
@@ -62,7 +62,7 @@ class ChatViewModel(
     private var memory: Memory = io.github.yeyi.agent.memory.InMemoryMemory()
 
     private var agentSeq: Int = 0
-    private var agent: Agent = createAgent()
+    private var agent: OmniAgent = createAgent()
 
     init {
         viewModelScope.launch { reloadMessages() }
@@ -75,7 +75,7 @@ class ChatViewModel(
     private fun newAgentId(): String = "demo-agent-${++agentSeq}"
 
     /** 建 agent：产卡工具随它构造，绑定本 VM 的卡片通道。 */
-    private fun createAgent(): Agent {
+    private fun createAgent(): OmniAgent {
         return agentFactory(memory, newAgentId())
     }
 
@@ -155,7 +155,7 @@ class ChatViewModel(
         // 换 agent 在同一主线程回调里完成，run() 读不到「旧 agent 已 shutdown、
         // 字段尚未替换」的中间态——并发 run 的 ISE 拒绝由此不可达。
         agent = createAgent()
-        (oldAgent as? Agent.Shutdownable)?.shutdown()
+        oldAgent.shutdown()
     }
 
     /**
@@ -193,8 +193,7 @@ class ChatViewModel(
      */
     fun submit(text: String) {
         if (text.isBlank()) return
-        val steerable = agent as? Agent.Steerable
-        if (steerable != null && steerable.steer(AgentQuery.text(text))) {
+        if (agent.steer(AgentQuery.text(text))) {
             _steerHint.value = "已注入当前轮次，模型将在下一轮采纳"
             return
         }
@@ -202,14 +201,13 @@ class ChatViewModel(
     }
 
     /**
-     * 跑一轮：调用即启动回合（架构 2），流式是可选能力——
-     * Agent 未实现 Streamable 时降级为批式路径。
+     * 跑一轮：调用即启动回合（架构 2），STREAM 走流式、BATCH 走批式 ——
+     * 两条路径都是 [OmniAgent] 的原生能力，无需能力探测。
      */
     private fun runTurn(text: String) {
         val current = agent
         val flow = when (_mode.value) {
-            RunMode.STREAM -> (agent as? Streamable)?.runStream(AgentQuery.text(text))
-                ?: agent.run(AgentQuery.text(text))
+            RunMode.STREAM -> agent.runStream(AgentQuery.text(text))
 
             RunMode.BATCH -> agent.run(AgentQuery.text(text))
         }
@@ -242,7 +240,7 @@ class ChatViewModel(
      * "先还槽、后发终局事件"，故收集方收到 Canceled 时槽位已还 —— 下一轮直接开即可。
      */
     fun cancel() {
-        (agent as? Agent.Cancelable)?.cancel("user canceled")
+        agent.cancel("user canceled")
     }
 
     private fun handleEvent(event: AgentEvent) {
@@ -353,6 +351,6 @@ class ChatViewModel(
      * Canceled 回放不会渲染；不 shutdown 会留下无人观察的在途回合。
      */
     override fun onCleared() {
-        (agent as? Agent.Shutdownable)?.shutdown()
+        agent.shutdown()
     }
 }

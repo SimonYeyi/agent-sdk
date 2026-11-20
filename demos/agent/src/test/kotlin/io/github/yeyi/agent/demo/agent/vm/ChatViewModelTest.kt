@@ -1,6 +1,6 @@
 package io.github.yeyi.agent.demo.agent.vm
 
-import io.github.yeyi.agent.Agent
+import io.github.yeyi.agent.OmniAgent
 import io.github.yeyi.agent.AgentEvent
 import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.AgentQuery
@@ -11,6 +11,7 @@ import io.github.yeyi.agent.llm.ChatResponse
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.ChatResponseEvent
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onCompletion
@@ -58,7 +59,7 @@ class ChatViewModelTest {
                 )
             )
         )
-        val agent: Agent = agent {
+        val agent = agent {
             persona(AgentPersona("you are helpful"))
             llmProvider(provider)
             maxIterations(5)
@@ -84,7 +85,7 @@ class ChatViewModelTest {
                 ChatResponse(ChatMessage.Assistant(content = "batch-reply"), finishReason = FinishReason.Stop)
             )
         )
-        val agent: Agent = agent {
+        val agent = agent {
             persona(AgentPersona("you are helpful"))
             llmProvider(provider)
             maxIterations(5)
@@ -116,7 +117,7 @@ class ChatViewModelTest {
                 ChatResponse(ChatMessage.Assistant(content = "streamed"), finishReason = FinishReason.Stop)
             )
         )
-        val agent: Agent = agent {
+        val agent = agent {
             persona(AgentPersona("you are helpful"))
             llmProvider(provider)
             maxIterations(5)
@@ -294,7 +295,7 @@ class ChatViewModelTest {
         private val steerable: Boolean = false,
         /** 只在有活跃轮次时才投递（对齐 core 的"无活跃轮次 ⟹ 返回 false"）。 */
         private val steerNeedsActiveRound: Boolean = false,
-    ) : Agent, Agent.Steerable {
+    ) : OmniAgent {
         val runs = AtomicInteger()
         val channels = mutableListOf<Channel<AgentEvent>>()
         /** 每轮流结束的时刻 —— 测试据此知道旧轮已收尾。 */
@@ -310,6 +311,18 @@ class ChatViewModelTest {
             completions += done
             return channel.receiveAsFlow().onCompletion { done.complete(Unit) }
         }
+
+        /** VM 的 STREAM 模式直连 runStream —— 假 agent 两路同构，都走 channel 控制。 */
+        override fun runStream(query: AgentQuery): Flow<AgentEvent> = run(query)
+
+        /** 假 agent 无记忆，feed 无处可写。 */
+        override fun feed(query: AgentQuery): Job? = null
+
+        /** 轮次收尾由测试手动关 channel 控制，cancel 不投递。 */
+        override fun cancel(cause: String?): Job? = null
+
+        /** 轮次生命周期由测试控制，shutdown 无事可做。 */
+        override fun shutdown() {}
 
         /**
          * 对齐 core：签收只返回值（指令进信箱），入卷才发事件

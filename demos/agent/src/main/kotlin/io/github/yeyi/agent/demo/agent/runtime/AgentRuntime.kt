@@ -3,6 +3,7 @@ package io.github.yeyi.agent.demo.agent.runtime
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentPersona
+import io.github.yeyi.agent.OmniAgent
 import io.github.yeyi.agent.agent
 import io.github.yeyi.agent.approval.ApprovalHook
 import io.github.yeyi.agent.demo.agent.BuildConfig
@@ -128,7 +129,7 @@ object AgentRuntime {
      * @param agentId agent 身份标识
      * @param memory 会话记忆
      */
-    fun buildAgent(agentId: String, memory: Memory): Agent {
+    fun buildAgent(agentId: String, memory: Memory): OmniAgent {
         return agent {
             id(agentId)
             persona(AgentPersona(role = "你是一个全能助手。"))
