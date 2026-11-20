@@ -5,27 +5,31 @@ package io.github.yeyi.agent
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.fakes.registryOf
 import io.github.yeyi.agent.llm.ChatMessage
+import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
+import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.ContentPart
 import io.github.yeyi.agent.llm.FinishReason
+import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
-import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
-import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class FeedableTest {
 
     private fun TestScope.agentOf(
-        provider: FakeLlmProvider,
+        provider: LlmProvider,
         mem: InMemoryMemory,
         dispatcher: kotlinx.coroutines.CoroutineDispatcher = StandardTestDispatcher(testScheduler),
     ) = ReActAgent(
@@ -40,8 +44,20 @@ class FeedableTest {
         dispatcher = dispatcher,
     )
 
+    /**
+     * 让 chat 挂起在 [gate] 上：run 启动即占槽、执行体在 LLM 处挂起，制造"活跃期"，
+     * 用于断言 feed 拒绝对活跃期注入。
+     */
+    private class SuspendingLlmProvider(
+        private val gate: CompletableDeferred<ChatResponse>,
+    ) : LlmProvider {
+        override val name: String = "suspending"
+        override suspend fun chat(request: ChatRequest): ChatResponse = gate.await()
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow {}
+    }
+
     @Test
-    fun `feed returns true when idle and writes the message into memory`() = runTest {
+    fun `feed returns a joinable job when idle and writes the message into memory`() = runTest {
         val mem = InMemoryMemory()
         val agent = agentOf(
             FakeLlmProvider(
@@ -52,16 +68,16 @@ class FeedableTest {
             mem,
         )
 
-        assertTrue(agent.feed(AgentQuery.text("idle event")))
-        // 异步写入：推进调度让 scope.launch 的后台协程落笔
-        advanceUntilIdle()
+        val job = agent.feed(AgentQuery.text("idle event"))
+        assertNotNull(job, "idle feed should return a write job")
+        job.join() // join 即确保写入协程落笔
 
         val written = mem.history().any { entry ->
             val msg = entry.message
             msg is ChatMessage.User &&
                     msg.parts.any { it is ContentPart.Text && it.text.contains("idle event") }
         }
-        assertTrue(written, "fed message should be written into memory after the coroutine runs")
+        assertTrue(written, "fed message should be written into memory after joining the job")
     }
 
     @Test
@@ -74,8 +90,8 @@ class FeedableTest {
         )
         val agent = agentOf(provider, mem)
 
-        assertTrue(agent.feed(AgentQuery.text("pre-fed context")))
-        advanceUntilIdle() // 确保喂入消息已进 memory，再启动 run
+        val fed = assertNotNull(agent.feed(AgentQuery.text("pre-fed context")))
+        fed.join() // join 确保喂入消息已进 memory，再启动 run
 
         agent.run(AgentQuery.text("hi")).toList()
 
@@ -88,47 +104,7 @@ class FeedableTest {
     }
 
     @Test
-    fun `feed steers into the active round instead of rejecting`() = runTest(UnconfinedTestDispatcher()) {
-        val provider = ControllableLlmProvider(
-            listOf(
-                ChatResponse(ChatMessage.Assistant(content = "done"), finishReason = FinishReason.Stop),
-                ChatResponse(ChatMessage.Assistant(content = "done-again"), finishReason = FinishReason.Stop),
-            )
-        )
-        val mem = InMemoryMemory()
-        val agent = ReActAgent(
-            id = "test",
-            persona = AgentPersona(""),
-            llmProvider = provider,
-            toolRegistry = registryOf(),
-            memory = mem,
-            modalityAdapter = DefaultModalityAdapter(null),
-            maxRounds = 20,
-            maxIterations = 5,
-            dispatcher = StandardTestDispatcher(testScheduler),
-        )
-
-        backgroundScope.launch { agent.run(AgentQuery.text("hi")).collect { } }
-        advanceUntilIdle() // run 挂在 chat() 的 gate[0] 上，轮次活跃
-
-        // 活跃期 feed 走 steer 在途注入，返回 true（不再因活跃而 false）
-        assertTrue(agent.feed(AgentQuery.text("in-flight instruction")))
-
-        provider.completeNext() // 释放 gate[0]，终局被 steer 抢占 → 跑第二轮
-        advanceUntilIdle()
-        provider.completeNext() // 释放 gate[1]，第二轮正常收尾
-        advanceUntilIdle()
-
-        val injected = mem.history().any { entry ->
-            val msg = entry.message
-            msg is ChatMessage.User &&
-                    msg.parts.any { it is ContentPart.Text && it.text.contains("in-flight instruction") }
-        }
-        assertTrue(injected, "fed instruction should be injected into the active round's memory")
-    }
-
-    @Test
-    fun `feed returns false after shutdown instead of throwing`() = runTest {
+    fun `feed returns null after shutdown instead of throwing`() = runTest {
         val mem = InMemoryMemory()
         val agent = agentOf(
             FakeLlmProvider(
@@ -140,6 +116,20 @@ class FeedableTest {
         )
 
         agent.shutdown()
-        assertFalse(agent.feed(AgentQuery.text("after shutdown")))
+        assertNull(agent.feed(AgentQuery.text("after shutdown")))
+    }
+
+    @Test
+    fun `feed refuses injection during an active run`() = runTest {
+        val mem = InMemoryMemory()
+        val gate = CompletableDeferred<ChatResponse>()
+        val agent = agentOf(SuspendingLlmProvider(gate), mem)
+
+        // run 启动即占槽（activeTurn 非空），执行体在 LLM 处挂起，保持活跃期
+        agent.run(AgentQuery.text("in-flight"))
+        assertNull(agent.feed(AgentQuery.text("during-active")), "active run must refuse feed")
+
+        // 释放挂起点，让回合正常收尾，避免测试结束仍有挂起协程残留
+        gate.complete(ChatResponse(ChatMessage.Assistant(content = "ok"), finishReason = FinishReason.Stop))
     }
 }

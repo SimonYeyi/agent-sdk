@@ -36,6 +36,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertFailsWith
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
 class BossAgentTest {
@@ -702,9 +703,9 @@ class BossAgentTest {
         val bb = BulletinBoard()
         boss.attach(bb)
 
-        // 空闲：投喂接受
-        assertTrue(boss.feed(AgentQuery.text("pre-fed context")), "idle feed should be accepted")
-        delay(100) // 等 feed 异步写入 innerAgent 记忆
+        // 空闲：投喂接受，返回可 join 的写入任务，join 等待消息落进 innerAgent 记忆
+        val fed = assertNotNull(boss.feed(AgentQuery.text("pre-fed context")), "idle feed should be accepted")
+        fed.join()
 
         val initJob = launch { boss.run(AgentQuery.text("hi")).collect { } }
         withTimeout(5000) { initJob.join() }
@@ -716,17 +717,16 @@ class BossAgentTest {
 
         boss.shutdown()
         // 关闭后投喂拒绝
-        assertFalse(boss.feed(AgentQuery.text("rejected")), "feed after shutdown should be rejected")
+        assertNull(boss.feed(AgentQuery.text("rejected")), "feed after shutdown should be rejected")
     }
 
     /**
-     * 回归：Boss 的 feed 委托 innerAgent —— 空闲时 innerAgent 无活跃回合走 feed 预置，
-     * 活跃时（用户轮在途）innerAgent 的 feed 内部改走 steer 在途注入。
-     * 两种状态都投喂成功，feed 不再在活跃期返回 false 让外部无处分流。
+     * 回归：Boss 的 steer 委托 innerAgent —— 空闲时 feed 预置（写记忆，不注入），
+     * 活跃时（用户轮在途）steer 在途注入。feed 与 steer 正交，串行覆盖两种状态。
      * 活跃期投喂以 [AgentEvent.Steering] 入卷证明指令实际注入运行中的回合，而非仅返回 true。
      */
     @Test
-    fun `feed injects steering during active round and presets during idle`() = runBlocking {
+    fun `steer injects during active round and feed presets during idle`() = runBlocking {
         val active = CompletableDeferred<Unit>()
         val provider = object : LlmProvider {
             override val name = "slow-active"
@@ -761,22 +761,25 @@ class BossAgentTest {
         val bb = BulletinBoard()
         runBlocking { boss.attach(bb) }
 
-        // 空闲：无活跃回合，steer 落空 → 退化为 feed 预置
-        assertTrue(boss.feed(AgentQuery.text("feed-idle")), "idle feed should be accepted")
+        // 空闲：feed 预置（写记忆，返回可 join 的写入任务，不注入）
+        assertNotNull(boss.feed(AgentQuery.text("feed-idle")), "idle feed should be accepted")
 
         // 启动慢用户轮，等待进入活跃窗口
         val events = mutableListOf<AgentEvent>()
         val runJob = launch { boss.run(AgentQuery.text("hi")).collect { events.add(it) } }
         withTimeout(5000) { active.await() }
 
-        // 活跃：feed 改走 steer 在途注入 → 返回 true（不再 false）
-        assertTrue(boss.feed(AgentQuery.text("feed-active")), "active feed should steer and return true")
+        // 活跃：用 steer 在途注入（Boss 的 steer 委托 innerAgent.steer）
+        assertTrue(boss.steer(AgentQuery.text("feed-active")), "active steer should be accepted")
+
+        // 活跃：feed 拒绝注入（非活跃期注入原语，活跃时应走 steer）
+        assertNull(boss.feed(AgentQuery.text("feed-active-null")), "active feed should be rejected")
 
         withTimeout(5000) { runJob.join() }
         // 在途指令入卷证明不丢：活跃投喂以 Steering 事件送达运行中的回合
         assertTrue(
             events.any { it is AgentEvent.Steering },
-            "active feed should be delivered as Steering: $events",
+            "active steer should be delivered as Steering: $events",
         )
 
         boss.shutdown()

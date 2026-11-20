@@ -139,23 +139,21 @@ public class ReActAgent internal constructor(
     }
 
     /**
-     * 投喂 —— 把一条消息交给本 agent，返回是否接受，不启动新回合。
+     * 投喂 —— 非活跃期注入：仅在无活跃回合时写一条消息进记忆，随下一轮推理生效；
+     * 不启动回合、也不注入在途回合。
      *
-     * 活跃时复用 [steer] 在途注入（同一信箱，随当前回合生效）；否则退化为写记忆
-     * （后台异步，随后续 [run] 生效）。已关闭返回 false。
-     *
-     * 写记忆路径是 fire-and-forget：true 只代表「已接受」，消息尚未进 memory，feed 后立即
-     * run 可能赶不上本轮首轮 buildRequest；与 [shutdown] 并发时后台协程可能被 scope 取消
-     * 而静默丢失。判空与写入分离不引入消息对风险：两者同为本地协程调度，远快于 LLM 推理。
+     * 与 [steer] 对称：steer 管活跃期在途注入（带 [AgentEvent.Steering] 事件，随下一步推理
+     * 生效），本方法管非活跃期注入（写记忆、随下一轮推理生效）。取槽判断，有活跃回合时
+     * 拒绝注入返回 null —— 直写可能会插进在途回合「工具调用 → 工具结果」这对紧邻记忆之间，拆散其
+     * 成对关系、破坏下一轮可读历史。已关闭同样返回 null。
      */
-    override fun feed(query: AgentQuery): Boolean {
-        if (!scope.isActive) return false
-        if (steer(query)) return true
-        scope.launch {
+    override fun feed(query: AgentQuery): Job? {
+        if (!scope.isActive) return null
+        if (activeTurn.get() != null) return null
+        return scope.launch {
             modalityAdapter.archive(ChatMessage.User(query.parts))
                 .addToMemory(memory, query.label)
         }
-        return true
     }
 
     /**

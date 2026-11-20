@@ -18,9 +18,10 @@ import kotlinx.coroutines.flow.Flow
  * 调用方可通过 [kotlinx.coroutines.flow.first] 或 [kotlinx.coroutines.flow.last] 获取最终结果，
  * 也可全程订阅事件流实现实时 UI 反馈。
  *
- * 流式（[Streamable.runStream]）、在途指令注入（[Steerable.steer]）、回合中断（[Cancelable.cancel]）与
- * 整体关闭（[Shutdownable.shutdown]）均为可选能力，分别由嵌套的 [Streamable]、[Steerable]、[Cancelable] 与
- * [Shutdownable] 独立暴露——不实现该能力的 Agent 不承担对应契约。
+ * 流式（[Streamable.runStream]）、在途指令注入（[Steerable.steer]）、记忆预置（[Feedable.feed]）、
+ * 回合中断（[Cancelable.cancel]）与整体关闭（[Shutdownable.shutdown]）均为可选能力，分别由嵌套的
+ * [Streamable]、[Steerable]、[Feedable]、[Cancelable] 与 [Shutdownable] 独立暴露——不实现该能力的
+ * Agent 不承担对应契约。
  */
 public interface Agent {
     /**
@@ -64,7 +65,7 @@ public interface Agent {
      * 在下一个检查点（迭代头 / Final 前）生效。调用方无需判断 Agent 是否活跃——
      * [steer] 返回值即为送达确认：
      * - `true`：指令已被当前轮次接受，将在当前 run 的后续轮次中生效
-     * - `false`：无活跃 run，指令未送达；调用方应改为调用 [Agent.run] 启动新 run
+     * - `false`：无活跃 run，指令未送达；调用方可 [Agent.run] 启动新回合，或 [Feedable.feed] 预置记忆
      *
      * **`true` 的边界**：它承诺"已被接受"，不承诺"必被消费"—— 若该轮在消费之前
      * 被打断或异常终止，尚未消费的在途指令随该轮一并作废（轮次都没了，"下一轮"无从谈起；
@@ -82,6 +83,12 @@ public interface Agent {
      * ```
      * if (!agent.steer(query)) {
      *     agent.run(query).collect { event -> ... }
+     * }
+     *
+     * or
+     *
+     * if (!agent.steer(query)) {
+     *     agent.feed(query)
      * }
      * ```
      *
@@ -103,24 +110,33 @@ public interface Agent {
     }
 
     /**
-     * 投喂能力 —— 把一条消息交给 Agent，不启动新回合。
+     * 投喂能力 —— 非活跃期注入：把一条消息预置进对话记忆，随**下一轮** [Agent.run] 推理生效。
      *
-     * [feed] 的返回值只表示「是否成功接受这条输入」，不表示「消息会否生效」：
-     * 已接受的消息若在消费前遇到回合被 [Agent.Cancelable.cancel] 取消、或 Agent 被
-     * [Agent.Shutdownable.shutdown] 关闭，尚未消费的消息会被忽略。
+     * 与 [Steerable.steer] 对称分工，各自只吃一种状态：
+     * - [Steerable.steer] 管**活跃期**注入 —— 指令进在途回合，随下一步推理生效
+     *   （发 [AgentEvent.Steering] 事件）；不活跃时拒绝注入（返回 `false`）。
+     * - [Feedable.feed] 管**非活跃期**注入 —— 仅在无活跃回合时写记忆，随下一轮推理生效；
+     *   活跃时拒绝注入（返回 `null`）。
      *
-     * 返回值：
-     * - `true`：已接受这条输入
-     * - `false`：未接受（Agent 不可投喂，通常是已被关闭）
+     * 调用方须**先 [Steerable.steer] 探测状态**（勿先 feed、以 `null` 反推活跃）：steer 返回 `false`
+     * （无活跃回合）再 feed；返回 `true` 则已由 steer 注入，不必再 feed。
+     *
+     * [feed] 返回写入任务的句柄 [Job]（非 suspend），与 [Cancelable.cancel] 风格对齐：
+     * 调用方可自主选择是否 [Job.join] 等待写入完成。
+     * - 非 null [Job]：写入任务已提交到 agent 私有 scope，[Job.join] 即确保消息落进记忆；
+     *   UI 可在 join 后本地渲染用户气泡，与记忆一致（等同会话重启后从记忆重建时的渲染）。
+     * - `null`：拒绝注入 —— 当前不可预置（Agent 已关闭，或存在活跃回合 → 应先通过
+     *   [Steerable.steer] 在途注入，而非 feed）。
      */
     public interface Feedable {
         /**
-         * 投喂一条消息，不启动新回合。
+         * 非活跃期注入：投喂一条消息预置进记忆，随下一轮 [Agent.run] 推理生效。
          *
          * @param query 待投喂的消息，支持文本 + 多模态
-         * @return `true` 表示已接受这条输入；`false` 表示未接受（Agent 不可投喂，通常是已被关闭）
+         * @return 写记忆任务的句柄 [Job]，join 它即确保消息已落进记忆；
+         *   `null` 表示拒绝注入（Agent 已关闭，或存在活跃回合 —— 应先 [Steerable.steer]，而不是直接 [feed]）
          */
-        public fun feed(query: AgentQuery): Boolean
+        public fun feed(query: AgentQuery): Job?
     }
 
     /**

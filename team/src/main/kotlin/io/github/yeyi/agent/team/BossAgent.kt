@@ -7,6 +7,7 @@ import io.github.yeyi.agent.isTerminal
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
@@ -101,7 +102,7 @@ public class BossAgent internal constructor(
     private val innerAgent: Agent.Streamable,
     private val scope: CoroutineScope,
     private val onShutdown: () -> Unit = {},
-) : Agent, Agent.Shutdownable, Agent.Feedable {
+) : Agent, Agent.Steerable, Agent.Feedable, Agent.Shutdownable {
     public companion object {
         /** 系统报告标签 — 任务完成汇报以 `AgentQuery.text(result, label = REPORT_LABEL)` 注入 innerAgent，
          *  随记忆条目持久化，UI 可据此渲染"系统"气泡，模型侧通过 `report: content` 前缀感知。 */
@@ -200,13 +201,25 @@ public class BossAgent internal constructor(
     }
 
     /**
-     * 投喂 —— 委托给 [innerAgent] 的 [Agent.Feedable]。
+     * 在途指令注入 —— 委托给 [innerAgent] 的 [Agent.Steerable]。
+     *
+     * Boss 的活跃回合（用户轮或报告轮）完全承载于 innerAgent（经 innerAgent.runStream 驱动），
+     * 注入必须落进 innerAgent 的当前回合才能随该回合生效，故直接委托。Boss 空闲时 innerAgent
+     * 也无活跃回合、返回 false —— 调用方据此回落到 [feed] 预置，串行覆盖「活跃注入、空闲预置」。
+     */
+    override fun steer(query: AgentQuery): Boolean =
+        (innerAgent as? Agent.Steerable)?.steer(query) ?: false
+
+    /**
+     * 投喂 —— 委托给 [innerAgent] 的 [Agent.Feedable]（非活跃期注入：写记忆、随下一轮推理生效）。
      *
      * Boss 的对话记忆与在途回合完全承载于 innerAgent（用户轮与报告轮均经 innerAgent.runStream
-     * 驱动），投喂必须落进 innerAgent 才能被感知，故直接委托，不另设投喂路径。
+     * 驱动），投喂必须落进 innerAgent 才能被感知，故直接委托，不另设投喂路径。活跃期返回
+     * null（拒绝注入 —— 活跃期注入应先经 [steer]，返回 `false` 才轮到本方法）；空闲期返回
+     * 写入 [Job]。
      */
-    override fun feed(query: AgentQuery): Boolean =
-        (innerAgent as? Agent.Feedable)?.feed(query) ?: false
+    override fun feed(query: AgentQuery): Job? =
+        (innerAgent as? Agent.Feedable)?.feed(query)
 
     /**
      * 关闭 BossAgent — 取消 [scope], 停止所有 boss/pasture 的后台任务,
