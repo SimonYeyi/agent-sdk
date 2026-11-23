@@ -10,6 +10,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.nio.file.Files
 
 private fun ChatMessage.firstTextOrEmpty(): String = when (this) {
     is ChatMessage.User -> parts.text
@@ -30,7 +31,7 @@ class JsonlConversationTest {
 
     @Before
     fun setup() {
-        tempDir = createTempDir()
+        tempDir = Files.createTempDirectory("jsonl-conversation-test").toFile()
         conversation = JsonlConversation(tempDir)
     }
 

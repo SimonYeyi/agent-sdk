@@ -14,6 +14,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.nio.file.Files
 import kotlin.test.assertFailsWith
 
 /** 测试辅助：老风格 add(ChatMessage) 自动包装为 [MemoryEntry]。 */
@@ -49,7 +50,7 @@ class SessionManagerTest {
 
     @Before
     fun setup() {
-        tempDir = createTempDir()
+        tempDir = Files.createTempDirectory("session-manager-test").toFile()
     }
 
     @After

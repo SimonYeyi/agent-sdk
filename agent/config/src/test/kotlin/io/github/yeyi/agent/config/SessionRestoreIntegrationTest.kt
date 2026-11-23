@@ -17,6 +17,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.nio.file.Files
 
 /**
  * 集成测试：验证「会话恢复 → AgentReference.name → AgentRegistry → AgentScope → spawn」闭环。
@@ -29,7 +30,7 @@ class SessionRestoreIntegrationTest {
 
     @Before
     fun setup() {
-        tempDir = createTempDir()
+        tempDir = Files.createTempDirectory("session-restore-integration").toFile()
     }
 
     @After

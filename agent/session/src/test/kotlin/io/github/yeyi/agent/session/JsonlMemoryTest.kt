@@ -12,6 +12,7 @@ import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import java.io.File
+import java.nio.file.Files
 import java.time.Instant
 import kotlin.test.assertSame
 
@@ -29,7 +30,7 @@ class JsonlMemoryTest {
 
     @Before
     fun setup() {
-        tempDir = createTempDir()
+        tempDir = Files.createTempDirectory("jsonl-memory-test").toFile()
         memoryFile = File(tempDir, "test-memory.jsonl")
         archive = object : MediaArchive {
             override suspend fun store(data: MediaSource.Data): MediaSource.Local =
