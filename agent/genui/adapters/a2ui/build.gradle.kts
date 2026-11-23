@@ -33,7 +33,7 @@ dependencies {
     // androidx.a2ui 协议引擎与模型（a2ui-engine / a2ui-model）；
     // a2ui.compose 官方 Compose 渲染制品（compose-runtime 快照状态层 / compose-ui 组件注册层）；
     // material3-a2ui 提供 A2uiSurface 顶层渲染入口 + 完整 Material A2uiBasicCatalogV1 目录实现，
-    // 已随 1.0.0-alpha01（2026-09-23）发布到公开 Google Maven。
+    // 已随 1.0.0-alpha02 发布到公开 Google Maven。
     // 全部走 api：A2uiRenderAdapter 的公开契约（catalog/processor 参数与属性）直接暴露这些类型，
     // 消费者（如 demo 组装点构造目录、读取处理器）必须可见。
     api(libs.a2ui.model)

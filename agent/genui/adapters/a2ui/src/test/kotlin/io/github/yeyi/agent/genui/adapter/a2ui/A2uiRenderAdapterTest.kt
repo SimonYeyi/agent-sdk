@@ -1,9 +1,10 @@
 package io.github.yeyi.agent.genui.adapter.a2ui
 
-import androidx.a2ui.model.catalog.functions.A2uiLocaleProvider
+import androidx.a2ui.compose.ui.catalog.A2uiBasicCatalogV1
 import androidx.a2ui.model.protocol.A2uiClientDataModel
 import androidx.a2ui.model.protocol.A2uiClientErrorMessage
 import androidx.a2ui.model.protocol.A2uiClientEventMessage
+import androidx.a2ui.model.protocol.A2uiExecutionContext
 import androidx.compose.material3.a2ui.catalog.MaterialA2uiBasicCatalogV1Defaults
 import androidx.compose.material3.a2ui.catalog.materialA2uiBasicCatalogV1
 import io.github.yeyi.agent.genui.ir.Action
@@ -36,15 +37,15 @@ import kotlinx.serialization.json.JsonPrimitive
 class A2uiRenderAdapterTest {
 
     // 官方 Material 目录工厂：image/video/audioPlayer 使用无渲染器空实现（测试不触发 Compose
-    // 渲染，仅驱动引擎状态机），urlOpener/messageFormatter 用空实现，localeProvider 用官方默认
+    // 渲染，仅驱动引擎状态机），functions.openUrl 用空实现
     private val catalog =
         materialA2uiBasicCatalogV1(
             image = MaterialA2uiBasicCatalogV1Defaults.image { _, _, _, _, _ -> },
             video = MaterialA2uiBasicCatalogV1Defaults.video { _, _, _ -> },
             audioPlayer = MaterialA2uiBasicCatalogV1Defaults.audioPlayer { _, _, _, _ -> },
-            urlOpener = {},
-            messageFormatter = { pattern, _, _ -> pattern },
-            localeProvider = A2uiLocaleProvider.Default,
+            functions = object : A2uiBasicCatalogV1.Functions {
+                override fun openUrl(url: String, executionContext: A2uiExecutionContext) = Unit
+            },
         )
 
     @Test
