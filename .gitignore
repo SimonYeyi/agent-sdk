@@ -2,8 +2,6 @@
 .gradle/
 build/
 .kotlin/
-!gradle/wrapper/gradle-wrapper.jar
-gradle/gradle-daemon-jvm.properties
 
 # IDE
 .idea/
@@ -19,6 +17,3 @@ local.properties
 
 # Logs
 *.log
-
-# Test outputs
-test-output/

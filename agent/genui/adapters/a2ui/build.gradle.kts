@@ -27,12 +27,6 @@ android {
     }
 }
 
-// a2ui 1.0.0-alpha01 AARs declare minAgpVersion=9.1.0 in metadata, beyond this
-// project's AGP 8.9.1. AGP 8.9.1 only offers the disableCompileSdkChecks switch
-// (set globally); there is no switch for the AGP version check, so skip this
-// module's AAR metadata checks (alpha deps actually compile and run on 8.9.1).
-tasks.matching { it.name.endsWith("AarMetadata") }.configureEach { enabled = false }
-
 dependencies {
     api(project(":agent:genui:adapters:api"))
 
