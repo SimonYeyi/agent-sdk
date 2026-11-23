@@ -1,6 +1,7 @@
 package io.github.yeyi.agent.demo.team.runtime
 
-import androidx.a2ui.model.catalog.functions.A2uiLocaleProvider
+import androidx.a2ui.compose.ui.catalog.A2uiBasicCatalogV1
+import androidx.a2ui.model.protocol.A2uiExecutionContext
 import androidx.compose.material3.a2ui.catalog.MaterialA2uiBasicCatalogV1Defaults
 import androidx.compose.material3.a2ui.catalog.materialA2uiBasicCatalogV1
 import io.github.yeyi.agent.genui.adapter.UiRenderAdapter
@@ -36,9 +37,9 @@ object TeamRuntime {
             image = MaterialA2uiBasicCatalogV1Defaults.image { _, _, _, _, _ -> },
             video = MaterialA2uiBasicCatalogV1Defaults.video { _, _, _ -> },
             audioPlayer = MaterialA2uiBasicCatalogV1Defaults.audioPlayer { _, _, _, _ -> },
-            urlOpener = {},
-            messageFormatter = { pattern, _, _ -> pattern },
-            localeProvider = A2uiLocaleProvider.Default,
+            functions = object : A2uiBasicCatalogV1.Functions {
+                override fun openUrl(url: String, executionContext: A2uiExecutionContext) = Unit
+            },
         ),
         scope = CoroutineScope(SupervisorJob() + Dispatchers.Main),
     )
