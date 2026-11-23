@@ -1,12 +1,12 @@
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
 }
 
 android {
     namespace = "io.github.yeyi.agent.genui.adapter.api"
-    compileSdk = 36
+    compileSdk = 37
+    compileSdkMinor = 2
 
     defaultConfig {
         minSdk = 26
@@ -17,14 +17,14 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
-    kotlin {
-        jvmToolchain(21)
-        explicitApi()
-    }
-
     buildFeatures {
         compose = true
     }
+}
+
+kotlin {
+    jvmToolchain(21)
+    explicitApi()
 }
 
 dependencies {

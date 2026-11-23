@@ -1,11 +1,11 @@
 plugins {
     alias(libs.plugins.android.library)
-    alias(libs.plugins.kotlin.android)
 }
 
 android {
     namespace = "io.github.yeyi.agent.realtime.audio.android"
-    compileSdk = 36
+    compileSdk = 37
+    compileSdkMinor = 2
 
     defaultConfig {
         minSdk = 26
@@ -15,11 +15,11 @@ android {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
     }
+}
 
-    kotlin {
-        jvmToolchain(21)
-        explicitApi()
-    }
+kotlin {
+    jvmToolchain(21)
+    explicitApi()
 }
 
 dependencies {

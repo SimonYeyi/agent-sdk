@@ -2,14 +2,14 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
 }
 
 android {
     namespace = "io.github.yeyi.agent.demo.team"
-    compileSdk = 36
+    compileSdk = 37
+    compileSdkMinor = 2
 
     defaultConfig {
         applicationId = "io.github.yeyi.agent.demo.team"
@@ -42,21 +42,15 @@ android {
         targetCompatibility = JavaVersion.VERSION_21
     }
 
-    kotlin {
-        jvmToolchain(21)
-    }
-
     buildFeatures {
         compose = true
         buildConfig = true
     }
 }
 
-// a2ui 1.0.0-alpha01 AARs declare minAgpVersion=9.1.0 in metadata, beyond this
-// project's AGP 8.9.1. AGP 8.9.1 only offers the disableCompileSdkChecks switch
-// (set globally); there is no switch for the AGP version check, so skip this
-// module's AAR metadata checks (alpha deps actually compile and run on 8.9.1).
-tasks.matching { it.name.endsWith("AarMetadata") }.configureEach { enabled = false }
+kotlin {
+    jvmToolchain(21)
+}
 
 dependencies {
     implementation(project(":agent:core"))
