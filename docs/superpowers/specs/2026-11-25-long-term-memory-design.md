@@ -1,0 +1,820 @@
+# 长期记忆插件设计
+
+> 日期：2026-11-25 · 状态：**Proposed**
+> 模块：`agent/long-term-memory`（新增）+ `agent/capability`（最小改动）
+> 范围：新增一个独立的长期记忆插件,与 core 中的短期会话 Memory 正交;LLM 通过 `load_memory` / `save_memory` 两个工具读写 markdown 记忆文件,每轮主动注入 `user.md` 用户画像到 system prompt,并提供遗忘与压缩机制。
+
+---
+
+## 0. 元信息
+
+| 项 | 值 |
+|---|---|
+| 提案代号 | long-term-memory |
+| 关联模块 | `agent/long-term-memory`（新增）+ `agent/capability`（改动） |
+| 关联前置 | `Capability` / `CapabilityPlugin` / `CapabilityLoadTool` / `AgentPlugin` / `ToolExecutionContext.agentContext.llmProvider` |
+| 破坏性变更 | **否**——`CapabilityLoadTool` 的 `description` / `parametersSchema` 从 `by lazy` 改为每轮求值属行为微调,不破坏 API 形态;其余均为新增 |
+
+---
+
+## 1. 动机
+
+`agent/core` 现有的 `Memory` 接口是对话历史存储(短期、按轮次压缩),解决"当前会话内 LLM 能记得刚才说过什么"的问题。它不解决跨会话的长期记忆:用户的偏好、过往事实、跨会话累积的画像,这些信息应当在多次会话之间持久化,且 LLM 能在合适时机主动调用。
+
+需求要点:
+1. 记忆以 markdown 文件形式存储,一个文件一个话题,与 Skill 的 `load` 机制对称——LLM 看到 `load_memory` 工具的 description 里列出所有话题名+描述,需要时传 `name` 调用,正文按需加载进上下文。
+2. `user.md` 作为话题无关的用户画像,每轮主动注入 system prompt,不走 `load_memory` 路径。
+3. 记忆的"该写什么、什么时候写"由 LLM 自主决定——只有模型能判断什么值得记。对应工具是 `save_memory`。
+4. 长期记忆需要生命周期管理:超过一定时间没被读写则遗忘;单文件过大则压缩。
+5. 存储位置由宿主决定(必传 `directory`),插件不做平台推断。
+
+与现有 `Memory` 的区别:
+- `Memory` 是 LLM 线格式消息的历史(`MemoryEntry`),按轮次/字节压缩,生命周期是单次会话。
+- 长期记忆是 markdown 文件,按话题组织,按时间/大小做生命周期,生命周期跨会话。
+- 两者正交,互不依赖。
+
+---
+
+## 2. 设计原则
+
+- **与 Skill 形态对称**:复用 `Capability` 框架,`load_memory` 通过 `CapabilityAdapter.of` 拼装(委托模式,继承 `CapabilityLoadTool`)。`save_memory` 作为独立 auxiliary tool 暴露。
+- **不继承 `CapabilityPlugin`**:`CapabilityPlugin.install` 是 `final override` 且只调 `registerTool`,无法在 install 阶段调 `appendInstructions` 注入 user.md。因此 `MemoryPlugin` 直接实现 `AgentPlugin<Unit>`,内部手工调 `CapabilityAdapter.of(...).adapt()` + `context.registerTool(...)` + `context.appendInstructions(...)`。
+- **最小改动 capability 框架**:把 `CapabilityLoadTool` 的 `description` / `parametersSchema` 从 `by lazy` 改为每轮求值,使得重扫后下一轮 LLM 自动看到新话题。不引入 `reinstallPlugin` 等新 API。
+- **写入决策在 LLM**:不暴露写入 API 给宿主代码,只有 `save_memory` 工具。宿主只负责传 `directory` 和可选的 `LlmProvider` / `MemoryStore`。
+- **存储抽象最小**:`MemoryStore` 接口默认走 `Path`,允许宿主注入自定义实现。不预先做 Android/iOS 平台适配。
+- **生命周期检查只在读写路径**:压缩在 `save_memory` 后异步触发;遗忘在 `load_memory` / `save_memory` 后对当前操作的 md 同步检查。不被访问的文件不检查——这正是遗忘的目的。
+- **包名独立**:新模块包名 `io.github.yeyi.agent.longtermemory`,避开 core 已有的 `io.github.yeyi.agent.memory`(防止同包跨模块冲突)。
+
+---
+
+## 3. 模块结构
+
+新模块 `:agent:long-term-memory`,路径 `agent/long-term-memory/`,build.gradle.kts 与 `agent/skill` 模板一致。
+
+文件清单:
+
+```
+agent/long-term-memory/
+├── build.gradle.kts
+└── src
+    ├── main/kotlin/io/github/yeyi/agent/longtermemory/
+    │   ├── LongTermMemory.kt          # interface LongTermMemory : Capability<Unit, MemoryContext>
+    │   ├── MemoryContext.kt           # class MemoryContext : CapabilityContext
+    │   ├── MemoryPlugin.kt            # internal class MemoryPlugin : CapabilityPlugin<...>
+    │   ├── MemoryRegistry.kt          # class MemoryRegistry : CapabilityRegistry<...>,提供 rescan()
+    │   ├── MemoryStore.kt             # interface MemoryStore + PathMemoryStore 默认实现
+    │   ├── MemoryFile.kt              # md frontmatter 解析/序列化
+    │   ├── SaveMemoryTool.kt          # auxiliary tool,LLM 写入记忆
+    │   └── MemoryExtensions.kt        # AgentBuilder.longTermMemory(...) DSL
+    └── test/kotlin/io/github/yeyi/agent/longtermemory/
+        └── (各组件单元测试)
+```
+
+依赖关系:
+- `api(project(":agent:core"))` — `AgentBuilder` / `AgentPlugin` / `Tool` / `AgentContext.llmProvider`
+- `api(project(":agent:capability"))` — `Capability` / `CapabilityPlugin` / `CapabilityLoadTool` / `CapabilityRegistry`
+- `api(libs.kotlinx.serialization.json)` — frontmatter 解析
+- `api(libs.kotlinx.coroutines.core)` — 异步压缩
+
+---
+
+## 4. 核心类型
+
+### 4.1 `LongTermMemory` —— Capability 实例
+
+```kotlin
+package io.github.yeyi.agent.longtermemory
+
+import io.github.yeyi.agent.capability.Capability
+import io.github.yeyi.agent.longtermemory.store.MemoryStore
+
+/**
+ * 一个长期记忆话题 —— 对应根目录下的一个 `.md` 文件。
+ *
+ * 实现 [Capability] 接口,通过 [CapabilityLoadTool] 暴露为 `load_memory` 工具的可路由条目。
+ * LLM 调用 `load_memory(name=...)` 时,框架按 name 路由到对应实例,调 [load] 返回 md 全文。
+ *
+ * 与 Skill 的对称点:
+ * - 都是 `Capability<Unit, Ctx>`,load() 返回文本注入 LLM 上下文
+ * - 都是"按需加载",description 告诉 LLM 何时使用,正文不预加载
+ *
+ * 与 Skill 的区别:
+ * - Skill 是静态注册,LongTermMemory 由 [MemoryRegistry] 在 install/rescan 时动态构建
+ * - load() 触发 lastAccessedAt 更新和遗忘检查
+ */
+public interface LongTermMemory : Capability<Unit, MemoryContext> {
+    /**
+     * 加载本话题的 md 全文(frontmatter + 正文)。
+     *
+     * 副作用:
+     * - 更新 frontmatter 的 `lastAccessedAt` 并写回文件
+     * - 触发本话题的遗忘检查(若 lastAccessedAt 在 update 前已超 [MemoryPlugin.forgetDuration],则删除文件并从 registry 移除)
+     *
+     * @return md 全文;若文件已被遗忘机制删除,返回 "(memory expired)" 提示
+     */
+    override suspend fun load(): String
+
+    override suspend fun activate(arguments: Unit?, context: MemoryContext): String = load()
+
+    public companion object {
+        internal const val CAPABILITY_TYPE: String = "memory"
+    }
+}
+```
+
+### 4.2 `MemoryContext` —— 执行上下文
+
+```kotlin
+package io.github.yeyi.agent.longtermemory
+
+import io.github.yeyi.agent.capability.CapabilityContext
+import io.github.yeyi.agent.capability.CapabilityContextFactory
+import io.github.yeyi.agent.llm.LlmProvider
+import io.github.yeyi.agent.longtermemory.store.MemoryStore
+import io.github.yeyi.agent.tool.ToolExecutionContext
+
+/**
+ * Memory 工具执行时的上下文。
+ *
+ * 携带:
+ * - [memoryStore]: 文件 IO 抽象,load/save 共用
+ * - [llmProvider]: 压缩用 LLM;优先用插件构造时注入的,为 null 时回退到 [ToolExecutionContext.agentContext.llmProvider]
+ * - [registry]: 用于 save_memory 创建新话题后触发 rescan
+ * - 配置参数(memoryFileLimit / forgetDuration)用于在 load/save 路径检查
+ */
+public class MemoryContext(
+    public val memoryStore: MemoryStore,
+    public val llmProvider: LlmProvider?,
+    public val registry: MemoryRegistry,
+    public val memoryFileLimit: Int,
+    public val forgetDuration: Duration,
+) : CapabilityContext
+
+internal class MemoryContextFactory(
+    private val memoryStore: MemoryStore,
+    private val llmProvider: LlmProvider?,
+    private val registry: MemoryRegistry,
+    private val memoryFileLimit: Int,
+    private val forgetDuration: Duration,
+) : CapabilityContextFactory<MemoryContext> {
+    override fun create(context: ToolExecutionContext): MemoryContext {
+        val effectiveLlmProvider = llmProvider ?: context.agentContext.llmProvider
+        return MemoryContext(memoryStore, effectiveLlmProvider, registry, memoryFileLimit, forgetDuration)
+    }
+}
+```
+
+### 4.3 `MemoryRegistry` —— 注册中心 + 重扫
+
+```kotlin
+package io.github.yeyi.agent.longtermemory
+
+import io.github.yeyi.agent.capability.CapabilityRegistry
+import io.github.yeyi.agent.capability.DefaultCapabilityRegistry
+import io.github.yeyi.agent.longtermemory.store.MemoryStore
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+
+/**
+ * 长期记忆注册中心,负责 (re)scan 目录、维护 name → LongTermMemory 映射。
+ *
+ * - [rescan] 扫描根目录所有 `.md` 文件(排除 `user.md`),解析 frontmatter,重建内存注册表。
+ * - 已删除的文件从 registry 移除;新增的文件加入 registry;变更的 frontmatter 反映到 description。
+ * - 线程安全:rescan 与 register 互斥。
+ */
+public class MemoryRegistry(
+    private val memoryStore: MemoryStore,
+    private val memoryFileLimit: Int,
+    private val forgetDuration: Duration,
+    private val llmProvider: LlmProvider?,
+) : CapabilityRegistry<LongTermMemory, Unit, MemoryContext> by DefaultCapabilityRegistry(
+    capabilityType = LongTermMemory.CAPABILITY_TYPE
+) {
+    private val mutex = Mutex()
+
+    /** 扫描根目录,同步 registry 与文件系统状态。 */
+    public suspend fun rescan(): Unit = mutex.withLock {
+        val files = memoryStore.list() // 返回所有 .md 文件名,排除 user.md
+        val existing = all().associateBy { it.name }.toMutableMap()
+
+        // 移除已不存在的
+        existing.keys.removeAll { name -> name !in files }
+
+        // 新增未注册的
+        for (name in files) {
+            if (existing[name] == null) {
+                val memory = loadFromStore(name) ?: continue
+                register(memory)
+            }
+        }
+    }
+
+    private suspend fun loadFromStore(name: String): LongTermMemory? {
+        val content = memoryStore.read(name) ?: return null
+        val (frontmatter, _) = MemoryFile.parse(content)
+        return DefaultLongTermMemory(
+            name = frontmatter.name,
+            description = frontmatter.description,
+            memoryStore = memoryStore,
+            // 其他字段...
+        )
+    }
+}
+```
+
+### 4.4 `MemoryPlugin` —— 接线契约
+
+**不继承 `CapabilityPlugin`**:虽然复用 `CapabilityAdapter.of` 拼装 `load_memory`,但 `CapabilityPlugin.install` 是 `final override` 且只调 `registerTool`,无法在 install 阶段调 `appendInstructions` 注入 user.md。因此 `MemoryPlugin` 直接实现 `AgentPlugin<Unit>`,内部手工调 `CapabilityAdapter.of(...).adapt()` 拿到 `load_memory` 工具,与 `save_memory` 一起注册,再单独调 `context.appendInstructions(user.md 内容)`。
+
+```kotlin
+package io.github.yeyi.agent.longtermemory
+
+import io.github.yeyi.agent.AgentPlugin
+import io.github.yeyi.agent.AgentPluginContext
+import io.github.yeyi.agent.capability.CapabilityAdapter
+import io.github.yeyi.agent.capability.CapabilityContextFactory
+import io.github.yeyi.agent.tool.Tool
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import java.nio.file.Path
+import kotlin.time.Duration
+
+/**
+ * 长期记忆插件的接线类。
+ *
+ * 直接实现 [AgentPlugin] 而非继承 [io.github.yeyi.agent.capability.CapabilityPlugin],
+ * 因为需要在 install 阶段调 [AgentPluginContext.appendInstructions] 注入 user.md ——
+ * CapabilityPlugin.install 是 final 且不调 appendInstructions。
+ *
+ * 仍复用 [CapabilityAdapter.of] 拼装 load_memory(委托模式),与 Skill 形态对称。
+ *
+ * install 流程:
+ * 1. 初始化 [MemoryStore] (默认 [PathMemoryStore])
+ * 2. 若 `user.md` 不存在,创建空模板(真实元数据 + 空正文)
+ * 3. registry.rescan() 加载所有现存话题
+ * 4. context.appendInstructions 注入 `user.md` 正文到 persona 能力区
+ * 5. CapabilityAdapter.of(registry, ctxFactory, null, enableDelegateAdaptMode).adapt()
+ *    → [load_memory] 工具,registerTool
+ * 6. registerTool(save_memory)
+ */
+internal class MemoryPlugin(
+    private val directory: Path,
+    private val memoryFileLimit: Int,
+    private val forgetDuration: Duration,
+    private val llmProvider: LlmProvider?,
+    private val memoryStore: MemoryStore?,
+    private val enableDelegateAdaptMode: Boolean,
+    private val registry: MemoryRegistry,
+) : AgentPlugin<Unit> {
+
+    override val id: String = "long-term-memory"
+
+    private val compressScope = CoroutineScope(SupervisorJob())
+    private val ctxFactory: CapabilityContextFactory<MemoryContext> = MemoryContextFactory(
+        memoryStore = memoryStore ?: PathMemoryStore(directory),
+        llmProvider = llmProvider,
+        registry = registry,
+        memoryFileLimit = memoryFileLimit,
+        forgetDuration = forgetDuration,
+    )
+
+    override fun configure(block: Unit.() -> Unit) { /* no-op,配置已在构造器完成 */ }
+
+    override fun install(context: AgentPluginContext) {
+        runBlocking { initialize() }  // ensureUserMemory + rescan
+
+        // 注入 user.md 正文到 persona 能力区
+        val store = memoryStore ?: PathMemoryStore(directory)
+        val userContent = runBlocking { store.read("user") } ?: ""
+        if (userContent.isNotBlank()) {
+            val (_, body) = MemoryFile.parse(userContent)
+            if (body.isNotBlank()) context.appendInstructions(body)
+        }
+
+        // 注册 load_memory(委托模式,继承 CapabilityLoadTool)
+        CapabilityAdapter.of(registry, ctxFactory, null, enableDelegateAdaptMode)
+            .adapt()
+            .forEach { context.registerTool(it) }
+
+        // 注册 save_memory(auxiliary)
+        context.registerTool(SaveMemoryTool(registry, ctxFactory, compressScope))
+    }
+
+    private suspend fun initialize() {
+        val store = memoryStore ?: PathMemoryStore(directory)
+        ensureUserMemory(store)
+        registry.rescan()
+    }
+
+    private suspend fun ensureUserMemory(store: MemoryStore) {
+        if (!store.exists("user")) {
+            val empty = MemoryFile.serialize(
+                MemoryFile.Frontmatter(
+                    name = "user",
+                    description = "用户画像,每轮主动注入 system prompt",
+                    createdAt = Instant.now(),
+                    lastAccessedAt = Instant.now(),
+                ),
+                body = "",
+            )
+            store.write("user", empty)
+        }
+    }
+}
+```
+
+**注意 `runBlocking` 的使用**:`install` 是同步签名(`AgentPlugin.install` 非 suspend),但 `MemoryStore` 的操作是 suspend。`runBlocking` 在 install 阶段阻塞直到完成,这是插件初始化的合理代价——install 在 Agent 构建期执行,不在 LLM 推理路径上。
+
+### 4.5 `SaveMemoryTool` —— auxiliary 工具
+
+```kotlin
+package io.github.yeyi.agent.longtermemory
+
+import io.github.yeyi.agent.capability.CapabilityContextFactory
+import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.tool.ToolExecutionContext
+import io.github.yeyi.agent.tool.ToolExecutionResult
+import io.github.yeyi.agent.tool.ToolParameters
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.put
+
+/**
+ * LLM 写入长期记忆的工具。
+ *
+ * 参数:
+ * - name: 话题名(对应文件名,不含 .md)
+ * - content: 写入内容(markdown)
+ * - mode: "append" 追加到正文末尾 / "replace" 覆盖整个正文(frontmatter 保留)
+ *
+ * 副作用:
+ * - 若 name 是新话题,创建文件并触发 registry.rescan()
+ * - 更新 frontmatter.lastAccessedAt
+ * - 触发本话题遗忘检查
+ * - 异步触发压缩检查(超 memoryFileLimit 则调 LLM 总结压缩,fire-and-forget)
+ *
+ * 返回:写入确认信息(包含字符数、是否触发压缩)
+ */
+internal class SaveMemoryTool(
+    private val registry: MemoryRegistry,
+    private val contextFactory: CapabilityContextFactory<MemoryContext>,
+    private val compressScope: CoroutineScope,
+) : Tool {
+    override val name: String = "save_memory"
+
+    override val description: String = """
+        将信息写入长期记忆。当用户告诉你值得跨会话记住的事实(偏好、背景、约定等)时调用本工具。
+
+        参数:
+        - name: 话题名(英文短词,如 "travel-preferences")。若话题已存在则更新;若不存在则新建。
+        - content: markdown 内容。append 模式下追加到现有内容末尾;replace 模式下覆盖正文(frontmatter 保留)。
+        - mode: "append" 或 "replace",默认 "append"。
+
+        特殊话题:
+        - "user": 写入用户画像,每轮会主动注入 system prompt,不会遗忘。
+    """.trimIndent()
+
+    override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
+        """{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","replace"]}},"required":["name","content"]}"""
+    )
+
+    override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
+        val name = arguments.jsonObject["name"]?.jsonPrimitive?.content
+            ?: return ToolExecutionResult.error("Missing 'name'")
+        val content = arguments.jsonObject["content"]?.jsonPrimitive?.content
+            ?: return ToolExecutionResult.error("Missing 'content'")
+        val mode = arguments.jsonObject["mode"]?.jsonPrimitive?.content ?: "append"
+
+        val ctx = contextFactory.create(context)
+        val store = ctx.memoryStore
+        val now = Instant.now()
+
+        val isNew = !store.exists(name)
+        val (frontmatter, body) = if (isNew) {
+            MemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
+        } else {
+            val raw = store.read(name)!!
+            val (fm, b) = MemoryFile.parse(raw)
+            fm.copy(lastAccessedAt = now) to b
+        }
+
+        // 遗忘检查:update 前若已超阈值则删除并返回提示
+        if (name != "user" && frontmatter.lastAccessedAt.let { Duration.between(it, now) > ctx.forgetDuration }) {
+            store.delete(name)
+            registry.rescan()
+            return ToolExecutionResult.success("Memory '$name' was expired and deleted.")
+        }
+
+        val newBody = when (mode) {
+            "append" -> if (body.isBlank()) content else "$body\n\n$content"
+            "replace" -> content
+            else -> return ToolExecutionResult.error("Invalid mode: $mode")
+        }
+        store.write(name, MemoryFile.serialize(frontmatter, newBody))
+
+        if (isNew) registry.rescan()
+
+        // 异步压缩检查
+        if (newBody.length > ctx.memoryFileLimit) {
+            compressScope.launch {
+                runCatching {
+                    compressMemory(ctx, name, frontmatter, newBody)
+                }.onFailure {
+                    // 仅日志,不阻断 save
+                }
+            }
+        }
+
+        return ToolExecutionResult.success(
+            "Saved memory '$name' (${newBody.length} chars).${if (newBody.length > ctx.memoryFileLimit) " Compression scheduled." else ""}"
+        )
+    }
+
+    private suspend fun compressMemory(
+        ctx: MemoryContext,
+        name: String,
+        frontmatter: MemoryFile.Frontmatter,
+        body: String,
+    ) {
+        val llm = ctx.llmProvider
+        val prompt = "请总结以下记忆内容,保留关键信息,压缩到 ${ctx.memoryFileLimit / 2} 字符以内:\n\n$body"
+        val summary = llm.complete(prompt) // 简化,实际调用 LlmProvider API
+        ctx.memoryStore.write(name, MemoryFile.serialize(frontmatter, summary))
+    }
+
+    private fun descriptionFromContent(content: String): String =
+        content.lineSequence().firstOrNull()?.removePrefix("#")?.trim()?.take(80)
+            ?: "Long-term memory"
+}
+```
+
+### 4.6 `MemoryStore` —— 存储抽象
+
+```kotlin
+package io.github.yeyi.agent.longtermemory.store
+
+import java.nio.file.Path
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+/**
+ * 长期记忆文件存储抽象。默认实现 [PathMemoryStore] 走文件系统,宿主可注入自定义实现。
+ */
+public interface MemoryStore {
+    public suspend fun read(name: String): String?
+    public suspend fun write(name: String, content: String)
+    public suspend fun delete(name: String)
+    public suspend fun exists(name: String): Boolean
+    public suspend fun list(): List<String> // 返回所有 .md 文件名(不含 .md 后缀),排除 "user"
+}
+
+/**
+ * 基于 [Path] 的 [MemoryStore] 默认实现。
+ *
+ * - 文件名:`$directory/$name.md`
+ * - IO 走 [Dispatchers.IO]
+ * - "user" 文件存在但不列入 list()(避免被 registry 当作普通话题注册)
+ */
+public class PathMemoryStore(private val directory: Path) : MemoryStore {
+    init { directory.toFile().mkdirs() }
+
+    override suspend fun read(name: String): String? = withContext(Dispatchers.IO) {
+        val f = directory.resolve("$name.md").toFile()
+        if (f.exists()) f.readText() else null
+    }
+
+    override suspend fun write(name: String, content: String) = withContext(Dispatchers.IO) {
+        directory.resolve("$name.md").toFile().writeText(content)
+    }
+
+    override suspend fun delete(name: String) = withContext(Dispatchers.IO) {
+        directory.resolve("$name.md").toFile().delete()
+    }
+
+    override suspend fun exists(name: String): Boolean = withContext(Dispatchers.IO) {
+        directory.resolve("$name.md").toFile().exists()
+    }
+
+    override suspend fun list(): List<String> = withContext(Dispatchers.IO) {
+        directory.toFile().listFiles { f -> f.extension == "md" && f.nameWithoutExtension != "user" }
+            ?.map { it.nameWithoutExtension }
+            ?: emptyList()
+    }
+}
+```
+
+### 4.7 `MemoryFile` —— frontmatter + Markdown
+
+```kotlin
+package io.github.yeyi.agent.longtermemory
+
+import java.time.Instant
+
+/**
+ * 长期记忆 md 文件的 frontmatter。
+ *
+ * - name: 话题名(等于文件名,不含 .md)
+ * - description: 给 LLM 看的"何时使用本话题"提示
+ * - createdAt: 创建时间
+ * - lastAccessedAt: 最后一次 load/save 时间(用于遗忘判断)
+ */
+public data class MemoryFile(
+    public val frontmatter: Frontmatter,
+    public val body: String,
+) {
+    public data class Frontmatter(
+        public val name: String,
+        public val description: String,
+        public val createdAt: Instant,
+        public val lastAccessedAt: Instant,
+    )
+
+    public companion object {
+        public fun parse(content: String): MemoryFile { /* YAML frontmatter 解析 */ }
+        public fun serialize(frontmatter: Frontmatter, body: String): String { /* 反向序列化 */ }
+    }
+}
+```
+
+### 4.8 `MemoryExtensions` —— DSL
+
+```kotlin
+package io.github.yeyi.agent.longtermemory
+
+import io.github.yeyi.agent.AgentBuilder
+import io.github.yeyi.agent.longtermemory.store.MemoryStore
+import io.github.yeyi.agent.llm.LlmProvider
+import java.nio.file.Path
+import kotlin.time.Duration
+import kotlin.time.Duration.Companion.days
+
+/**
+ * 注册长期记忆插件到 Agent。
+ *
+ * @param directory 记忆文件根目录,宿主必传
+ * @param memoryFileLimit 单文件字符上限,超则异步压缩。默认 8000
+ * @param forgetDuration 遗忘时间,文件超过此时长未被读写则删。默认 30 天
+ * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
+ * @param memoryStore 文件 IO 抽象;null 时用 [io.github.yeyi.agent.longtermemory.store.PathMemoryStore]。默认 null
+ * @param enableDelegateAdaptMode load_memory 是否走委托模式(单一工具 + name 路由)。默认 true
+ */
+public fun AgentBuilder.longTermMemory(
+    directory: Path,
+    memoryFileLimit: Int = 8000,
+    forgetDuration: Duration = 30.days,
+    llmProvider: LlmProvider? = null,
+    memoryStore: MemoryStore? = null,
+    enableDelegateAdaptMode: Boolean = true,
+) {
+    val store = memoryStore ?: PathMemoryStore(directory)
+    val registry = MemoryRegistry(store, memoryFileLimit, forgetDuration, llmProvider)
+    val plugin = MemoryPlugin(
+        directory = directory,
+        memoryFileLimit = memoryFileLimit,
+        forgetDuration = forgetDuration,
+        llmProvider = llmProvider,
+        memoryStore = store,
+        enableDelegateAdaptMode = enableDelegateAdaptMode,
+        registry = registry,
+    )
+    plugin(plugin)  // configure block 为空,initialize 在 install 内部触发
+}
+```
+
+---
+
+## 5. Capability 框架改动
+
+### 5.1 `CapabilityLoadTool` description / parametersSchema 改为每轮求值
+
+文件:`agent/capability/src/main/kotlin/io/github/yeyi/agent/capability/CapabilityLoadTool.kt`
+
+改动:
+
+```kotlin
+// Before
+override val description: String by lazy {
+    """
+    |当以下 $capabilityType 适用于本次任务时，调用本工具以激活使用：
+    |${registry.all().joinToString("\n") { "- ${it.name}：${it.description}" }}
+    |如果本次任务需要多个 $capabilityType 并行处理，可以生成多个工具调用。
+    """.trimMargin()
+}
+
+override val parametersSchema: ToolParameters by lazy { /* ... */ }
+
+// After
+override val description: String get() = buildString {
+    appendLine("当以下 $capabilityType 适用于本次任务时，调用本工具以激活使用：")
+    registry.all().forEach { appendLine("- ${it.name}：${it.description}") }
+    appendLine("如果本次任务需要多个 $capabilityType 并行处理，可以生成多个工具调用。")
+}
+
+override val parametersSchema: ToolParameters get() {
+    // 同原 lazy 块的逻辑,改为 getter
+}
+```
+
+**理由**:
+- `Tool.toDefinition()` 在每轮构造 ChatRequest 时被调用,直接读 `description` / `parametersSchema`。
+- `by lazy` 首次访问后缓存,后续轮次拿旧值——重扫后新增的 capability 不会被 LLM 看到。
+- 改为 getter 后,每轮重新读 `registry.all()`,新增/删除的 capability 自动反映到 LLM 可见的 tool description。
+- 性能影响:每轮多一次字符串拼接(微秒级,LLM 调用本身是秒级),可忽略。
+
+**对现有 Skill/Subagent/Toolset 的影响**:
+- 行为变化:之前注册新 capability 需要重启会话才生效,现在下一轮自动生效。
+- API 兼容:无,纯内部实现调整。
+
+---
+
+## 6. 数据流
+
+### 6.1 install 阶段
+
+```
+AgentBuilder.longTermMemory(directory, ...)
+  → 创建 MemoryRegistry(memoryStore, ...)
+  → 创建 MemoryPlugin(...)  // 不继承 CapabilityPlugin,直接实现 AgentPlugin
+  → plugin(plugin)
+    → MemoryPlugin.install(context)
+      → runBlocking { initialize() }
+        → PathMemoryStore(directory)
+        → ensureUserMemory(store)        # 若 user.md 不存在,创建空模板
+        → registry.rescan()              # 扫描所有 .md(排除 user),构建内存注册表
+      → store.read("user")               # 读 user.md 正文
+      → context.appendInstructions(body) # 注入到 persona 能力区
+      → CapabilityAdapter.of(registry, ctxFactory, null, enableDelegateAdaptMode=true)
+        → adapt() 返回 [CapabilityLoadTool] (即 load_memory)
+        → context.registerTool(load_memory)
+      → context.registerTool(save_memory)
+```
+
+### 6.2 每轮 LLM 请求
+
+```
+ReActAgent 构造 ChatRequest
+  → ToolRegistry.all().map { it.toDefinition() }
+    → load_memory.toDefinition()  # 读 description,触发 getter → 读 registry.all() → 列出所有话题名+描述
+    → save_memory.toDefinition()
+  → ChatRequest.tools = [load_memory, save_memory, ...其他工具]
+  → system prompt 中含 user.md 内容(通过 appendInstructions 注入)
+  → LLM 看到所有话题名 + user 画像
+```
+
+### 6.3 LLM 调用 load_memory(name="travel")
+
+```
+load_memory.execute({name: "travel"})
+  → registry.get("travel")
+  → capability.activate(null, MemoryContext)
+    → LongTermMemory.load()
+      → memoryStore.read("travel")           # 读 md 全文
+      → 更新 frontmatter.lastAccessedAt = now
+      → 遗忘检查: if (name != "user" && lastAccessedAt - now > forgetDuration) → 删除 + rescan + 返回 "(expired)"
+      → memoryStore.write("travel", serialize(fm, body))  # 写回 lastAccessedAt
+      → 返回 md 全文
+  → ToolExecutionResult.success(content)
+```
+
+### 6.4 LLM 调用 save_memory(name, content, mode)
+
+```
+save_memory.execute({name, content, mode})
+  → 解析参数
+  → 若 isNew:
+      → 创建 Frontmatter(name, descFromContent, now, now)
+      → 写入 store
+      → registry.rescan()             # 同步,保证状态一致
+  → 否则:
+      → 读旧 frontmatter + body
+      → 更新 lastAccessedAt = now
+      → 遗忘检查(同 load)
+      → mode=append: body + "\n\n" + content
+      → mode=replace: content
+      → 写入 store
+  → 若 newBody.length > memoryFileLimit:
+      → compressScope.launch { compressMemory(...) }   # 异步,fire-and-forget
+  → 返回 ToolExecutionResult.success("Saved ...")
+```
+
+### 6.5 异步压缩
+
+```
+compressMemory(name, frontmatter, body)
+  → ctx.llmProvider.complete("总结以下内容,压缩到 ${memoryFileLimit/2} 字符以内:\n\n$body")
+  → store.write(name, serialize(frontmatter, summary))
+  → 失败:仅记录日志,不阻断
+```
+
+---
+
+## 7. 边界情况
+
+### 7.1 `user.md` 处理
+
+- 创建:`install` 时若不存在,创建空模板(真实元数据 + 空正文)。
+- 读取:不进入 registry(`MemoryStore.list()` 排除 `user`),LLM 不能 `load_memory("user")`。
+- 写入:`save_memory("user", content, mode)` 允许,LLM 通过此更新用户画像。
+- 注入:`install` 时读 `user.md` 正文,通过 `appendInstructions` 注入 persona 能力区。
+  - **注意**:首次 install 时 user.md 为空,注入空字符串无效果。后续 LLM 通过 save_memory 写入后,需要下一会话才能注入——本设计不在运行时重读 user.md 注入。这是限制,见 §9。
+- 遗忘豁免:`user.md` 不参与遗忘检查。
+
+### 7.2 重扫的并发安全
+
+- `MemoryRegistry.rescan()` 用 `Mutex` 保护,与 `register` 互斥。
+- `save_memory` 创建新文件后同步调 `rescan`,保证下一轮 `load_memory` 能找到新话题。
+- `load_memory` 路径不触发 rescan(只读已有注册)。
+
+### 7.3 压缩失败的容错
+
+- `compressScope = CoroutineScope(SupervisorJob())`:压缩失败不影响其他子任务。
+- `runCatching` 包裹压缩逻辑,失败仅记录日志。
+- 压缩期间 LLM 仍可读写该 md:压缩是覆盖写,中间状态短暂存在;最坏情况是压缩前后内容不一致,但不会损坏文件结构(frontmatter 保留)。
+
+### 7.4 遗忘检查的语义
+
+- 检查时机:`load_memory` / `save_memory` 后,**只对当前操作的 md** 检查。
+- 检查逻辑:若 `now - lastAccessedAt > forgetDuration` → 删除文件 + rescan。
+  - `load_memory`:更新 lastAccessedAt 前先检查旧值;若已超阈值,删除并返回 "(expired)"。
+  - `save_memory`:同上,但 save 是写入路径,语义上是"主动访问",原则上不应触发遗忘。但为了与 load 一致,仍检查;若触发遗忘则 save 不执行。
+- `user.md` 豁免。
+- 不被访问的文件不检查——这正是遗忘的目的(长期没被读写的文件应该被遗忘,不需要主动巡检)。
+
+### 7.5 与短期 Memory 的关系
+
+- 完全正交,互不依赖。
+- 长期记忆插件不读不写 `Memory`(短期对话历史)。
+- 短期 `Memory` 不知道长期记忆的存在。
+- 同一个 Agent 可以同时配置短期 `Memory` 和长期记忆插件,互不干扰。
+
+---
+
+## 8. 测试策略
+
+### 8.1 单元测试
+
+- `MemoryFile.parse / serialize`:frontmatter 解析的往返一致性,缺失字段、乱序字段、特殊字符。
+- `PathMemoryStore`:在 tempdir 上读写删列表,IO 异常路径。
+- `MemoryRegistry.rescan`:新增/删除/变更文件的同步。
+- `SaveMemoryTool.execute`:
+  - append / replace 两种 mode
+  - 新话题创建 → 触发 rescan
+  - 已有话题更新 lastAccessedAt
+  - 超过 memoryFileLimit → 触发异步压缩(mock LlmProvider)
+  - 遗忘触发删除(mock clock)
+  - user.md 豁免遗忘
+- `MemoryPlugin.initialize`:user.md 不存在时创建,已存在时不覆盖。
+
+### 8.2 集成测试
+
+- 用 mock `LlmProvider`,模拟 LLM 调用 `save_memory("travel", "...")` → `load_memory("travel")` → 返回写入内容。
+- 模拟压缩:`memoryFileLimit=100`,写入 200 字符内容,验证压缩被触发且 md 最终被覆盖为压缩后内容。
+- 模拟遗忘:`forgetDuration=1ms`,load 后 sleep 10ms,再次 load,验证文件被删除。
+
+### 8.3 不在测试范围
+
+- 真实 LLM 调用(用 mock)。
+- Android 平台适配(用 Path 在 JVM 测试)。
+- 与 Skill/Subagent 共存的兼容性(靠 Capability 框架保证)。
+
+---
+
+## 9. 已知限制与未来工作
+
+### 9.1 当前限制
+
+1. **user.md 注入是静态的**:`install` 时一次性读 `user.md` 内容通过 `appendInstructions` 注入,运行时 LLM 通过 `save_memory` 更新 user.md 后,**当前会话不会重新注入**——要等下一次会话。后续可考虑加 `onTurnFinished` hook 重读 user.md,但需要 Agent 暴露 turn hook 给插件,目前插件接口只支持 `registerTool` + `appendInstructions`。
+2. **压缩期间无锁**:压缩是异步覆盖写,期间若 LLM 同时 save 同一 md,可能内容丢失。本设计接受这一风险(压缩发生频率低,且 save 后立即触发新的压缩)。
+3. **遗忘只检查当前 md**:不被访问的文件不会被主动遗忘巡检。如果用户希望"定期清理所有超期文件",需要宿主应用主动调 `registry.rescan()`(rescan 不删除文件,只是同步注册表)——本设计不提供独立的遗忘巡检 API。
+
+### 9.2 未来扩展
+
+1. **user.md 动态注入**:加 turn hook,每轮开始重读 user.md 注入。
+2. **遗忘巡检 API**:`MemoryRegistry.purgeExpired()` 主动清理所有超期文件。
+3. **话题合并**:多个相关 md 合并为一个,需要 LLM 识别"相关"。
+4. **跨 Agent 共享记忆**:多个 Agent 共用同一个 `directory`,通过文件锁协调。
+
+---
+
+## 10. 实现顺序建议
+
+1. 改 `CapabilityLoadTool` description / parametersSchema 为 getter(影响所有 capability 模块,需跑一遍现有测试)。
+2. 新建 `agent/long-term-memory` 模块,实现 `MemoryStore` / `MemoryFile` / `LongTermMemory` / `MemoryRegistry` / `MemoryContext`。
+3. 实现 `SaveMemoryTool`(不含压缩,先跑通读写路径)。
+4. 实现 `MemoryPlugin` + `MemoryExtensions`,接入 AgentBuilder。
+5. 加压缩逻辑(`compressScope.launch`)。
+6. 加遗忘检查。
+7. 加 user.md 初始化 + appendInstructions 注入。
+8. 单元测试 + 集成测试。
+9. demos/agent 加一个长期记忆示例。
+
+---
+
+## 11. 相关文档
+
+- `docs/superpowers/specs/2026-08-11-capability-installer-design.md` — CapabilityPlugin 抽象类设计
+- `docs/memory-management.md` — core Memory(短期会话记忆)的设计
+- `agent/skill/src/main/kotlin/io/github/yeyi/agent/skill/Skill.kt` — Skill 接口,本插件的对称参考
