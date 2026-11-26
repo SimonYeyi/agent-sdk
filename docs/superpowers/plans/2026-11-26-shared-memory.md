@@ -584,12 +584,21 @@ Expected: FAIL — `SharedMemoryStore` / `PathSharedMemoryStore` 未定义
 ```kotlin
 package io.github.yeyi.agent.memory.shared
 
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
  * 共享记忆文件存储抽象。默认实现 [PathSharedMemoryStore] 走文件系统,宿主可注入自定义实现。
+ *
+ * 并发语义:实现必须保证对同一 [name] 的 read/write/delete/exists 串行化——
+ * 这是 save/load/压缩同锁语义的落点。不同 name 之间可并行。
+ * `list()` 无需串行(只读目录、不触碰单文件内容)。
  *
  * 所有方法为 suspend,允许实现内部走 IO dispatcher。
  * [list] 返回所有 `.md` 文件名(不含后缀),**排除 `user`**(user.md 是特殊保留名,不作为普通话题注册)。
@@ -609,27 +618,50 @@ public interface SharedMemoryStore {
  * - IO 走 [Dispatchers.IO]
  * - 构造时自动创建目录
  * - [list] 排除 `user.md`(保留文件但不作为话题注册)
+ * - per-name 互斥:[locks] 为每个 name 维护一把 [Mutex],read/write/delete/exists 全程持锁,
+ *   使 save 与压缩、save 与 load 对同一 name 串行,消除单进程内的 lost update 与覆盖竞态。
+ * - write 走原子写入:先写 `.tmp` 再 [Files.move] 带 [StandardCopyOption.ATOMIC_MOVE] 替换目标,
+ *   避免写一半中断导致文件损坏。
  */
 public class PathSharedMemoryStore(private val directory: Path) : SharedMemoryStore {
     init {
         directory.toFile().mkdirs()
     }
 
-    override suspend fun read(name: String): String? = withContext(Dispatchers.IO) {
-        val file = directory.resolve("$name.md").toFile()
-        if (file.exists()) file.readText() else null
+    private val locks = ConcurrentHashMap<String, Mutex>()
+
+    private suspend fun <T> withNameLock(name: String, block: suspend () -> T): T {
+        val mutex = locks.computeIfAbsent(name) { Mutex() }
+        return mutex.withLock { block() }
     }
 
-    override suspend fun write(name: String, content: String): Unit = withContext(Dispatchers.IO) {
-        directory.resolve("$name.md").toFile().writeText(content)
+    override suspend fun read(name: String): String? = withNameLock(name) {
+        withContext(Dispatchers.IO) {
+            val file = directory.resolve("$name.md").toFile()
+            if (file.exists()) file.readText() else null
+        }
     }
 
-    override suspend fun delete(name: String): Unit = withContext(Dispatchers.IO) {
-        directory.resolve("$name.md").toFile().delete()
+    override suspend fun write(name: String, content: String): Unit = withNameLock(name) {
+        withContext(Dispatchers.IO) {
+            // 原子写入:先写 .tmp,再 ATOMIC_MOVE 替换目标,避免写一半中断导致文件损坏
+            val target = directory.resolve("$name.md")
+            val tmp = directory.resolve("$name.md.tmp")
+            Files.write(tmp, content.toByteArray(Charsets.UTF_8))
+            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
+        }
     }
 
-    override suspend fun exists(name: String): Boolean = withContext(Dispatchers.IO) {
-        directory.resolve("$name.md").toFile().exists()
+    override suspend fun delete(name: String): Unit = withNameLock(name) {
+        withContext(Dispatchers.IO) {
+            directory.resolve("$name.md").toFile().delete()
+        }
+    }
+
+    override suspend fun exists(name: String): Boolean = withNameLock(name) {
+        withContext(Dispatchers.IO) {
+            directory.resolve("$name.md").toFile().exists()
+        }
     }
 
     override suspend fun list(): List<String> = withContext(Dispatchers.IO) {

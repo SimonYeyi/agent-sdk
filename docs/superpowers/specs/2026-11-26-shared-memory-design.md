@@ -472,7 +472,9 @@ internal class SaveSharedMemoryTool(
 ```kotlin
 package io.github.yeyi.agent.memory.shared
 
+import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.StandardCopyOption
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -522,7 +524,11 @@ public class PathSharedMemoryStore(private val directory: Path) : SharedMemorySt
 
     override suspend fun write(name: String, content: String) = withNameLock(name) {
         withContext(Dispatchers.IO) {
-            directory.resolve("$name.md").toFile().writeText(content)
+            // 原子写入:先写 .tmp,再 ATOMIC_MOVE 替换目标,避免写一半中断导致文件损坏
+            val target = directory.resolve("$name.md")
+            val tmp = directory.resolve("$name.md.tmp")
+            Files.write(tmp, content.toByteArray(Charsets.UTF_8))
+            Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)
         }
     }
 
