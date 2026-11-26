@@ -2120,7 +2120,7 @@ finalLen = finalBody.length
 SharedMemoryFile.serialize(updatedFrontmatter, finalBody)
 ```
 
-**改动 3**:把 Task 8 占位的 `compressMemory`(`return null`)替换为真实实现,匹配 spec §4.5 的去重/合并/保留约束 + 无效兜底:
+**改动 3**:把 Task 8 占位的 `compressMemory`(`return null`)替换为真实实现,匹配 spec §4.5 的去重/去冲突/合并/保留约束 + 无效兜底:
 
 ```kotlin
 private suspend fun compressMemory(
@@ -2131,10 +2131,10 @@ private suspend fun compressMemory(
     val targetSize = ctx.memoryFileLimit / 2
     val prompt = """
         请整理以下共享记忆内容,按以下规则压缩:
-        1. 去重:相同信息只保留一次,保留最新版本
-        2. 合并:相关信息合并为更紧凑的表述(如"喜欢海鲜"+"喜欢日料"→"偏好海鲜与日料")
-        3. 保留:所有关键事实必须保留,不能因压缩丢失语义
-        4. 格式:沿用原有 markdown 段落结构,不要重新分主题
+        1. 去重:相似信息只保留最后一份，但不是简单的裁切，而是语义融合
+        2. 去冲突:语义相反信息以最后一份为准，去掉前面冲突的内容
+        3. 合并:相关信息合并为更紧凑的表述(如"喜欢海鲜"+"喜欢日料"→"喜欢海鲜与日料")
+        4. 保留:所有关键事实必须保留,不能因压缩丢失语义，且保持原有的记忆条目的格式与顺序
 
         只输出压缩后的正文,不要任何前缀说明。压缩到 $targetSize 字符以内。
 
