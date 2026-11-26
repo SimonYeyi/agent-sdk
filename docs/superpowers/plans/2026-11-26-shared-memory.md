@@ -1492,15 +1492,15 @@ import kotlinx.serialization.json.jsonPrimitive
  * LLM 写入共享记忆的工具。
  *
  * 参数:
- * - name: 话题名(对应文件名,不含 .md)
- * - description: 话题描述(给 LLM 看的"何时使用本话题"提示)。**新建话题时必填**;已有话题忽略此参数
+ * - name: 记忆文件名(对应文件名,不含 .md)
+ * - description: 记忆文件描述(给 LLM 看的"何时使用本记忆文件"提示)。**新建记忆文件时必填**;已有记忆文件忽略此参数
  * - content: 写入内容(markdown)。append 必填;update 忽略
  * - mode: "append" 追加到正文末尾 / "update" 局部替换(配 old_text/new_text)
  * - old_text: update 模式必填,要被替换的原文片段
  * - new_text: update 模式必填,替换后的新片段(空串表示删除)
  *
  * 副作用:
- * - 若 name 是新话题,创建文件并触发 registry.rescan()(update 不允许新建)
+ * - 若 name 是新记忆文件,创建文件并触发 registry.rescan()(update 不允许新建)
  * - 更新 frontmatter.lastAccessedAt
  * - (Task 10/11 加)同步压缩 + 遗忘检查
  *
@@ -1515,26 +1515,26 @@ internal class SaveSharedMemoryTool(
     override val name: String = "save_shared_memory"
 
     override val description: String = """
-        将信息写入共享记忆。当用户告诉你值得跨会话记住的事实(偏好、背景、约定等)时调用本工具。
+        将信息写入共享记忆。当用户要求或你自行发现值得跨会话长期记住的事实(偏好、背景、约定等)时，调用本工具将记忆写入共享文件。
 
-        调用前请先看 load_shared_memory 工具描述里列出的话题列表,判断要记录的内容归属于哪个已有话题:
-        - 已有话题:传该话题的 name,description 留空(已有话题的描述不可改)
-        - 没有合适话题:新建,传新 name + 必填的 description(一句话告诉未来的自己何时该加载本话题)
+        调用前请先看 load_shared_memory 工具描述里列出的（已存在）记忆文件列表,选择要记录的内容归属于哪个记忆文件:
+        - 有合适的记忆文件:传该记忆文件的 name,description 留空(记忆文件已存在，不需要描述)
+        - 没有合适的记忆文件:传新 name + 必填的 description(一句话告诉未来的自己何时该加载本记忆文件)，由程序新建
 
         参数:
-        - name: 话题名(英文短词,如 "travel-preferences")。若话题已存在则更新;若不存在则新建。
-        - description: 话题描述。新建话题时必填,已有话题忽略。例:"用户旅行偏好与历史行程"
-        - content: markdown 内容。append 模式下追加到现有内容末尾;update 模式下忽略,改用 old_text/new_text。
+        - name: 记忆文件名(英文短词,如 "travel-preferences")。
+        - description: 记忆文件描述。新建记忆文件时必填,选中合适的记忆文件时忽略。例:"用户旅行偏好与历史行程"
+        - content: 记忆内容。append 模式下追加到现有内容末尾;update 模式下忽略,改用 old_text/new_text。
         - mode: "append" 或 "update",默认 "append"。
-          - append: 追加 content 到现有正文末尾。新话题创建也走此模式(旧正文为空)。
+          - append: 追加 content 到现有正文末尾。记忆文件新建时也走此模式(此时正文为空)。
           - update: 局部替换。需配 old_text/new_text,工具读旧正文找到 old_text 替换为 new_text。
                     new_text 为空串表示删除该片段。找不到 old_text 则返回错误,不修改文件。
         - old_text: 仅 update 模式必填。要被替换的原文片段,必须与现有正文中的文本精确匹配。
         - new_text: 仅 update 模式必填。替换后的新片段。
 
-        特殊话题:
+        特殊记忆文件:
         - "user": 写入用户画像,每轮会主动注入 system prompt,不会遗忘。用户说"忘记 xxx"或
-          "改一下我之前说的 xxx"时,用 update 模式精确替换对应片段。user 话题已存在,description 留空。
+          "改一下我之前说的 xxx"时,用 update 模式精确替换对应片段。
     """.trimIndent()
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
@@ -1561,7 +1561,7 @@ internal class SaveSharedMemoryTool(
         // 状态变量:由 modify transform 内部写入,execute 外层读取以决定返回值
         var expired = false          // 遗忘触发删除(Task 11 用,本 task 占位 false)
         var notFound = false         // update 模式 old_text 找不到 / update 不存在
-        var missingDescription = false  // 新建话题但 description 为空
+        var missingDescription = false  // 新建记忆文件但 description 为空
         var newCreated = false       // 新话题创建
         var finalLen = 0             // 最终正文长度
 
