@@ -74,7 +74,7 @@ agent/memory/shared/
 - `api(project(":agent:core"))` — `AgentBuilder` / `AgentPlugin` / `Tool` / `AgentContext.llmProvider`
 - `api(project(":agent:capability"))` — `Capability` / `CapabilityPlugin` / `CapabilityLoadTool` / `CapabilityRegistry`
 - `api(libs.kotlinx.serialization.json)` — frontmatter 解析
-- `api(libs.kotlinx.coroutines.core)` — 异步压缩
+- `api(libs.kotlinx.coroutines.core)` — per-name Mutex(store 串行化)
 
 ---
 
@@ -233,8 +233,6 @@ import io.github.yeyi.agent.AgentPluginContext
 import io.github.yeyi.agent.capability.CapabilityAdapter
 import io.github.yeyi.agent.capability.CapabilityContextFactory
 import io.github.yeyi.agent.tool.Tool
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
 import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
@@ -276,7 +274,6 @@ internal class SharedMemoryPlugin(
 
     override val id: String = "shared-memory"
 
-    private val compressScope = CoroutineScope(SupervisorJob())
     private val ctxFactory: CapabilityContextFactory<SharedMemoryContext> = SharedMemoryContextFactory(
         memoryStore = memoryStore ?: PathSharedMemoryStore(directory),
         llmProvider = llmProvider,
@@ -303,8 +300,8 @@ internal class SharedMemoryPlugin(
             .adapt()
             .forEach { context.registerTool(it) }
 
-        // 注册 save_shared_memory(auxiliary)
-        context.registerTool(SaveSharedMemoryTool(registry, ctxFactory, compressScope))
+        // 注册 save_shared_memory(auxiliary,压缩并入 save 流程,无需独立协程)
+        context.registerTool(SaveSharedMemoryTool(registry, ctxFactory))
     }
 
     private suspend fun initialize() {
@@ -342,8 +339,6 @@ import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -356,20 +351,22 @@ import java.time.Instant
  * 参数:
  * - name: 话题名(对应文件名,不含 .md)
  * - content: 写入内容(markdown)
- * - mode: "append" 追加到正文末尾 / "replace" 覆盖整个正文(frontmatter 保留)
+ * - mode: "append" 追加到正文末尾 / "update" 局部替换(配 old_text/new_text)
  *
  * 副作用:
  * - 若 name 是新话题,创建文件并触发 registry.rescan()
  * - 更新 frontmatter.lastAccessedAt
  * - 触发本话题遗忘检查
- * - 异步触发压缩检查(超 memoryFileLimit 则调 LLM 总结压缩,fire-and-forget)
+ * - 写入后若 newBody 超过 memoryFileLimit,同步调 LLM 压缩并覆盖写回(与 write 同一把 per-name 锁,无竞态窗口)
  *
  * 返回:写入确认信息(包含字符数、是否触发压缩)
+ *
+ * 并发语义:本工具自身不持锁,串行性由 [SharedMemoryStore] 的 per-name 互斥保证——
+ * save 与 load、save 与压缩对同一 name 自动串行。
  */
 internal class SaveSharedMemoryTool(
     private val registry: SharedMemoryRegistry,
     private val contextFactory: CapabilityContextFactory<SharedMemoryContext>,
-    private val compressScope: CoroutineScope,
 ) : Tool {
     override val name: String = "save_shared_memory"
 
@@ -378,23 +375,33 @@ internal class SaveSharedMemoryTool(
 
         参数:
         - name: 话题名(英文短词,如 "travel-preferences")。若话题已存在则更新;若不存在则新建。
-        - content: markdown 内容。append 模式下追加到现有内容末尾;replace 模式下覆盖正文(frontmatter 保留)。
-        - mode: "append" 或 "replace",默认 "append"。
+        - content: markdown 内容。append 模式下追加到现有内容末尾;update 模式下忽略,改用 old_text/new_text。
+        - mode: "append" 或 "update",默认 "append"。
+          - append: 追加 content 到现有正文末尾。新话题创建也走此模式(旧正文为空)。
+          - update: 局部替换。需配 old_text/new_text,工具读旧正文找到 old_text 替换为 new_text。
+                    new_text 为空串表示删除该片段。找不到 old_text 则返回错误,不修改文件。
+        - old_text: 仅 update 模式必填。要被替换的原文片段,必须与现有正文中的文本精确匹配。
+        - new_text: 仅 update 模式必填。替换后的新片段。
 
         特殊话题:
-        - "user": 写入用户画像,每轮会主动注入 system prompt,不会遗忘。
+        - "user": 写入用户画像,每轮会主动注入 system prompt,不会遗忘。用户说"忘记 xxx"或
+          "改一下我之前说的 xxx"时,用 update 模式精确替换对应片段。
     """.trimIndent()
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
-        """{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","replace"]}},"required":["name","content"]}"""
+        """{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","update"]},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["name","content"]}"""
     )
 
     override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         val name = arguments.jsonObject["name"]?.jsonPrimitive?.content
             ?: return ToolExecutionResult.error("Missing 'name'")
-        val content = arguments.jsonObject["content"]?.jsonPrimitive?.content
-            ?: return ToolExecutionResult.error("Missing 'content'")
         val mode = arguments.jsonObject["mode"]?.jsonPrimitive?.content ?: "append"
+        val content = arguments.jsonObject["content"]?.jsonPrimitive?.content
+            ?: if (mode == "append") return ToolExecutionResult.error("Missing 'content'") else ""
+        val oldText = arguments.jsonObject["old_text"]?.jsonPrimitive?.content
+            ?: if (mode == "update") return ToolExecutionResult.error("Missing 'old_text'") else null
+        val newText = arguments.jsonObject["new_text"]?.jsonPrimitive?.content
+            ?: if (mode == "update") return ToolExecutionResult.error("Missing 'new_text'") else null
 
         val ctx = contextFactory.create(context)
         val store = ctx.memoryStore
@@ -418,26 +425,31 @@ internal class SaveSharedMemoryTool(
 
         val newBody = when (mode) {
             "append" -> if (body.isBlank()) content else "$body\n\n$content"
-            "replace" -> content
+            "update" -> {
+                if (isNew) return ToolExecutionResult.error("Cannot update a non-existing memory '$name'")
+                if (!body.contains(oldText!!)) {
+                    return ToolExecutionResult.error("old_text not found in memory '$name'")
+                }
+                body.replace(oldText, newText!!)
+            }
             else -> return ToolExecutionResult.error("Invalid mode: $mode")
         }
-        store.write(name, SharedMemoryFile.serialize(frontmatter, newBody))
+
+        // 同步压缩:超限则调 LLM 总结,覆盖写回。与上面的 write 共享 store 的 per-name 锁,
+        // 整个 save 流程对同一 name 串行。压缩失败则保留 append/update 后的 newBody,
+        // 不特殊处理——下次 save 会再次超限、再次触发。
+        val finalBody = if (newBody.length > ctx.memoryFileLimit) {
+            compressMemory(ctx, name, frontmatter, newBody) ?: newBody
+        } else {
+            newBody
+        }
+        store.write(name, SharedMemoryFile.serialize(frontmatter, finalBody))
 
         if (isNew) registry.rescan()
 
-        // 异步压缩检查
-        if (newBody.length > ctx.memoryFileLimit) {
-            compressScope.launch {
-                runCatching {
-                    compressMemory(ctx, name, frontmatter, newBody)
-                }.onFailure {
-                    // 仅日志,不阻断 save
-                }
-            }
-        }
-
+        val compressed = finalBody.length < newBody.length
         return ToolExecutionResult.success(
-            "Saved memory '$name' (${newBody.length} chars).${if (newBody.length > ctx.memoryFileLimit) " Compression scheduled." else ""}"
+            "Saved memory '$name' (${finalBody.length} chars).${if (compressed) " Compressed." else ""}"
         )
     }
 
@@ -446,16 +458,15 @@ internal class SaveSharedMemoryTool(
         name: String,
         frontmatter: SharedMemoryFile.Frontmatter,
         body: String,
-    ) {
-        val llm = ctx.llmProvider
+    ): String? {
+        val llm = ctx.llmProvider ?: return null
         val prompt = "请总结以下记忆内容,保留关键信息,压缩到 ${ctx.memoryFileLimit / 2} 字符以内:\n\n$body"
-        val summary = llm.complete(prompt) // 简化,实际调用 LlmProvider API
-        ctx.memoryStore.write(name, SharedMemoryFile.serialize(frontmatter, summary))
+        return runCatching { llm.complete(prompt) }.getOrNull()
     }
 
     private fun descriptionFromContent(content: String): String =
         content.lineSequence().firstOrNull()?.removePrefix("#")?.trim()?.take(80)
-            ?: "Long-term memory"
+            ?: "Shared memory"
 }
 ```
 
@@ -465,11 +476,18 @@ internal class SaveSharedMemoryTool(
 package io.github.yeyi.agent.memory.shared
 
 import java.nio.file.Path
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 /**
  * 共享记忆文件存储抽象。默认实现 [PathSharedMemoryStore] 走文件系统,宿主可注入自定义实现。
+ *
+ * 并发语义:实现必须保证对同一 [name] 的 read/write/delete/exists 串行化——
+ * 这是 save/load/压缩同锁语义的落点。不同 name 之间可并行。
+ * `list()` 无需串行(只读目录、不触碰单文件内容)。
  */
 public interface SharedMemoryStore {
     public suspend fun read(name: String): String?
@@ -485,25 +503,42 @@ public interface SharedMemoryStore {
  * - 文件名:`$directory/$name.md`
  * - IO 走 [Dispatchers.IO]
  * - "user" 文件存在但不列入 list()(避免被 registry 当作普通话题注册)
+ * - per-name 互斥:[locks] 为每个 name 维护一把 [Mutex],read/write/delete/exists 全程持锁,
+ *   使 save 与压缩、save 与 load 对同一 name 串行,消除单进程内的 lost update 与覆盖竞态。
  */
 public class PathSharedMemoryStore(private val directory: Path) : SharedMemoryStore {
     init { directory.toFile().mkdirs() }
 
-    override suspend fun read(name: String): String? = withContext(Dispatchers.IO) {
-        val f = directory.resolve("$name.md").toFile()
-        if (f.exists()) f.readText() else null
+    private val locks = ConcurrentHashMap<String, Mutex>()
+
+    private suspend fun <T> withNameLock(name: String, block: suspend () -> T): T {
+        val mutex = locks.computeIfAbsent(name) { Mutex() }
+        return mutex.withLock { block() }
     }
 
-    override suspend fun write(name: String, content: String) = withContext(Dispatchers.IO) {
-        directory.resolve("$name.md").toFile().writeText(content)
+    override suspend fun read(name: String): String? = withNameLock(name) {
+        withContext(Dispatchers.IO) {
+            val f = directory.resolve("$name.md").toFile()
+            if (f.exists()) f.readText() else null
+        }
     }
 
-    override suspend fun delete(name: String) = withContext(Dispatchers.IO) {
-        directory.resolve("$name.md").toFile().delete()
+    override suspend fun write(name: String, content: String) = withNameLock(name) {
+        withContext(Dispatchers.IO) {
+            directory.resolve("$name.md").toFile().writeText(content)
+        }
     }
 
-    override suspend fun exists(name: String): Boolean = withContext(Dispatchers.IO) {
-        directory.resolve("$name.md").toFile().exists()
+    override suspend fun delete(name: String) = withNameLock(name) {
+        withContext(Dispatchers.IO) {
+            directory.resolve("$name.md").toFile().delete()
+        }
+    }
+
+    override suspend fun exists(name: String): Boolean = withNameLock(name) {
+        withContext(Dispatchers.IO) {
+            directory.resolve("$name.md").toFile().exists()
+        }
     }
 
     override suspend fun list(): List<String> = withContext(Dispatchers.IO) {
@@ -561,7 +596,7 @@ import java.time.Duration
  * 注册共享记忆插件到 Agent。
  *
  * @param directory 记忆文件根目录,宿主必传
- * @param memoryFileLimit 单文件字符上限,超则异步压缩。默认 8000
+ * @param memoryFileLimit 单文件字符上限,超则同步压缩。默认 8000
  * @param forgetDuration 遗忘时间,文件超过此时长未被读写则删。默认 30 天
  * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
  * @param memoryStore 文件 IO 抽象;null 时用 [io.github.yeyi.agent.memory.shared.PathSharedMemoryStore]。默认 null
@@ -688,32 +723,41 @@ load_shared_memory.execute({name: "travel"})
 ### 6.4 LLM 调用 save_shared_memory(name, content, mode)
 
 ```
-save_shared_memory.execute({name, content, mode})
+save_shared_memory.execute({name, content, mode, old_text?, new_text?})
   → 解析参数
   → 若 isNew:
       → 创建 Frontmatter(name, descFromContent, now, now)
-      → 写入 store
-      → registry.rescan()             # 同步,保证状态一致
+      → body = ""
+      → mode 必须是 append(update 不允许新建)
   → 否则:
       → 读旧 frontmatter + body
       → 更新 lastAccessedAt = now
       → 遗忘检查(同 load)
-      → mode=append: body + "\n\n" + content
-      → mode=replace: content
-      → 写入 store
+  → mode=append: body + "\n\n" + content
+  → mode=update:
+      → 校验 body.contains(old_text),否则返回 error "old_text not found"
+      → body.replace(old_text, new_text)   # new_text="" 表示删除
+  → 写入 store(serialize(fm, newBody))
   → 若 newBody.length > memoryFileLimit:
-      → compressScope.launch { compressMemory(...) }   # 异步,fire-and-forget
-  → 返回 ToolExecutionResult.success("Saved ...")
+      → 同步调 compressMemory(name, frontmatter, newBody)   # 仍在 store 的 per-name 锁内
+      → 压缩成功:store.write(name, serialize(fm, summary))
+      → 压缩失败(llmProvider 为 null 或 LLM 抛错):保留 newBody,不特殊处理
+        # 下次 save 若仍超限会再次触发
+  → 若 isNew: registry.rescan()
+  → 返回 ToolExecutionResult.success("Saved ... (N chars) [Compressed.]")
 ```
 
-### 6.5 异步压缩
+### 6.5 同步压缩
 
 ```
 compressMemory(name, frontmatter, body)
-  → ctx.llmProvider.complete("总结以下内容,压缩到 ${memoryFileLimit/2} 字符以内:\n\n$body")
-  → store.write(name, serialize(frontmatter, summary))
-  → 失败:仅记录日志,不阻断
+  → llmProvider?.complete("总结以下内容,压缩到 ${memoryFileLimit/2} 字符以内:\n\n$body") ?: return null
+  → runCatching { ... }.getOrNull()   # 失败返回 null,保留 newBody
+  → 返回 summary
 ```
+
+压缩不是独立协程,而是 save 流程在 write 之后的一步,与 write 共享 store 的 per-name 锁。
+save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接看到。
 
 ---
 
@@ -723,7 +767,7 @@ compressMemory(name, frontmatter, body)
 
 - 创建:`install` 时若不存在,创建空模板(真实元数据 + 空正文)。
 - 读取:不进入 registry(`SharedMemoryStore.list()` 排除 `user`),LLM 不能 `load_shared_memory("user")`。
-- 写入:`save_shared_memory("user", content, mode)` 允许,LLM 通过此更新用户画像。
+- 写入:`save_shared_memory("user", ...)` 允许。append 用于累积新画像条目;update 用于"忘记 xxx"/"改一下 xxx"——LLM 从 system prompt 中看到 user.md 现有内容,引用要改的片段作 old_text,提供 new_text(空串表示删除)。user.md 不进 registry,LLM 不能 load,所以 update 的 old_text 必须凭 system prompt 中注入的内容引用。
 - 注入:`install` 时读 `user.md` 正文,通过 `appendInstructions` 注入 persona 能力区。
   - **注意**:首次 install 时 user.md 为空,注入空字符串无效果。后续 LLM 通过 save_shared_memory 写入后,需要下一会话才能注入——本设计不在运行时重读 user.md 注入。这是限制,见 §9。
 - 遗忘豁免:`user.md` 不参与遗忘检查。
@@ -734,11 +778,12 @@ compressMemory(name, frontmatter, body)
 - `save_shared_memory` 创建新文件后同步调 `rescan`,保证下一轮 `load_shared_memory` 能找到新话题。
 - `load_shared_memory` 路径不触发 rescan(只读已有注册)。
 
-### 7.3 压缩失败的容错
+### 7.3 压缩失败与并发
 
-- `compressScope = CoroutineScope(SupervisorJob())`:压缩失败不影响其他子任务。
-- `runCatching` 包裹压缩逻辑,失败仅记录日志。
-- 压缩期间 LLM 仍可读写该 md:压缩是覆盖写,中间状态短暂存在;最坏情况是压缩前后内容不一致,但不会损坏文件结构(frontmatter 保留)。
+- **压缩位置**:压缩是 `save_shared_memory` 流程内的一步,在 `store.write(newBody)` 之后、返回之前,与 write 共享 store 的 per-name 锁。不是独立协程。
+- **失败语义**:`llmProvider` 为 null 或 LLM 调用抛错时,`compressMemory` 返回 null,save 流程保留 append/update 后的 newBody 作为最终 body 写入(已在 write 步骤落盘)。下次 save 若 `newBody.length` 仍超 `memoryFileLimit` 会再次触发压缩——这是"压缩失败则直接追加,等下一次写入时再次触发"的落点。
+- **并发**:per-name 互斥由 `SharedMemoryStore` 实现 guarantee,save/load/压缩对同一 name 自动串行。不同 name 可并行。单进程内不存在 lost update 或压缩覆盖竞态。
+- **跨进程**:不支持。若宿主跨进程共享同一 `directory`,须自行加协调层。
 
 ### 7.4 遗忘检查的语义
 
@@ -766,10 +811,10 @@ compressMemory(name, frontmatter, body)
 - `PathSharedMemoryStore`:在 tempdir 上读写删列表,IO 异常路径。
 - `SharedMemoryRegistry.rescan`:新增/删除/变更文件的同步。
 - `SaveSharedMemoryTool.execute`:
-  - append / replace 两种 mode
+  - append / update 两种 mode(update 配 old_text/new_text,支持局部替换与删除)
   - 新话题创建 → 触发 rescan
   - 已有话题更新 lastAccessedAt
-  - 超过 memoryFileLimit → 触发异步压缩(mock LlmProvider)
+  - 超过 memoryFileLimit → 触发同步压缩(mock LlmProvider)
   - 遗忘触发删除(mock clock)
   - user.md 豁免遗忘
 - `SharedMemoryPlugin.initialize`:user.md 不存在时创建,已存在时不覆盖。
@@ -793,7 +838,7 @@ compressMemory(name, frontmatter, body)
 ### 9.1 当前限制
 
 1. **user.md 注入是静态的**:`install` 时一次性读 `user.md` 内容通过 `appendInstructions` 注入,运行时 LLM 通过 `save_shared_memory` 更新 user.md 后,**当前会话不会重新注入**——要等下一次会话。后续可考虑加 `onTurnFinished` hook 重读 user.md,但需要 Agent 暴露 turn hook 给插件,目前插件接口只支持 `registerTool` + `appendInstructions`。
-2. **压缩期间无锁**:压缩是异步覆盖写,期间若 LLM 同时 save 同一 md,可能内容丢失。本设计接受这一风险(压缩发生频率低,且 save 后立即触发新的压缩)。
+2. **跨进程并发不支持**:per-name Mutex 只在单进程内生效。若多个进程/Agent 实例挂同一 `directory`,可能 lost update。宿主跨进程共享须自行加协调层。
 3. **遗忘只检查当前 md**:不被访问的文件不会被主动遗忘巡检。如果用户希望"定期清理所有超期文件",需要宿主应用主动调 `registry.rescan()`(rescan 不删除文件,只是同步注册表)——本设计不提供独立的遗忘巡检 API。
 
 ### 9.2 未来扩展
@@ -801,7 +846,7 @@ compressMemory(name, frontmatter, body)
 1. **user.md 动态注入**:加 turn hook,每轮开始重读 user.md 注入。
 2. **遗忘巡检 API**:`SharedMemoryRegistry.purgeExpired()` 主动清理所有超期文件。
 3. **话题合并**:多个相关 md 合并为一个,需要 LLM 识别"相关"。
-4. **跨 Agent 共享记忆**:多个 Agent 共用同一个 `directory`,通过文件锁协调。
+4. **跨进程 registry 失效感知**:多进程共享同一 `directory` 时,A 进程 save 后 B 进程的 registry 仍是旧快照。未来可加 FS watch 或 polling rescan,使 B 进程自动感知新话题。v1 不处理。
 
 ---
 
@@ -811,7 +856,7 @@ compressMemory(name, frontmatter, body)
 2. 新建 `agent/memory/shared` 模块,实现 `SharedMemoryStore` / `SharedMemoryFile` / `SharedMemory` / `SharedMemoryRegistry` / `SharedMemoryContext`。
 3. 实现 `SaveSharedMemoryTool`(不含压缩,先跑通读写路径)。
 4. 实现 `SharedMemoryPlugin` + `SharedMemoryExtensions`,接入 AgentBuilder。
-5. 加压缩逻辑(`compressScope.launch`)。
+5. 加同步压缩逻辑(并入 save 流程,与 write 同锁)。
 6. 加遗忘检查。
 7. 加 user.md 初始化 + appendInstructions 注入。
 8. 单元测试 + 集成测试。

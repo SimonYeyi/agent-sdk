@@ -34,11 +34,9 @@ agent/memory/shared/
     │   ├── SharedMemory.kt       # Task 5:Capability 接口 + DefaultSharedMemory 实现
     │   ├── SharedMemoryContext.kt        # Task 6:Context + Factory
     │   ├── SharedMemoryRegistry.kt       # Task 7:Registry + rescan
-    │   ├── SaveSharedMemoryTool.kt       # Task 8:auxiliary 写入工具(不含压缩/遗忘)
+    │   ├── SaveSharedMemoryTool.kt       # Task 8:写入工具(append/update);Task 10 加同步压缩;Task 11 加遗忘检查
     │   ├── SharedMemoryPlugin.kt         # Task 9:Plugin 接线 + user.md 初始化
-    │   ├── SharedMemoryExtensions.kt     # Task 9:AgentBuilder.sharedMemory DSL
-    │   ├── SharedMemoryCompression.kt    # Task 10:异步压缩
-    │   └── SharedMemoryForgetting.kt     # Task 11:遗忘检查(集成到 load/save 路径)
+    │   └── SharedMemoryExtensions.kt     # Task 9:AgentBuilder.sharedMemory DSL
     └── test/kotlin/io/github/yeyi/agent/memory/shared/
         ├── SharedMemoryFileTest.kt
         ├── PathSharedMemoryStoreTest.kt
@@ -888,7 +886,7 @@ import java.time.Duration
  * - [memoryStore]: 文件 IO 抽象,load/save 共用
  * - [llmProvider]: 压缩用 LLM(非空 —— factory 已做 null 回退到 [ToolExecutionContext.agentContext.llmProvider])
  * - [registry]: 用于 save_shared_memory 创建新话题后触发 rescan
- * - [memoryFileLimit]: 单文件字符上限,超则异步压缩
+ * - [memoryFileLimit]: 单文件字符上限,超则同步压缩(并入 save 流程)
  * - [forgetDuration]: 遗忘时间,文件超过此时长未被读写则删
  */
 public class SharedMemoryContext(
@@ -1133,9 +1131,9 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `Tool` / `ToolExecutionResult` / `ToolParameters` / `SharedMemoryStore` / `SharedMemoryFile` / `SharedMemoryRegistry` / `CapabilityContextFactory<SharedMemoryContext>`
 - Produces:
-  - `internal class SaveSharedMemoryTool(registry, contextFactory, compressScope) : Tool`
+  - `internal class SaveSharedMemoryTool(registry, contextFactory) : Tool`
   - 工具名 `save_shared_memory`,参数 `{name, content, mode}`
-  - 副作用:新话题创建触发 `rescan`,已有话题更新 `lastAccessedAt`,异步压缩入口(本 task 占位,Task 10 实现)
+  - 副作用:新话题创建触发 `rescan`,已有话题更新 `lastAccessedAt`,同步压缩入口(本 task 占位,Task 10 实现)
 
 **注意:** 本 task 不实现压缩与遗忘检查,只跑通读写路径。Task 10/11 会扩展。
 
@@ -1154,8 +1152,6 @@ import io.github.yeyi.agent.llm.ChatResponseEvent
 import io.github.yeyi.agent.llm.FinishReason
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.tool.ToolExecutionContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
@@ -1194,8 +1190,7 @@ class SaveSharedMemoryToolTest {
             forgetDuration = Duration.ofDays(30),
         )
     }
-    private val compressScope = CoroutineScope(SupervisorJob())
-    private val tool = SaveSharedMemoryTool(registry, ctxFactory, compressScope)
+    private val tool = SaveSharedMemoryTool(registry, ctxFactory)
 
     @AfterTest
     fun cleanup() {
@@ -1217,11 +1212,19 @@ class SaveSharedMemoryToolTest {
         ),
     )
 
-    private fun args(name: String, content: String, mode: String = "append"): JsonObject = JsonObject(mapOf(
-        "name" to JsonPrimitive(name),
-        "content" to JsonPrimitive(content),
-        "mode" to JsonPrimitive(mode),
-    ))
+    private fun args(
+        name: String,
+        content: String = "",
+        mode: String = "append",
+        oldText: String? = null,
+        newText: String? = null,
+    ): JsonObject = buildMap {
+        put("name", JsonPrimitive(name))
+        put("content", JsonPrimitive(content))
+        put("mode", JsonPrimitive(mode))
+        oldText?.let { put("old_text", JsonPrimitive(it)) }
+        newText?.let { put("new_text", JsonPrimitive(it)) }
+    }.let { JsonObject(it) }
 
     @Test
     fun `append to new topic creates file and triggers rescan`() = runTest {
@@ -1245,15 +1248,45 @@ class SaveSharedMemoryToolTest {
     }
 
     @Test
-    fun `replace overwrites body`() = runTest {
+    fun `update replaces old_text with new_text`() = runTest {
+        store.write("travel", SharedMemoryFile.serialize(
+            SharedMemoryFile.Frontmatter("travel", "旅行", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
+            "喜欢辣的食物\n\n常去东南亚",
+        ))
+        registry.rescan()
+        tool.execute(args("travel", mode = "update", oldText = "喜欢辣的食物", newText = "口味偏清淡"), execContext())
+        val parsed = SharedMemoryFile.parse(store.read("travel")!!)
+        assertEquals("口味偏清淡\n\n常去东南亚", parsed.body)
+    }
+
+    @Test
+    fun `update with empty new_text deletes the fragment`() = runTest {
+        store.write("travel", SharedMemoryFile.serialize(
+            SharedMemoryFile.Frontmatter("travel", "旅行", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
+            "喜欢辣\n\n常去东南亚",
+        ))
+        registry.rescan()
+        tool.execute(args("travel", mode = "update", oldText = "喜欢辣\n\n", newText = ""), execContext())
+        val parsed = SharedMemoryFile.parse(store.read("travel")!!)
+        assertEquals("常去东南亚", parsed.body)
+    }
+
+    @Test
+    fun `update with missing old_text returns error`() = runTest {
         store.write("travel", SharedMemoryFile.serialize(
             SharedMemoryFile.Frontmatter("travel", "旅行", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
             "原内容",
         ))
         registry.rescan()
-        tool.execute(args("travel", "替换后", "replace"), execContext())
-        val parsed = SharedMemoryFile.parse(store.read("travel")!!)
-        assertEquals("替换后", parsed.body)
+        val result = tool.execute(args("travel", mode = "update", oldText = "不存在", newText = "新"), execContext())
+        assertTrue(result.isError)
+    }
+
+    @Test
+    fun `update on non-existing memory returns error`() = runTest {
+        registry.rescan()
+        val result = tool.execute(args("ghost", mode = "update", oldText = "x", newText = "y"), execContext())
+        assertTrue(result.isError)
     }
 
     @Test
@@ -1318,8 +1351,6 @@ import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
 import io.github.yeyi.agent.tool.ToolParameters
 import java.time.Instant
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -1331,20 +1362,23 @@ import kotlinx.serialization.json.jsonPrimitive
  *
  * 参数:
  * - name: 话题名(对应文件名,不含 .md)
- * - content: 写入内容(markdown)
- * - mode: "append" 追加到正文末尾 / "replace" 覆盖整个正文(frontmatter 保留)
+ * - content: 写入内容(markdown)。append 必填;update 忽略
+ * - mode: "append" 追加到正文末尾 / "update" 局部替换(配 old_text/new_text)
+ * - old_text: update 模式必填,要被替换的原文片段
+ * - new_text: update 模式必填,替换后的新片段(空串表示删除)
  *
  * 副作用:
- * - 若 name 是新话题,创建文件并触发 registry.rescan()
+ * - 若 name 是新话题,创建文件并触发 registry.rescan()(update 不允许新建)
  * - 更新 frontmatter.lastAccessedAt
- * - (Task 10/11 加)遗忘检查 + 异步压缩
+ * - (Task 10/11 加)同步压缩 + 遗忘检查
  *
  * 返回:写入确认信息
+ *
+ * 并发语义:本工具自身不持锁,串行性由 SharedMemoryStore 的 per-name 互斥保证。
  */
 internal class SaveSharedMemoryTool(
     private val registry: SharedMemoryRegistry,
     private val contextFactory: CapabilityContextFactory<SharedMemoryContext>,
-    private val compressScope: CoroutineScope,
 ) : Tool {
     override val name: String = "save_shared_memory"
 
@@ -1353,24 +1387,34 @@ internal class SaveSharedMemoryTool(
 
         参数:
         - name: 话题名(英文短词,如 "travel-preferences")。若话题已存在则更新;若不存在则新建。
-        - content: markdown 内容。append 模式下追加到现有内容末尾;replace 模式下覆盖正文(frontmatter 保留)。
-        - mode: "append" 或 "replace",默认 "append"。
+        - content: markdown 内容。append 模式下追加到现有内容末尾;update 模式下忽略,改用 old_text/new_text。
+        - mode: "append" 或 "update",默认 "append"。
+          - append: 追加 content 到现有正文末尾。新话题创建也走此模式(旧正文为空)。
+          - update: 局部替换。需配 old_text/new_text,工具读旧正文找到 old_text 替换为 new_text。
+                    new_text 为空串表示删除该片段。找不到 old_text 则返回错误,不修改文件。
+        - old_text: 仅 update 模式必填。要被替换的原文片段,必须与现有正文中的文本精确匹配。
+        - new_text: 仅 update 模式必填。替换后的新片段。
 
         特殊话题:
-        - "user": 写入用户画像,每轮会主动注入 system prompt,不会遗忘。
+        - "user": 写入用户画像,每轮会主动注入 system prompt,不会遗忘。用户说"忘记 xxx"或
+          "改一下我之前说的 xxx"时,用 update 模式精确替换对应片段。
     """.trimIndent()
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
-        """{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","replace"]}},"required":["name","content"]}"""
+        """{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","update"]},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["name","content"]}"""
     )
 
     override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         val obj = arguments.jsonObject
         val name = (obj["name"] as? JsonPrimitive)?.content
             ?: return ToolExecutionResult.error("Missing 'name'")
-        val content = (obj["content"] as? JsonPrimitive)?.content
-            ?: return ToolExecutionResult.error("Missing 'content'")
         val mode = (obj["mode"] as? JsonPrimitive)?.content ?: "append"
+        val content = (obj["content"] as? JsonPrimitive)?.content
+            ?: if (mode == "append") return ToolExecutionResult.error("Missing 'content'") else ""
+        val oldText = (obj["old_text"] as? JsonPrimitive)?.content
+            ?: if (mode == "update") return ToolExecutionResult.error("Missing 'old_text'") else null
+        val newText = (obj["new_text"] as? JsonPrimitive)?.content
+            ?: if (mode == "update") return ToolExecutionResult.error("Missing 'new_text'") else null
 
         val ctx = contextFactory.create(context)
         val store = ctx.memoryStore
@@ -1378,6 +1422,7 @@ internal class SaveSharedMemoryTool(
 
         val isNew = !store.exists(name)
         val (frontmatter, body) = if (isNew) {
+            if (mode == "update") return ToolExecutionResult.error("Cannot update a non-existing memory '$name'")
             SharedMemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
         } else {
             val raw = store.read(name)!!
@@ -1385,55 +1430,57 @@ internal class SaveSharedMemoryTool(
             fm.copy(lastAccessedAt = now) to b
         }
 
+        // 遗忘检查(Task 11 实现,本 task 占位 no-op)
+
         val newBody = when (mode) {
             "append" -> if (body.isBlank()) content else "$body\n\n$content"
-            "replace" -> content
+            "update" -> {
+                if (!body.contains(oldText!!)) {
+                    return ToolExecutionResult.error("old_text not found in memory '$name'")
+                }
+                body.replace(oldText, newText!!)
+            }
             else -> return ToolExecutionResult.error("Invalid mode: $mode")
         }
-        store.write(name, SharedMemoryFile.serialize(frontmatter, newBody))
+
+        // 同步压缩(Task 10 实现,本 task 占位 no-op:超限也不压缩)
+        val finalBody = newBody
+
+        store.write(name, SharedMemoryFile.serialize(frontmatter, finalBody))
 
         if (isNew) registry.rescan()
 
-        // 异步压缩入口(Task 10 实现)
-        if (newBody.length > ctx.memoryFileLimit) {
-            compressScope.launch {
-                runCatching {
-                    compressMemory(ctx, name, frontmatter, newBody)
-                }
-            }
-        }
-
-        return ToolExecutionResult.success("Saved memory '$name' (${newBody.length} chars).")
+        return ToolExecutionResult.success("Saved memory '$name' (${finalBody.length} chars).")
     }
 
+    // Task 10 实现同步压缩:超 memoryFileLimit 时调 LLM 总结,返回 summary;失败返回 null 保留 newBody
     private suspend fun compressMemory(
         ctx: SharedMemoryContext,
         name: String,
         frontmatter: SharedMemoryFile.Frontmatter,
         body: String,
-    ) {
-        // Task 10 实现
-    }
+    ): String? = null
 
     private fun descriptionFromContent(content: String): String =
-        content.lineSequence().firstOrNull()?.removePrefix("#")?.trim()?.take(80)?.ifBlank { "Long-term memory" }
-            ?: "Long-term memory"
+        content.lineSequence().firstOrNull()?.removePrefix("#")?.trim()?.take(80)?.ifBlank { "Shared memory" }
+            ?: "Shared memory"
 }
 ```
 
 - [ ] **Step 4: 跑测试验证通过**
 
 Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveSharedMemoryToolTest"`
-Expected: PASS — 8 个测试全部通过
+Expected: PASS — 测试全部通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
 git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryTool.kt \
         agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryToolTest.kt
-git commit -m "feat(shared-memory): SaveSharedMemoryTool 写入工具(append/replace)
+git commit -m "feat(shared-memory): SaveSharedMemoryTool 写入工具(append/update)
 
-不含压缩与遗忘,Task 10/11 扩展。
+不含压缩与遗忘,Task 10/11 扩展。mode 收敛为 append/update,
+update 配 old_text/new_text 支持局部替换与删除。
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -1635,8 +1682,6 @@ import io.github.yeyi.agent.llm.LlmProvider
 import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
 
 /**
@@ -1675,7 +1720,6 @@ internal class SharedMemoryPlugin(
 
     override val id: String = "shared-memory"
 
-    private val compressScope = CoroutineScope(SupervisorJob())
     private val ctxFactory: CapabilityContextFactory<SharedMemoryContext> = SharedMemoryContextFactory(
         memoryStore = memoryStore,
         llmProvider = llmProvider,
@@ -1709,7 +1753,7 @@ internal class SharedMemoryPlugin(
             .forEach { context.registerTool(it) }
 
         // 注册 save_shared_memory
-        context.registerTool(SaveSharedMemoryTool(registry, ctxFactory, compressScope))
+        context.registerTool(SaveSharedMemoryTool(registry, ctxFactory))
     }
 
     private suspend fun ensureUserMemory() {
@@ -1746,7 +1790,7 @@ import java.time.Duration
  * 注册共享记忆插件到 Agent。
  *
  * @param directory 记忆文件根目录,宿主必传
- * @param memoryFileLimit 单文件字符上限,超则异步压缩。默认 8000
+ * @param memoryFileLimit 单文件字符上限,超则同步压缩。默认 8000
  * @param forgetDuration 遗忘时间,文件超过此时长未被读写则删。默认 30 天
  * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
  * @param memoryStore 文件 IO 抽象;null 时用 [PathSharedMemoryStore]。默认 null
@@ -1797,7 +1841,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ---
 
-## Task 10: 异步压缩
+## Task 10: 同步压缩(并入 save 流程)
 
 **Files:**
 - Modify: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryTool.kt`
@@ -1805,7 +1849,10 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: `SharedMemoryContext.llmProvider` / `ChatRequest` / `ChatMessage.System` / `ChatResponse.message.content`
-- Produces: `SaveSharedMemoryTool.compressMemory` 实现完成,save 后超 `memoryFileLimit` 自动异步压缩
+- Produces: `SaveSharedMemoryTool.compressMemory` 实现完成,save 后超 `memoryFileLimit` 同步压缩并覆盖写回(save 返回时文件已是压缩态)
+
+**注意:** 压缩是 save 流程内的一步,与 write 共享 store 的 per-name 锁。不是独立协程。
+压缩失败(`llmProvider` 为 null 或 LLM 抛错)返回 null,save 保留 newBody 不特殊处理。
 
 - [ ] **Step 1: 写失败测试 — 压缩被触发且文件被覆盖**
 
@@ -1813,8 +1860,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ```kotlin
 @Test
-fun `save triggers async compression when body exceeds memoryFileLimit`() = runTest {
-    // 用一个会返回"compressed"的 stub LLM
+fun `save triggers sync compression when body exceeds memoryFileLimit`() = runTest {
     val compressingLlm = object : LlmProvider {
         override val name: String = "compressor"
         override suspend fun chat(request: ChatRequest) = ChatResponse(
@@ -1835,36 +1881,62 @@ fun `save triggers async compression when body exceeds memoryFileLimit`() = runT
             forgetDuration = Duration.ofDays(30),
         )
     }
-    val compressingTool = SaveSharedMemoryTool(compressingRegistry, compressingCtxFactory, compressScope)
+    val compressingTool = SaveSharedMemoryTool(compressingRegistry, compressingCtxFactory)
 
-    // 写入超限内容
+    // 写入超限内容,save 返回时文件应已是压缩态
     val longContent = "这是一个很长的内容,超过 10 字符上限"
-    compressingTool.execute(args("long-topic", longContent, "replace"), execContext())
-
-    // 等待异步压缩完成
-    kotlinx.coroutines.delay(500)
+    compressingTool.execute(args("long-topic", longContent), execContext())
 
     val parsed = SharedMemoryFile.parse(store.read("long-topic")!!)
     assertEquals("压缩后内容", parsed.body)
+}
+
+@Test
+fun `save keeps newBody when compression fails`() = runTest {
+    val failingLlm = object : LlmProvider {
+        override val name: String = "failing"
+        override suspend fun chat(request: ChatRequest) = throw RuntimeException("LLM down")
+        override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { }
+    }
+    val smallLimit = 10
+    val failingRegistry = SharedMemoryRegistry(store, smallLimit, Duration.ofDays(30), failingLlm)
+    val failingCtxFactory = object : CapabilityContextFactory<SharedMemoryContext> {
+        override fun create(context: ToolExecutionContext) = SharedMemoryContext(
+            memoryStore = store,
+            llmProvider = failingLlm,
+            registry = failingRegistry,
+            memoryFileLimit = smallLimit,
+            forgetDuration = Duration.ofDays(30),
+        )
+    }
+    val failingTool = SaveSharedMemoryTool(failingRegistry, failingCtxFactory)
+
+    val longContent = "这是一个很长的内容,超过 10 字符上限"
+    failingTool.execute(args("long-topic", longContent), execContext())
+
+    // 压缩失败,文件保留 newBody
+    val parsed = SharedMemoryFile.parse(store.read("long-topic")!!)
+    assertEquals(longContent, parsed.body)
 }
 ```
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveSharedMemoryToolTest.save triggers async compression when body exceeds memoryFileLimit"`
-Expected: FAIL — body 仍是原始长内容(`compressMemory` 是空实现)
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveSharedMemoryToolTest.save triggers sync compression when body exceeds memoryFileLimit"`
+Expected: FAIL — body 仍是原始长内容(`compressMemory` 返回 null)
 
-- [ ] **Step 3: 实现 compressMemory**
+- [ ] **Step 3: 实现 compressMemory + 接入 save 流程**
 
-修改 `SaveSharedMemoryTool.kt` 的 `compressMemory`:
+修改 `SaveSharedMemoryTool.kt`:
+
+1. `compressMemory` 改为返回 `String?`(成功返回 summary,失败返回 null):
 
 ```kotlin
 private suspend fun compressMemory(
     ctx: SharedMemoryContext,
-    name: String,
-    frontmatter: SharedMemoryFile.Frontmatter,
     body: String,
-) {
+): String? {
+    val llm = ctx.llmProvider ?: return null
     val targetSize = ctx.memoryFileLimit / 2
     val prompt = """
         请总结以下共享记忆内容,保留关键信息,压缩到 $targetSize 字符以内。
@@ -1877,24 +1949,38 @@ private suspend fun compressMemory(
     val request = io.github.yeyi.agent.llm.ChatRequest(
         messages = listOf(io.github.yeyi.agent.llm.ChatMessage.System(prompt)),
     )
-    val response = ctx.llmProvider.chat(request)
-    val summary = response.message.content ?: body // 失败回退为原文
-
-    ctx.memoryStore.write(name, SharedMemoryFile.serialize(frontmatter, summary))
+    return runCatching {
+        llm.chat(request).message.content
+    }.getOrNull()
 }
 ```
+
+2. `execute` 中的 `finalBody` 计算改为:
+
+```kotlin
+val finalBody = if (newBody.length > ctx.memoryFileLimit) {
+    compressMemory(ctx, newBody) ?: newBody
+} else {
+    newBody
+}
+```
+
+压缩在 write 之前完成,store.write 一次性写入最终态。per-name 锁由 store 保证,save 与压缩同锁串行。
 
 - [ ] **Step 4: 跑测试验证通过**
 
 Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveSharedMemoryToolTest"`
-Expected: PASS — 9 个测试全部通过(含新增压缩测试)
+Expected: PASS — 所有测试通过(含新增两个压缩测试)
 
 - [ ] **Step 5: 提交**
 
 ```bash
 git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryTool.kt \
         agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryToolTest.kt
-git commit -m "feat(shared-memory): 异步压缩,超 memoryFileLimit 时调 LLM 总结
+git commit -m "feat(shared-memory): 同步压缩,超 memoryFileLimit 时在 save 流程内调 LLM 总结
+
+压缩并入 save 流程,与 write 共享 store per-name 锁,不再异步。
+压缩失败保留 newBody,下次 save 再次触发。
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -1993,7 +2079,7 @@ fun `save deletes file when lastAccessedAt exceeds forgetDuration`() = runTest {
             forgetDuration = shortForgetDuration,
         )
     }
-    val shortForgetTool = SaveSharedMemoryTool(shortForgetRegistry, shortForgetCtxFactory, compressScope)
+    val shortForgetTool = SaveSharedMemoryTool(shortForgetRegistry, shortForgetCtxFactory)
     shortForgetRegistry.rescan()
 
     val result = shortForgetTool.execute(args("old-topic", "新内容", "append"), execContext())
@@ -2068,9 +2154,13 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
     val obj = arguments.jsonObject
     val name = (obj["name"] as? JsonPrimitive)?.content
         ?: return ToolExecutionResult.error("Missing 'name'")
-    val content = (obj["content"] as? JsonPrimitive)?.content
-        ?: return ToolExecutionResult.error("Missing 'content'")
     val mode = (obj["mode"] as? JsonPrimitive)?.content ?: "append"
+    val content = (obj["content"] as? JsonPrimitive)?.content
+        ?: if (mode == "append") return ToolExecutionResult.error("Missing 'content'") else ""
+    val oldText = (obj["old_text"] as? JsonPrimitive)?.content
+        ?: if (mode == "update") return ToolExecutionResult.error("Missing 'old_text'") else null
+    val newText = (obj["new_text"] as? JsonPrimitive)?.content
+        ?: if (mode == "update") return ToolExecutionResult.error("Missing 'new_text'") else null
 
     val ctx = contextFactory.create(context)
     val store = ctx.memoryStore
@@ -2078,11 +2168,12 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
 
     val isNew = !store.exists(name)
     val (frontmatter, body) = if (isNew) {
+        if (mode == "update") return ToolExecutionResult.error("Cannot update a non-existing memory '$name'")
         SharedMemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
     } else {
         val raw = store.read(name)!!
         val (fm, b) = SharedMemoryFile.parse(raw)
-        fm.copy(lastAccessedAt = now) to b
+        fm to b  // 保留原 lastAccessedAt 用于遗忘检查
     }
 
     // 遗忘检查:user 豁免;若已超阈值,删除并返回
@@ -2095,101 +2186,31 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
         }
     }
 
-    val newBody = when (mode) {
-        "append" -> if (body.isBlank()) content else "$body\n\n$content"
-        "replace" -> content
-        else -> return ToolExecutionResult.error("Invalid mode: $mode")
-    }
-    store.write(name, SharedMemoryFile.serialize(frontmatter, newBody))
-
-    if (isNew) registry.rescan()
-
-    if (newBody.length > ctx.memoryFileLimit) {
-        compressScope.launch {
-            runCatching {
-                compressMemory(ctx, name, frontmatter, newBody)
-            }
-        }
-    }
-
-    return ToolExecutionResult.success("Saved memory '$name' (${newBody.length} chars).")
-}
-```
-
-**注意:** `frontmatter.copy(lastAccessedAt = now)` 已在 else 分支执行,所以遗忘检查时 `frontmatter.lastAccessedAt` 是更新后的值。这不对——遗忘检查应该看的是旧值。修正:`else` 分支不更新 `lastAccessedAt`,而是在遗忘检查通过后再更新。
-
-修正后的 `else` 分支:
-
-```kotlin
-} else {
-    val raw = store.read(name)!!
-    val (fm, b) = SharedMemoryFile.parse(raw)
-    fm to b  // 保留原 lastAccessedAt 用于遗忘检查
-}
-```
-
-然后遗忘检查通过后,在 `store.write` 之前更新 lastAccessedAt:
-
-```kotlin
-// 通过遗忘检查后,更新 lastAccessedAt
-val updatedFrontmatter = frontmatter.copy(lastAccessedAt = now)
-// ... 计算 newBody ...
-store.write(name, SharedMemoryFile.serialize(updatedFrontmatter, newBody))
-```
-
-完整修正版 `execute`:
-
-```kotlin
-override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
-    val obj = arguments.jsonObject
-    val name = (obj["name"] as? JsonPrimitive)?.content
-        ?: return ToolExecutionResult.error("Missing 'name'")
-    val content = (obj["content"] as? JsonPrimitive)?.content
-        ?: return ToolExecutionResult.error("Missing 'content'")
-    val mode = (obj["mode"] as? JsonPrimitive)?.content ?: "append"
-
-    val ctx = contextFactory.create(context)
-    val store = ctx.memoryStore
-    val now = Instant.now()
-
-    val isNew = !store.exists(name)
-    val (frontmatter, body) = if (isNew) {
-        SharedMemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
-    } else {
-        val raw = store.read(name)!!
-        val (fm, b) = SharedMemoryFile.parse(raw)
-        fm to b
-    }
-
-    // 遗忘检查:user 豁免;基于原始 lastAccessedAt
-    if (name != "user") {
-        val elapsed = java.time.Duration.between(frontmatter.lastAccessedAt, now)
-        if (elapsed > ctx.forgetDuration) {
-            store.delete(name)
-            registry.rescan()
-            return ToolExecutionResult.success("Memory '$name' was expired and deleted.")
-        }
-    }
-
     val updatedFrontmatter = frontmatter.copy(lastAccessedAt = now)
     val newBody = when (mode) {
         "append" -> if (body.isBlank()) content else "$body\n\n$content"
-        "replace" -> content
+        "update" -> {
+            if (!body.contains(oldText!!)) {
+                return ToolExecutionResult.error("old_text not found in memory '$name'")
+            }
+            body.replace(oldText, newText!!)
+        }
         else -> return ToolExecutionResult.error("Invalid mode: $mode")
     }
-    store.write(name, SharedMemoryFile.serialize(updatedFrontmatter, newBody))
+
+    val finalBody = if (newBody.length > ctx.memoryFileLimit) {
+        compressMemory(ctx, newBody) ?: newBody
+    } else {
+        newBody
+    }
+    store.write(name, SharedMemoryFile.serialize(updatedFrontmatter, finalBody))
 
     if (isNew) registry.rescan()
 
-    if (newBody.length > ctx.memoryFileLimit) {
-        compressScope.launch {
-            runCatching {
-                compressMemory(ctx, name, updatedFrontmatter, newBody)
-            }
-        }
-    }
-
-    return ToolExecutionResult.success("Saved memory '$name' (${newBody.length} chars).")
+    val compressed = finalBody.length < newBody.length
+    return ToolExecutionResult.success(
+        "Saved memory '$name' (${finalBody.length} chars).${if (compressed) " Compressed." else ""}"
+    )
 }
 ```
 
@@ -2260,9 +2281,6 @@ import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.memory.InMemoryMemory
 import io.github.yeyi.agent.modality.DefaultModalityAdapter
 import io.github.yeyi.agent.tool.ToolExecutionContext
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
@@ -2297,7 +2315,7 @@ class SharedMemoryIntegrationTest {
             forgetDuration = Duration.ofDays(30),
         )
     }
-    private val saveTool = SaveSharedMemoryTool(registry, ctxFactory, CoroutineScope(SupervisorJob()))
+    private val saveTool = SaveSharedMemoryTool(registry, ctxFactory)
     private val loadTool = io.github.yeyi.agent.capability.CapabilityAdapter.of(
         registry, ctxFactory, null, true,
     ).adapt().first()
@@ -2334,8 +2352,6 @@ class SharedMemoryIntegrationTest {
         )
 
         // 等待 rescan 完成
-        delay(100)
-
         val loadResult = loadTool.execute(
             JsonObject(mapOf("name" to JsonPrimitive("travel"))),
             execContext(),
@@ -2353,7 +2369,6 @@ class SharedMemoryIntegrationTest {
             )),
             execContext(),
         )
-        delay(100)
         assertTrue(loadTool.description.contains("food"))
     }
 
@@ -2362,7 +2377,6 @@ class SharedMemoryIntegrationTest {
         registry.rescan()
         saveTool.execute(JsonObject(mapOf("name" to JsonPrimitive("hobby"), "content" to JsonPrimitive("摄影"))), execContext())
         saveTool.execute(JsonObject(mapOf("name" to JsonPrimitive("hobby"), "content" to JsonPrimitive("徒步"), "mode" to JsonPrimitive("append"))), execContext())
-        delay(100)
 
         val loadResult = loadTool.execute(
             JsonObject(mapOf("name" to JsonPrimitive("hobby"))),
@@ -2463,7 +2477,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 - `SharedMemoryFile.Frontmatter` 字段名在所有 Task 一致:`name` / `description` / `createdAt` / `lastAccessedAt`
 - `SharedMemoryContext` 构造参数顺序在 Task 6/8/9/10/11 一致:`memoryStore, llmProvider, registry, memoryFileLimit, forgetDuration`
 - `SharedMemoryRegistry` 构造参数顺序在所有 Task 一致:`memoryStore, memoryFileLimit, forgetDuration, llmProvider`
-- `SaveSharedMemoryTool` 构造参数顺序一致:`registry, contextFactory, compressScope`
+- `SaveSharedMemoryTool` 构造参数顺序一致:`registry, contextFactory`(压缩并入 save 流程,无 compressScope)
 - `SharedMemoryPlugin` 构造参数顺序一致:`directory, memoryFileLimit, forgetDuration, llmProvider, memoryStore, enableDelegateAdaptMode, registry`
 - `AgentBuilder.sharedMemory` 参数顺序在 Task 9 与 spec §4.8 一致
 
