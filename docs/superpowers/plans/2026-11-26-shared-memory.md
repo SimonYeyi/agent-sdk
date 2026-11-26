@@ -1531,10 +1531,6 @@ internal class SaveSharedMemoryTool(
                     new_text 为空串表示删除该片段。找不到 old_text 则返回错误,不修改文件。
         - old_text: 仅 update 模式必填。要被替换的原文片段,必须与现有正文中的文本精确匹配。
         - new_text: 仅 update 模式必填。替换后的新片段。
-
-        特殊记忆文件:
-        - "user": 写入用户画像,每轮会主动注入 system prompt,不会遗忘。用户说"忘记 xxx"或
-          "改一下我之前说的 xxx"时,用 update 模式精确替换对应片段。
     """.trimIndent()
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
