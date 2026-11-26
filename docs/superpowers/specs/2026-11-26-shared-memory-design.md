@@ -1,7 +1,7 @@
 # 共享记忆插件设计
 
 > 日期：2026-11-26 · 状态：**Proposed**
-> 模块：`agent/shared-memory`（新增）+ `agent/capability`（最小改动）
+> 模块：`agent/memory/shared`（新增）+ `agent/capability`（最小改动）
 > 范围：新增一个独立的共享记忆插件,与 core 中的短期会话 Memory 正交;LLM 通过 `load_memory` / `save_memory` 两个工具读写 markdown 记忆文件,每轮主动注入 `user.md` 用户画像到 system prompt,并提供遗忘与压缩机制。
 
 ---
@@ -11,7 +11,7 @@
 | 项 | 值 |
 |---|---|
 | 提案代号 | shared-memory |
-| 关联模块 | `agent/shared-memory`（新增）+ `agent/capability`（改动） |
+| 关联模块 | `agent/memory/shared`（新增）+ `agent/capability`（改动） |
 | 关联前置 | `Capability` / `CapabilityPlugin` / `CapabilityLoadTool` / `AgentPlugin` / `ToolExecutionContext.agentContext.llmProvider` |
 | 破坏性变更 | **否**——`CapabilityLoadTool` 的 `description` / `parametersSchema` 从 `by lazy` 改为每轮求值属行为微调,不破坏 API 形态;其余均为新增 |
 
@@ -49,12 +49,12 @@
 
 ## 3. 模块结构
 
-新模块 `:agent:shared-memory`,路径 `agent/shared-memory/`,build.gradle.kts 与 `agent/skill` 模板一致。
+新模块 `:agent:memory:shared`,路径 `agent/memory/shared/`,build.gradle.kts 与 `agent/skill` 模板一致。
 
 文件清单:
 
 ```
-agent/shared-memory/
+agent/memory/shared/
 ├── build.gradle.kts
 └── src
     ├── main/kotlin/io/github/yeyi/agent/memory/shared/
@@ -808,7 +808,7 @@ compressMemory(name, frontmatter, body)
 ## 10. 实现顺序建议
 
 1. 改 `CapabilityLoadTool` description / parametersSchema 为 getter(影响所有 capability 模块,需跑一遍现有测试)。
-2. 新建 `agent/shared-memory` 模块,实现 `MemoryStore` / `MemoryFile` / `SharedMemory` / `MemoryRegistry` / `MemoryContext`。
+2. 新建 `agent/memory/shared` 模块,实现 `MemoryStore` / `MemoryFile` / `SharedMemory` / `MemoryRegistry` / `MemoryContext`。
 3. 实现 `SaveMemoryTool`(不含压缩,先跑通读写路径)。
 4. 实现 `MemoryPlugin` + `MemoryExtensions`,接入 AgentBuilder。
 5. 加压缩逻辑(`compressScope.launch`)。

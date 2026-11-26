@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 新建 `:agent:shared-memory` 模块,提供 LLM 可自主读写的 markdown 共享记忆能力,与 core 的短期会话 Memory 正交,含遗忘与压缩机制。
+**Goal:** 新建 `:agent:memory:shared` 模块,提供 LLM 可自主读写的 markdown 共享记忆能力,与 core 的短期会话 Memory 正交,含遗忘与压缩机制。
 
 **Architecture:** 复用 `Capability` 框架,`load_memory` 走委托模式继承 `CapabilityLoadTool`,`save_memory` 作为 auxiliary tool;`MemoryPlugin` 直接实现 `AgentPlugin<MemoryPluginConfig>`(因 `CapabilityPlugin.install` 是 final 且不支持 `appendInstructions`),内部手工调 `CapabilityAdapter.of` 拼装 load 工具。`CapabilityLoadTool` 的 `description` / `parametersSchema` 从 `by lazy` 改为 getter,使重扫后下一轮 LLM 自动看到新话题。
 
@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - 包名:`io.github.yeyi.agent.memory.shared`(避开 core 的 `io.github.yeyi.agent.memory`)
-- 模块路径:`agent/shared-memory/`,Gradle 子模块名 `:agent:shared-memory`
+- 模块路径:`agent/memory/shared/`,Gradle 子模块名 `:agent:memory:shared`
 - 时间 API:统一用 `java.time.Instant` / `java.time.Duration`,不用 `kotlin.time.Duration`
 - frontmatter 解析:不引入 YAML 库,自写最小化解析(只支持 `---` + `key: value` 行)
 - IO 抽象:`MemoryStore` 接口 + `PathMemoryStore` 默认实现,IO 走 `Dispatchers.IO`
@@ -25,7 +25,7 @@
 ## File Structure
 
 ```
-agent/shared-memory/
+agent/memory/shared/
 ├── build.gradle.kts                                    # Task 2 创建
 └── src
     ├── main/kotlin/io/github/yeyi/agent/memory/shared/
@@ -52,7 +52,7 @@ agent/capability/src/main/kotlin/io/github/yeyi/agent/capability/
 └── CapabilityLoadTool.kt           # Task 1:改 lazy → getter
 ```
 
-`settings.gradle.kts` 需新增 `include(":agent:shared-memory")`。
+`settings.gradle.kts` 需新增 `include(":agent:memory:shared")`。
 
 ---
 
@@ -160,12 +160,12 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ---
 
-## Task 2: 新建 :agent:shared-memory 模块骨架
+## Task 2: 新建 :agent:memory:shared 模块骨架
 
 **Files:**
-- Create: `agent/shared-memory/build.gradle.kts`
+- Create: `agent/memory/shared/build.gradle.kts`
 - Modify: `settings.gradle.kts`
-- Test: 跑 `./gradlew :agent:shared-memory:help` 验证模块被识别
+- Test: 跑 `./gradlew :agent:memory:shared:help` 验证模块被识别
 
 **Interfaces:**
 - Consumes: 无(空模块)
@@ -176,12 +176,12 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 修改 `settings.gradle.kts`,在 `include(":agent:skill")` 之后追加:
 
 ```kotlin
-include(":agent:shared-memory")
+include(":agent:memory:shared")
 ```
 
 - [ ] **Step 2: 创建 build.gradle.kts**
 
-新建 `agent/shared-memory/build.gradle.kts`,内容仿照 `agent/skill/build.gradle.kts`:
+新建 `agent/memory/shared/build.gradle.kts`,内容仿照 `agent/skill/build.gradle.kts`:
 
 ```kotlin
 plugins {
@@ -217,25 +217,25 @@ tasks.test {
 - [ ] **Step 3: 创建源目录占位**
 
 ```bash
-mkdir -p agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory.shared
-mkdir -p agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory.shared
+mkdir -p agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory.shared
+mkdir -p agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory.shared
 ```
 
 在 `src/main/kotlin/io/github/yeyi/agent/memory/shared/` 下创建占位文件 `package.txt`(空),让 Gradle 不报"无源文件":
 
 ```bash
-touch agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/package.txt
+touch agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/package.txt
 ```
 
 - [ ] **Step 4: 验证模块被 Gradle 识别**
 
-Run: `./gradlew :agent:shared-memory:help`
+Run: `./gradlew :agent:memory:shared:help`
 Expected: PASS — 输出 help 信息,无错误
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add settings.gradle.kts agent/shared-memory/
+git add settings.gradle.kts agent/memory/shared/
 git commit -m "chore(shared-memory): 新建模块骨架
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -246,8 +246,8 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 3: MemoryFile —— frontmatter 解析/序列化
 
 **Files:**
-- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryFile.kt`
-- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryFileTest.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryFile.kt`
+- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryFileTest.kt`
 
 **Interfaces:**
 - Consumes: `java.time.Instant`
@@ -258,7 +258,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 写失败测试 — 往返序列化**
 
-新建 `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryFileTest.kt`:
+新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryFileTest.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -369,12 +369,12 @@ class MemoryFileTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.MemoryFileTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.MemoryFileTest"`
 Expected: FAIL — `MemoryFile` 未定义
 
 - [ ] **Step 3: 实现 MemoryFile**
 
-新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryFile.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryFile.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -465,14 +465,14 @@ public data class MemoryFile(
 
 - [ ] **Step 4: 跑测试验证通过**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.MemoryFileTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.MemoryFileTest"`
 Expected: PASS — 5 个测试全部通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryFile.kt \
-        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryFileTest.kt
+git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryFile.kt \
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryFileTest.kt
 git commit -m "feat(shared-memory): MemoryFile frontmatter 解析与序列化
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -483,8 +483,8 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 4: MemoryStore —— 存储抽象 + PathMemoryStore
 
 **Files:**
-- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryStore.kt`
-- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathMemoryStoreTest.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryStore.kt`
+- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathMemoryStoreTest.kt`
 
 **Interfaces:**
 - Consumes: `java.nio.file.Path`, `kotlinx.coroutines.Dispatchers`
@@ -495,7 +495,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathMemoryStoreTest.kt`:
+新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathMemoryStoreTest.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -576,12 +576,12 @@ class PathMemoryStoreTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.PathMemoryStoreTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.PathMemoryStoreTest"`
 Expected: FAIL — `MemoryStore` / `PathMemoryStore` 未定义
 
 - [ ] **Step 3: 实现 MemoryStore + PathMemoryStore**
 
-新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryStore.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryStore.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -645,14 +645,14 @@ public class PathMemoryStore(private val directory: Path) : MemoryStore {
 
 - [ ] **Step 4: 跑测试验证通过**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.PathMemoryStoreTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.PathMemoryStoreTest"`
 Expected: PASS — 7 个测试全部通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryStore.kt \
-        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathMemoryStoreTest.kt
+git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryStore.kt \
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathMemoryStoreTest.kt
 git commit -m "feat(shared-memory): MemoryStore 抽象与 PathMemoryStore 默认实现
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -663,8 +663,8 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 5: SharedMemory —— Capability 接口 + Default 实现
 
 **Files:**
-- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt`
-- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt`
+- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt`
 
 **Interfaces:**
 - Consumes: `Capability<Unit, MemoryContext>`(来自 `:agent:capability`)、`MemoryStore`、`MemoryFile`(Task 3/4)
@@ -676,7 +676,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt`:
+新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -778,12 +778,12 @@ class SharedMemoryTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryTest"`
 Expected: FAIL — `SharedMemory` / `DefaultSharedMemory` / `MemoryContext` / `MemoryRegistry` 未定义
 
 - [ ] **Step 3: 实现 SharedMemory + DefaultSharedMemory**
 
-新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -846,7 +846,7 @@ internal class DefaultSharedMemory(
 
 - [ ] **Step 4: 跑测试验证失败(MemoryContext / MemoryRegistry 还没建)**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryTest"`
 Expected: FAIL — 仍是 `MemoryContext` / `MemoryRegistry` 未定义
 
 **这是预期的** — 测试中 stubMemoryContext 引用了 Task 6 才会创建的 `MemoryContext` 和 `MemoryRegistry`。先继续 Task 6,完成后回到本 task 跑测试。
@@ -858,7 +858,7 @@ Expected: FAIL — 仍是 `MemoryContext` / `MemoryRegistry` 未定义
 ## Task 6: MemoryContext —— 执行上下文 + Factory
 
 **Files:**
-- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryContext.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryContext.kt`
 - Test: 本 task 不单独写测试,在 Task 5 测试中已 stub,Task 5/6 完成后一起验证
 
 **Interfaces:**
@@ -870,7 +870,7 @@ Expected: FAIL — 仍是 `MemoryContext` / `MemoryRegistry` 未定义
 
 - [ ] **Step 1: 实现 MemoryContext + Factory**
 
-新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryContext.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryContext.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -925,8 +925,8 @@ internal class MemoryContextFactory(
 ## Task 7: MemoryRegistry —— 注册中心 + rescan
 
 **Files:**
-- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistry.kt`
-- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistryTest.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistry.kt`
+- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistryTest.kt`
 
 **Interfaces:**
 - Consumes: `CapabilityRegistry<SharedMemory, Unit, MemoryContext>` / `DefaultCapabilityRegistry` / `MemoryStore` / `MemoryFile`
@@ -936,7 +936,7 @@ internal class MemoryContextFactory(
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistryTest.kt`:
+新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistryTest.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -1036,12 +1036,12 @@ class MemoryRegistryTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.MemoryRegistryTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.MemoryRegistryTest"`
 Expected: FAIL — `MemoryRegistry` 未定义
 
 - [ ] **Step 3: 实现 MemoryRegistry**
 
-新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistry.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistry.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -1106,17 +1106,17 @@ public class MemoryRegistry(
 
 - [ ] **Step 4: 跑 Task 5/6/7 所有测试验证通过**
 
-Run: `./gradlew :agent:shared-memory:test`
+Run: `./gradlew :agent:memory:shared:test`
 Expected: PASS — SharedMemoryTest、MemoryRegistryTest 全部通过
 
 - [ ] **Step 5: 提交 Task 5/6/7**
 
 ```bash
-git add agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt \
-        agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryContext.kt \
-        agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistry.kt \
-        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt \
-        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistryTest.kt
+git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt \
+        agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryContext.kt \
+        agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistry.kt \
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt \
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistryTest.kt
 git commit -m "feat(shared-memory): SharedMemory/MemoryContext/MemoryRegistry 核心类型
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -1127,8 +1127,8 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 8: SaveMemoryTool —— 写入工具(不含压缩/遗忘)
 
 **Files:**
-- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`
-- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`
+- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt`
 
 **Interfaces:**
 - Consumes: `Tool` / `ToolExecutionResult` / `ToolParameters` / `MemoryStore` / `MemoryFile` / `MemoryRegistry` / `CapabilityContextFactory<MemoryContext>`
@@ -1141,7 +1141,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt`:
+新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -1302,12 +1302,12 @@ class SaveMemoryToolTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest"`
 Expected: FAIL — `SaveMemoryTool` 未定义
 
 - [ ] **Step 3: 实现 SaveMemoryTool(不含压缩/遗忘)**
 
-新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -1423,14 +1423,14 @@ internal class SaveMemoryTool(
 
 - [ ] **Step 4: 跑测试验证通过**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest"`
 Expected: PASS — 8 个测试全部通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt \
-        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt
+git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt \
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt
 git commit -m "feat(shared-memory): SaveMemoryTool 写入工具(append/replace)
 
 不含压缩与遗忘,Task 10/11 扩展。
@@ -1443,9 +1443,9 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 9: MemoryPlugin + DSL —— 接线与 user.md 初始化
 
 **Files:**
-- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryPlugin.kt`
-- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryExtensions.kt`
-- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryPluginTest.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryPlugin.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryExtensions.kt`
+- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryPluginTest.kt`
 
 **Interfaces:**
 - Consumes: `AgentPlugin` / `AgentPluginContext` / `CapabilityAdapter` / `MemoryStore` / `MemoryRegistry` / `SaveMemoryTool` / `MemoryFile`
@@ -1456,7 +1456,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryPluginTest.kt`:
+新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryPluginTest.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -1617,12 +1617,12 @@ class MemoryPluginTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.MemoryPluginTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.MemoryPluginTest"`
 Expected: FAIL — `MemoryPlugin` / `MemoryExtensions` 未定义
 
 - [ ] **Step 3: 实现 MemoryPlugin + MemoryPluginConfig**
 
-新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryPlugin.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryPlugin.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -1732,7 +1732,7 @@ internal class MemoryPlugin(
 
 - [ ] **Step 4: 实现 MemoryExtensions**
 
-新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryExtensions.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryExtensions.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -1777,15 +1777,15 @@ public fun AgentBuilder.sharedMemory(
 
 - [ ] **Step 5: 跑测试验证通过**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.MemoryPluginTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.MemoryPluginTest"`
 Expected: PASS — 5 个测试全部通过
 
 - [ ] **Step 6: 提交**
 
 ```bash
-git add agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryPlugin.kt \
-        agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryExtensions.kt \
-        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryPluginTest.kt
+git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryPlugin.kt \
+        agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryExtensions.kt \
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryPluginTest.kt
 git commit -m "feat(shared-memory): MemoryPlugin 接线 + AgentBuilder DSL
 
 - install 时创建 user.md 空模板,rescan 话题,appendInstructions 注入 user 正文
@@ -1800,8 +1800,8 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 10: 异步压缩
 
 **Files:**
-- Modify: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`
-- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt`(追加压缩测试)
+- Modify: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`
+- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt`(追加压缩测试)
 
 **Interfaces:**
 - Consumes: `MemoryContext.llmProvider` / `ChatRequest` / `ChatMessage.System` / `ChatResponse.message.content`
@@ -1851,7 +1851,7 @@ fun `save triggers async compression when body exceeds memoryFileLimit`() = runT
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest.save triggers async compression when body exceeds memoryFileLimit"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest.save triggers async compression when body exceeds memoryFileLimit"`
 Expected: FAIL — body 仍是原始长内容(`compressMemory` 是空实现)
 
 - [ ] **Step 3: 实现 compressMemory**
@@ -1886,14 +1886,14 @@ private suspend fun compressMemory(
 
 - [ ] **Step 4: 跑测试验证通过**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest"`
 Expected: PASS — 9 个测试全部通过(含新增压缩测试)
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt \
-        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt
+git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt \
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt
 git commit -m "feat(shared-memory): 异步压缩,超 memoryFileLimit 时调 LLM 总结
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -1904,8 +1904,8 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 11: 遗忘检查(集成到 load/save 路径)
 
 **Files:**
-- Modify: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt`(load 时检查)
-- Modify: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`(save 时检查)
+- Modify: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt`(load 时检查)
+- Modify: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`(save 时检查)
 - Test: 扩展 `SharedMemoryTest.kt` 和 `SaveMemoryToolTest.kt`
 
 **Interfaces:**
@@ -2005,7 +2005,7 @@ fun `save deletes file when lastAccessedAt exceeds forgetDuration`() = runTest {
 
 - [ ] **Step 3: 跑测试验证失败**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryTest.load deletes file when lastAccessedAt exceeds forgetDuration" --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest.save deletes file when lastAccessedAt exceeds forgetDuration"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryTest.load deletes file when lastAccessedAt exceeds forgetDuration" --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest.save deletes file when lastAccessedAt exceeds forgetDuration"`
 Expected: FAIL — 遗忘逻辑未实现
 
 - [ ] **Step 4: 改 DefaultSharedMemory.load 集成遗忘检查**
@@ -2211,16 +2211,16 @@ private fun seedMemory(name: String, body: String, lastAccessedAt: Instant = Ins
 
 - [ ] **Step 7: 跑所有共享记忆测试验证通过**
 
-Run: `./gradlew :agent:shared-memory:test`
+Run: `./gradlew :agent:memory:shared:test`
 Expected: PASS — 所有测试通过
 
 - [ ] **Step 8: 提交**
 
 ```bash
-git add agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt \
-        agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt \
-        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt \
-        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt
+git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt \
+        agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt \
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt \
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt
 git commit -m "feat(shared-memory): 遗忘检查集成到 load/save 路径
 
 - load/save 时基于原始 lastAccessedAt 检查 forgetDuration
@@ -2235,7 +2235,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 12: 集成测试 — 端到端 save → load 流程
 
 **Files:**
-- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryIntegrationTest.kt`
+- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryIntegrationTest.kt`
 
 **Interfaces:**
 - Consumes: 所有前序 task 的产物
@@ -2243,7 +2243,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 写集成测试**
 
-新建 `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryIntegrationTest.kt`:
+新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryIntegrationTest.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -2377,13 +2377,13 @@ class SharedMemoryIntegrationTest {
 
 - [ ] **Step 2: 跑测试验证通过**
 
-Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryIntegrationTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryIntegrationTest"`
 Expected: PASS — 3 个集成测试全部通过
 
 - [ ] **Step 3: 提交**
 
 ```bash
-git add agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryIntegrationTest.kt
+git add agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryIntegrationTest.kt
 git commit -m "test(shared-memory): 端到端 save→load 集成测试
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -2398,7 +2398,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 跑共享记忆模块全部测试**
 
-Run: `./gradlew :agent:shared-memory:test`
+Run: `./gradlew :agent:memory:shared:test`
 Expected: PASS — 所有测试通过
 
 - [ ] **Step 2: 跑 capability 模块测试确认无回归**
