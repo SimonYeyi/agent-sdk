@@ -484,7 +484,10 @@ internal class SaveSharedMemoryTool(
             $body
         """.trimIndent()
         val request = io.github.yeyi.agent.llm.ChatRequest(
-            messages = listOf(io.github.yeyi.agent.llm.ChatMessage.System(prompt)),
+            messages = listOf(
+                io.github.yeyi.agent.llm.ChatMessage.System("你是一个记忆整理助手,只负责按规则压缩用户提供的记忆内容,不回答其他问题。"),
+                io.github.yeyi.agent.llm.ChatMessage.User(listOf(io.github.yeyi.agent.llm.ContentPart.Text(prompt))),
+            ),
         )
         val summary = runCatching { llm.chat(request).message.content }.getOrNull() ?: return null
         // 无效兜底:压缩结果没有变短,说明压缩失败,返回 null 让调用方保留原文
