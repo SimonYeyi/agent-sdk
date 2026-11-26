@@ -98,15 +98,15 @@ Expected: FAIL — `description should reflect beta after register without re-in
 
 修改 `agent/capability/src/main/kotlin/io/github/yeyi/agent/capability/CapabilityLoadTool.kt`:
 
-把 `override val description: String by lazy { ... }` 改为:
+把 `override val description: String by lazy { ... }` 改为 `override val description: String get() { ... }`,内部字符串拼接逻辑原样保留:
 
 ```kotlin
 override val description: String
-    get() = buildString {
-        appendLine("当以下 $capabilityType 适用于本次任务时，调用本工具以激活使用：")
-        registry.all().forEach { appendLine("- ${it.name}：${it.description}") }
-        appendLine("如果本次任务需要多个 $capabilityType 并行处理，可以生成多个工具调用。")
-    }
+    get() = """
+        |当以下 $capabilityType 适用于本次任务时，调用本工具以激活使用：
+        |${registry.all().joinToString("\n") { "- ${it.name}：${it.description}" }}
+        |如果本次任务需要多个 $capabilityType 并行处理，可以生成多个工具调用。
+    """.trimMargin()
 ```
 
 把 `override val parametersSchema: ToolParameters by lazy { ... }` 改为 `override val parametersSchema: ToolParameters get() { ... }`,内部逻辑原样保留:

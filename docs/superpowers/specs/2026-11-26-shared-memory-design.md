@@ -648,11 +648,11 @@ override val description: String by lazy {
 override val parametersSchema: ToolParameters by lazy { /* ... */ }
 
 // After
-override val description: String get() = buildString {
-    appendLine("当以下 $capabilityType 适用于本次任务时，调用本工具以激活使用：")
-    registry.all().forEach { appendLine("- ${it.name}：${it.description}") }
-    appendLine("如果本次任务需要多个 $capabilityType 并行处理，可以生成多个工具调用。")
-}
+override val description: String get() = """
+    |当以下 $capabilityType 适用于本次任务时，调用本工具以激活使用：
+    |${registry.all().joinToString("\n") { "- ${it.name}：${it.description}" }}
+    |如果本次任务需要多个 $capabilityType 并行处理，可以生成多个工具调用。
+""".trimMargin()
 
 override val parametersSchema: ToolParameters get() {
     // 同原 lazy 块的逻辑,改为 getter
