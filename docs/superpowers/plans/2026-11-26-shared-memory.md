@@ -4,7 +4,7 @@
 
 **Goal:** 新建 `:agent:memory:shared` 模块,提供 LLM 可自主读写的 markdown 共享记忆能力,与 core 的短期会话 Memory 正交,含遗忘与压缩机制。
 
-**Architecture:** 复用 `Capability` 框架,`load_memory` 走委托模式继承 `CapabilityLoadTool`,`save_memory` 作为 auxiliary tool;`MemoryPlugin` 直接实现 `AgentPlugin<MemoryPluginConfig>`(因 `CapabilityPlugin.install` 是 final 且不支持 `appendInstructions`),内部手工调 `CapabilityAdapter.of` 拼装 load 工具。`CapabilityLoadTool` 的 `description` / `parametersSchema` 从 `by lazy` 改为 getter,使重扫后下一轮 LLM 自动看到新话题。
+**Architecture:** 复用 `Capability` 框架,`load_memory` 走委托模式继承 `CapabilityLoadTool`,`save_memory` 作为 auxiliary tool;`SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(因 `CapabilityPlugin.install` 是 final 且不支持 `appendInstructions`),内部手工调 `CapabilityAdapter.of` 拼装 load 工具。`CapabilityLoadTool` 的 `description` / `parametersSchema` 从 `by lazy` 改为 getter,使重扫后下一轮 LLM 自动看到新话题。
 
 **Tech Stack:** Kotlin 2.4 (JVM 21) · kotlinx.serialization.json · kotlinx.coroutines · java.nio.file.Path · java.time.Instant/Duration · JUnit 4 + kotlin-test
 
@@ -14,7 +14,7 @@
 - 模块路径:`agent/memory/shared/`,Gradle 子模块名 `:agent:memory:shared`
 - 时间 API:统一用 `java.time.Instant` / `java.time.Duration`,不用 `kotlin.time.Duration`
 - frontmatter 解析:不引入 YAML 库,自写最小化解析(只支持 `---` + `key: value` 行)
-- IO 抽象:`MemoryStore` 接口 + `PathMemoryStore` 默认实现,IO 走 `Dispatchers.IO`
+- IO 抽象:`SharedMemoryStore` 接口 + `PathSharedMemoryStore` 默认实现,IO 走 `Dispatchers.IO`
 - 提交规范:遵循 `.claude/rules/git_commit.md`,`chore(build)` / `feat(shared-memory)` / `test(shared-memory)` / `refactor(capability)` 等,**只提交不推送**
 - API 形态:`explicitApi()` 严格模式,public API 显式标注
 - 测试:JUnit 4 + kotlin-test,`runTest` 跑协程测试
@@ -29,23 +29,23 @@ agent/memory/shared/
 ├── build.gradle.kts                                    # Task 2 创建
 └── src
     ├── main/kotlin/io/github/yeyi/agent/memory/shared/
-    │   ├── MemoryFile.kt           # Task 3:frontmatter 解析/序列化
-    │   ├── MemoryStore.kt          # Task 4:存储抽象 + PathMemoryStore
+    │   ├── SharedMemoryFile.kt           # Task 3:frontmatter 解析/序列化
+    │   ├── SharedMemoryStore.kt          # Task 4:存储抽象 + PathSharedMemoryStore
     │   ├── SharedMemory.kt       # Task 5:Capability 接口 + DefaultSharedMemory 实现
-    │   ├── MemoryContext.kt        # Task 6:Context + Factory
-    │   ├── MemoryRegistry.kt       # Task 7:Registry + rescan
-    │   ├── SaveMemoryTool.kt       # Task 8:auxiliary 写入工具(不含压缩/遗忘)
-    │   ├── MemoryPlugin.kt         # Task 9:Plugin 接线 + user.md 初始化
-    │   ├── MemoryExtensions.kt     # Task 9:AgentBuilder.sharedMemory DSL
-    │   ├── MemoryCompression.kt    # Task 10:异步压缩
-    │   └── MemoryForgetting.kt     # Task 11:遗忘检查(集成到 load/save 路径)
+    │   ├── SharedMemoryContext.kt        # Task 6:Context + Factory
+    │   ├── SharedMemoryRegistry.kt       # Task 7:Registry + rescan
+    │   ├── SaveSharedMemoryTool.kt       # Task 8:auxiliary 写入工具(不含压缩/遗忘)
+    │   ├── SharedMemoryPlugin.kt         # Task 9:Plugin 接线 + user.md 初始化
+    │   ├── SharedMemoryExtensions.kt     # Task 9:AgentBuilder.sharedMemory DSL
+    │   ├── SharedMemoryCompression.kt    # Task 10:异步压缩
+    │   └── SharedMemoryForgetting.kt     # Task 11:遗忘检查(集成到 load/save 路径)
     └── test/kotlin/io/github/yeyi/agent/memory/shared/
-        ├── MemoryFileTest.kt
-        ├── PathMemoryStoreTest.kt
+        ├── SharedMemoryFileTest.kt
+        ├── PathSharedMemoryStoreTest.kt
         ├── SharedMemoryTest.kt
-        ├── MemoryRegistryTest.kt
-        ├── SaveMemoryToolTest.kt
-        ├── MemoryPluginTest.kt
+        ├── SharedMemoryRegistryTest.kt
+        ├── SaveSharedMemoryToolTest.kt
+        ├── SharedMemoryPluginTest.kt
         └── SharedMemoryIntegrationTest.kt
 
 agent/capability/src/main/kotlin/io/github/yeyi/agent/capability/
@@ -243,22 +243,22 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ---
 
-## Task 3: MemoryFile —— frontmatter 解析/序列化
+## Task 3: SharedMemoryFile —— frontmatter 解析/序列化
 
 **Files:**
-- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryFile.kt`
-- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryFileTest.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryFile.kt`
+- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryFileTest.kt`
 
 **Interfaces:**
 - Consumes: `java.time.Instant`
 - Produces:
-  - `public data class MemoryFile(val frontmatter: Frontmatter, val body: String)`
-  - `public data class MemoryFile.Frontmatter(val name: String, val description: String, val createdAt: Instant, val lastAccessedAt: Instant)`
-  - `public companion object { fun parse(content: String): MemoryFile; fun serialize(frontmatter: Frontmatter, body: String): String }`
+  - `public data class SharedMemoryFile(val frontmatter: Frontmatter, val body: String)`
+  - `public data class SharedMemoryFile.Frontmatter(val name: String, val description: String, val createdAt: Instant, val lastAccessedAt: Instant)`
+  - `public companion object { fun parse(content: String): SharedMemoryFile; fun serialize(frontmatter: Frontmatter, body: String): String }`
 
 - [ ] **Step 1: 写失败测试 — 往返序列化**
 
-新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryFileTest.kt`:
+新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryFileTest.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -269,20 +269,20 @@ import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 
-class MemoryFileTest {
+class SharedMemoryFileTest {
 
     @Test
     fun `serialize and parse roundtrip preserves frontmatter and body`() {
-        val fm = MemoryFile.Frontmatter(
+        val fm = SharedMemoryFile.Frontmatter(
             name = "travel",
             description = "旅行偏好",
             createdAt = Instant.parse("2026-11-25T10:00:00Z"),
             lastAccessedAt = Instant.parse("2026-11-25T14:00:00Z"),
         )
         val body = "# 旅行偏好\n\n用户偏好海岛游。"
-        val serialized = MemoryFile.serialize(fm, body)
+        val serialized = SharedMemoryFile.serialize(fm, body)
 
-        val parsed = MemoryFile.parse(serialized)
+        val parsed = SharedMemoryFile.parse(serialized)
         assertEquals(fm, parsed.frontmatter)
         assertEquals(body, parsed.body)
     }
@@ -301,7 +301,7 @@ class MemoryFileTest {
             用户偏好海岛游。
         """.trimIndent()
 
-        val parsed = MemoryFile.parse(content)
+        val parsed = SharedMemoryFile.parse(content)
         assertEquals("travel", parsed.frontmatter.name)
         assertEquals("旅行偏好", parsed.frontmatter.description)
         assertEquals(Instant.parse("2026-11-25T10:00:00Z"), parsed.frontmatter.createdAt)
@@ -320,20 +320,20 @@ class MemoryFileTest {
             ---
         """.trimIndent()
 
-        val parsed = MemoryFile.parse(content)
+        val parsed = SharedMemoryFile.parse(content)
         assertEquals("user", parsed.frontmatter.name)
         assertEquals("", parsed.body)
     }
 
     @Test
     fun `serialize empty body produces frontmatter only`() {
-        val fm = MemoryFile.Frontmatter(
+        val fm = SharedMemoryFile.Frontmatter(
             name = "user",
             description = "用户画像",
             createdAt = Instant.parse("2026-11-25T10:00:00Z"),
             lastAccessedAt = Instant.parse("2026-11-25T10:00:00Z"),
         )
-        val serialized = MemoryFile.serialize(fm, "")
+        val serialized = SharedMemoryFile.serialize(fm, "")
         assertEquals(
             """
             ---
@@ -361,7 +361,7 @@ class MemoryFileTest {
             body
         """.trimIndent()
 
-        val parsed = MemoryFile.parse(content)
+        val parsed = SharedMemoryFile.parse(content)
         assertEquals("会议记录:项目进度", parsed.frontmatter.description)
     }
 }
@@ -369,12 +369,12 @@ class MemoryFileTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.MemoryFileTest"`
-Expected: FAIL — `MemoryFile` 未定义
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryFileTest"`
+Expected: FAIL — `SharedMemoryFile` 未定义
 
-- [ ] **Step 3: 实现 MemoryFile**
+- [ ] **Step 3: 实现 SharedMemoryFile**
 
-新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryFile.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryFile.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -399,7 +399,7 @@ import java.time.Instant
  * frontmatter 解析只支持 `key: value` 行 + `---` 分隔符,不引入 YAML 库。
  * description 中允许冒号(解析时按第一个冒号切分,但 value 不 strip 内部冒号)。
  */
-public data class MemoryFile(
+public data class SharedMemoryFile(
     public val frontmatter: Frontmatter,
     public val body: String,
 ) {
@@ -413,7 +413,7 @@ public data class MemoryFile(
     public companion object {
         private const val FRONTMATTER_DELIMITER = "---"
 
-        public fun parse(content: String): MemoryFile {
+        public fun parse(content: String): SharedMemoryFile {
             val lines = content.split("\n")
             require(lines.isNotEmpty() && lines[0].trim() == FRONTMATTER_DELIMITER) {
                 "Memory file must start with '$FRONTMATTER_DELIMITER'"
@@ -438,7 +438,7 @@ public data class MemoryFile(
             while (bodyIdx < lines.size && lines[bodyIdx].isBlank()) bodyIdx++
             val body = lines.subList(bodyIdx, lines.size).joinToString("\n")
 
-            return MemoryFile(
+            return SharedMemoryFile(
                 frontmatter = Frontmatter(
                     name = fields.getValue("name"),
                     description = fields.getValue("description"),
@@ -465,37 +465,37 @@ public data class MemoryFile(
 
 - [ ] **Step 4: 跑测试验证通过**
 
-Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.MemoryFileTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryFileTest"`
 Expected: PASS — 5 个测试全部通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryFile.kt \
-        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryFileTest.kt
-git commit -m "feat(shared-memory): MemoryFile frontmatter 解析与序列化
+git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryFile.kt \
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryFileTest.kt
+git commit -m "feat(shared-memory): SharedMemoryFile frontmatter 解析与序列化
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 4: MemoryStore —— 存储抽象 + PathMemoryStore
+## Task 4: SharedMemoryStore —— 存储抽象 + PathSharedMemoryStore
 
 **Files:**
-- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryStore.kt`
-- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathMemoryStoreTest.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryStore.kt`
+- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathSharedMemoryStoreTest.kt`
 
 **Interfaces:**
 - Consumes: `java.nio.file.Path`, `kotlinx.coroutines.Dispatchers`
 - Produces:
-  - `public interface MemoryStore { suspend fun read(name: String): String?; suspend fun write(name: String, content: String); suspend fun delete(name: String); suspend fun exists(name: String): Boolean; suspend fun list(): List<String> }`
-  - `public class PathMemoryStore(directory: Path) : MemoryStore`
+  - `public interface SharedMemoryStore { suspend fun read(name: String): String?; suspend fun write(name: String, content: String); suspend fun delete(name: String); suspend fun exists(name: String): Boolean; suspend fun list(): List<String> }`
+  - `public class PathSharedMemoryStore(directory: Path) : SharedMemoryStore`
   - `list()` 排除 `user`(保留文件但不列入)
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathMemoryStoreTest.kt`:
+新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathSharedMemoryStoreTest.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -510,18 +510,18 @@ import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class PathMemoryStoreTest {
+class PathSharedMemoryStoreTest {
 
     private val tempDir = Files.createTempDirectory("memory-store-test")
-    private val store = PathMemoryStore(tempDir)
+    private val store = PathSharedMemoryStore(tempDir)
 
     @AfterTest
     fun cleanup() {
         tempDir.toFile().deleteRecursively()
     }
 
-    private fun sampleContent(name: String): String = MemoryFile.serialize(
-        MemoryFile.Frontmatter(name, "desc", Instant.parse("2026-11-25T10:00:00Z"), Instant.parse("2026-11-25T10:00:00Z")),
+    private fun sampleContent(name: String): String = SharedMemoryFile.serialize(
+        SharedMemoryFile.Frontmatter(name, "desc", Instant.parse("2026-11-25T10:00:00Z"), Instant.parse("2026-11-25T10:00:00Z")),
         "body for $name",
     )
 
@@ -576,12 +576,12 @@ class PathMemoryStoreTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.PathMemoryStoreTest"`
-Expected: FAIL — `MemoryStore` / `PathMemoryStore` 未定义
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.PathSharedMemoryStoreTest"`
+Expected: FAIL — `SharedMemoryStore` / `PathSharedMemoryStore` 未定义
 
-- [ ] **Step 3: 实现 MemoryStore + PathMemoryStore**
+- [ ] **Step 3: 实现 SharedMemoryStore + PathSharedMemoryStore**
 
-新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryStore.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryStore.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -591,12 +591,12 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 共享记忆文件存储抽象。默认实现 [PathMemoryStore] 走文件系统,宿主可注入自定义实现。
+ * 共享记忆文件存储抽象。默认实现 [PathSharedMemoryStore] 走文件系统,宿主可注入自定义实现。
  *
  * 所有方法为 suspend,允许实现内部走 IO dispatcher。
  * [list] 返回所有 `.md` 文件名(不含后缀),**排除 `user`**(user.md 是特殊保留名,不作为普通话题注册)。
  */
-public interface MemoryStore {
+public interface SharedMemoryStore {
     public suspend fun read(name: String): String?
     public suspend fun write(name: String, content: String)
     public suspend fun delete(name: String)
@@ -605,14 +605,14 @@ public interface MemoryStore {
 }
 
 /**
- * 基于 [Path] 的 [MemoryStore] 默认实现。
+ * 基于 [Path] 的 [SharedMemoryStore] 默认实现。
  *
  * - 文件路径:`$directory/$name.md`
  * - IO 走 [Dispatchers.IO]
  * - 构造时自动创建目录
  * - [list] 排除 `user.md`(保留文件但不作为话题注册)
  */
-public class PathMemoryStore(private val directory: Path) : MemoryStore {
+public class PathSharedMemoryStore(private val directory: Path) : SharedMemoryStore {
     init {
         directory.toFile().mkdirs()
     }
@@ -645,15 +645,15 @@ public class PathMemoryStore(private val directory: Path) : MemoryStore {
 
 - [ ] **Step 4: 跑测试验证通过**
 
-Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.PathMemoryStoreTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.PathSharedMemoryStoreTest"`
 Expected: PASS — 7 个测试全部通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryStore.kt \
-        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathMemoryStoreTest.kt
-git commit -m "feat(shared-memory): MemoryStore 抽象与 PathMemoryStore 默认实现
+git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryStore.kt \
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathSharedMemoryStoreTest.kt
+git commit -m "feat(shared-memory): SharedMemoryStore 抽象与 PathSharedMemoryStore 默认实现
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -667,12 +667,12 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 - Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt`
 
 **Interfaces:**
-- Consumes: `Capability<Unit, MemoryContext>`(来自 `:agent:capability`)、`MemoryStore`、`MemoryFile`(Task 3/4)
+- Consumes: `Capability<Unit, SharedMemoryContext>`(来自 `:agent:capability`)、`SharedMemoryStore`、`SharedMemoryFile`(Task 3/4)
 - Produces:
-  - `public interface SharedMemory : Capability<Unit, MemoryContext>`(含 `load()` 抽象方法 + `CAPABILITY_TYPE = "memory"` companion)
+  - `public interface SharedMemory : Capability<Unit, SharedMemoryContext>`(含 `load()` 抽象方法 + `CAPABILITY_TYPE = "memory"` companion)
   - `internal class DefaultSharedMemory(...)` — 持久化 + lastAccessedAt 更新(暂不含遗忘检查,Task 11 加)
 
-**注意:** 本 task 暂不引入 `MemoryContext`,因为 `MemoryContext` 在 Task 6 创建。本 task 的 `DefaultSharedMemory.load()` 直接用构造器传入的 `MemoryStore`,不依赖 context 字段。`activate` 调 `load()` 时 context 参数忽略。
+**注意:** 本 task 暂不引入 `SharedMemoryContext`,因为 `SharedMemoryContext` 在 Task 6 创建。本 task 的 `DefaultSharedMemory.load()` 直接用构造器传入的 `SharedMemoryStore`,不依赖 context 字段。`activate` 调 `load()` 时 context 参数忽略。
 
 - [ ] **Step 1: 写失败测试**
 
@@ -698,7 +698,7 @@ import kotlin.test.assertTrue
 class SharedMemoryTest {
 
     private val tempDir = Files.createTempDirectory("ltm-test")
-    private val store = PathMemoryStore(tempDir)
+    private val store = PathSharedMemoryStore(tempDir)
 
     @AfterTest
     fun cleanup() {
@@ -706,14 +706,14 @@ class SharedMemoryTest {
     }
 
     private fun seedMemory(name: String, body: String, lastAccessedAt: Instant = Instant.parse("2026-11-25T10:00:00Z")) {
-        val content = MemoryFile.serialize(
-            MemoryFile.Frontmatter(name, "desc for $name", Instant.parse("2026-01-01T00:00:00Z"), lastAccessedAt),
+        val content = SharedMemoryFile.serialize(
+            SharedMemoryFile.Frontmatter(name, "desc for $name", Instant.parse("2026-01-01T00:00:00Z"), lastAccessedAt),
             body,
         )
         store.writeSync(name, content)
     }
 
-    private fun MemoryStore.writeSync(name: String, content: String) {
+    private fun SharedMemoryStore.writeSync(name: String, content: String) {
         kotlinx.coroutines.runBlocking { write(name, content) }
     }
 
@@ -736,7 +736,7 @@ class SharedMemoryTest {
 
         // lastAccessedAt 已写回文件,且在 [before, after] 区间
         val raw = store.read("travel")!!
-        val parsed = MemoryFile.parse(raw)
+        val parsed = SharedMemoryFile.parse(raw)
         assertTrue(!parsed.frontmatter.lastAccessedAt.isBefore(before))
         assertTrue(!parsed.frontmatter.lastAccessedAt.isAfter(after))
     }
@@ -745,7 +745,7 @@ class SharedMemoryTest {
     fun `activate delegates to load`() = runTest {
         seedMemory("food", "喜欢吃辣")
         val memory = DefaultSharedMemory("food", "desc for food", store)
-        val result = memory.activate(null, stubMemoryContext())
+        val result = memory.activate(null, stubSharedMemoryContext())
         assertTrue(result.contains("喜欢吃辣"))
     }
 
@@ -756,8 +756,8 @@ class SharedMemoryTest {
         assertEquals("my desc", m.description)
     }
 
-    // Stub MemoryContext for tests (real one comes in Task 6)
-    private fun stubMemoryContext(): MemoryContext {
+    // Stub SharedMemoryContext for tests (real one comes in Task 6)
+    private fun stubSharedMemoryContext(): SharedMemoryContext {
         val llmProvider = object : LlmProvider {
             override val name: String = "stub"
             override suspend fun chat(request: io.github.yeyi.agent.llm.ChatRequest) =
@@ -765,10 +765,10 @@ class SharedMemoryTest {
             override fun chatStream(request: io.github.yeyi.agent.llm.ChatRequest): Flow<io.github.yeyi.agent.llm.ChatResponseEvent> =
                 throw UnsupportedOperationException()
         }
-        return MemoryContext(
+        return SharedMemoryContext(
             memoryStore = store,
             llmProvider = llmProvider,
-            registry = MemoryRegistry(store, 8000, java.time.Duration.ofDays(30), llmProvider),
+            registry = SharedMemoryRegistry(store, 8000, java.time.Duration.ofDays(30), llmProvider),
             memoryFileLimit = 8000,
             forgetDuration = java.time.Duration.ofDays(30),
         )
@@ -779,7 +779,7 @@ class SharedMemoryTest {
 - [ ] **Step 2: 跑测试验证失败**
 
 Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryTest"`
-Expected: FAIL — `SharedMemory` / `DefaultSharedMemory` / `MemoryContext` / `MemoryRegistry` 未定义
+Expected: FAIL — `SharedMemory` / `DefaultSharedMemory` / `SharedMemoryContext` / `SharedMemoryRegistry` 未定义
 
 - [ ] **Step 3: 实现 SharedMemory + DefaultSharedMemory**
 
@@ -802,10 +802,10 @@ import java.time.Instant
  * - 都是"按需加载",description 告诉 LLM 何时使用,正文不预加载
  *
  * 与 Skill 的区别:
- * - Skill 是静态注册,SharedMemory 由 [MemoryRegistry] 在 install/rescan 时动态构建
+ * - Skill 是静态注册,SharedMemory 由 [SharedMemoryRegistry] 在 install/rescan 时动态构建
  * - load() 触发 lastAccessedAt 更新和遗忘检查
  */
-public interface SharedMemory : Capability<Unit, MemoryContext> {
+public interface SharedMemory : Capability<Unit, SharedMemoryContext> {
     /**
      * 加载本话题的 md 全文(frontmatter + 正文)。
      *
@@ -817,7 +817,7 @@ public interface SharedMemory : Capability<Unit, MemoryContext> {
      */
     override suspend fun load(): String
 
-    override suspend fun activate(arguments: Unit?, context: MemoryContext): String = load()
+    override suspend fun activate(arguments: Unit?, context: SharedMemoryContext): String = load()
 
     public companion object {
         internal const val CAPABILITY_TYPE: String = "memory"
@@ -830,13 +830,13 @@ public interface SharedMemory : Capability<Unit, MemoryContext> {
 internal class DefaultSharedMemory(
     override val name: String,
     override val description: String,
-    private val memoryStore: MemoryStore,
+    private val memoryStore: SharedMemoryStore,
 ) : SharedMemory {
     override suspend fun load(): String {
         val raw = memoryStore.read(name) ?: return "(memory expired)"
-        val (frontmatter, body) = MemoryFile.parse(raw)
+        val (frontmatter, body) = SharedMemoryFile.parse(raw)
         val updated = frontmatter.copy(lastAccessedAt = Instant.now())
-        memoryStore.write(name, MemoryFile.serialize(updated, body))
+        memoryStore.write(name, SharedMemoryFile.serialize(updated, body))
         return raw // 返回原始内容(包含旧 frontmatter);LLM 看到的是当时的快照
     }
 }
@@ -844,33 +844,33 @@ internal class DefaultSharedMemory(
 
 **注:** `load()` 返回的是更新前的原始 md 全文(LLM 看到的快照是 load 那一刻的内容),`lastAccessedAt` 更新是写回文件的副作用,不进入返回值。
 
-- [ ] **Step 4: 跑测试验证失败(MemoryContext / MemoryRegistry 还没建)**
+- [ ] **Step 4: 跑测试验证失败(SharedMemoryContext / SharedMemoryRegistry 还没建)**
 
 Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryTest"`
-Expected: FAIL — 仍是 `MemoryContext` / `MemoryRegistry` 未定义
+Expected: FAIL — 仍是 `SharedMemoryContext` / `SharedMemoryRegistry` 未定义
 
-**这是预期的** — 测试中 stubMemoryContext 引用了 Task 6 才会创建的 `MemoryContext` 和 `MemoryRegistry`。先继续 Task 6,完成后回到本 task 跑测试。
+**这是预期的** — 测试中 stubSharedMemoryContext 引用了 Task 6 才会创建的 `SharedMemoryContext` 和 `SharedMemoryRegistry`。先继续 Task 6,完成后回到本 task 跑测试。
 
 - [ ] **Step 5: 暂不提交(等 Task 6 完成后合并提交)**
 
 ---
 
-## Task 6: MemoryContext —— 执行上下文 + Factory
+## Task 6: SharedMemoryContext —— 执行上下文 + Factory
 
 **Files:**
-- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryContext.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryContext.kt`
 - Test: 本 task 不单独写测试,在 Task 5 测试中已 stub,Task 5/6 完成后一起验证
 
 **Interfaces:**
 - Consumes: `CapabilityContext` / `CapabilityContextFactory` / `ToolExecutionContext` / `LlmProvider`
 - Produces:
-  - `public class MemoryContext(memoryStore, llmProvider, registry, memoryFileLimit, forgetDuration) : CapabilityContext`
-  - `internal class MemoryContextFactory(...) : CapabilityContextFactory<MemoryContext>`
-  - `MemoryContext.llmProvider` 字段类型为 `LlmProvider`(非 null,因 factory 已做 null 回退)
+  - `public class SharedMemoryContext(memoryStore, llmProvider, registry, memoryFileLimit, forgetDuration) : CapabilityContext`
+  - `internal class SharedMemoryContextFactory(...) : CapabilityContextFactory<SharedMemoryContext>`
+  - `SharedMemoryContext.llmProvider` 字段类型为 `LlmProvider`(非 null,因 factory 已做 null 回退)
 
-- [ ] **Step 1: 实现 MemoryContext + Factory**
+- [ ] **Step 1: 实现 SharedMemoryContext + Factory**
 
-新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryContext.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryContext.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -891,52 +891,52 @@ import java.time.Duration
  * - [memoryFileLimit]: 单文件字符上限,超则异步压缩
  * - [forgetDuration]: 遗忘时间,文件超过此时长未被读写则删
  */
-public class MemoryContext(
-    public val memoryStore: MemoryStore,
+public class SharedMemoryContext(
+    public val memoryStore: SharedMemoryStore,
     public val llmProvider: LlmProvider,
-    public val registry: MemoryRegistry,
+    public val registry: SharedMemoryRegistry,
     public val memoryFileLimit: Int,
     public val forgetDuration: Duration,
 ) : CapabilityContext
 
 /**
- * 桥接 [ToolExecutionContext] 到 [MemoryContext]。
+ * 桥接 [ToolExecutionContext] 到 [SharedMemoryContext]。
  *
  * llmProvider 为 null 时回退到 [ToolExecutionContext.agentContext.llmProvider]。
  */
-internal class MemoryContextFactory(
-    private val memoryStore: MemoryStore,
+internal class SharedMemoryContextFactory(
+    private val memoryStore: SharedMemoryStore,
     private val llmProvider: LlmProvider?,
-    private val registry: MemoryRegistry,
+    private val registry: SharedMemoryRegistry,
     private val memoryFileLimit: Int,
     private val forgetDuration: Duration,
-) : CapabilityContextFactory<MemoryContext> {
-    override fun create(context: ToolExecutionContext): MemoryContext {
+) : CapabilityContextFactory<SharedMemoryContext> {
+    override fun create(context: ToolExecutionContext): SharedMemoryContext {
         val effectiveLlmProvider = llmProvider ?: context.agentContext.llmProvider
-        return MemoryContext(memoryStore, effectiveLlmProvider, registry, memoryFileLimit, forgetDuration)
+        return SharedMemoryContext(memoryStore, effectiveLlmProvider, registry, memoryFileLimit, forgetDuration)
     }
 }
 ```
 
-- [ ] **Step 2: 暂不跑测试(还差 MemoryRegistry,Task 7 完成)**
+- [ ] **Step 2: 暂不跑测试(还差 SharedMemoryRegistry,Task 7 完成)**
 
 ---
 
-## Task 7: MemoryRegistry —— 注册中心 + rescan
+## Task 7: SharedMemoryRegistry —— 注册中心 + rescan
 
 **Files:**
-- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistry.kt`
-- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistryTest.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryRegistry.kt`
+- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryRegistryTest.kt`
 
 **Interfaces:**
-- Consumes: `CapabilityRegistry<SharedMemory, Unit, MemoryContext>` / `DefaultCapabilityRegistry` / `MemoryStore` / `MemoryFile`
+- Consumes: `CapabilityRegistry<SharedMemory, Unit, SharedMemoryContext>` / `DefaultCapabilityRegistry` / `SharedMemoryStore` / `SharedMemoryFile`
 - Produces:
-  - `public class MemoryRegistry(memoryStore, memoryFileLimit, forgetDuration, llmProvider) : CapabilityRegistry<SharedMemory, Unit, MemoryContext>`
+  - `public class SharedMemoryRegistry(memoryStore, memoryFileLimit, forgetDuration, llmProvider) : CapabilityRegistry<SharedMemory, Unit, SharedMemoryContext>`
   - `public suspend fun rescan()` — 扫描目录,同步 registry 与文件系统状态
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistryTest.kt`:
+新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryRegistryTest.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -957,10 +957,10 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class MemoryRegistryTest {
+class SharedMemoryRegistryTest {
 
     private val tempDir = Files.createTempDirectory("registry-test")
-    private val store = PathMemoryStore(tempDir)
+    private val store = PathSharedMemoryStore(tempDir)
     private val stubLlm = object : LlmProvider {
         override val name: String = "stub"
         override suspend fun chat(request: ChatRequest) = ChatResponse(
@@ -977,8 +977,8 @@ class MemoryRegistryTest {
     }
 
     private fun seedFile(name: String, description: String) = runTest {
-        store.write(name, MemoryFile.serialize(
-            MemoryFile.Frontmatter(name, description, Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:00:00Z")),
+        store.write(name, SharedMemoryFile.serialize(
+            SharedMemoryFile.Frontmatter(name, description, Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:00:00Z")),
             "body",
         ))
     }
@@ -987,7 +987,7 @@ class MemoryRegistryTest {
     fun `rescan picks up new files`() = runTest {
         seedFile("travel", "旅行")
         seedFile("food", "美食")
-        val registry = MemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
+        val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
         registry.rescan()
         val names = registry.all().map { it.name }.toSet()
         assertEquals(setOf("travel", "food"), names)
@@ -996,7 +996,7 @@ class MemoryRegistryTest {
     @Test
     fun `rescan removes entries for deleted files`() = runTest {
         seedFile("travel", "旅行")
-        val registry = MemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
+        val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
         registry.rescan()
         store.delete("travel")
         registry.rescan()
@@ -1005,7 +1005,7 @@ class MemoryRegistryTest {
 
     @Test
     fun `rescan adds new files created after initial scan`() = runTest {
-        val registry = MemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
+        val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
         registry.rescan()
         assertTrue(registry.all().isEmpty())
 
@@ -1017,18 +1017,18 @@ class MemoryRegistryTest {
 
     @Test
     fun `rescan does not include user file`() = runTest {
-        store.write("user", MemoryFile.serialize(
-            MemoryFile.Frontmatter("user", "用户画像", Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:00:00Z")),
+        store.write("user", SharedMemoryFile.serialize(
+            SharedMemoryFile.Frontmatter("user", "用户画像", Instant.parse("2026-01-01T00:00:00Z"), Instant.parse("2026-01-01T00:00:00Z")),
             "user body",
         ))
-        val registry = MemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
+        val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
         registry.rescan()
         assertTrue(registry.all().none { it.name == "user" })
     }
 
     @Test
     fun `capabilityType is memory`() {
-        val registry = MemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
+        val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
         assertEquals("memory", registry.capabilityType)
     }
 }
@@ -1036,12 +1036,12 @@ class MemoryRegistryTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.MemoryRegistryTest"`
-Expected: FAIL — `MemoryRegistry` 未定义
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryRegistryTest"`
+Expected: FAIL — `SharedMemoryRegistry` 未定义
 
-- [ ] **Step 3: 实现 MemoryRegistry**
+- [ ] **Step 3: 实现 SharedMemoryRegistry**
 
-新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistry.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryRegistry.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -1056,17 +1056,17 @@ import kotlinx.coroutines.sync.withLock
 /**
  * 共享记忆注册中心,负责 (re)scan 目录、维护 name → SharedMemory 映射。
  *
- * - [rescan] 扫描根目录所有 `.md` 文件(由 [MemoryStore.list] 返回,已排除 `user.md`),
+ * - [rescan] 扫描根目录所有 `.md` 文件(由 [SharedMemoryStore.list] 返回,已排除 `user.md`),
  *   解析 frontmatter,同步 registry 与文件系统状态。
  * - 已删除的文件从 registry 移除;新增的文件加入 registry;变更的 frontmatter 反映到 description。
  * - 线程安全:rescan 与 register 互斥(用 [Mutex])。
  */
-public class MemoryRegistry(
-    private val memoryStore: MemoryStore,
+public class SharedMemoryRegistry(
+    private val memoryStore: SharedMemoryStore,
     private val memoryFileLimit: Int,
     private val forgetDuration: Duration,
     private val llmProvider: LlmProvider?,
-) : CapabilityRegistry<SharedMemory, Unit, MemoryContext> by DefaultCapabilityRegistry(
+) : CapabilityRegistry<SharedMemory, Unit, SharedMemoryContext> by DefaultCapabilityRegistry(
     capabilityType = SharedMemory.CAPABILITY_TYPE
 ) {
     private val mutex = Mutex()
@@ -1095,7 +1095,7 @@ public class MemoryRegistry(
     private suspend fun loadFromStore(name: String): SharedMemory? {
         val content = memoryStore.read(name) ?: return null
         return try {
-            val (frontmatter, _) = MemoryFile.parse(content)
+            val (frontmatter, _) = SharedMemoryFile.parse(content)
             DefaultSharedMemory(frontmatter.name, frontmatter.description, memoryStore)
         } catch (e: Exception) {
             null // 解析失败的文件跳过
@@ -1107,33 +1107,33 @@ public class MemoryRegistry(
 - [ ] **Step 4: 跑 Task 5/6/7 所有测试验证通过**
 
 Run: `./gradlew :agent:memory:shared:test`
-Expected: PASS — SharedMemoryTest、MemoryRegistryTest 全部通过
+Expected: PASS — SharedMemoryTest、SharedMemoryRegistryTest 全部通过
 
 - [ ] **Step 5: 提交 Task 5/6/7**
 
 ```bash
 git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt \
-        agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryContext.kt \
-        agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistry.kt \
+        agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryContext.kt \
+        agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryRegistry.kt \
         agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt \
-        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistryTest.kt
-git commit -m "feat(shared-memory): SharedMemory/MemoryContext/MemoryRegistry 核心类型
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryRegistryTest.kt
+git commit -m "feat(shared-memory): SharedMemory/SharedMemoryContext/SharedMemoryRegistry 核心类型
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 8: SaveMemoryTool —— 写入工具(不含压缩/遗忘)
+## Task 8: SaveSharedMemoryTool —— 写入工具(不含压缩/遗忘)
 
 **Files:**
-- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`
-- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryTool.kt`
+- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryToolTest.kt`
 
 **Interfaces:**
-- Consumes: `Tool` / `ToolExecutionResult` / `ToolParameters` / `MemoryStore` / `MemoryFile` / `MemoryRegistry` / `CapabilityContextFactory<MemoryContext>`
+- Consumes: `Tool` / `ToolExecutionResult` / `ToolParameters` / `SharedMemoryStore` / `SharedMemoryFile` / `SharedMemoryRegistry` / `CapabilityContextFactory<SharedMemoryContext>`
 - Produces:
-  - `internal class SaveMemoryTool(registry, contextFactory, compressScope) : Tool`
+  - `internal class SaveSharedMemoryTool(registry, contextFactory, compressScope) : Tool`
   - 工具名 `save_memory`,参数 `{name, content, mode}`
   - 副作用:新话题创建触发 `rescan`,已有话题更新 `lastAccessedAt`,异步压缩入口(本 task 占位,Task 10 实现)
 
@@ -1141,7 +1141,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt`:
+新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryToolTest.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -1171,10 +1171,10 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
-class SaveMemoryToolTest {
+class SaveSharedMemoryToolTest {
 
     private val tempDir = Files.createTempDirectory("save-tool-test")
-    private val store = PathMemoryStore(tempDir)
+    private val store = PathSharedMemoryStore(tempDir)
     private val stubLlm = object : LlmProvider {
         override val name: String = "stub"
         override suspend fun chat(request: ChatRequest) = ChatResponse(
@@ -1184,9 +1184,9 @@ class SaveMemoryToolTest {
         )
         override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { }
     }
-    private val registry = MemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
-    private val ctxFactory = object : CapabilityContextFactory<MemoryContext> {
-        override fun create(context: ToolExecutionContext) = MemoryContext(
+    private val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
+    private val ctxFactory = object : CapabilityContextFactory<SharedMemoryContext> {
+        override fun create(context: ToolExecutionContext) = SharedMemoryContext(
             memoryStore = store,
             llmProvider = stubLlm,
             registry = registry,
@@ -1195,7 +1195,7 @@ class SaveMemoryToolTest {
         )
     }
     private val compressScope = CoroutineScope(SupervisorJob())
-    private val tool = SaveMemoryTool(registry, ctxFactory, compressScope)
+    private val tool = SaveSharedMemoryTool(registry, ctxFactory, compressScope)
 
     @AfterTest
     fun cleanup() {
@@ -1234,40 +1234,40 @@ class SaveMemoryToolTest {
 
     @Test
     fun `append to existing topic concatenates body`() = runTest {
-        store.write("travel", MemoryFile.serialize(
-            MemoryFile.Frontmatter("travel", "旅行", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
+        store.write("travel", SharedMemoryFile.serialize(
+            SharedMemoryFile.Frontmatter("travel", "旅行", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
             "原内容",
         ))
         registry.rescan()
         tool.execute(args("travel", "新内容", "append"), execContext())
-        val parsed = MemoryFile.parse(store.read("travel")!!)
+        val parsed = SharedMemoryFile.parse(store.read("travel")!!)
         assertEquals("原内容\n\n新内容", parsed.body)
     }
 
     @Test
     fun `replace overwrites body`() = runTest {
-        store.write("travel", MemoryFile.serialize(
-            MemoryFile.Frontmatter("travel", "旅行", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
+        store.write("travel", SharedMemoryFile.serialize(
+            SharedMemoryFile.Frontmatter("travel", "旅行", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
             "原内容",
         ))
         registry.rescan()
         tool.execute(args("travel", "替换后", "replace"), execContext())
-        val parsed = MemoryFile.parse(store.read("travel")!!)
+        val parsed = SharedMemoryFile.parse(store.read("travel")!!)
         assertEquals("替换后", parsed.body)
     }
 
     @Test
     fun `save updates lastAccessedAt`() = runTest {
         val oldTime = java.time.Instant.parse("2026-01-01T00:00:00Z")
-        store.write("travel", MemoryFile.serialize(
-            MemoryFile.Frontmatter("travel", "旅行", oldTime, oldTime),
+        store.write("travel", SharedMemoryFile.serialize(
+            SharedMemoryFile.Frontmatter("travel", "旅行", oldTime, oldTime),
             "原内容",
         ))
         registry.rescan()
         val before = java.time.Instant.now()
         tool.execute(args("travel", "追加", "append"), execContext())
         val after = java.time.Instant.now()
-        val parsed = MemoryFile.parse(store.read("travel")!!)
+        val parsed = SharedMemoryFile.parse(store.read("travel")!!)
         assertTrue(!parsed.frontmatter.lastAccessedAt.isBefore(before))
         assertTrue(!parsed.frontmatter.lastAccessedAt.isAfter(after))
     }
@@ -1294,7 +1294,7 @@ class SaveMemoryToolTest {
     fun `save to user creates user file`() = runTest {
         tool.execute(args("user", "用户画像:开发者"), execContext())
         assertTrue(store.exists("user"))
-        val parsed = MemoryFile.parse(store.read("user")!!)
+        val parsed = SharedMemoryFile.parse(store.read("user")!!)
         assertEquals("用户画像:开发者", parsed.body)
     }
 }
@@ -1302,12 +1302,12 @@ class SaveMemoryToolTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest"`
-Expected: FAIL — `SaveMemoryTool` 未定义
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveSharedMemoryToolTest"`
+Expected: FAIL — `SaveSharedMemoryTool` 未定义
 
-- [ ] **Step 3: 实现 SaveMemoryTool(不含压缩/遗忘)**
+- [ ] **Step 3: 实现 SaveSharedMemoryTool(不含压缩/遗忘)**
 
-新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryTool.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -1341,9 +1341,9 @@ import kotlinx.serialization.json.jsonPrimitive
  *
  * 返回:写入确认信息
  */
-internal class SaveMemoryTool(
-    private val registry: MemoryRegistry,
-    private val contextFactory: CapabilityContextFactory<MemoryContext>,
+internal class SaveSharedMemoryTool(
+    private val registry: SharedMemoryRegistry,
+    private val contextFactory: CapabilityContextFactory<SharedMemoryContext>,
     private val compressScope: CoroutineScope,
 ) : Tool {
     override val name: String = "save_memory"
@@ -1378,10 +1378,10 @@ internal class SaveMemoryTool(
 
         val isNew = !store.exists(name)
         val (frontmatter, body) = if (isNew) {
-            MemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
+            SharedMemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
         } else {
             val raw = store.read(name)!!
-            val (fm, b) = MemoryFile.parse(raw)
+            val (fm, b) = SharedMemoryFile.parse(raw)
             fm.copy(lastAccessedAt = now) to b
         }
 
@@ -1390,7 +1390,7 @@ internal class SaveMemoryTool(
             "replace" -> content
             else -> return ToolExecutionResult.error("Invalid mode: $mode")
         }
-        store.write(name, MemoryFile.serialize(frontmatter, newBody))
+        store.write(name, SharedMemoryFile.serialize(frontmatter, newBody))
 
         if (isNew) registry.rescan()
 
@@ -1407,9 +1407,9 @@ internal class SaveMemoryTool(
     }
 
     private suspend fun compressMemory(
-        ctx: MemoryContext,
+        ctx: SharedMemoryContext,
         name: String,
-        frontmatter: MemoryFile.Frontmatter,
+        frontmatter: SharedMemoryFile.Frontmatter,
         body: String,
     ) {
         // Task 10 实现
@@ -1423,15 +1423,15 @@ internal class SaveMemoryTool(
 
 - [ ] **Step 4: 跑测试验证通过**
 
-Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveSharedMemoryToolTest"`
 Expected: PASS — 8 个测试全部通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt \
-        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt
-git commit -m "feat(shared-memory): SaveMemoryTool 写入工具(append/replace)
+git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryTool.kt \
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryToolTest.kt
+git commit -m "feat(shared-memory): SaveSharedMemoryTool 写入工具(append/replace)
 
 不含压缩与遗忘,Task 10/11 扩展。
 
@@ -1440,23 +1440,23 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ---
 
-## Task 9: MemoryPlugin + DSL —— 接线与 user.md 初始化
+## Task 9: SharedMemoryPlugin + DSL —— 接线与 user.md 初始化
 
 **Files:**
-- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryPlugin.kt`
-- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryExtensions.kt`
-- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryPluginTest.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryPlugin.kt`
+- Create: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryExtensions.kt`
+- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryPluginTest.kt`
 
 **Interfaces:**
-- Consumes: `AgentPlugin` / `AgentPluginContext` / `CapabilityAdapter` / `MemoryStore` / `MemoryRegistry` / `SaveMemoryTool` / `MemoryFile`
+- Consumes: `AgentPlugin` / `AgentPluginContext` / `CapabilityAdapter` / `SharedMemoryStore` / `SharedMemoryRegistry` / `SaveSharedMemoryTool` / `SharedMemoryFile`
 - Produces:
-  - `public object MemoryPluginConfig` — placeholder config 类型(满足 `AgentPlugin<C : Any>` 约束)
-  - `internal class MemoryPlugin(...) : AgentPlugin<MemoryPluginConfig>`
+  - `public object SharedMemoryPluginConfig` — placeholder config 类型(满足 `AgentPlugin<C : Any>` 约束)
+  - `internal class SharedMemoryPlugin(...) : AgentPlugin<SharedMemoryPluginConfig>`
   - `public fun AgentBuilder.sharedMemory(directory, memoryFileLimit, forgetDuration, llmProvider, memoryStore, enableDelegateAdaptMode)`
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryPluginTest.kt`:
+新建 `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryPluginTest.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -1481,7 +1481,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 
-class MemoryPluginTest {
+class SharedMemoryPluginTest {
 
     private val tempDir = Files.createTempDirectory("plugin-test")
     private val stubLlm = object : LlmProvider {
@@ -1508,9 +1508,9 @@ class MemoryPluginTest {
 
     @Test
     fun `install creates user md if missing`() = runTest {
-        val store = PathMemoryStore(tempDir)
-        val registry = MemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
-        val plugin = MemoryPlugin(
+        val store = PathSharedMemoryStore(tempDir)
+        val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
+        val plugin = SharedMemoryPlugin(
             directory = tempDir,
             memoryFileLimit = 8000,
             forgetDuration = Duration.ofDays(30),
@@ -1521,22 +1521,22 @@ class MemoryPluginTest {
         )
         plugin.install(FakePluginContext())
         assertTrue(store.exists("user"))
-        val parsed = MemoryFile.parse(store.read("user")!!)
+        val parsed = SharedMemoryFile.parse(store.read("user")!!)
         assertEquals("user", parsed.frontmatter.name)
         assertEquals("", parsed.body)
     }
 
     @Test
     fun `install does not overwrite existing user md`() = runTest {
-        val store = PathMemoryStore(tempDir)
-        val existing = MemoryFile.serialize(
-            MemoryFile.Frontmatter("user", "已存在", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
+        val store = PathSharedMemoryStore(tempDir)
+        val existing = SharedMemoryFile.serialize(
+            SharedMemoryFile.Frontmatter("user", "已存在", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
             "已有内容",
         )
         store.write("user", existing)
 
-        val registry = MemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
-        val plugin = MemoryPlugin(
+        val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
+        val plugin = SharedMemoryPlugin(
             directory = tempDir,
             memoryFileLimit = 8000,
             forgetDuration = Duration.ofDays(30),
@@ -1546,19 +1546,19 @@ class MemoryPluginTest {
             registry = registry,
         )
         plugin.install(FakePluginContext())
-        val parsed = MemoryFile.parse(store.read("user")!!)
+        val parsed = SharedMemoryFile.parse(store.read("user")!!)
         assertEquals("已有内容", parsed.body)
     }
 
     @Test
     fun `install injects user body to instructions when non-blank`() = runTest {
-        val store = PathMemoryStore(tempDir)
-        store.write("user", MemoryFile.serialize(
-            MemoryFile.Frontmatter("user", "用户画像", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
+        val store = PathSharedMemoryStore(tempDir)
+        store.write("user", SharedMemoryFile.serialize(
+            SharedMemoryFile.Frontmatter("user", "用户画像", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
             "用户是开发者",
         ))
-        val registry = MemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
-        val plugin = MemoryPlugin(
+        val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
+        val plugin = SharedMemoryPlugin(
             directory = tempDir,
             memoryFileLimit = 8000,
             forgetDuration = Duration.ofDays(30),
@@ -1574,9 +1574,9 @@ class MemoryPluginTest {
 
     @Test
     fun `install registers load_memory and save_memory tools`() = runTest {
-        val store = PathMemoryStore(tempDir)
-        val registry = MemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
-        val plugin = MemoryPlugin(
+        val store = PathSharedMemoryStore(tempDir)
+        val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
+        val plugin = SharedMemoryPlugin(
             directory = tempDir,
             memoryFileLimit = 8000,
             forgetDuration = Duration.ofDays(30),
@@ -1594,13 +1594,13 @@ class MemoryPluginTest {
 
     @Test
     fun `install picks up existing topic files via rescan`() = runTest {
-        val store = PathMemoryStore(tempDir)
-        store.write("travel", MemoryFile.serialize(
-            MemoryFile.Frontmatter("travel", "旅行", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
+        val store = PathSharedMemoryStore(tempDir)
+        store.write("travel", SharedMemoryFile.serialize(
+            SharedMemoryFile.Frontmatter("travel", "旅行", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
             "body",
         ))
-        val registry = MemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
-        val plugin = MemoryPlugin(
+        val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
+        val plugin = SharedMemoryPlugin(
             directory = tempDir,
             memoryFileLimit = 8000,
             forgetDuration = Duration.ofDays(30),
@@ -1617,12 +1617,12 @@ class MemoryPluginTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.MemoryPluginTest"`
-Expected: FAIL — `MemoryPlugin` / `MemoryExtensions` 未定义
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryPluginTest"`
+Expected: FAIL — `SharedMemoryPlugin` / `SharedMemoryExtensions` 未定义
 
-- [ ] **Step 3: 实现 MemoryPlugin + MemoryPluginConfig**
+- [ ] **Step 3: 实现 SharedMemoryPlugin + SharedMemoryPluginConfig**
 
-新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryPlugin.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryPlugin.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -1642,9 +1642,9 @@ import kotlinx.coroutines.runBlocking
 /**
  * 占位 config 类型,满足 [AgentPlugin] 的 `C : Any` 约束。
  *
- * MemoryPlugin 的所有配置在构造器完成,configure block 为 no-op。
+ * SharedMemoryPlugin 的所有配置在构造器完成,configure block 为 no-op。
  */
-public object MemoryPluginConfig
+public object SharedMemoryPluginConfig
 
 /**
  * 共享记忆插件的接线类。
@@ -1663,20 +1663,20 @@ public object MemoryPluginConfig
  *    → load_memory 工具,registerTool
  * 5. registerTool(save_memory)
  */
-internal class MemoryPlugin(
+internal class SharedMemoryPlugin(
     private val directory: Path,
     private val memoryFileLimit: Int,
     private val forgetDuration: Duration,
     private val llmProvider: LlmProvider?,
-    private val memoryStore: MemoryStore,
+    private val memoryStore: SharedMemoryStore,
     private val enableDelegateAdaptMode: Boolean,
-    private val registry: MemoryRegistry,
-) : AgentPlugin<MemoryPluginConfig> {
+    private val registry: SharedMemoryRegistry,
+) : AgentPlugin<SharedMemoryPluginConfig> {
 
     override val id: String = "shared-memory"
 
     private val compressScope = CoroutineScope(SupervisorJob())
-    private val ctxFactory: CapabilityContextFactory<MemoryContext> = MemoryContextFactory(
+    private val ctxFactory: CapabilityContextFactory<SharedMemoryContext> = SharedMemoryContextFactory(
         memoryStore = memoryStore,
         llmProvider = llmProvider,
         registry = registry,
@@ -1684,7 +1684,7 @@ internal class MemoryPlugin(
         forgetDuration = forgetDuration,
     )
 
-    override fun configure(block: MemoryPluginConfig.() -> Unit) {
+    override fun configure(block: SharedMemoryPluginConfig.() -> Unit) {
         // no-op:配置已在构造器完成
     }
 
@@ -1697,7 +1697,7 @@ internal class MemoryPlugin(
         // 注入 user.md 正文到 persona 能力区
         val userRaw = runBlocking { memoryStore.read("user") }
         if (userRaw != null) {
-            val (_, body) = MemoryFile.parse(userRaw)
+            val (_, body) = SharedMemoryFile.parse(userRaw)
             if (body.isNotBlank()) {
                 context.appendInstructions(body)
             }
@@ -1709,14 +1709,14 @@ internal class MemoryPlugin(
             .forEach { context.registerTool(it) }
 
         // 注册 save_memory
-        context.registerTool(SaveMemoryTool(registry, ctxFactory, compressScope))
+        context.registerTool(SaveSharedMemoryTool(registry, ctxFactory, compressScope))
     }
 
     private suspend fun ensureUserMemory() {
         if (!memoryStore.exists("user")) {
             val now = Instant.now()
-            val empty = MemoryFile.serialize(
-                MemoryFile.Frontmatter(
+            val empty = SharedMemoryFile.serialize(
+                SharedMemoryFile.Frontmatter(
                     name = "user",
                     description = "用户画像,每轮主动注入 system prompt",
                     createdAt = now,
@@ -1730,9 +1730,9 @@ internal class MemoryPlugin(
 }
 ```
 
-- [ ] **Step 4: 实现 MemoryExtensions**
+- [ ] **Step 4: 实现 SharedMemoryExtensions**
 
-新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryExtensions.kt`:
+新建 `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryExtensions.kt`:
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -1749,7 +1749,7 @@ import java.time.Duration
  * @param memoryFileLimit 单文件字符上限,超则异步压缩。默认 8000
  * @param forgetDuration 遗忘时间,文件超过此时长未被读写则删。默认 30 天
  * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
- * @param memoryStore 文件 IO 抽象;null 时用 [PathMemoryStore]。默认 null
+ * @param memoryStore 文件 IO 抽象;null 时用 [PathSharedMemoryStore]。默认 null
  * @param enableDelegateAdaptMode load_memory 是否走委托模式(单一工具 + name 路由)。默认 true
  */
 public fun AgentBuilder.sharedMemory(
@@ -1757,12 +1757,12 @@ public fun AgentBuilder.sharedMemory(
     memoryFileLimit: Int = 8000,
     forgetDuration: Duration = Duration.ofDays(30),
     llmProvider: LlmProvider? = null,
-    memoryStore: MemoryStore? = null,
+    memoryStore: SharedMemoryStore? = null,
     enableDelegateAdaptMode: Boolean = true,
 ) {
-    val store = memoryStore ?: PathMemoryStore(directory)
-    val registry = MemoryRegistry(store, memoryFileLimit, forgetDuration, llmProvider)
-    val plugin = MemoryPlugin(
+    val store = memoryStore ?: PathSharedMemoryStore(directory)
+    val registry = SharedMemoryRegistry(store, memoryFileLimit, forgetDuration, llmProvider)
+    val plugin = SharedMemoryPlugin(
         directory = directory,
         memoryFileLimit = memoryFileLimit,
         forgetDuration = forgetDuration,
@@ -1777,20 +1777,20 @@ public fun AgentBuilder.sharedMemory(
 
 - [ ] **Step 5: 跑测试验证通过**
 
-Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.MemoryPluginTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryPluginTest"`
 Expected: PASS — 5 个测试全部通过
 
 - [ ] **Step 6: 提交**
 
 ```bash
-git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryPlugin.kt \
-        agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryExtensions.kt \
-        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryPluginTest.kt
-git commit -m "feat(shared-memory): MemoryPlugin 接线 + AgentBuilder DSL
+git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryPlugin.kt \
+        agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryExtensions.kt \
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryPluginTest.kt
+git commit -m "feat(shared-memory): SharedMemoryPlugin 接线 + AgentBuilder DSL
 
 - install 时创建 user.md 空模板,rescan 话题,appendInstructions 注入 user 正文
 - 通过 CapabilityAdapter.of 拼装 load_memory,auxiliary 注册 save_memory
-- MemoryPluginConfig object 满足 AgentPlugin<C : Any> 约束
+- SharedMemoryPluginConfig object 满足 AgentPlugin<C : Any> 约束
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -1800,16 +1800,16 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 10: 异步压缩
 
 **Files:**
-- Modify: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`
-- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt`(追加压缩测试)
+- Modify: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryTool.kt`
+- Test: `agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryToolTest.kt`(追加压缩测试)
 
 **Interfaces:**
-- Consumes: `MemoryContext.llmProvider` / `ChatRequest` / `ChatMessage.System` / `ChatResponse.message.content`
-- Produces: `SaveMemoryTool.compressMemory` 实现完成,save 后超 `memoryFileLimit` 自动异步压缩
+- Consumes: `SharedMemoryContext.llmProvider` / `ChatRequest` / `ChatMessage.System` / `ChatResponse.message.content`
+- Produces: `SaveSharedMemoryTool.compressMemory` 实现完成,save 后超 `memoryFileLimit` 自动异步压缩
 
 - [ ] **Step 1: 写失败测试 — 压缩被触发且文件被覆盖**
 
-在 `SaveMemoryToolTest.kt` 末尾追加:
+在 `SaveSharedMemoryToolTest.kt` 末尾追加:
 
 ```kotlin
 @Test
@@ -1825,9 +1825,9 @@ fun `save triggers async compression when body exceeds memoryFileLimit`() = runT
         override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { }
     }
     val smallLimit = 10
-    val compressingRegistry = MemoryRegistry(store, smallLimit, Duration.ofDays(30), compressingLlm)
-    val compressingCtxFactory = object : CapabilityContextFactory<MemoryContext> {
-        override fun create(context: ToolExecutionContext) = MemoryContext(
+    val compressingRegistry = SharedMemoryRegistry(store, smallLimit, Duration.ofDays(30), compressingLlm)
+    val compressingCtxFactory = object : CapabilityContextFactory<SharedMemoryContext> {
+        override fun create(context: ToolExecutionContext) = SharedMemoryContext(
             memoryStore = store,
             llmProvider = compressingLlm,
             registry = compressingRegistry,
@@ -1835,7 +1835,7 @@ fun `save triggers async compression when body exceeds memoryFileLimit`() = runT
             forgetDuration = Duration.ofDays(30),
         )
     }
-    val compressingTool = SaveMemoryTool(compressingRegistry, compressingCtxFactory, compressScope)
+    val compressingTool = SaveSharedMemoryTool(compressingRegistry, compressingCtxFactory, compressScope)
 
     // 写入超限内容
     val longContent = "这是一个很长的内容,超过 10 字符上限"
@@ -1844,25 +1844,25 @@ fun `save triggers async compression when body exceeds memoryFileLimit`() = runT
     // 等待异步压缩完成
     kotlinx.coroutines.delay(500)
 
-    val parsed = MemoryFile.parse(store.read("long-topic")!!)
+    val parsed = SharedMemoryFile.parse(store.read("long-topic")!!)
     assertEquals("压缩后内容", parsed.body)
 }
 ```
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest.save triggers async compression when body exceeds memoryFileLimit"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveSharedMemoryToolTest.save triggers async compression when body exceeds memoryFileLimit"`
 Expected: FAIL — body 仍是原始长内容(`compressMemory` 是空实现)
 
 - [ ] **Step 3: 实现 compressMemory**
 
-修改 `SaveMemoryTool.kt` 的 `compressMemory`:
+修改 `SaveSharedMemoryTool.kt` 的 `compressMemory`:
 
 ```kotlin
 private suspend fun compressMemory(
-    ctx: MemoryContext,
+    ctx: SharedMemoryContext,
     name: String,
-    frontmatter: MemoryFile.Frontmatter,
+    frontmatter: SharedMemoryFile.Frontmatter,
     body: String,
 ) {
     val targetSize = ctx.memoryFileLimit / 2
@@ -1880,20 +1880,20 @@ private suspend fun compressMemory(
     val response = ctx.llmProvider.chat(request)
     val summary = response.message.content ?: body // 失败回退为原文
 
-    ctx.memoryStore.write(name, MemoryFile.serialize(frontmatter, summary))
+    ctx.memoryStore.write(name, SharedMemoryFile.serialize(frontmatter, summary))
 }
 ```
 
 - [ ] **Step 4: 跑测试验证通过**
 
-Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SaveSharedMemoryToolTest"`
 Expected: PASS — 9 个测试全部通过(含新增压缩测试)
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt \
-        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt
+git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryTool.kt \
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryToolTest.kt
 git commit -m "feat(shared-memory): 异步压缩,超 memoryFileLimit 时调 LLM 总结
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -1905,11 +1905,11 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 **Files:**
 - Modify: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt`(load 时检查)
-- Modify: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`(save 时检查)
-- Test: 扩展 `SharedMemoryTest.kt` 和 `SaveMemoryToolTest.kt`
+- Modify: `agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryTool.kt`(save 时检查)
+- Test: 扩展 `SharedMemoryTest.kt` 和 `SaveSharedMemoryToolTest.kt`
 
 **Interfaces:**
-- Consumes: `MemoryContext.forgetDuration` / `MemoryContext.memoryStore` / `MemoryContext.registry`
+- Consumes: `SharedMemoryContext.forgetDuration` / `SharedMemoryContext.memoryStore` / `SharedMemoryContext.registry`
 - Produces: load/save 路径在操作前检查 `lastAccessedAt`,超阈值则删除文件 + rescan
 
 - [ ] **Step 1: 写失败测试 — load 时遗忘过期文件**
@@ -1936,8 +1936,8 @@ fun `load deletes file when lastAccessedAt exceeds forgetDuration`() = runTest {
         override fun chatStream(request: io.github.yeyi.agent.llm.ChatRequest): kotlinx.coroutines.flow.Flow<io.github.yeyi.agent.llm.ChatResponseEvent> =
             kotlinx.coroutines.flow.flow { }
     }
-    val registry = MemoryRegistry(store, 8000, shortForgetDuration, stubLlm)
-    val ctx = MemoryContext(store, stubLlm, registry, 8000, shortForgetDuration)
+    val registry = SharedMemoryRegistry(store, 8000, shortForgetDuration, stubLlm)
+    val ctx = SharedMemoryContext(store, stubLlm, registry, 8000, shortForgetDuration)
 
     val result = memory.activate(null, ctx)
     assertEquals("(memory expired)", result)
@@ -1962,8 +1962,8 @@ fun `load does not forget user file even when expired`() = runTest {
         override fun chatStream(request: io.github.yeyi.agent.llm.ChatRequest): kotlinx.coroutines.flow.Flow<io.github.yeyi.agent.llm.ChatResponseEvent> =
             kotlinx.coroutines.flow.flow { }
     }
-    val registry = MemoryRegistry(store, 8000, shortForgetDuration, stubLlm)
-    val ctx = MemoryContext(store, stubLlm, registry, 8000, shortForgetDuration)
+    val registry = SharedMemoryRegistry(store, 8000, shortForgetDuration, stubLlm)
+    val ctx = SharedMemoryContext(store, stubLlm, registry, 8000, shortForgetDuration)
 
     memory.activate(null, ctx)
     assertTrue(store.exists("user")) // user 不被遗忘
@@ -1972,20 +1972,20 @@ fun `load does not forget user file even when expired`() = runTest {
 
 - [ ] **Step 2: 写失败测试 — save 时遗忘过期文件**
 
-在 `SaveMemoryToolTest.kt` 末尾追加:
+在 `SaveSharedMemoryToolTest.kt` 末尾追加:
 
 ```kotlin
 @Test
 fun `save deletes file when lastAccessedAt exceeds forgetDuration`() = runTest {
     val oldTime = java.time.Instant.now().minusSeconds(60)
-    store.write("old-topic", MemoryFile.serialize(
-        MemoryFile.Frontmatter("old-topic", "旧", oldTime, oldTime),
+    store.write("old-topic", SharedMemoryFile.serialize(
+        SharedMemoryFile.Frontmatter("old-topic", "旧", oldTime, oldTime),
         "原内容",
     ))
     val shortForgetDuration = Duration.ofSeconds(30)
-    val shortForgetRegistry = MemoryRegistry(store, 8000, shortForgetDuration, stubLlm)
-    val shortForgetCtxFactory = object : CapabilityContextFactory<MemoryContext> {
-        override fun create(context: ToolExecutionContext) = MemoryContext(
+    val shortForgetRegistry = SharedMemoryRegistry(store, 8000, shortForgetDuration, stubLlm)
+    val shortForgetCtxFactory = object : CapabilityContextFactory<SharedMemoryContext> {
+        override fun create(context: ToolExecutionContext) = SharedMemoryContext(
             memoryStore = store,
             llmProvider = stubLlm,
             registry = shortForgetRegistry,
@@ -1993,7 +1993,7 @@ fun `save deletes file when lastAccessedAt exceeds forgetDuration`() = runTest {
             forgetDuration = shortForgetDuration,
         )
     }
-    val shortForgetTool = SaveMemoryTool(shortForgetRegistry, shortForgetCtxFactory, compressScope)
+    val shortForgetTool = SaveSharedMemoryTool(shortForgetRegistry, shortForgetCtxFactory, compressScope)
     shortForgetRegistry.rescan()
 
     val result = shortForgetTool.execute(args("old-topic", "新内容", "append"), execContext())
@@ -2005,7 +2005,7 @@ fun `save deletes file when lastAccessedAt exceeds forgetDuration`() = runTest {
 
 - [ ] **Step 3: 跑测试验证失败**
 
-Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryTest.load deletes file when lastAccessedAt exceeds forgetDuration" --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest.save deletes file when lastAccessedAt exceeds forgetDuration"`
+Run: `./gradlew :agent:memory:shared:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryTest.load deletes file when lastAccessedAt exceeds forgetDuration" --tests "io.github.yeyi.agent.memory.shared.SaveSharedMemoryToolTest.save deletes file when lastAccessedAt exceeds forgetDuration"`
 Expected: FAIL — 遗忘逻辑未实现
 
 - [ ] **Step 4: 改 DefaultSharedMemory.load 集成遗忘检查**
@@ -2016,13 +2016,13 @@ Expected: FAIL — 遗忘逻辑未实现
 internal class DefaultSharedMemory(
     override val name: String,
     override val description: String,
-    private val memoryStore: MemoryStore,
+    private val memoryStore: SharedMemoryStore,
 ) : SharedMemory {
     override suspend fun load(): String = "(load should not be called without context)"
 
-    override suspend fun activate(arguments: Unit?, context: MemoryContext): String {
+    override suspend fun activate(arguments: Unit?, context: SharedMemoryContext): String {
         val raw = memoryStore.read(name) ?: return "(memory expired)"
-        val (frontmatter, body) = MemoryFile.parse(raw)
+        val (frontmatter, body) = SharedMemoryFile.parse(raw)
         val now = Instant.now()
 
         // 遗忘检查(user 豁免)
@@ -2037,17 +2037,17 @@ internal class DefaultSharedMemory(
 
         // 更新 lastAccessedAt 并写回
         val updated = frontmatter.copy(lastAccessedAt = now)
-        memoryStore.write(name, MemoryFile.serialize(updated, body))
+        memoryStore.write(name, SharedMemoryFile.serialize(updated, body))
         return raw
     }
 }
 ```
 
-**注:** 原来的 `load()` 抽象方法保留(满足接口),但实际逻辑移到 `activate` —— 因为遗忘检查需要 `MemoryContext.forgetDuration`,而 `load()` 无参。`activate(null, context)` 是 `CapabilityLoadTool.execute` 的实际入口,会传 context。`load()` 改为返回错误提示,防止误调。
+**注:** 原来的 `load()` 抽象方法保留(满足接口),但实际逻辑移到 `activate` —— 因为遗忘检查需要 `SharedMemoryContext.forgetDuration`,而 `load()` 无参。`activate(null, context)` 是 `CapabilityLoadTool.execute` 的实际入口,会传 context。`load()` 改为返回错误提示,防止误调。
 
-- [ ] **Step 5: 改 SaveMemoryTool.execute 集成遗忘检查**
+- [ ] **Step 5: 改 SaveSharedMemoryTool.execute 集成遗忘检查**
 
-修改 `SaveMemoryTool.kt` 的 `execute`,在 `frontmatter, body` 解析后、`newBody` 计算前插入遗忘检查:
+修改 `SaveSharedMemoryTool.kt` 的 `execute`,在 `frontmatter, body` 解析后、`newBody` 计算前插入遗忘检查:
 
 ```kotlin
 // 遗忘检查:user 豁免;若已超阈值,删除并返回
@@ -2078,10 +2078,10 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
 
     val isNew = !store.exists(name)
     val (frontmatter, body) = if (isNew) {
-        MemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
+        SharedMemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
     } else {
         val raw = store.read(name)!!
-        val (fm, b) = MemoryFile.parse(raw)
+        val (fm, b) = SharedMemoryFile.parse(raw)
         fm.copy(lastAccessedAt = now) to b
     }
 
@@ -2100,7 +2100,7 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
         "replace" -> content
         else -> return ToolExecutionResult.error("Invalid mode: $mode")
     }
-    store.write(name, MemoryFile.serialize(frontmatter, newBody))
+    store.write(name, SharedMemoryFile.serialize(frontmatter, newBody))
 
     if (isNew) registry.rescan()
 
@@ -2123,7 +2123,7 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
 ```kotlin
 } else {
     val raw = store.read(name)!!
-    val (fm, b) = MemoryFile.parse(raw)
+    val (fm, b) = SharedMemoryFile.parse(raw)
     fm to b  // 保留原 lastAccessedAt 用于遗忘检查
 }
 ```
@@ -2134,7 +2134,7 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
 // 通过遗忘检查后,更新 lastAccessedAt
 val updatedFrontmatter = frontmatter.copy(lastAccessedAt = now)
 // ... 计算 newBody ...
-store.write(name, MemoryFile.serialize(updatedFrontmatter, newBody))
+store.write(name, SharedMemoryFile.serialize(updatedFrontmatter, newBody))
 ```
 
 完整修正版 `execute`:
@@ -2154,10 +2154,10 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
 
     val isNew = !store.exists(name)
     val (frontmatter, body) = if (isNew) {
-        MemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
+        SharedMemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
     } else {
         val raw = store.read(name)!!
-        val (fm, b) = MemoryFile.parse(raw)
+        val (fm, b) = SharedMemoryFile.parse(raw)
         fm to b
     }
 
@@ -2177,7 +2177,7 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
         "replace" -> content
         else -> return ToolExecutionResult.error("Invalid mode: $mode")
     }
-    store.write(name, MemoryFile.serialize(updatedFrontmatter, newBody))
+    store.write(name, SharedMemoryFile.serialize(updatedFrontmatter, newBody))
 
     if (isNew) registry.rescan()
 
@@ -2195,14 +2195,14 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
 
 - [ ] **Step 6: 同步修正 Task 5 测试中的 activate 调用**
 
-Task 5 测试里的 `memory.activate(null, stubMemoryContext())` 仍可用,但 `stubMemoryContext()` 的 `forgetDuration` 是 30 天,seedMemory 用的 `lastAccessedAt = Instant.parse("2026-11-25T10:00:00Z")` 在 30 天内,不会触发遗忘。如果测试跑得离 2026-11-25 太远(超过 30 天),会触发遗忘——为避免时间漂移,把 Task 5 测试里 seedMemory 用的 `lastAccessedAt` 改成 `Instant.now()`。
+Task 5 测试里的 `memory.activate(null, stubSharedMemoryContext())` 仍可用,但 `stubSharedMemoryContext()` 的 `forgetDuration` 是 30 天,seedMemory 用的 `lastAccessedAt = Instant.parse("2026-11-25T10:00:00Z")` 在 30 天内,不会触发遗忘。如果测试跑得离 2026-11-25 太远(超过 30 天),会触发遗忘——为避免时间漂移,把 Task 5 测试里 seedMemory 用的 `lastAccessedAt` 改成 `Instant.now()`。
 
 修改 `SharedMemoryTest.kt` 的 `seedMemory` 默认参数:
 
 ```kotlin
 private fun seedMemory(name: String, body: String, lastAccessedAt: Instant = Instant.now()) {
-    val content = MemoryFile.serialize(
-        MemoryFile.Frontmatter(name, "desc for $name", Instant.parse("2026-01-01T00:00:00Z"), lastAccessedAt),
+    val content = SharedMemoryFile.serialize(
+        SharedMemoryFile.Frontmatter(name, "desc for $name", Instant.parse("2026-01-01T00:00:00Z"), lastAccessedAt),
         body,
     )
     store.writeSync(name, content)
@@ -2218,9 +2218,9 @@ Expected: PASS — 所有测试通过
 
 ```bash
 git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt \
-        agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt \
+        agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryTool.kt \
         agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt \
-        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt
+        agent/memory/shared/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveSharedMemoryToolTest.kt
 git commit -m "feat(shared-memory): 遗忘检查集成到 load/save 路径
 
 - load/save 时基于原始 lastAccessedAt 检查 forgetDuration
@@ -2277,7 +2277,7 @@ import kotlin.test.assertTrue
 class SharedMemoryIntegrationTest {
 
     private val tempDir = Files.createTempDirectory("ltm-integration")
-    private val store = PathMemoryStore(tempDir)
+    private val store = PathSharedMemoryStore(tempDir)
     private val stubLlm = object : LlmProvider {
         override val name: String = "stub"
         override suspend fun chat(request: ChatRequest) = ChatResponse(
@@ -2287,9 +2287,9 @@ class SharedMemoryIntegrationTest {
         )
         override fun chatStream(request: ChatRequest): Flow<ChatResponseEvent> = flow { }
     }
-    private val registry = MemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
-    private val ctxFactory = object : CapabilityContextFactory<MemoryContext> {
-        override fun create(context: ToolExecutionContext) = MemoryContext(
+    private val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
+    private val ctxFactory = object : CapabilityContextFactory<SharedMemoryContext> {
+        override fun create(context: ToolExecutionContext) = SharedMemoryContext(
             memoryStore = store,
             llmProvider = stubLlm,
             registry = registry,
@@ -2297,7 +2297,7 @@ class SharedMemoryIntegrationTest {
             forgetDuration = Duration.ofDays(30),
         )
     }
-    private val saveTool = SaveMemoryTool(registry, ctxFactory, CoroutineScope(SupervisorJob()))
+    private val saveTool = SaveSharedMemoryTool(registry, ctxFactory, CoroutineScope(SupervisorJob()))
     private val loadTool = io.github.yeyi.agent.capability.CapabilityAdapter.of(
         registry, ctxFactory, null, true,
     ).adapt().first()
@@ -2434,13 +2434,13 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 |---|---|
 | §3 模块结构 | Task 2 |
 | §4.1 SharedMemory | Task 5 |
-| §4.2 MemoryContext | Task 6 |
-| §4.3 MemoryRegistry + rescan | Task 7 |
-| §4.4 MemoryPlugin | Task 9 |
-| §4.5 SaveMemoryTool | Task 8(基础)+ Task 10(压缩)+ Task 11(遗忘) |
-| §4.6 MemoryStore + PathMemoryStore | Task 4 |
-| §4.7 MemoryFile | Task 3 |
-| §4.8 MemoryExtensions DSL | Task 9 |
+| §4.2 SharedMemoryContext | Task 6 |
+| §4.3 SharedMemoryRegistry + rescan | Task 7 |
+| §4.4 SharedMemoryPlugin | Task 9 |
+| §4.5 SaveSharedMemoryTool | Task 8(基础)+ Task 10(压缩)+ Task 11(遗忘) |
+| §4.6 SharedMemoryStore + PathSharedMemoryStore | Task 4 |
+| §4.7 SharedMemoryFile | Task 3 |
+| §4.8 SharedMemoryExtensions DSL | Task 9 |
 | §5 Capability 框架改动 | Task 1 |
 | §6 数据流(install / load / save / 压缩) | Task 1/8/9/10/11 |
 | §7.1 user.md 处理 | Task 9 |
@@ -2460,17 +2460,17 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ### 3. 类型一致性
 
-- `MemoryFile.Frontmatter` 字段名在所有 Task 一致:`name` / `description` / `createdAt` / `lastAccessedAt`
-- `MemoryContext` 构造参数顺序在 Task 6/8/9/10/11 一致:`memoryStore, llmProvider, registry, memoryFileLimit, forgetDuration`
-- `MemoryRegistry` 构造参数顺序在所有 Task 一致:`memoryStore, memoryFileLimit, forgetDuration, llmProvider`
-- `SaveMemoryTool` 构造参数顺序一致:`registry, contextFactory, compressScope`
-- `MemoryPlugin` 构造参数顺序一致:`directory, memoryFileLimit, forgetDuration, llmProvider, memoryStore, enableDelegateAdaptMode, registry`
+- `SharedMemoryFile.Frontmatter` 字段名在所有 Task 一致:`name` / `description` / `createdAt` / `lastAccessedAt`
+- `SharedMemoryContext` 构造参数顺序在 Task 6/8/9/10/11 一致:`memoryStore, llmProvider, registry, memoryFileLimit, forgetDuration`
+- `SharedMemoryRegistry` 构造参数顺序在所有 Task 一致:`memoryStore, memoryFileLimit, forgetDuration, llmProvider`
+- `SaveSharedMemoryTool` 构造参数顺序一致:`registry, contextFactory, compressScope`
+- `SharedMemoryPlugin` 构造参数顺序一致:`directory, memoryFileLimit, forgetDuration, llmProvider, memoryStore, enableDelegateAdaptMode, registry`
 - `AgentBuilder.sharedMemory` 参数顺序在 Task 9 与 spec §4.8 一致
 
 ### 4. 已知偏离 spec
 
-1. **`MemoryPlugin` 不继承 `CapabilityPlugin`** — spec §2/§4.4 已说明原因(`CapabilityPlugin.install` 是 final 且不支持 `appendInstructions`)。Plan Task 9 实现为直接实现 `AgentPlugin<MemoryPluginConfig>`。
-2. **`MemoryPluginConfig` object** — `AgentPlugin<C : Any>` 不接受 `Unit`,需要占位 config 类型。spec 未提及,plan 补充。
+1. **`SharedMemoryPlugin` 不继承 `CapabilityPlugin`** — spec §2/§4.4 已说明原因(`CapabilityPlugin.install` 是 final 且不支持 `appendInstructions`)。Plan Task 9 实现为直接实现 `AgentPlugin<SharedMemoryPluginConfig>`。
+2. **`SharedMemoryPluginConfig` object** — `AgentPlugin<C : Any>` 不接受 `Unit`,需要占位 config 类型。spec 未提及,plan 补充。
 3. **`DefaultSharedMemory.load()` 返回提示字符串** — 遗忘检查需要 context,但 `load()` 无参,实际逻辑移到 `activate`。Task 11 Step 4 已说明。
 4. **`java.time.Duration` 替代 `kotlin.time.Duration`** — JVM 项目统一用 java.time,与 core 一致。
 5. **frontmatter 不引入 YAML 库** — 自写最小化解析,只支持 `key: value` 行 + `---` 分隔符。

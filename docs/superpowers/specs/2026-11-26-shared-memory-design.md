@@ -38,10 +38,10 @@
 ## 2. 设计原则
 
 - **与 Skill 形态对称**:复用 `Capability` 框架,`load_memory` 通过 `CapabilityAdapter.of` 拼装(委托模式,继承 `CapabilityLoadTool`)。`save_memory` 作为独立 auxiliary tool 暴露。
-- **不继承 `CapabilityPlugin`**:`CapabilityPlugin.install` 是 `final override` 且只调 `registerTool`,无法在 install 阶段调 `appendInstructions` 注入 user.md。因此 `MemoryPlugin` 直接实现 `AgentPlugin<MemoryPluginConfig>`(`MemoryPluginConfig` 是 object 占位,满足 `C : Any` 约束),内部手工调 `CapabilityAdapter.of(...).adapt()` + `context.registerTool(...)` + `context.appendInstructions(...)`。
+- **不继承 `CapabilityPlugin`**:`CapabilityPlugin.install` 是 `final override` 且只调 `registerTool`,无法在 install 阶段调 `appendInstructions` 注入 user.md。因此 `SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(`SharedMemoryPluginConfig` 是 object 占位,满足 `C : Any` 约束),内部手工调 `CapabilityAdapter.of(...).adapt()` + `context.registerTool(...)` + `context.appendInstructions(...)`。
 - **最小改动 capability 框架**:把 `CapabilityLoadTool` 的 `description` / `parametersSchema` 从 `by lazy` 改为每轮求值,使得重扫后下一轮 LLM 自动看到新话题。不引入 `reinstallPlugin` 等新 API。
-- **写入决策在 LLM**:不暴露写入 API 给宿主代码,只有 `save_memory` 工具。宿主只负责传 `directory` 和可选的 `LlmProvider` / `MemoryStore`。
-- **存储抽象最小**:`MemoryStore` 接口默认走 `Path`,允许宿主注入自定义实现。不预先做 Android/iOS 平台适配。
+- **写入决策在 LLM**:不暴露写入 API 给宿主代码,只有 `save_memory` 工具。宿主只负责传 `directory` 和可选的 `LlmProvider` / `SharedMemoryStore`。
+- **存储抽象最小**:`SharedMemoryStore` 接口默认走 `Path`,允许宿主注入自定义实现。不预先做 Android/iOS 平台适配。
 - **生命周期检查只在读写路径**:压缩在 `save_memory` 后异步触发;遗忘在 `load_memory` / `save_memory` 后对当前操作的 md 同步检查。不被访问的文件不检查——这正是遗忘的目的。
 - **包名独立**:新模块包名 `io.github.yeyi.agent.memory.shared`,避开 core 已有的 `io.github.yeyi.agent.memory`(防止同包跨模块冲突)。
 
@@ -58,14 +58,14 @@ agent/memory/shared/
 ├── build.gradle.kts
 └── src
     ├── main/kotlin/io/github/yeyi/agent/memory/shared/
-    │   ├── SharedMemory.kt          # interface SharedMemory : Capability<Unit, MemoryContext>
-    │   ├── MemoryContext.kt           # class MemoryContext : CapabilityContext
-    │   ├── MemoryPlugin.kt            # internal class MemoryPlugin : AgentPlugin<MemoryPluginConfig>
-    │   ├── MemoryRegistry.kt          # class MemoryRegistry : CapabilityRegistry<...>,提供 rescan()
-    │   ├── MemoryStore.kt             # interface MemoryStore + PathMemoryStore 默认实现
-    │   ├── MemoryFile.kt              # md frontmatter 解析/序列化
-    │   ├── SaveMemoryTool.kt          # auxiliary tool,LLM 写入记忆
-    │   └── MemoryExtensions.kt        # AgentBuilder.sharedMemory(...) DSL
+    │   ├── SharedMemory.kt          # interface SharedMemory : Capability<Unit, SharedMemoryContext>
+    │   ├── SharedMemoryContext.kt           # class SharedMemoryContext : CapabilityContext
+    │   ├── SharedMemoryPlugin.kt            # internal class SharedMemoryPlugin : AgentPlugin<SharedMemoryPluginConfig>
+    │   ├── SharedMemoryRegistry.kt          # class SharedMemoryRegistry : CapabilityRegistry<...>,提供 rescan()
+    │   ├── SharedMemoryStore.kt             # interface SharedMemoryStore + PathSharedMemoryStore 默认实现
+    │   ├── SharedMemoryFile.kt              # md frontmatter 解析/序列化
+    │   ├── SaveSharedMemoryTool.kt          # auxiliary tool,LLM 写入记忆
+    │   └── SharedMemoryExtensions.kt        # AgentBuilder.sharedMemory(...) DSL
     └── test/kotlin/io/github/yeyi/agent/memory/shared/
         └── (各组件单元测试)
 ```
@@ -98,22 +98,22 @@ import io.github.yeyi.agent.capability.Capability
  * - 都是"按需加载",description 告诉 LLM 何时使用,正文不预加载
  *
  * 与 Skill 的区别:
- * - Skill 是静态注册,SharedMemory 由 [MemoryRegistry] 在 install/rescan 时动态构建
+ * - Skill 是静态注册,SharedMemory 由 [SharedMemoryRegistry] 在 install/rescan 时动态构建
  * - load() 触发 lastAccessedAt 更新和遗忘检查
  */
-public interface SharedMemory : Capability<Unit, MemoryContext> {
+public interface SharedMemory : Capability<Unit, SharedMemoryContext> {
     /**
      * 加载本话题的 md 全文(frontmatter + 正文)。
      *
      * 副作用:
      * - 更新 frontmatter 的 `lastAccessedAt` 并写回文件
-     * - 触发本话题的遗忘检查(若 lastAccessedAt 在 update 前已超 [MemoryPlugin.forgetDuration],则删除文件并从 registry 移除)
+     * - 触发本话题的遗忘检查(若 lastAccessedAt 在 update 前已超 [SharedMemoryPlugin.forgetDuration],则删除文件并从 registry 移除)
      *
      * @return md 全文;若文件已被遗忘机制删除,返回 "(memory expired)" 提示
      */
     override suspend fun load(): String
 
-    override suspend fun activate(arguments: Unit?, context: MemoryContext): String = load()
+    override suspend fun activate(arguments: Unit?, context: SharedMemoryContext): String = load()
 
     public companion object {
         internal const val CAPABILITY_TYPE: String = "memory"
@@ -121,7 +121,7 @@ public interface SharedMemory : Capability<Unit, MemoryContext> {
 }
 ```
 
-### 4.2 `MemoryContext` —— 执行上下文
+### 4.2 `SharedMemoryContext` —— 执行上下文
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -141,29 +141,29 @@ import java.time.Duration
  * - [registry]: 用于 save_memory 创建新话题后触发 rescan
  * - 配置参数(memoryFileLimit / forgetDuration)用于在 load/save 路径检查
  */
-public class MemoryContext(
-    public val memoryStore: MemoryStore,
+public class SharedMemoryContext(
+    public val memoryStore: SharedMemoryStore,
     public val llmProvider: LlmProvider?,
-    public val registry: MemoryRegistry,
+    public val registry: SharedMemoryRegistry,
     public val memoryFileLimit: Int,
     public val forgetDuration: Duration,
 ) : CapabilityContext
 
-internal class MemoryContextFactory(
-    private val memoryStore: MemoryStore,
+internal class SharedMemoryContextFactory(
+    private val memoryStore: SharedMemoryStore,
     private val llmProvider: LlmProvider?,
-    private val registry: MemoryRegistry,
+    private val registry: SharedMemoryRegistry,
     private val memoryFileLimit: Int,
     private val forgetDuration: Duration,
-) : CapabilityContextFactory<MemoryContext> {
-    override fun create(context: ToolExecutionContext): MemoryContext {
+) : CapabilityContextFactory<SharedMemoryContext> {
+    override fun create(context: ToolExecutionContext): SharedMemoryContext {
         val effectiveLlmProvider = llmProvider ?: context.agentContext.llmProvider
-        return MemoryContext(memoryStore, effectiveLlmProvider, registry, memoryFileLimit, forgetDuration)
+        return SharedMemoryContext(memoryStore, effectiveLlmProvider, registry, memoryFileLimit, forgetDuration)
     }
 }
 ```
 
-### 4.3 `MemoryRegistry` —— 注册中心 + 重扫
+### 4.3 `SharedMemoryRegistry` —— 注册中心 + 重扫
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -181,12 +181,12 @@ import java.time.Duration
  * - 已删除的文件从 registry 移除;新增的文件加入 registry;变更的 frontmatter 反映到 description。
  * - 线程安全:rescan 与 register 互斥。
  */
-public class MemoryRegistry(
-    private val memoryStore: MemoryStore,
+public class SharedMemoryRegistry(
+    private val memoryStore: SharedMemoryStore,
     private val memoryFileLimit: Int,
     private val forgetDuration: Duration,
     private val llmProvider: LlmProvider?,
-) : CapabilityRegistry<SharedMemory, Unit, MemoryContext> by DefaultCapabilityRegistry(
+) : CapabilityRegistry<SharedMemory, Unit, SharedMemoryContext> by DefaultCapabilityRegistry(
     capabilityType = SharedMemory.CAPABILITY_TYPE
 ) {
     private val mutex = Mutex()
@@ -210,7 +210,7 @@ public class MemoryRegistry(
 
     private suspend fun loadFromStore(name: String): SharedMemory? {
         val content = memoryStore.read(name) ?: return null
-        val (frontmatter, _) = MemoryFile.parse(content)
+        val (frontmatter, _) = SharedMemoryFile.parse(content)
         return DefaultSharedMemory(
             name = frontmatter.name,
             description = frontmatter.description,
@@ -221,9 +221,9 @@ public class MemoryRegistry(
 }
 ```
 
-### 4.4 `MemoryPlugin` —— 接线契约
+### 4.4 `SharedMemoryPlugin` —— 接线契约
 
-**不继承 `CapabilityPlugin`**:虽然复用 `CapabilityAdapter.of` 拼装 `load_memory`,但 `CapabilityPlugin.install` 是 `final override` 且只调 `registerTool`,无法在 install 阶段调 `appendInstructions` 注入 user.md。因此 `MemoryPlugin` 直接实现 `AgentPlugin<MemoryPluginConfig>`(`MemoryPluginConfig` 是 object 占位),内部手工调 `CapabilityAdapter.of(...).adapt()` 拿到 `load_memory` 工具,与 `save_memory` 一起注册,再单独调 `context.appendInstructions(user.md 内容)`。
+**不继承 `CapabilityPlugin`**:虽然复用 `CapabilityAdapter.of` 拼装 `load_memory`,但 `CapabilityPlugin.install` 是 `final override` 且只调 `registerTool`,无法在 install 阶段调 `appendInstructions` 注入 user.md。因此 `SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(`SharedMemoryPluginConfig` 是 object 占位),内部手工调 `CapabilityAdapter.of(...).adapt()` 拿到 `load_memory` 工具,与 `save_memory` 一起注册,再单独调 `context.appendInstructions(user.md 内容)`。
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -242,9 +242,9 @@ import java.time.Instant
 /**
  * 占位 config 类型,满足 [AgentPlugin] 的 `C : Any` 约束。
  *
- * MemoryPlugin 的所有配置在构造器完成,configure block 为 no-op。
+ * SharedMemoryPlugin 的所有配置在构造器完成,configure block 为 no-op。
  */
-public object MemoryPluginConfig
+public object SharedMemoryPluginConfig
 
 /**
  * 共享记忆插件的接线类。
@@ -256,7 +256,7 @@ public object MemoryPluginConfig
  * 仍复用 [CapabilityAdapter.of] 拼装 load_memory(委托模式),与 Skill 形态对称。
  *
  * install 流程:
- * 1. 初始化 [MemoryStore] (默认 [PathMemoryStore])
+ * 1. 初始化 [SharedMemoryStore] (默认 [PathSharedMemoryStore])
  * 2. 若 `user.md` 不存在,创建空模板(真实元数据 + 空正文)
  * 3. registry.rescan() 加载所有现存话题
  * 4. context.appendInstructions 注入 `user.md` 正文到 persona 能力区
@@ -264,37 +264,37 @@ public object MemoryPluginConfig
  *    → [load_memory] 工具,registerTool
  * 6. registerTool(save_memory)
  */
-internal class MemoryPlugin(
+internal class SharedMemoryPlugin(
     private val directory: Path,
     private val memoryFileLimit: Int,
     private val forgetDuration: Duration,
     private val llmProvider: LlmProvider?,
-    private val memoryStore: MemoryStore?,
+    private val memoryStore: SharedMemoryStore?,
     private val enableDelegateAdaptMode: Boolean,
-    private val registry: MemoryRegistry,
-) : AgentPlugin<MemoryPluginConfig> {
+    private val registry: SharedMemoryRegistry,
+) : AgentPlugin<SharedMemoryPluginConfig> {
 
     override val id: String = "shared-memory"
 
     private val compressScope = CoroutineScope(SupervisorJob())
-    private val ctxFactory: CapabilityContextFactory<MemoryContext> = MemoryContextFactory(
-        memoryStore = memoryStore ?: PathMemoryStore(directory),
+    private val ctxFactory: CapabilityContextFactory<SharedMemoryContext> = SharedMemoryContextFactory(
+        memoryStore = memoryStore ?: PathSharedMemoryStore(directory),
         llmProvider = llmProvider,
         registry = registry,
         memoryFileLimit = memoryFileLimit,
         forgetDuration = forgetDuration,
     )
 
-    override fun configure(block: MemoryPluginConfig.() -> Unit) { /* no-op,配置已在构造器完成 */ }
+    override fun configure(block: SharedMemoryPluginConfig.() -> Unit) { /* no-op,配置已在构造器完成 */ }
 
     override fun install(context: AgentPluginContext) {
         runBlocking { initialize() }  // ensureUserMemory + rescan
 
         // 注入 user.md 正文到 persona 能力区
-        val store = memoryStore ?: PathMemoryStore(directory)
+        val store = memoryStore ?: PathSharedMemoryStore(directory)
         val userContent = runBlocking { store.read("user") } ?: ""
         if (userContent.isNotBlank()) {
-            val (_, body) = MemoryFile.parse(userContent)
+            val (_, body) = SharedMemoryFile.parse(userContent)
             if (body.isNotBlank()) context.appendInstructions(body)
         }
 
@@ -304,19 +304,19 @@ internal class MemoryPlugin(
             .forEach { context.registerTool(it) }
 
         // 注册 save_memory(auxiliary)
-        context.registerTool(SaveMemoryTool(registry, ctxFactory, compressScope))
+        context.registerTool(SaveSharedMemoryTool(registry, ctxFactory, compressScope))
     }
 
     private suspend fun initialize() {
-        val store = memoryStore ?: PathMemoryStore(directory)
+        val store = memoryStore ?: PathSharedMemoryStore(directory)
         ensureUserMemory(store)
         registry.rescan()
     }
 
-    private suspend fun ensureUserMemory(store: MemoryStore) {
+    private suspend fun ensureUserMemory(store: SharedMemoryStore) {
         if (!store.exists("user")) {
-            val empty = MemoryFile.serialize(
-                MemoryFile.Frontmatter(
+            val empty = SharedMemoryFile.serialize(
+                SharedMemoryFile.Frontmatter(
                     name = "user",
                     description = "用户画像,每轮主动注入 system prompt",
                     createdAt = Instant.now(),
@@ -330,9 +330,9 @@ internal class MemoryPlugin(
 }
 ```
 
-**注意 `runBlocking` 的使用**:`install` 是同步签名(`AgentPlugin.install` 非 suspend),但 `MemoryStore` 的操作是 suspend。`runBlocking` 在 install 阶段阻塞直到完成,这是插件初始化的合理代价——install 在 Agent 构建期执行,不在 LLM 推理路径上。
+**注意 `runBlocking` 的使用**:`install` 是同步签名(`AgentPlugin.install` 非 suspend),但 `SharedMemoryStore` 的操作是 suspend。`runBlocking` 在 install 阶段阻塞直到完成,这是插件初始化的合理代价——install 在 Agent 构建期执行,不在 LLM 推理路径上。
 
-### 4.5 `SaveMemoryTool` —— auxiliary 工具
+### 4.5 `SaveSharedMemoryTool` —— auxiliary 工具
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -366,9 +366,9 @@ import java.time.Instant
  *
  * 返回:写入确认信息(包含字符数、是否触发压缩)
  */
-internal class SaveMemoryTool(
-    private val registry: MemoryRegistry,
-    private val contextFactory: CapabilityContextFactory<MemoryContext>,
+internal class SaveSharedMemoryTool(
+    private val registry: SharedMemoryRegistry,
+    private val contextFactory: CapabilityContextFactory<SharedMemoryContext>,
     private val compressScope: CoroutineScope,
 ) : Tool {
     override val name: String = "save_memory"
@@ -402,10 +402,10 @@ internal class SaveMemoryTool(
 
         val isNew = !store.exists(name)
         val (frontmatter, body) = if (isNew) {
-            MemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
+            SharedMemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
         } else {
             val raw = store.read(name)!!
-            val (fm, b) = MemoryFile.parse(raw)
+            val (fm, b) = SharedMemoryFile.parse(raw)
             fm.copy(lastAccessedAt = now) to b
         }
 
@@ -421,7 +421,7 @@ internal class SaveMemoryTool(
             "replace" -> content
             else -> return ToolExecutionResult.error("Invalid mode: $mode")
         }
-        store.write(name, MemoryFile.serialize(frontmatter, newBody))
+        store.write(name, SharedMemoryFile.serialize(frontmatter, newBody))
 
         if (isNew) registry.rescan()
 
@@ -442,15 +442,15 @@ internal class SaveMemoryTool(
     }
 
     private suspend fun compressMemory(
-        ctx: MemoryContext,
+        ctx: SharedMemoryContext,
         name: String,
-        frontmatter: MemoryFile.Frontmatter,
+        frontmatter: SharedMemoryFile.Frontmatter,
         body: String,
     ) {
         val llm = ctx.llmProvider
         val prompt = "请总结以下记忆内容,保留关键信息,压缩到 ${ctx.memoryFileLimit / 2} 字符以内:\n\n$body"
         val summary = llm.complete(prompt) // 简化,实际调用 LlmProvider API
-        ctx.memoryStore.write(name, MemoryFile.serialize(frontmatter, summary))
+        ctx.memoryStore.write(name, SharedMemoryFile.serialize(frontmatter, summary))
     }
 
     private fun descriptionFromContent(content: String): String =
@@ -459,7 +459,7 @@ internal class SaveMemoryTool(
 }
 ```
 
-### 4.6 `MemoryStore` —— 存储抽象
+### 4.6 `SharedMemoryStore` —— 存储抽象
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -469,9 +469,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 共享记忆文件存储抽象。默认实现 [PathMemoryStore] 走文件系统,宿主可注入自定义实现。
+ * 共享记忆文件存储抽象。默认实现 [PathSharedMemoryStore] 走文件系统,宿主可注入自定义实现。
  */
-public interface MemoryStore {
+public interface SharedMemoryStore {
     public suspend fun read(name: String): String?
     public suspend fun write(name: String, content: String)
     public suspend fun delete(name: String)
@@ -480,13 +480,13 @@ public interface MemoryStore {
 }
 
 /**
- * 基于 [Path] 的 [MemoryStore] 默认实现。
+ * 基于 [Path] 的 [SharedMemoryStore] 默认实现。
  *
  * - 文件名:`$directory/$name.md`
  * - IO 走 [Dispatchers.IO]
  * - "user" 文件存在但不列入 list()(避免被 registry 当作普通话题注册)
  */
-public class PathMemoryStore(private val directory: Path) : MemoryStore {
+public class PathSharedMemoryStore(private val directory: Path) : SharedMemoryStore {
     init { directory.toFile().mkdirs() }
 
     override suspend fun read(name: String): String? = withContext(Dispatchers.IO) {
@@ -514,7 +514,7 @@ public class PathMemoryStore(private val directory: Path) : MemoryStore {
 }
 ```
 
-### 4.7 `MemoryFile` —— frontmatter + Markdown
+### 4.7 `SharedMemoryFile` —— frontmatter + Markdown
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -529,7 +529,7 @@ import java.time.Instant
  * - createdAt: 创建时间
  * - lastAccessedAt: 最后一次 load/save 时间(用于遗忘判断)
  */
-public data class MemoryFile(
+public data class SharedMemoryFile(
     public val frontmatter: Frontmatter,
     public val body: String,
 ) {
@@ -541,13 +541,13 @@ public data class MemoryFile(
     )
 
     public companion object {
-        public fun parse(content: String): MemoryFile { /* YAML frontmatter 解析 */ }
+        public fun parse(content: String): SharedMemoryFile { /* YAML frontmatter 解析 */ }
         public fun serialize(frontmatter: Frontmatter, body: String): String { /* 反向序列化 */ }
     }
 }
 ```
 
-### 4.8 `MemoryExtensions` —— DSL
+### 4.8 `SharedMemoryExtensions` —— DSL
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -564,7 +564,7 @@ import java.time.Duration
  * @param memoryFileLimit 单文件字符上限,超则异步压缩。默认 8000
  * @param forgetDuration 遗忘时间,文件超过此时长未被读写则删。默认 30 天
  * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
- * @param memoryStore 文件 IO 抽象;null 时用 [io.github.yeyi.agent.memory.shared.PathMemoryStore]。默认 null
+ * @param memoryStore 文件 IO 抽象;null 时用 [io.github.yeyi.agent.memory.shared.PathSharedMemoryStore]。默认 null
  * @param enableDelegateAdaptMode load_memory 是否走委托模式(单一工具 + name 路由)。默认 true
  */
 public fun AgentBuilder.sharedMemory(
@@ -572,12 +572,12 @@ public fun AgentBuilder.sharedMemory(
     memoryFileLimit: Int = 8000,
     forgetDuration: Duration = Duration.ofDays(30),
     llmProvider: LlmProvider? = null,
-    memoryStore: MemoryStore? = null,
+    memoryStore: SharedMemoryStore? = null,
     enableDelegateAdaptMode: Boolean = true,
 ) {
-    val store = memoryStore ?: PathMemoryStore(directory)
-    val registry = MemoryRegistry(store, memoryFileLimit, forgetDuration, llmProvider)
-    val plugin = MemoryPlugin(
+    val store = memoryStore ?: PathSharedMemoryStore(directory)
+    val registry = SharedMemoryRegistry(store, memoryFileLimit, forgetDuration, llmProvider)
+    val plugin = SharedMemoryPlugin(
         directory = directory,
         memoryFileLimit = memoryFileLimit,
         forgetDuration = forgetDuration,
@@ -642,12 +642,12 @@ override val parametersSchema: ToolParameters get() {
 
 ```
 AgentBuilder.sharedMemory(directory, ...)
-  → 创建 MemoryRegistry(memoryStore, ...)
-  → 创建 MemoryPlugin(...)  // 不继承 CapabilityPlugin,直接实现 AgentPlugin
+  → 创建 SharedMemoryRegistry(memoryStore, ...)
+  → 创建 SharedMemoryPlugin(...)  // 不继承 CapabilityPlugin,直接实现 AgentPlugin
   → plugin(plugin)
-    → MemoryPlugin.install(context)
+    → SharedMemoryPlugin.install(context)
       → runBlocking { initialize() }
-        → PathMemoryStore(directory)
+        → PathSharedMemoryStore(directory)
         → ensureUserMemory(store)        # 若 user.md 不存在,创建空模板
         → registry.rescan()              # 扫描所有 .md(排除 user),构建内存注册表
       → store.read("user")               # 读 user.md 正文
@@ -675,7 +675,7 @@ ReActAgent 构造 ChatRequest
 ```
 load_memory.execute({name: "travel"})
   → registry.get("travel")
-  → capability.activate(null, MemoryContext)
+  → capability.activate(null, SharedMemoryContext)
     → SharedMemory.load()
       → memoryStore.read("travel")           # 读 md 全文
       → 更新 frontmatter.lastAccessedAt = now
@@ -722,7 +722,7 @@ compressMemory(name, frontmatter, body)
 ### 7.1 `user.md` 处理
 
 - 创建:`install` 时若不存在,创建空模板(真实元数据 + 空正文)。
-- 读取:不进入 registry(`MemoryStore.list()` 排除 `user`),LLM 不能 `load_memory("user")`。
+- 读取:不进入 registry(`SharedMemoryStore.list()` 排除 `user`),LLM 不能 `load_memory("user")`。
 - 写入:`save_memory("user", content, mode)` 允许,LLM 通过此更新用户画像。
 - 注入:`install` 时读 `user.md` 正文,通过 `appendInstructions` 注入 persona 能力区。
   - **注意**:首次 install 时 user.md 为空,注入空字符串无效果。后续 LLM 通过 save_memory 写入后,需要下一会话才能注入——本设计不在运行时重读 user.md 注入。这是限制,见 §9。
@@ -730,7 +730,7 @@ compressMemory(name, frontmatter, body)
 
 ### 7.2 重扫的并发安全
 
-- `MemoryRegistry.rescan()` 用 `Mutex` 保护,与 `register` 互斥。
+- `SharedMemoryRegistry.rescan()` 用 `Mutex` 保护,与 `register` 互斥。
 - `save_memory` 创建新文件后同步调 `rescan`,保证下一轮 `load_memory` 能找到新话题。
 - `load_memory` 路径不触发 rescan(只读已有注册)。
 
@@ -762,17 +762,17 @@ compressMemory(name, frontmatter, body)
 
 ### 8.1 单元测试
 
-- `MemoryFile.parse / serialize`:frontmatter 解析的往返一致性,缺失字段、乱序字段、特殊字符。
-- `PathMemoryStore`:在 tempdir 上读写删列表,IO 异常路径。
-- `MemoryRegistry.rescan`:新增/删除/变更文件的同步。
-- `SaveMemoryTool.execute`:
+- `SharedMemoryFile.parse / serialize`:frontmatter 解析的往返一致性,缺失字段、乱序字段、特殊字符。
+- `PathSharedMemoryStore`:在 tempdir 上读写删列表,IO 异常路径。
+- `SharedMemoryRegistry.rescan`:新增/删除/变更文件的同步。
+- `SaveSharedMemoryTool.execute`:
   - append / replace 两种 mode
   - 新话题创建 → 触发 rescan
   - 已有话题更新 lastAccessedAt
   - 超过 memoryFileLimit → 触发异步压缩(mock LlmProvider)
   - 遗忘触发删除(mock clock)
   - user.md 豁免遗忘
-- `MemoryPlugin.initialize`:user.md 不存在时创建,已存在时不覆盖。
+- `SharedMemoryPlugin.initialize`:user.md 不存在时创建,已存在时不覆盖。
 
 ### 8.2 集成测试
 
@@ -799,7 +799,7 @@ compressMemory(name, frontmatter, body)
 ### 9.2 未来扩展
 
 1. **user.md 动态注入**:加 turn hook,每轮开始重读 user.md 注入。
-2. **遗忘巡检 API**:`MemoryRegistry.purgeExpired()` 主动清理所有超期文件。
+2. **遗忘巡检 API**:`SharedMemoryRegistry.purgeExpired()` 主动清理所有超期文件。
 3. **话题合并**:多个相关 md 合并为一个,需要 LLM 识别"相关"。
 4. **跨 Agent 共享记忆**:多个 Agent 共用同一个 `directory`,通过文件锁协调。
 
@@ -808,9 +808,9 @@ compressMemory(name, frontmatter, body)
 ## 10. 实现顺序建议
 
 1. 改 `CapabilityLoadTool` description / parametersSchema 为 getter(影响所有 capability 模块,需跑一遍现有测试)。
-2. 新建 `agent/memory/shared` 模块,实现 `MemoryStore` / `MemoryFile` / `SharedMemory` / `MemoryRegistry` / `MemoryContext`。
-3. 实现 `SaveMemoryTool`(不含压缩,先跑通读写路径)。
-4. 实现 `MemoryPlugin` + `MemoryExtensions`,接入 AgentBuilder。
+2. 新建 `agent/memory/shared` 模块,实现 `SharedMemoryStore` / `SharedMemoryFile` / `SharedMemory` / `SharedMemoryRegistry` / `SharedMemoryContext`。
+3. 实现 `SaveSharedMemoryTool`(不含压缩,先跑通读写路径)。
+4. 实现 `SharedMemoryPlugin` + `SharedMemoryExtensions`,接入 AgentBuilder。
 5. 加压缩逻辑(`compressScope.launch`)。
 6. 加遗忘检查。
 7. 加 user.md 初始化 + appendInstructions 注入。
