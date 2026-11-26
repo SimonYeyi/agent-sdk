@@ -1499,7 +1499,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 - Produces:
   - `public object SharedMemoryPluginConfig` — placeholder config 类型(满足 `AgentPlugin<C : Any>` 约束)
   - `internal class SharedMemoryPlugin(...) : AgentPlugin<SharedMemoryPluginConfig>`
-  - `public fun AgentBuilder.sharedMemory(directory, memoryFileLimit, forgetDuration, llmProvider, memoryStore, enableDelegateAdaptMode)`
+  - `public fun AgentBuilder.sharedMemory(directory, memoryFileLimit, forgetDuration, llmProvider, enableDelegateAdaptMode)`
 
 - [ ] **Step 1: 写失败测试**
 
@@ -1558,11 +1558,10 @@ class SharedMemoryPluginTest {
         val store = PathSharedMemoryStore(tempDir)
         val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
         val plugin = SharedMemoryPlugin(
-            directory = tempDir,
+            memoryStore = store,
             memoryFileLimit = 8000,
             forgetDuration = Duration.ofDays(30),
             llmProvider = stubLlm,
-            memoryStore = store,
             enableDelegateAdaptMode = true,
             registry = registry,
         )
@@ -1584,11 +1583,10 @@ class SharedMemoryPluginTest {
 
         val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
         val plugin = SharedMemoryPlugin(
-            directory = tempDir,
+            memoryStore = store,
             memoryFileLimit = 8000,
             forgetDuration = Duration.ofDays(30),
             llmProvider = stubLlm,
-            memoryStore = store,
             enableDelegateAdaptMode = true,
             registry = registry,
         )
@@ -1606,11 +1604,10 @@ class SharedMemoryPluginTest {
         ))
         val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
         val plugin = SharedMemoryPlugin(
-            directory = tempDir,
+            memoryStore = store,
             memoryFileLimit = 8000,
             forgetDuration = Duration.ofDays(30),
             llmProvider = stubLlm,
-            memoryStore = store,
             enableDelegateAdaptMode = true,
             registry = registry,
         )
@@ -1624,11 +1621,10 @@ class SharedMemoryPluginTest {
         val store = PathSharedMemoryStore(tempDir)
         val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
         val plugin = SharedMemoryPlugin(
-            directory = tempDir,
+            memoryStore = store,
             memoryFileLimit = 8000,
             forgetDuration = Duration.ofDays(30),
             llmProvider = stubLlm,
-            memoryStore = store,
             enableDelegateAdaptMode = true,
             registry = registry,
         )
@@ -1648,11 +1644,10 @@ class SharedMemoryPluginTest {
         ))
         val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
         val plugin = SharedMemoryPlugin(
-            directory = tempDir,
+            memoryStore = store,
             memoryFileLimit = 8000,
             forgetDuration = Duration.ofDays(30),
             llmProvider = stubLlm,
-            memoryStore = store,
             enableDelegateAdaptMode = true,
             registry = registry,
         )
@@ -1709,11 +1704,10 @@ public object SharedMemoryPluginConfig
  * 5. registerTool(save_shared_memory)
  */
 internal class SharedMemoryPlugin(
-    private val directory: Path,
+    private val memoryStore: SharedMemoryStore,
     private val memoryFileLimit: Int,
     private val forgetDuration: Duration,
     private val llmProvider: LlmProvider?,
-    private val memoryStore: SharedMemoryStore,
     private val enableDelegateAdaptMode: Boolean,
     private val registry: SharedMemoryRegistry,
 ) : AgentPlugin<SharedMemoryPluginConfig> {
@@ -1793,7 +1787,6 @@ import java.time.Duration
  * @param memoryFileLimit 单文件字符上限,超则同步压缩。默认 8000
  * @param forgetDuration 遗忘时间,文件超过此时长未被读写则删。默认 30 天
  * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
- * @param memoryStore 文件 IO 抽象;null 时用 [PathSharedMemoryStore]。默认 null
  * @param enableDelegateAdaptMode load_shared_memory 是否走委托模式(单一工具 + name 路由)。默认 true
  */
 public fun AgentBuilder.sharedMemory(
@@ -1801,17 +1794,15 @@ public fun AgentBuilder.sharedMemory(
     memoryFileLimit: Int = 8000,
     forgetDuration: Duration = Duration.ofDays(30),
     llmProvider: LlmProvider? = null,
-    memoryStore: SharedMemoryStore? = null,
     enableDelegateAdaptMode: Boolean = true,
 ) {
-    val store = memoryStore ?: PathSharedMemoryStore(directory)
+    val store = PathSharedMemoryStore(directory)
     val registry = SharedMemoryRegistry(store, memoryFileLimit, forgetDuration, llmProvider)
     val plugin = SharedMemoryPlugin(
-        directory = directory,
+        memoryStore = store,
         memoryFileLimit = memoryFileLimit,
         forgetDuration = forgetDuration,
         llmProvider = llmProvider,
-        memoryStore = store,
         enableDelegateAdaptMode = enableDelegateAdaptMode,
         registry = registry,
     )
@@ -2478,7 +2469,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 - `SharedMemoryContext` 构造参数顺序在 Task 6/8/9/10/11 一致:`memoryStore, llmProvider, registry, memoryFileLimit, forgetDuration`
 - `SharedMemoryRegistry` 构造参数顺序在所有 Task 一致:`memoryStore, memoryFileLimit, forgetDuration, llmProvider`
 - `SaveSharedMemoryTool` 构造参数顺序一致:`registry, contextFactory`(压缩并入 save 流程,无 compressScope)
-- `SharedMemoryPlugin` 构造参数顺序一致:`directory, memoryFileLimit, forgetDuration, llmProvider, memoryStore, enableDelegateAdaptMode, registry`
+- `SharedMemoryPlugin` 构造参数顺序一致:`memoryStore, memoryFileLimit, forgetDuration, llmProvider, enableDelegateAdaptMode, registry`
 - `AgentBuilder.sharedMemory` 参数顺序在 Task 9 与 spec §4.8 一致
 
 ### 4. 已知偏离 spec

@@ -263,11 +263,10 @@ public object SharedMemoryPluginConfig
  * 6. registerTool(save_shared_memory)
  */
 internal class SharedMemoryPlugin(
-    private val directory: Path,
+    private val memoryStore: SharedMemoryStore,
     private val memoryFileLimit: Int,
     private val forgetDuration: Duration,
     private val llmProvider: LlmProvider?,
-    private val memoryStore: SharedMemoryStore?,
     private val enableDelegateAdaptMode: Boolean,
     private val registry: SharedMemoryRegistry,
 ) : AgentPlugin<SharedMemoryPluginConfig> {
@@ -275,7 +274,7 @@ internal class SharedMemoryPlugin(
     override val id: String = "shared-memory"
 
     private val ctxFactory: CapabilityContextFactory<SharedMemoryContext> = SharedMemoryContextFactory(
-        memoryStore = memoryStore ?: PathSharedMemoryStore(directory),
+        memoryStore = memoryStore,
         llmProvider = llmProvider,
         registry = registry,
         memoryFileLimit = memoryFileLimit,
@@ -288,8 +287,7 @@ internal class SharedMemoryPlugin(
         runBlocking { initialize() }  // ensureUserMemory + rescan
 
         // 注入 user.md 正文到 persona 能力区
-        val store = memoryStore ?: PathSharedMemoryStore(directory)
-        val userContent = runBlocking { store.read("user") } ?: ""
+        val userContent = runBlocking { memoryStore.read("user") } ?: ""
         if (userContent.isNotBlank()) {
             val (_, body) = SharedMemoryFile.parse(userContent)
             if (body.isNotBlank()) context.appendInstructions(body)
@@ -305,8 +303,7 @@ internal class SharedMemoryPlugin(
     }
 
     private suspend fun initialize() {
-        val store = memoryStore ?: PathSharedMemoryStore(directory)
-        ensureUserMemory(store)
+        ensureUserMemory(memoryStore)
         registry.rescan()
     }
 
@@ -599,7 +596,6 @@ import java.time.Duration
  * @param memoryFileLimit 单文件字符上限,超则同步压缩。默认 8000
  * @param forgetDuration 遗忘时间,文件超过此时长未被读写则删。默认 30 天
  * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
- * @param memoryStore 文件 IO 抽象;null 时用 [io.github.yeyi.agent.memory.shared.PathSharedMemoryStore]。默认 null
  * @param enableDelegateAdaptMode load_shared_memory 是否走委托模式(单一工具 + name 路由)。默认 true
  */
 public fun AgentBuilder.sharedMemory(
@@ -607,13 +603,11 @@ public fun AgentBuilder.sharedMemory(
     memoryFileLimit: Int = 8000,
     forgetDuration: Duration = Duration.ofDays(30),
     llmProvider: LlmProvider? = null,
-    memoryStore: SharedMemoryStore? = null,
     enableDelegateAdaptMode: Boolean = true,
 ) {
-    val store = memoryStore ?: PathSharedMemoryStore(directory)
+    val store = PathSharedMemoryStore(directory)
     val registry = SharedMemoryRegistry(store, memoryFileLimit, forgetDuration, llmProvider)
     val plugin = SharedMemoryPlugin(
-        directory = directory,
         memoryFileLimit = memoryFileLimit,
         forgetDuration = forgetDuration,
         llmProvider = llmProvider,
