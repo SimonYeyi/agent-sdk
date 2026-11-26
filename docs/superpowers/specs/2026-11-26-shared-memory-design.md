@@ -137,13 +137,14 @@ import java.time.Duration
  *
  * 携带:
  * - [memoryStore]: 文件 IO 抽象,load/save 共用
- * - [llmProvider]: 压缩用 LLM;优先用插件构造时注入的,为 null 时回退到 [ToolExecutionContext.agentContext.llmProvider]
+ * - [llmProvider]: 压缩用 LLM。工厂已合并 [SharedMemoryContextFactory.llmProvider](插件可选)与
+ *   [ToolExecutionContext.agentContext.llmProvider](必有),回退后此处非空,消费方不用再判 null
  * - [registry]: 用于 save_shared_memory 创建新话题后触发 rescan
  * - 配置参数(memoryFileLimit / forgetDuration)用于在 load/save 路径检查
  */
 public class SharedMemoryContext(
     public val memoryStore: SharedMemoryStore,
-    public val llmProvider: LlmProvider?,
+    public val llmProvider: LlmProvider,
     public val registry: SharedMemoryRegistry,
     public val memoryFileLimit: Int,
     public val forgetDuration: Duration,
@@ -469,7 +470,7 @@ internal class SaveSharedMemoryTool(
         ctx: SharedMemoryContext,
         body: String,
     ): String? {
-        val llm = ctx.llmProvider ?: return null
+        val llm = ctx.llmProvider
         val targetSize = ctx.memoryFileLimit / 2
         val prompt = """
             请整理以下共享记忆内容,按以下规则压缩:
@@ -482,7 +483,10 @@ internal class SaveSharedMemoryTool(
             原始内容:
             $body
         """.trimIndent()
-        val summary = runCatching { llm.complete(prompt) }.getOrNull() ?: return null
+        val request = io.github.yeyi.agent.llm.ChatRequest(
+            messages = listOf(io.github.yeyi.agent.llm.ChatMessage.System(prompt)),
+        )
+        val summary = runCatching { llm.chat(request).message.content }.getOrNull() ?: return null
         // 无效兜底:压缩结果没有变短,说明压缩失败,返回 null 让调用方保留原文
         return if (summary.length < body.length) summary else null
     }
@@ -829,7 +833,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 
 - **压缩位置**:压缩是 `save_shared_memory` 流程内的一步,在 `store.write(newBody)` 之后、返回之前,与 write 共享 store 的 per-name 锁。不是独立协程。
 - **失败语义**:压缩在两种情况下返回 null,save 流程保留 append/update 后的 newBody 作为最终 body:
-  1. `llmProvider` 为 null 或 LLM 调用抛错(网络、限流等)
+  1. LLM 调用抛错(网络、限流等)
   2. LLM 返回的 summary 长度 ≥ 原 body(压缩无效,没变短)
   下次 save 若 `newBody.length` 仍超 `memoryFileLimit` 会再次触发压缩——这是"压缩失败则直接追加,等下一次写入时再次触发"的落点。
 - **并发**:save 与 load 全程在 `store.modify` 的 per-name 锁内执行,包含 read、压缩(LLM 调用)、write。同 name 操作串行,不同 name 可并行。单进程内不存在 lost update 或压缩覆盖竞态。

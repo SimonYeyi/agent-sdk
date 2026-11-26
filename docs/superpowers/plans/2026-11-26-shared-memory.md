@@ -2094,7 +2094,7 @@ private suspend fun compressMemory(
     ctx: SharedMemoryContext,
     body: String,
 ): String? {
-    val llm = ctx.llmProvider ?: return null
+    val llm = ctx.llmProvider  // SharedMemoryContextFactory 已合并插件 llmProvider 与 AgentContext.llmProvider,此处非空
     val targetSize = ctx.memoryFileLimit / 2
     val prompt = """
         请整理以下共享记忆内容,按以下规则压缩:
