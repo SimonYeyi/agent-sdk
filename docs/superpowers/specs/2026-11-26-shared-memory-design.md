@@ -351,6 +351,7 @@ import java.time.Instant
  *
  * 参数:
  * - name: 话题名(对应文件名,不含 .md)
+ * - description: 话题描述(给 LLM 看的"何时使用本话题"提示)。**新建话题时必填**;已有话题忽略此参数
  * - content: 写入内容(markdown)
  * - mode: "append" 追加到正文末尾 / "update" 局部替换(配 old_text/new_text)
  *
@@ -374,8 +375,13 @@ internal class SaveSharedMemoryTool(
     override val description: String = """
         将信息写入共享记忆。当用户告诉你值得跨会话记住的事实(偏好、背景、约定等)时调用本工具。
 
+        调用前请先看 load_shared_memory 工具描述里列出的话题列表,判断要记录的内容归属于哪个已有话题:
+        - 已有话题:传该话题的 name,description 留空(已有话题的描述不可改)
+        - 没有合适话题:新建,传新 name + 必填的 description(一句话告诉未来的自己何时该加载本话题)
+
         参数:
         - name: 话题名(英文短词,如 "travel-preferences")。若话题已存在则更新;若不存在则新建。
+        - description: 话题描述。新建话题时必填,已有话题忽略。例:"用户旅行偏好与历史行程"
         - content: markdown 内容。append 模式下追加到现有内容末尾;update 模式下忽略,改用 old_text/new_text。
         - mode: "append" 或 "update",默认 "append"。
           - append: 追加 content 到现有正文末尾。新话题创建也走此模式(旧正文为空)。
@@ -386,16 +392,17 @@ internal class SaveSharedMemoryTool(
 
         特殊话题:
         - "user": 写入用户画像,每轮会主动注入 system prompt,不会遗忘。用户说"忘记 xxx"或
-          "改一下我之前说的 xxx"时,用 update 模式精确替换对应片段。
+          "改一下我之前说的 xxx"时,用 update 模式精确替换对应片段。user 话题已存在,description 留空。
     """.trimIndent()
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
-        """{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","update"]},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["name","content"]}"""
+        """{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","update"]},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["name","content"]}"""
     )
 
     override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         val name = arguments.jsonObject["name"]?.jsonPrimitive?.content
             ?: return ToolExecutionResult.error("Missing 'name'")
+        val description = arguments.jsonObject["description"]?.jsonPrimitive?.content
         val mode = arguments.jsonObject["mode"]?.jsonPrimitive?.content ?: "append"
         val content = arguments.jsonObject["content"]?.jsonPrimitive?.content
             ?: if (mode == "append") return ToolExecutionResult.error("Missing 'content'") else ""
@@ -411,17 +418,19 @@ internal class SaveSharedMemoryTool(
         // 状态变量:由 transform 内部写入,execute 外层读取以决定返回值
         var expired = false          // 遗忘触发删除
         var notFound = false         // update 模式 old_text 找不到 / update 不存在
+        var missingDescription = false  // 新建话题但 description 为空
         var newCreated = false       // 新话题创建
         var finalLen = 0             // 最终正文长度
         var compressed = false       // 是否触发压缩
 
         store.modify(name) { current ->
             val (frontmatter, body) = if (current == null) {
+                if (description.isNullOrBlank()) { missingDescription = true; return@modify null }
                 newCreated = true
-                SharedMemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
+                SharedMemoryFile.Frontmatter(name, description, now, now) to ""
             } else {
                 val (fm, b) = SharedMemoryFile.parse(current)
-                fm to b  // 保留原 lastAccessedAt 用于遗忘检查
+                fm to b  // 保留原 lastAccessedAt 用于遗忘检查;description 沿用旧值,忽略入参
             }
 
             // 遗忘检查:user 豁免;若已超阈值,返回 null 触发 delete
@@ -455,6 +464,9 @@ internal class SaveSharedMemoryTool(
                 registry.rescan()
                 return ToolExecutionResult.success("Memory '$name' was expired and deleted.")
             }
+            missingDescription -> return ToolExecutionResult.error(
+                "Missing 'description': required when creating a new memory '$name'"
+            )
             notFound -> return ToolExecutionResult.error(
                 if (mode == "update") "old_text not found or memory '$name' does not exist" else "Invalid mode: $mode"
             )
@@ -493,10 +505,6 @@ internal class SaveSharedMemoryTool(
         // 无效兜底:压缩结果没有变短,说明压缩失败,返回 null 让调用方保留原文
         return if (summary.length < body.length) summary else null
     }
-
-    private fun descriptionFromContent(content: String): String =
-        content.lineSequence().firstOrNull()?.removePrefix("#")?.trim()?.take(80)
-            ?: "Shared memory"
 }
 ```
 

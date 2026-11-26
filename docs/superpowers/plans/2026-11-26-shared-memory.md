@@ -1302,12 +1302,14 @@ class SaveSharedMemoryToolTest {
         name: String,
         content: String = "",
         mode: String = "append",
+        description: String? = null,
         oldText: String? = null,
         newText: String? = null,
     ): JsonObject = buildMap {
         put("name", JsonPrimitive(name))
         put("content", JsonPrimitive(content))
         put("mode", JsonPrimitive(mode))
+        description?.let { put("description", JsonPrimitive(it)) }
         oldText?.let { put("old_text", JsonPrimitive(it)) }
         newText?.let { put("new_text", JsonPrimitive(it)) }
     }.let { JsonObject(it) }
@@ -1315,10 +1317,35 @@ class SaveSharedMemoryToolTest {
     @Test
     fun `append to new topic creates file and triggers rescan`() = runTest {
         registry.rescan()
-        val result = tool.execute(args("travel", "去东南亚"), execContext())
+        val result = tool.execute(args("travel", "去东南亚", description = "旅行偏好"), execContext())
         assertFalse(result.isError)
         assertTrue(store.exists("travel"))
         assertTrue(registry.all().any { it.name == "travel" })
+        // description 写入 frontmatter
+        val parsed = SharedMemoryFile.parse(store.read("travel")!!)
+        assertEquals("旅行偏好", parsed.frontmatter.description)
+    }
+
+    @Test
+    fun `append to new topic without description returns error`() = runTest {
+        registry.rescan()
+        val result = tool.execute(args("travel", "去东南亚"), execContext())
+        assertTrue(result.isError)
+        assertFalse(store.exists("travel"))
+    }
+
+    @Test
+    fun `append to existing topic ignores description param`() = runTest {
+        store.modify("travel") {
+            SharedMemoryFile.serialize(
+                SharedMemoryFile.Frontmatter("travel", "原描述", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
+                "原内容",
+            )
+        }
+        registry.rescan()
+        tool.execute(args("travel", "新内容", "append", description = "应被忽略的描述"), execContext())
+        val parsed = SharedMemoryFile.parse(store.read("travel")!!)
+        assertEquals("原描述", parsed.frontmatter.description)
     }
 
     @Test
@@ -1420,11 +1447,19 @@ class SaveSharedMemoryToolTest {
     }
 
     @Test
-    fun `save to user creates user file`() = runTest {
+    fun `save to user appends to existing user file`() = runTest {
+        // 模拟插件 install 后的状态:user.md 已由 ensureUserMemory 创建
+        store.modify("user") {
+            SharedMemoryFile.serialize(
+                SharedMemoryFile.Frontmatter("user", "用户画像", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
+                "",
+            )
+        }
         tool.execute(args("user", "用户画像:开发者"), execContext())
         assertTrue(store.exists("user"))
         val parsed = SharedMemoryFile.parse(store.read("user")!!)
         assertEquals("用户画像:开发者", parsed.body)
+        assertEquals("用户画像", parsed.frontmatter.description)  // description 沿用,不被 save 改
     }
 }
 ```
@@ -1458,6 +1493,7 @@ import kotlinx.serialization.json.jsonPrimitive
  *
  * 参数:
  * - name: 话题名(对应文件名,不含 .md)
+ * - description: 话题描述(给 LLM 看的"何时使用本话题"提示)。**新建话题时必填**;已有话题忽略此参数
  * - content: 写入内容(markdown)。append 必填;update 忽略
  * - mode: "append" 追加到正文末尾 / "update" 局部替换(配 old_text/new_text)
  * - old_text: update 模式必填,要被替换的原文片段
@@ -1481,8 +1517,13 @@ internal class SaveSharedMemoryTool(
     override val description: String = """
         将信息写入共享记忆。当用户告诉你值得跨会话记住的事实(偏好、背景、约定等)时调用本工具。
 
+        调用前请先看 load_shared_memory 工具描述里列出的话题列表,判断要记录的内容归属于哪个已有话题:
+        - 已有话题:传该话题的 name,description 留空(已有话题的描述不可改)
+        - 没有合适话题:新建,传新 name + 必填的 description(一句话告诉未来的自己何时该加载本话题)
+
         参数:
         - name: 话题名(英文短词,如 "travel-preferences")。若话题已存在则更新;若不存在则新建。
+        - description: 话题描述。新建话题时必填,已有话题忽略。例:"用户旅行偏好与历史行程"
         - content: markdown 内容。append 模式下追加到现有内容末尾;update 模式下忽略,改用 old_text/new_text。
         - mode: "append" 或 "update",默认 "append"。
           - append: 追加 content 到现有正文末尾。新话题创建也走此模式(旧正文为空)。
@@ -1493,17 +1534,18 @@ internal class SaveSharedMemoryTool(
 
         特殊话题:
         - "user": 写入用户画像,每轮会主动注入 system prompt,不会遗忘。用户说"忘记 xxx"或
-          "改一下我之前说的 xxx"时,用 update 模式精确替换对应片段。
+          "改一下我之前说的 xxx"时,用 update 模式精确替换对应片段。user 话题已存在,description 留空。
     """.trimIndent()
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
-        """{"type":"object","properties":{"name":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","update"]},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["name","content"]}"""
+        """{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","update"]},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["name","content"]}"""
     )
 
     override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
         val obj = arguments.jsonObject
         val name = (obj["name"] as? JsonPrimitive)?.content
             ?: return ToolExecutionResult.error("Missing 'name'")
+        val description = (obj["description"] as? JsonPrimitive)?.content
         val mode = (obj["mode"] as? JsonPrimitive)?.content ?: "append"
         val content = (obj["content"] as? JsonPrimitive)?.content
             ?: if (mode == "append") return ToolExecutionResult.error("Missing 'content'") else ""
@@ -1519,14 +1561,16 @@ internal class SaveSharedMemoryTool(
         // 状态变量:由 modify transform 内部写入,execute 外层读取以决定返回值
         var expired = false          // 遗忘触发删除(Task 11 用,本 task 占位 false)
         var notFound = false         // update 模式 old_text 找不到 / update 不存在
+        var missingDescription = false  // 新建话题但 description 为空
         var newCreated = false       // 新话题创建
         var finalLen = 0             // 最终正文长度
 
         store.modify(name) { current ->
             val (frontmatter, body) = if (current == null) {
                 if (mode == "update") { notFound = true; return@modify null }
+                if (description.isNullOrBlank()) { missingDescription = true; return@modify null }
                 newCreated = true
-                SharedMemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
+                SharedMemoryFile.Frontmatter(name, description, now, now) to ""
             } else {
                 val (fm, b) = SharedMemoryFile.parse(current)
                 fm to b
@@ -1553,6 +1597,9 @@ internal class SaveSharedMemoryTool(
                 registry.rescan()
                 return ToolExecutionResult.success("Memory '$name' was expired and deleted.")
             }
+            missingDescription -> return ToolExecutionResult.error(
+                "Missing 'description': required when creating a new memory '$name'"
+            )
             notFound -> return ToolExecutionResult.error(
                 if (mode == "update") "old_text not found or memory '$name' does not exist" else "Invalid mode: $mode"
             )
@@ -1567,10 +1614,6 @@ internal class SaveSharedMemoryTool(
         ctx: SharedMemoryContext,
         body: String,
     ): String? = null
-
-    private fun descriptionFromContent(content: String): String =
-        content.lineSequence().firstOrNull()?.removePrefix("#")?.trim()?.take(80)?.ifBlank { "Shared memory" }
-            ?: "Shared memory"
 }
 ```
 
@@ -1988,7 +2031,7 @@ fun `save triggers sync compression when body exceeds memoryFileLimit`() = runTe
 
     // 写入超限内容,save 返回时文件应已是压缩态
     val longContent = "这是一个很长的内容,超过 10 字符上限"
-    compressingTool.execute(args("long-topic", longContent), execContext())
+    compressingTool.execute(args("long-topic", longContent, description = "长内容测试"), execContext())
 
     val parsed = SharedMemoryFile.parse(store.read("long-topic")!!)
     assertEquals("压缩后内容", parsed.body)
@@ -2015,7 +2058,7 @@ fun `save keeps newBody when compression fails`() = runTest {
     val failingTool = SaveSharedMemoryTool(failingRegistry, failingCtxFactory)
 
     val longContent = "这是一个很长的内容,超过 10 字符上限"
-    failingTool.execute(args("long-topic", longContent), execContext())
+    failingTool.execute(args("long-topic", longContent, description = "长内容测试"), execContext())
 
     // 压缩失败,文件保留 newBody
     val parsed = SharedMemoryFile.parse(store.read("long-topic")!!)
@@ -2048,7 +2091,7 @@ fun `save keeps newBody when compression summary is not shorter`() = runTest {
     val nonShorterTool = SaveSharedMemoryTool(nonShorterRegistry, nonShorterCtxFactory)
 
     val longContent = "这是一个很长的内容,超过 10 字符上限"
-    nonShorterTool.execute(args("long-topic", longContent), execContext())
+    nonShorterTool.execute(args("long-topic", longContent, description = "长内容测试"), execContext())
 
     val parsed = SharedMemoryFile.parse(store.read("long-topic")!!)
     assertEquals(longContent, parsed.body)
@@ -2318,6 +2361,7 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
     val obj = arguments.jsonObject
     val name = (obj["name"] as? JsonPrimitive)?.content
         ?: return ToolExecutionResult.error("Missing 'name'")
+    val description = (obj["description"] as? JsonPrimitive)?.content
     val mode = (obj["mode"] as? JsonPrimitive)?.content ?: "append"
     val content = (obj["content"] as? JsonPrimitive)?.content
         ?: if (mode == "append") return ToolExecutionResult.error("Missing 'content'") else ""
@@ -2332,6 +2376,7 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
 
     var expired = false
     var notFound = false
+    var missingDescription = false
     var newCreated = false
     var finalLen = 0
     var compressed = false
@@ -2339,11 +2384,12 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
     store.modify(name) { current ->
         val (frontmatter, body) = if (current == null) {
             if (mode == "update") { notFound = true; return@modify null }
+            if (description.isNullOrBlank()) { missingDescription = true; return@modify null }
             newCreated = true
-            SharedMemoryFile.Frontmatter(name, descriptionFromContent(content), now, now) to ""
+            SharedMemoryFile.Frontmatter(name, description, now, now) to ""
         } else {
             val (fm, b) = SharedMemoryFile.parse(current)
-            fm to b
+            fm to b  // description 沿用旧值,忽略入参
         }
 
         // 遗忘检查:user 豁免;若已超阈值,返回 null 触发 delete + expired 标记
@@ -2376,6 +2422,9 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
             registry.rescan()
             return ToolExecutionResult.success("Memory '$name' was expired and deleted.")
         }
+        missingDescription -> return ToolExecutionResult.error(
+            "Missing 'description': required when creating a new memory '$name'"
+        )
         notFound -> return ToolExecutionResult.error(
             if (mode == "update") "old_text not found or memory '$name' does not exist" else "Invalid mode: $mode"
         )
@@ -2390,8 +2439,9 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
 
 关键点:
 - 遗忘检查在 `store.modify` 的 transform 内,与 save 写入共用同一把 per-name 锁,不存在「load 检查过期 + delete 之间 save 抢先写入」的窗口。
-- `expired` / `notFound` / `newCreated` 都是 transform 内写、外层读的状态变量,避免从 transform 返回复杂 sealed 类型。
+- `expired` / `notFound` / `missingDescription` / `newCreated` 都是 transform 内写、外层读的状态变量,避免从 transform 返回复杂 sealed 类型。
 - update 模式对不存在的 memory(current == null)直接 `notFound = true; return@modify null`,不创建新文件。
+- 新建话题时 description 必填,已有话题 description 入参被忽略(沿用 frontmatter 旧值),保证 description 不可变。
 - 返回 `null` 触发 store 删除文件,匹配 `modify` 的「null = delete」语义。
 
 - [ ] **Step 6: 同步修正 Task 5 测试中的 activate 调用**
@@ -2526,6 +2576,7 @@ class SharedMemoryIntegrationTest {
         saveTool.execute(
             JsonObject(mapOf(
                 "name" to JsonPrimitive("travel"),
+                "description" to JsonPrimitive("旅行偏好"),
                 "content" to JsonPrimitive("用户偏好海岛游"),
             )),
             execContext(),
@@ -2545,6 +2596,7 @@ class SharedMemoryIntegrationTest {
         saveTool.execute(
             JsonObject(mapOf(
                 "name" to JsonPrimitive("food"),
+                "description" to JsonPrimitive("饮食偏好"),
                 "content" to JsonPrimitive("喜欢吃辣"),
             )),
             execContext(),
@@ -2555,7 +2607,7 @@ class SharedMemoryIntegrationTest {
     @Test
     fun `multiple saves append to same topic`() = runTest {
         registry.rescan()
-        saveTool.execute(JsonObject(mapOf("name" to JsonPrimitive("hobby"), "content" to JsonPrimitive("摄影"))), execContext())
+        saveTool.execute(JsonObject(mapOf("name" to JsonPrimitive("hobby"), "description" to JsonPrimitive("兴趣爱好"), "content" to JsonPrimitive("摄影"))), execContext())
         saveTool.execute(JsonObject(mapOf("name" to JsonPrimitive("hobby"), "content" to JsonPrimitive("徒步"), "mode" to JsonPrimitive("append"))), execContext())
 
         val loadResult = loadTool.execute(
