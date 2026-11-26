@@ -1304,14 +1304,12 @@ class SaveSharedMemoryToolTest {
         mode: String = "append",
         description: String? = null,
         oldText: String? = null,
-        newText: String? = null,
     ): JsonObject = buildMap {
         put("name", JsonPrimitive(name))
         put("content", JsonPrimitive(content))
         put("mode", JsonPrimitive(mode))
         description?.let { put("description", JsonPrimitive(it)) }
         oldText?.let { put("old_text", JsonPrimitive(it)) }
-        newText?.let { put("new_text", JsonPrimitive(it)) }
     }.let { JsonObject(it) }
 
     @Test
@@ -1363,7 +1361,7 @@ class SaveSharedMemoryToolTest {
     }
 
     @Test
-    fun `update replaces old_text with new_text`() = runTest {
+    fun `update replaces old_text with content`() = runTest {
         store.modify("travel") {
             SharedMemoryFile.serialize(
                 SharedMemoryFile.Frontmatter("travel", "旅行", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
@@ -1371,13 +1369,13 @@ class SaveSharedMemoryToolTest {
             )
         }
         registry.rescan()
-        tool.execute(args("travel", mode = "update", oldText = "喜欢辣的食物", newText = "口味偏清淡"), execContext())
+        tool.execute(args("travel", "口味偏清淡", mode = "update", oldText = "喜欢辣的食物"), execContext())
         val parsed = SharedMemoryFile.parse(store.read("travel")!!)
         assertEquals("口味偏清淡\n\n常去东南亚", parsed.body)
     }
 
     @Test
-    fun `update with empty new_text deletes the fragment`() = runTest {
+    fun `update with empty content deletes the fragment`() = runTest {
         store.modify("travel") {
             SharedMemoryFile.serialize(
                 SharedMemoryFile.Frontmatter("travel", "旅行", java.time.Instant.parse("2026-01-01T00:00:00Z"), java.time.Instant.parse("2026-01-01T00:00:00Z")),
@@ -1385,7 +1383,7 @@ class SaveSharedMemoryToolTest {
             )
         }
         registry.rescan()
-        tool.execute(args("travel", mode = "update", oldText = "喜欢辣\n\n", newText = ""), execContext())
+        tool.execute(args("travel", "", mode = "update", oldText = "喜欢辣\n\n"), execContext())
         val parsed = SharedMemoryFile.parse(store.read("travel")!!)
         assertEquals("常去东南亚", parsed.body)
     }
@@ -1399,14 +1397,14 @@ class SaveSharedMemoryToolTest {
             )
         }
         registry.rescan()
-        val result = tool.execute(args("travel", mode = "update", oldText = "不存在", newText = "新"), execContext())
+        val result = tool.execute(args("travel", "新", mode = "update", oldText = "不存在"), execContext())
         assertTrue(result.isError)
     }
 
     @Test
     fun `update on non-existing memory returns error`() = runTest {
         registry.rescan()
-        val result = tool.execute(args("ghost", mode = "update", oldText = "x", newText = "y"), execContext())
+        val result = tool.execute(args("ghost", "y", mode = "update", oldText = "x"), execContext())
         assertTrue(result.isError)
     }
 
@@ -1494,10 +1492,9 @@ import kotlinx.serialization.json.jsonPrimitive
  * 参数:
  * - name: 记忆文件名(对应文件名,不含 .md)
  * - description: 记忆文件描述(给 LLM 看的"何时使用本记忆文件"提示)。**新建记忆文件时必填**;已有记忆文件忽略此参数
- * - content: 写入内容(markdown)。append 必填;update 忽略
- * - mode: "append" 追加到正文末尾 / "update" 局部替换(配 old_text/new_text)
+ * - content: 写入内容(markdown)。append 必填;update 时作为替换后的新片段(空串表示删除)
+ * - mode: "append" 追加到正文末尾 / "update" 局部替换(配 old_text,content 作替换文本)
  * - old_text: update 模式必填,要被替换的原文片段
- * - new_text: update 模式必填,替换后的新片段(空串表示删除)
  *
  * 副作用:
  * - 若 name 是新记忆文件,创建文件并触发 registry.rescan()(update 不允许新建)
@@ -1515,7 +1512,7 @@ internal class SaveSharedMemoryTool(
     override val name: String = "save_shared_memory"
 
     override val description: String = """
-        将信息写入共享记忆。当用户要求或你自行发现值得跨会话长期记住的事实(偏好、背景、约定等)时，调用本工具将记忆写入共享文件。
+        将信息写入共享记忆文件。当用户要求或你发现了值得跨会话长期记住的事实(偏好、背景、约定等)时调用本工具。
 
         调用前请先看 load_shared_memory 工具描述里列出的（已存在）记忆文件列表,选择要记录的内容归属于哪个记忆文件:
         - 有合适的记忆文件:传该记忆文件的 name,description 留空(记忆文件已存在，不需要描述)
@@ -1524,17 +1521,16 @@ internal class SaveSharedMemoryTool(
         参数:
         - name: 记忆文件名(英文短词,如 "travel-preferences")。
         - description: 记忆文件描述。新建记忆文件时必填,选中合适的记忆文件时忽略。例:"用户旅行偏好与历史行程"
-        - content: 记忆内容。append 模式下追加到现有内容末尾;update 模式下忽略,改用 old_text/new_text。
+        - content: 记忆内容。append 模式下追加到现有内容末尾;update 模式下作为替换后的新片段(空串表示删除该片段)。
         - mode: "append" 或 "update",默认 "append"。
           - append: 追加 content 到现有正文末尾。记忆文件新建时也走此模式(此时正文为空)。
-          - update: 局部替换。需配 old_text/new_text,工具读旧正文找到 old_text 替换为 new_text。
-                    new_text 为空串表示删除该片段。找不到 old_text 则返回错误,不修改文件。
+          - update: 局部替换。需配 old_text,工具读旧正文找到 old_text 替换为 content。
+                    content 为空串表示删除该片段。找不到 old_text 则返回错误,不修改文件。
         - old_text: 仅 update 模式必填。要被替换的原文片段,必须与现有正文中的文本精确匹配。
-        - new_text: 仅 update 模式必填。替换后的新片段。
     """.trimIndent()
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
-        """{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","update"]},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["name","content"]}"""
+        """{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","update"]},"old_text":{"type":"string"}},"required":["name","content"]}"""
     )
 
     override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
@@ -1547,8 +1543,6 @@ internal class SaveSharedMemoryTool(
             ?: if (mode == "append") return ToolExecutionResult.error("Missing 'content'") else ""
         val oldText = (obj["old_text"] as? JsonPrimitive)?.content
             ?: if (mode == "update") return ToolExecutionResult.error("Missing 'old_text'") else null
-        val newText = (obj["new_text"] as? JsonPrimitive)?.content
-            ?: if (mode == "update") return ToolExecutionResult.error("Missing 'new_text'") else null
 
         val ctx = contextFactory.create(context)
         val store = ctx.memoryStore
@@ -1576,7 +1570,7 @@ internal class SaveSharedMemoryTool(
                 "append" -> if (body.isBlank()) content else "$body\n\n$content"
                 "update" -> {
                     if (!body.contains(oldText!!)) { notFound = true; return@modify null }
-                    body.replace(oldText, newText!!)
+                    body.replace(oldText, content)
                 }
                 else -> { notFound = true; return@modify null }
             }
@@ -1626,7 +1620,7 @@ git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/S
 git commit -m "feat(shared-memory): SaveSharedMemoryTool 写入工具(append/update)
 
 不含压缩与遗忘,Task 10/11 扩展。mode 收敛为 append/update,
-update 配 old_text/new_text 支持局部替换与删除。
+update 配 old_text、content 作替换文本,支持局部替换与删除。
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -2363,8 +2357,6 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
         ?: if (mode == "append") return ToolExecutionResult.error("Missing 'content'") else ""
     val oldText = (obj["old_text"] as? JsonPrimitive)?.content
         ?: if (mode == "update") return ToolExecutionResult.error("Missing 'old_text'") else null
-    val newText = (obj["new_text"] as? JsonPrimitive)?.content
-        ?: if (mode == "update") return ToolExecutionResult.error("Missing 'new_text'") else null
 
     val ctx = contextFactory.create(context)
     val store = ctx.memoryStore
@@ -2398,7 +2390,7 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
             "append" -> if (body.isBlank()) content else "$body\n\n$content"
             "update" -> {
                 if (!body.contains(oldText!!)) { notFound = true; return@modify null }
-                body.replace(oldText, newText!!)
+                body.replace(oldText, content)
             }
             else -> { notFound = true; return@modify null }
         }

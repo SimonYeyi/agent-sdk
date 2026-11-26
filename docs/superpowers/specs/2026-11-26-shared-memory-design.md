@@ -353,7 +353,7 @@ import java.time.Instant
  * - name: 话题名(对应文件名,不含 .md)
  * - description: 话题描述(给 LLM 看的"何时使用本话题"提示)。**新建话题时必填**;已有话题忽略此参数
  * - content: 写入内容(markdown)
- * - mode: "append" 追加到正文末尾 / "update" 局部替换(配 old_text/new_text)
+ * - mode: "append" 追加到正文末尾 / "update" 局部替换(配 old_text,content 作替换文本)
  *
  * 副作用:
  * - 若 name 是新话题,创建文件并触发 registry.rescan()
@@ -373,7 +373,7 @@ internal class SaveSharedMemoryTool(
     override val name: String = "save_shared_memory"
 
     override val description: String = """
-        将信息写入共享记忆。当用户要求或你自行发现值得跨会话长期记住的事实(偏好、背景、约定等)时，调用本工具将记忆写入共享文件。
+        将信息写入共享记忆文件。当用户要求或你发现了值得跨会话长期记住的事实(偏好、背景、约定等)时调用本工具。
 
         调用前请先看 load_shared_memory 工具描述里列出的（已存在）记忆文件列表,选择要记录的内容归属于哪个记忆文件:
         - 有合适的记忆文件:传该记忆文件的 name,description 留空(记忆文件已存在，不需要描述)
@@ -382,17 +382,16 @@ internal class SaveSharedMemoryTool(
         参数:
         - name: 记忆文件名(英文短词,如 "travel-preferences")。
         - description: 记忆文件描述。新建记忆文件时必填,选中合适的记忆文件时忽略。例:"用户旅行偏好与历史行程"
-        - content: 记忆内容。append 模式下追加到现有内容末尾;update 模式下忽略,改用 old_text/new_text。
+        - content: 记忆内容。append 模式下追加到现有正文末尾;update 模式下作为替换后的新片段(空串表示删除该片段)。
         - mode: "append" 或 "update",默认 "append"。
           - append: 追加 content 到现有正文末尾。记忆文件新建时也走此模式(此时正文为空)。
-          - update: 局部替换。需配 old_text/new_text,工具读旧正文找到 old_text 替换为 new_text。
-                    new_text 为空串表示删除该片段。找不到 old_text 则返回错误,不修改文件。
+          - update: 局部替换。需配 old_text,工具读旧正文找到 old_text 替换为 content。
+                    content 为空串表示删除该片段。找不到 old_text 则返回错误,不修改文件。
         - old_text: 仅 update 模式必填。要被替换的原文片段,必须与现有正文中的文本精确匹配。
-        - new_text: 仅 update 模式必填。替换后的新片段。
     """.trimIndent()
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
-        """{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","update"]},"old_text":{"type":"string"},"new_text":{"type":"string"}},"required":["name","content"]}"""
+        """{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","update"]},"old_text":{"type":"string"}},"required":["name","content"]}"""
     )
 
     override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
@@ -404,8 +403,6 @@ internal class SaveSharedMemoryTool(
             ?: if (mode == "append") return ToolExecutionResult.error("Missing 'content'") else ""
         val oldText = arguments.jsonObject["old_text"]?.jsonPrimitive?.content
             ?: if (mode == "update") return ToolExecutionResult.error("Missing 'old_text'") else null
-        val newText = arguments.jsonObject["new_text"]?.jsonPrimitive?.content
-            ?: if (mode == "update") return ToolExecutionResult.error("Missing 'new_text'") else null
 
         val ctx = contextFactory.create(context)
         val store = ctx.memoryStore
@@ -440,7 +437,7 @@ internal class SaveSharedMemoryTool(
                 "update" -> {
                     if (current == null) { notFound = true; return@modify null }
                     if (!body.contains(oldText!!)) { notFound = true; return@modify null }
-                    body.replace(oldText, newText!!)
+                    body.replace(oldText, content)
                 }
                 else -> { notFound = true; return@modify null }
             }
@@ -780,7 +777,7 @@ load_shared_memory.execute({name: "travel"})
 ### 6.4 LLM 调用 save_shared_memory(name, content, mode)
 
 ```
-save_shared_memory.execute({name, content, mode, old_text?, new_text?})
+save_shared_memory.execute({name, content, mode, old_text?})
   → 解析参数
   → memoryStore.modify(name) { current ->                  # per-name 锁内,整流程原子
       current == null → isNew,创建 Frontmatter(name, desc, now, now),body = ""
@@ -790,7 +787,7 @@ save_shared_memory.execute({name, content, mode, old_text?, new_text?})
       mode=update:
         current == null → notFound 标记,返回 null
         body.contains(old_text) 失败 → notFound 标记,返回 null
-        body.replace(old_text, new_text)   # new_text="" 表示删除
+        body.replace(old_text, content)   # content="" 表示删除
       更新 frontmatter.lastAccessedAt = now
       若 newBody.length > memoryFileLimit:
         → 同步调 compressMemory(newBody)   # 仍在 modify 锁内
@@ -825,7 +822,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 
 - 创建:`install` 时若不存在,创建空模板(真实元数据 + 空正文)。
 - 读取:不进入 registry(`SharedMemoryStore.list()` 排除 `user`),LLM 不能 `load_shared_memory("user")`。
-- 写入:`save_shared_memory("user", ...)` 允许。append 用于累积新画像条目;update 用于"忘记 xxx"/"改一下 xxx"——LLM 从 system prompt 中看到 user.md 现有内容,引用要改的片段作 old_text,提供 new_text(空串表示删除)。user.md 不进 registry,LLM 不能 load,所以 update 的 old_text 必须凭 system prompt 中注入的内容引用。
+- 写入:`save_shared_memory("user", ...)` 允许。append 用于累积新画像条目;update 用于"忘记 xxx"/"改一下 xxx"——LLM 从 system prompt 中看到 user.md 现有内容,引用要改的片段作 old_text,提供 content(空串表示删除)。user.md 不进 registry,LLM 不能 load,所以 update 的 old_text 必须凭 system prompt 中注入的内容引用。
 - 注入:`install` 时读 `user.md` 正文,通过 `appendInstructions` 注入 persona 能力区。
   - **注意**:首次 install 时 user.md 为空,注入空字符串无效果。后续 LLM 通过 save_shared_memory 写入后,需要下一会话才能注入——本设计不在运行时重读 user.md 注入。这是限制,见 §9。
 - 遗忘豁免:`user.md` 不参与遗忘检查。
@@ -872,7 +869,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 - `PathSharedMemoryStore`:在 tempdir 上读写删列表,IO 异常路径。
 - `SharedMemoryRegistry.rescan`:新增/删除/变更文件的同步。
 - `SaveSharedMemoryTool.execute`:
-  - append / update 两种 mode(update 配 old_text/new_text,支持局部替换与删除)
+  - append / update 两种 mode(update 配 old_text,content 作替换文本,支持局部替换与删除)
   - 新话题创建 → 触发 rescan
   - 已有话题更新 lastAccessedAt
   - 超过 memoryFileLimit → 触发同步压缩(mock LlmProvider)
