@@ -2,7 +2,7 @@
 
 > 日期：2026-11-26 · 状态：**Proposed**
 > 模块：`agent/memory/shared`（新增）+ `agent/capability`（最小改动）
-> 范围：新增一个独立的共享记忆插件,与 core 中的短期会话 Memory 正交;LLM 通过 `load_memory` / `save_memory` 两个工具读写 markdown 记忆文件,每轮主动注入 `user.md` 用户画像到 system prompt,并提供遗忘与压缩机制。
+> 范围：新增一个独立的共享记忆插件,与 core 中的短期会话 Memory 正交;LLM 通过 `load_shared_memory` / `save_shared_memory` 两个工具读写 markdown 记忆文件,每轮主动注入 `user.md` 用户画像到 system prompt,并提供遗忘与压缩机制。
 
 ---
 
@@ -22,9 +22,9 @@
 `agent/core` 现有的 `Memory` 接口是对话历史存储(短期、按轮次压缩),解决"当前会话内 LLM 能记得刚才说过什么"的问题。它不解决跨会话的共享记忆:用户的偏好、过往事实、跨会话累积的画像,这些信息应当在多次会话之间持久化,且 LLM 能在合适时机主动调用。
 
 需求要点:
-1. 记忆以 markdown 文件形式存储,一个文件一个话题,与 Skill 的 `load` 机制对称——LLM 看到 `load_memory` 工具的 description 里列出所有话题名+描述,需要时传 `name` 调用,正文按需加载进上下文。
-2. `user.md` 作为话题无关的用户画像,每轮主动注入 system prompt,不走 `load_memory` 路径。
-3. 记忆的"该写什么、什么时候写"由 LLM 自主决定——只有模型能判断什么值得记。对应工具是 `save_memory`。
+1. 记忆以 markdown 文件形式存储,一个文件一个话题,与 Skill 的 `load` 机制对称——LLM 看到 `load_shared_memory` 工具的 description 里列出所有话题名+描述,需要时传 `name` 调用,正文按需加载进上下文。
+2. `user.md` 作为话题无关的用户画像,每轮主动注入 system prompt,不走 `load_shared_memory` 路径。
+3. 记忆的"该写什么、什么时候写"由 LLM 自主决定——只有模型能判断什么值得记。对应工具是 `save_shared_memory`。
 4. 共享记忆需要生命周期管理:超过一定时间没被读写则遗忘;单文件过大则压缩。
 5. 存储位置由宿主决定(必传 `directory`),插件不做平台推断。
 
@@ -37,12 +37,12 @@
 
 ## 2. 设计原则
 
-- **与 Skill 形态对称**:复用 `Capability` 框架,`load_memory` 通过 `CapabilityAdapter.of` 拼装(委托模式,继承 `CapabilityLoadTool`)。`save_memory` 作为独立 auxiliary tool 暴露。
+- **与 Skill 形态对称**:复用 `Capability` 框架,`load_shared_memory` 通过 `CapabilityAdapter.of` 拼装(委托模式,继承 `CapabilityLoadTool`)。`save_shared_memory` 作为独立 auxiliary tool 暴露。
 - **不继承 `CapabilityPlugin`**:`CapabilityPlugin.install` 是 `final override` 且只调 `registerTool`,无法在 install 阶段调 `appendInstructions` 注入 user.md。因此 `SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(`SharedMemoryPluginConfig` 是 object 占位,满足 `C : Any` 约束),内部手工调 `CapabilityAdapter.of(...).adapt()` + `context.registerTool(...)` + `context.appendInstructions(...)`。
 - **最小改动 capability 框架**:把 `CapabilityLoadTool` 的 `description` / `parametersSchema` 从 `by lazy` 改为每轮求值,使得重扫后下一轮 LLM 自动看到新话题。不引入 `reinstallPlugin` 等新 API。
-- **写入决策在 LLM**:不暴露写入 API 给宿主代码,只有 `save_memory` 工具。宿主只负责传 `directory` 和可选的 `LlmProvider` / `SharedMemoryStore`。
+- **写入决策在 LLM**:不暴露写入 API 给宿主代码,只有 `save_shared_memory` 工具。宿主只负责传 `directory` 和可选的 `LlmProvider` / `SharedMemoryStore`。
 - **存储抽象最小**:`SharedMemoryStore` 接口默认走 `Path`,允许宿主注入自定义实现。不预先做 Android/iOS 平台适配。
-- **生命周期检查只在读写路径**:压缩在 `save_memory` 后异步触发;遗忘在 `load_memory` / `save_memory` 后对当前操作的 md 同步检查。不被访问的文件不检查——这正是遗忘的目的。
+- **生命周期检查只在读写路径**:压缩在 `save_shared_memory` 后异步触发;遗忘在 `load_shared_memory` / `save_shared_memory` 后对当前操作的 md 同步检查。不被访问的文件不检查——这正是遗忘的目的。
 - **包名独立**:新模块包名 `io.github.yeyi.agent.memory.shared`,避开 core 已有的 `io.github.yeyi.agent.memory`(防止同包跨模块冲突)。
 
 ---
@@ -90,8 +90,8 @@ import io.github.yeyi.agent.capability.Capability
 /**
  * 一个共享记忆话题 —— 对应根目录下的一个 `.md` 文件。
  *
- * 实现 [Capability] 接口,通过 [CapabilityLoadTool] 暴露为 `load_memory` 工具的可路由条目。
- * LLM 调用 `load_memory(name=...)` 时,框架按 name 路由到对应实例,调 [load] 返回 md 全文。
+ * 实现 [Capability] 接口,通过 [CapabilityLoadTool] 暴露为 `load_shared_memory` 工具的可路由条目。
+ * LLM 调用 `load_shared_memory(name=...)` 时,框架按 name 路由到对应实例,调 [load] 返回 md 全文。
  *
  * 与 Skill 的对称点:
  * - 都是 `Capability<Unit, Ctx>`,load() 返回文本注入 LLM 上下文
@@ -116,7 +116,7 @@ public interface SharedMemory : Capability<Unit, SharedMemoryContext> {
     override suspend fun activate(arguments: Unit?, context: SharedMemoryContext): String = load()
 
     public companion object {
-        internal const val CAPABILITY_TYPE: String = "memory"
+        internal const val CAPABILITY_TYPE: String = "shared_memory"
     }
 }
 ```
@@ -138,7 +138,7 @@ import java.time.Duration
  * 携带:
  * - [memoryStore]: 文件 IO 抽象,load/save 共用
  * - [llmProvider]: 压缩用 LLM;优先用插件构造时注入的,为 null 时回退到 [ToolExecutionContext.agentContext.llmProvider]
- * - [registry]: 用于 save_memory 创建新话题后触发 rescan
+ * - [registry]: 用于 save_shared_memory 创建新话题后触发 rescan
  * - 配置参数(memoryFileLimit / forgetDuration)用于在 load/save 路径检查
  */
 public class SharedMemoryContext(
@@ -223,7 +223,7 @@ public class SharedMemoryRegistry(
 
 ### 4.4 `SharedMemoryPlugin` —— 接线契约
 
-**不继承 `CapabilityPlugin`**:虽然复用 `CapabilityAdapter.of` 拼装 `load_memory`,但 `CapabilityPlugin.install` 是 `final override` 且只调 `registerTool`,无法在 install 阶段调 `appendInstructions` 注入 user.md。因此 `SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(`SharedMemoryPluginConfig` 是 object 占位),内部手工调 `CapabilityAdapter.of(...).adapt()` 拿到 `load_memory` 工具,与 `save_memory` 一起注册,再单独调 `context.appendInstructions(user.md 内容)`。
+**不继承 `CapabilityPlugin`**:虽然复用 `CapabilityAdapter.of` 拼装 `load_shared_memory`,但 `CapabilityPlugin.install` 是 `final override` 且只调 `registerTool`,无法在 install 阶段调 `appendInstructions` 注入 user.md。因此 `SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(`SharedMemoryPluginConfig` 是 object 占位),内部手工调 `CapabilityAdapter.of(...).adapt()` 拿到 `load_shared_memory` 工具,与 `save_shared_memory` 一起注册,再单独调 `context.appendInstructions(user.md 内容)`。
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -253,7 +253,7 @@ public object SharedMemoryPluginConfig
  * 因为需要在 install 阶段调 [AgentPluginContext.appendInstructions] 注入 user.md ——
  * CapabilityPlugin.install 是 final 且不调 appendInstructions。
  *
- * 仍复用 [CapabilityAdapter.of] 拼装 load_memory(委托模式),与 Skill 形态对称。
+ * 仍复用 [CapabilityAdapter.of] 拼装 load_shared_memory(委托模式),与 Skill 形态对称。
  *
  * install 流程:
  * 1. 初始化 [SharedMemoryStore] (默认 [PathSharedMemoryStore])
@@ -261,8 +261,8 @@ public object SharedMemoryPluginConfig
  * 3. registry.rescan() 加载所有现存话题
  * 4. context.appendInstructions 注入 `user.md` 正文到 persona 能力区
  * 5. CapabilityAdapter.of(registry, ctxFactory, null, enableDelegateAdaptMode).adapt()
- *    → [load_memory] 工具,registerTool
- * 6. registerTool(save_memory)
+ *    → [load_shared_memory] 工具,registerTool
+ * 6. registerTool(save_shared_memory)
  */
 internal class SharedMemoryPlugin(
     private val directory: Path,
@@ -298,12 +298,12 @@ internal class SharedMemoryPlugin(
             if (body.isNotBlank()) context.appendInstructions(body)
         }
 
-        // 注册 load_memory(委托模式,继承 CapabilityLoadTool)
+        // 注册 load_shared_memory(委托模式,继承 CapabilityLoadTool)
         CapabilityAdapter.of(registry, ctxFactory, null, enableDelegateAdaptMode)
             .adapt()
             .forEach { context.registerTool(it) }
 
-        // 注册 save_memory(auxiliary)
+        // 注册 save_shared_memory(auxiliary)
         context.registerTool(SaveSharedMemoryTool(registry, ctxFactory, compressScope))
     }
 
@@ -371,7 +371,7 @@ internal class SaveSharedMemoryTool(
     private val contextFactory: CapabilityContextFactory<SharedMemoryContext>,
     private val compressScope: CoroutineScope,
 ) : Tool {
-    override val name: String = "save_memory"
+    override val name: String = "save_shared_memory"
 
     override val description: String = """
         将信息写入共享记忆。当用户告诉你值得跨会话记住的事实(偏好、背景、约定等)时调用本工具。
@@ -565,7 +565,7 @@ import java.time.Duration
  * @param forgetDuration 遗忘时间,文件超过此时长未被读写则删。默认 30 天
  * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
  * @param memoryStore 文件 IO 抽象;null 时用 [io.github.yeyi.agent.memory.shared.PathSharedMemoryStore]。默认 null
- * @param enableDelegateAdaptMode load_memory 是否走委托模式(单一工具 + name 路由)。默认 true
+ * @param enableDelegateAdaptMode load_shared_memory 是否走委托模式(单一工具 + name 路由)。默认 true
  */
 public fun AgentBuilder.sharedMemory(
     directory: Path,
@@ -653,9 +653,9 @@ AgentBuilder.sharedMemory(directory, ...)
       → store.read("user")               # 读 user.md 正文
       → context.appendInstructions(body) # 注入到 persona 能力区
       → CapabilityAdapter.of(registry, ctxFactory, null, enableDelegateAdaptMode=true)
-        → adapt() 返回 [CapabilityLoadTool] (即 load_memory)
-        → context.registerTool(load_memory)
-      → context.registerTool(save_memory)
+        → adapt() 返回 [CapabilityLoadTool] (即 load_shared_memory)
+        → context.registerTool(load_shared_memory)
+      → context.registerTool(save_shared_memory)
 ```
 
 ### 6.2 每轮 LLM 请求
@@ -663,17 +663,17 @@ AgentBuilder.sharedMemory(directory, ...)
 ```
 ReActAgent 构造 ChatRequest
   → ToolRegistry.all().map { it.toDefinition() }
-    → load_memory.toDefinition()  # 读 description,触发 getter → 读 registry.all() → 列出所有话题名+描述
-    → save_memory.toDefinition()
-  → ChatRequest.tools = [load_memory, save_memory, ...其他工具]
+    → load_shared_memory.toDefinition()  # 读 description,触发 getter → 读 registry.all() → 列出所有话题名+描述
+    → save_shared_memory.toDefinition()
+  → ChatRequest.tools = [load_shared_memory, save_shared_memory, ...其他工具]
   → system prompt 中含 user.md 内容(通过 appendInstructions 注入)
   → LLM 看到所有话题名 + user 画像
 ```
 
-### 6.3 LLM 调用 load_memory(name="travel")
+### 6.3 LLM 调用 load_shared_memory(name="travel")
 
 ```
-load_memory.execute({name: "travel"})
+load_shared_memory.execute({name: "travel"})
   → registry.get("travel")
   → capability.activate(null, SharedMemoryContext)
     → SharedMemory.load()
@@ -685,10 +685,10 @@ load_memory.execute({name: "travel"})
   → ToolExecutionResult.success(content)
 ```
 
-### 6.4 LLM 调用 save_memory(name, content, mode)
+### 6.4 LLM 调用 save_shared_memory(name, content, mode)
 
 ```
-save_memory.execute({name, content, mode})
+save_shared_memory.execute({name, content, mode})
   → 解析参数
   → 若 isNew:
       → 创建 Frontmatter(name, descFromContent, now, now)
@@ -722,17 +722,17 @@ compressMemory(name, frontmatter, body)
 ### 7.1 `user.md` 处理
 
 - 创建:`install` 时若不存在,创建空模板(真实元数据 + 空正文)。
-- 读取:不进入 registry(`SharedMemoryStore.list()` 排除 `user`),LLM 不能 `load_memory("user")`。
-- 写入:`save_memory("user", content, mode)` 允许,LLM 通过此更新用户画像。
+- 读取:不进入 registry(`SharedMemoryStore.list()` 排除 `user`),LLM 不能 `load_shared_memory("user")`。
+- 写入:`save_shared_memory("user", content, mode)` 允许,LLM 通过此更新用户画像。
 - 注入:`install` 时读 `user.md` 正文,通过 `appendInstructions` 注入 persona 能力区。
-  - **注意**:首次 install 时 user.md 为空,注入空字符串无效果。后续 LLM 通过 save_memory 写入后,需要下一会话才能注入——本设计不在运行时重读 user.md 注入。这是限制,见 §9。
+  - **注意**:首次 install 时 user.md 为空,注入空字符串无效果。后续 LLM 通过 save_shared_memory 写入后,需要下一会话才能注入——本设计不在运行时重读 user.md 注入。这是限制,见 §9。
 - 遗忘豁免:`user.md` 不参与遗忘检查。
 
 ### 7.2 重扫的并发安全
 
 - `SharedMemoryRegistry.rescan()` 用 `Mutex` 保护,与 `register` 互斥。
-- `save_memory` 创建新文件后同步调 `rescan`,保证下一轮 `load_memory` 能找到新话题。
-- `load_memory` 路径不触发 rescan(只读已有注册)。
+- `save_shared_memory` 创建新文件后同步调 `rescan`,保证下一轮 `load_shared_memory` 能找到新话题。
+- `load_shared_memory` 路径不触发 rescan(只读已有注册)。
 
 ### 7.3 压缩失败的容错
 
@@ -742,10 +742,10 @@ compressMemory(name, frontmatter, body)
 
 ### 7.4 遗忘检查的语义
 
-- 检查时机:`load_memory` / `save_memory` 后,**只对当前操作的 md** 检查。
+- 检查时机:`load_shared_memory` / `save_shared_memory` 后,**只对当前操作的 md** 检查。
 - 检查逻辑:若 `now - lastAccessedAt > forgetDuration` → 删除文件 + rescan。
-  - `load_memory`:更新 lastAccessedAt 前先检查旧值;若已超阈值,删除并返回 "(expired)"。
-  - `save_memory`:同上,但 save 是写入路径,语义上是"主动访问",原则上不应触发遗忘。但为了与 load 一致,仍检查;若触发遗忘则 save 不执行。
+  - `load_shared_memory`:更新 lastAccessedAt 前先检查旧值;若已超阈值,删除并返回 "(expired)"。
+  - `save_shared_memory`:同上,但 save 是写入路径,语义上是"主动访问",原则上不应触发遗忘。但为了与 load 一致,仍检查;若触发遗忘则 save 不执行。
 - `user.md` 豁免。
 - 不被访问的文件不检查——这正是遗忘的目的(长期没被读写的文件应该被遗忘,不需要主动巡检)。
 
@@ -776,7 +776,7 @@ compressMemory(name, frontmatter, body)
 
 ### 8.2 集成测试
 
-- 用 mock `LlmProvider`,模拟 LLM 调用 `save_memory("travel", "...")` → `load_memory("travel")` → 返回写入内容。
+- 用 mock `LlmProvider`,模拟 LLM 调用 `save_shared_memory("travel", "...")` → `load_shared_memory("travel")` → 返回写入内容。
 - 模拟压缩:`memoryFileLimit=100`,写入 200 字符内容,验证压缩被触发且 md 最终被覆盖为压缩后内容。
 - 模拟遗忘:`forgetDuration=1ms`,load 后 sleep 10ms,再次 load,验证文件被删除。
 
@@ -792,7 +792,7 @@ compressMemory(name, frontmatter, body)
 
 ### 9.1 当前限制
 
-1. **user.md 注入是静态的**:`install` 时一次性读 `user.md` 内容通过 `appendInstructions` 注入,运行时 LLM 通过 `save_memory` 更新 user.md 后,**当前会话不会重新注入**——要等下一次会话。后续可考虑加 `onTurnFinished` hook 重读 user.md,但需要 Agent 暴露 turn hook 给插件,目前插件接口只支持 `registerTool` + `appendInstructions`。
+1. **user.md 注入是静态的**:`install` 时一次性读 `user.md` 内容通过 `appendInstructions` 注入,运行时 LLM 通过 `save_shared_memory` 更新 user.md 后,**当前会话不会重新注入**——要等下一次会话。后续可考虑加 `onTurnFinished` hook 重读 user.md,但需要 Agent 暴露 turn hook 给插件,目前插件接口只支持 `registerTool` + `appendInstructions`。
 2. **压缩期间无锁**:压缩是异步覆盖写,期间若 LLM 同时 save 同一 md,可能内容丢失。本设计接受这一风险(压缩发生频率低,且 save 后立即触发新的压缩)。
 3. **遗忘只检查当前 md**:不被访问的文件不会被主动遗忘巡检。如果用户希望"定期清理所有超期文件",需要宿主应用主动调 `registry.rescan()`(rescan 不删除文件,只是同步注册表)——本设计不提供独立的遗忘巡检 API。
 

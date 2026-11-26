@@ -4,7 +4,7 @@
 
 **Goal:** 新建 `:agent:memory:shared` 模块,提供 LLM 可自主读写的 markdown 共享记忆能力,与 core 的短期会话 Memory 正交,含遗忘与压缩机制。
 
-**Architecture:** 复用 `Capability` 框架,`load_memory` 走委托模式继承 `CapabilityLoadTool`,`save_memory` 作为 auxiliary tool;`SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(因 `CapabilityPlugin.install` 是 final 且不支持 `appendInstructions`),内部手工调 `CapabilityAdapter.of` 拼装 load 工具。`CapabilityLoadTool` 的 `description` / `parametersSchema` 从 `by lazy` 改为 getter,使重扫后下一轮 LLM 自动看到新话题。
+**Architecture:** 复用 `Capability` 框架,`load_shared_memory` 走委托模式继承 `CapabilityLoadTool`,`save_shared_memory` 作为 auxiliary tool;`SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(因 `CapabilityPlugin.install` 是 final 且不支持 `appendInstructions`),内部手工调 `CapabilityAdapter.of` 拼装 load 工具。`CapabilityLoadTool` 的 `description` / `parametersSchema` 从 `by lazy` 改为 getter,使重扫后下一轮 LLM 自动看到新话题。
 
 **Tech Stack:** Kotlin 2.4 (JVM 21) · kotlinx.serialization.json · kotlinx.coroutines · java.nio.file.Path · java.time.Instant/Duration · JUnit 4 + kotlin-test
 
@@ -669,7 +669,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 **Interfaces:**
 - Consumes: `Capability<Unit, SharedMemoryContext>`(来自 `:agent:capability`)、`SharedMemoryStore`、`SharedMemoryFile`(Task 3/4)
 - Produces:
-  - `public interface SharedMemory : Capability<Unit, SharedMemoryContext>`(含 `load()` 抽象方法 + `CAPABILITY_TYPE = "memory"` companion)
+  - `public interface SharedMemory : Capability<Unit, SharedMemoryContext>`(含 `load()` 抽象方法 + `CAPABILITY_TYPE = "shared_memory"` companion)
   - `internal class DefaultSharedMemory(...)` — 持久化 + lastAccessedAt 更新(暂不含遗忘检查,Task 11 加)
 
 **注意:** 本 task 暂不引入 `SharedMemoryContext`,因为 `SharedMemoryContext` 在 Task 6 创建。本 task 的 `DefaultSharedMemory.load()` 直接用构造器传入的 `SharedMemoryStore`,不依赖 context 字段。`activate` 调 `load()` 时 context 参数忽略。
@@ -718,8 +718,8 @@ class SharedMemoryTest {
     }
 
     @Test
-    fun `CAPABILITY_TYPE is memory`() {
-        assertEquals("memory", SharedMemory.CAPABILITY_TYPE)
+    fun `CAPABILITY_TYPE is shared_memory`() {
+        assertEquals("shared_memory", SharedMemory.CAPABILITY_TYPE)
     }
 
     @Test
@@ -794,8 +794,8 @@ import java.time.Instant
 /**
  * 一个共享记忆话题 —— 对应根目录下的一个 `.md` 文件。
  *
- * 实现 [Capability] 接口,通过 `CapabilityLoadTool` 暴露为 `load_memory` 工具的可路由条目。
- * LLM 调用 `load_memory(name=...)` 时,框架按 name 路由到对应实例,调 [load] 返回 md 全文。
+ * 实现 [Capability] 接口,通过 `CapabilityLoadTool` 暴露为 `load_shared_memory` 工具的可路由条目。
+ * LLM 调用 `load_shared_memory(name=...)` 时,框架按 name 路由到对应实例,调 [load] 返回 md 全文。
  *
  * 与 Skill 的对称点:
  * - 都是 `Capability<Unit, Ctx>`,load() 返回文本注入 LLM 上下文
@@ -820,7 +820,7 @@ public interface SharedMemory : Capability<Unit, SharedMemoryContext> {
     override suspend fun activate(arguments: Unit?, context: SharedMemoryContext): String = load()
 
     public companion object {
-        internal const val CAPABILITY_TYPE: String = "memory"
+        internal const val CAPABILITY_TYPE: String = "shared_memory"
     }
 }
 
@@ -887,7 +887,7 @@ import java.time.Duration
  * 携带:
  * - [memoryStore]: 文件 IO 抽象,load/save 共用
  * - [llmProvider]: 压缩用 LLM(非空 —— factory 已做 null 回退到 [ToolExecutionContext.agentContext.llmProvider])
- * - [registry]: 用于 save_memory 创建新话题后触发 rescan
+ * - [registry]: 用于 save_shared_memory 创建新话题后触发 rescan
  * - [memoryFileLimit]: 单文件字符上限,超则异步压缩
  * - [forgetDuration]: 遗忘时间,文件超过此时长未被读写则删
  */
@@ -1029,7 +1029,7 @@ class SharedMemoryRegistryTest {
     @Test
     fun `capabilityType is memory`() {
         val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
-        assertEquals("memory", registry.capabilityType)
+        assertEquals("shared_memory", registry.capabilityType)
     }
 }
 ```
@@ -1134,7 +1134,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 - Consumes: `Tool` / `ToolExecutionResult` / `ToolParameters` / `SharedMemoryStore` / `SharedMemoryFile` / `SharedMemoryRegistry` / `CapabilityContextFactory<SharedMemoryContext>`
 - Produces:
   - `internal class SaveSharedMemoryTool(registry, contextFactory, compressScope) : Tool`
-  - 工具名 `save_memory`,参数 `{name, content, mode}`
+  - 工具名 `save_shared_memory`,参数 `{name, content, mode}`
   - 副作用:新话题创建触发 `rescan`,已有话题更新 `lastAccessedAt`,异步压缩入口(本 task 占位,Task 10 实现)
 
 **注意:** 本 task 不实现压缩与遗忘检查,只跑通读写路径。Task 10/11 会扩展。
@@ -1346,7 +1346,7 @@ internal class SaveSharedMemoryTool(
     private val contextFactory: CapabilityContextFactory<SharedMemoryContext>,
     private val compressScope: CoroutineScope,
 ) : Tool {
-    override val name: String = "save_memory"
+    override val name: String = "save_shared_memory"
 
     override val description: String = """
         将信息写入共享记忆。当用户告诉你值得跨会话记住的事实(偏好、背景、约定等)时调用本工具。
@@ -1573,7 +1573,7 @@ class SharedMemoryPluginTest {
     }
 
     @Test
-    fun `install registers load_memory and save_memory tools`() = runTest {
+    fun `install registers load_shared_memory and save_shared_memory tools`() = runTest {
         val store = PathSharedMemoryStore(tempDir)
         val registry = SharedMemoryRegistry(store, 8000, Duration.ofDays(30), stubLlm)
         val plugin = SharedMemoryPlugin(
@@ -1588,8 +1588,8 @@ class SharedMemoryPluginTest {
         val ctx = FakePluginContext()
         plugin.install(ctx)
         val names = ctx.tools.map { it.name }.toSet()
-        assertTrue("load_memory" in names)
-        assertTrue("save_memory" in names)
+        assertTrue("load_shared_memory" in names)
+        assertTrue("save_shared_memory" in names)
     }
 
     @Test
@@ -1653,15 +1653,15 @@ public object SharedMemoryPluginConfig
  * 因为需要在 install 阶段调 [AgentPluginContext.appendInstructions] 注入 user.md ——
  * `CapabilityPlugin.install` 是 `final override` 且不调 `appendInstructions`。
  *
- * 仍复用 [CapabilityAdapter.of] 拼装 load_memory(委托模式),与 Skill 形态对称。
+ * 仍复用 [CapabilityAdapter.of] 拼装 load_shared_memory(委托模式),与 Skill 形态对称。
  *
  * install 流程:
  * 1. ensureUserMemory: 若 `user.md` 不存在,创建空模板
  * 2. registry.rescan(): 扫描所有话题文件,构建内存注册表
  * 3. 读 user.md 正文,通过 appendInstructions 注入 persona 能力区
  * 4. CapabilityAdapter.of(registry, ctxFactory, null, enableDelegateAdaptMode).adapt()
- *    → load_memory 工具,registerTool
- * 5. registerTool(save_memory)
+ *    → load_shared_memory 工具,registerTool
+ * 5. registerTool(save_shared_memory)
  */
 internal class SharedMemoryPlugin(
     private val directory: Path,
@@ -1703,12 +1703,12 @@ internal class SharedMemoryPlugin(
             }
         }
 
-        // 注册 load_memory(委托模式,继承 CapabilityLoadTool)
+        // 注册 load_shared_memory(委托模式,继承 CapabilityLoadTool)
         CapabilityAdapter.of(registry, ctxFactory, null, enableDelegateAdaptMode)
             .adapt()
             .forEach { context.registerTool(it) }
 
-        // 注册 save_memory
+        // 注册 save_shared_memory
         context.registerTool(SaveSharedMemoryTool(registry, ctxFactory, compressScope))
     }
 
@@ -1750,7 +1750,7 @@ import java.time.Duration
  * @param forgetDuration 遗忘时间,文件超过此时长未被读写则删。默认 30 天
  * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
  * @param memoryStore 文件 IO 抽象;null 时用 [PathSharedMemoryStore]。默认 null
- * @param enableDelegateAdaptMode load_memory 是否走委托模式(单一工具 + name 路由)。默认 true
+ * @param enableDelegateAdaptMode load_shared_memory 是否走委托模式(单一工具 + name 路由)。默认 true
  */
 public fun AgentBuilder.sharedMemory(
     directory: Path,
@@ -1789,7 +1789,7 @@ git add agent/memory/shared/src/main/kotlin/io/github/yeyi/agent/memory/shared/S
 git commit -m "feat(shared-memory): SharedMemoryPlugin 接线 + AgentBuilder DSL
 
 - install 时创建 user.md 空模板,rescan 话题,appendInstructions 注入 user 正文
-- 通过 CapabilityAdapter.of 拼装 load_memory,auxiliary 注册 save_memory
+- 通过 CapabilityAdapter.of 拼装 load_shared_memory,auxiliary 注册 save_shared_memory
 - SharedMemoryPluginConfig object 满足 AgentPlugin<C : Any> 约束
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
@@ -2239,7 +2239,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 **Interfaces:**
 - Consumes: 所有前序 task 的产物
-- Produces: 端到端验证 save_memory → load_memory 完整流程
+- Produces: 端到端验证 save_shared_memory → load_shared_memory 完整流程
 
 - [ ] **Step 1: 写集成测试**
 
