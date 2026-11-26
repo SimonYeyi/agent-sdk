@@ -1,8 +1,8 @@
-# 长期记忆插件实现计划
+# 共享记忆插件实现计划
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 新建 `:agent:long-term-memory` 模块,提供 LLM 可自主读写的 markdown 长期记忆能力,与 core 的短期会话 Memory 正交,含遗忘与压缩机制。
+**Goal:** 新建 `:agent:shared-memory` 模块,提供 LLM 可自主读写的 markdown 共享记忆能力,与 core 的短期会话 Memory 正交,含遗忘与压缩机制。
 
 **Architecture:** 复用 `Capability` 框架,`load_memory` 走委托模式继承 `CapabilityLoadTool`,`save_memory` 作为 auxiliary tool;`MemoryPlugin` 直接实现 `AgentPlugin<MemoryPluginConfig>`(因 `CapabilityPlugin.install` 是 final 且不支持 `appendInstructions`),内部手工调 `CapabilityAdapter.of` 拼装 load 工具。`CapabilityLoadTool` 的 `description` / `parametersSchema` 从 `by lazy` 改为 getter,使重扫后下一轮 LLM 自动看到新话题。
 
@@ -10,12 +10,12 @@
 
 ## Global Constraints
 
-- 包名:`io.github.yeyi.agent.longtermemory`(避开 core 的 `io.github.yeyi.agent.memory`)
-- 模块路径:`agent/long-term-memory/`,Gradle 子模块名 `:agent:long-term-memory`
+- 包名:`io.github.yeyi.agent.memory.shared`(避开 core 的 `io.github.yeyi.agent.memory`)
+- 模块路径:`agent/shared-memory/`,Gradle 子模块名 `:agent:shared-memory`
 - 时间 API:统一用 `java.time.Instant` / `java.time.Duration`,不用 `kotlin.time.Duration`
 - frontmatter 解析:不引入 YAML 库,自写最小化解析(只支持 `---` + `key: value` 行)
 - IO 抽象:`MemoryStore` 接口 + `PathMemoryStore` 默认实现,IO 走 `Dispatchers.IO`
-- 提交规范:遵循 `.claude/rules/git_commit.md`,`chore(build)` / `feat(long-term-memory)` / `test(long-term-memory)` / `refactor(capability)` 等,**只提交不推送**
+- 提交规范:遵循 `.claude/rules/git_commit.md`,`chore(build)` / `feat(shared-memory)` / `test(shared-memory)` / `refactor(capability)` 等,**只提交不推送**
 - API 形态:`explicitApi()` 严格模式,public API 显式标注
 - 测试:JUnit 4 + kotlin-test,`runTest` 跑协程测试
 - 配置参数命名:`memoryFileLimit`(单文件字符上限)/ `forgetDuration`(遗忘时间,java.time.Duration)
@@ -25,34 +25,34 @@
 ## File Structure
 
 ```
-agent/long-term-memory/
+agent/shared-memory/
 ├── build.gradle.kts                                    # Task 2 创建
 └── src
-    ├── main/kotlin/io/github/yeyi/agent/longtermemory/
+    ├── main/kotlin/io/github/yeyi/agent/memory/shared/
     │   ├── MemoryFile.kt           # Task 3:frontmatter 解析/序列化
     │   ├── MemoryStore.kt          # Task 4:存储抽象 + PathMemoryStore
-    │   ├── LongTermMemory.kt       # Task 5:Capability 接口 + DefaultLongTermMemory 实现
+    │   ├── SharedMemory.kt       # Task 5:Capability 接口 + DefaultSharedMemory 实现
     │   ├── MemoryContext.kt        # Task 6:Context + Factory
     │   ├── MemoryRegistry.kt       # Task 7:Registry + rescan
     │   ├── SaveMemoryTool.kt       # Task 8:auxiliary 写入工具(不含压缩/遗忘)
     │   ├── MemoryPlugin.kt         # Task 9:Plugin 接线 + user.md 初始化
-    │   ├── MemoryExtensions.kt     # Task 9:AgentBuilder.longTermMemory DSL
+    │   ├── MemoryExtensions.kt     # Task 9:AgentBuilder.sharedMemory DSL
     │   ├── MemoryCompression.kt    # Task 10:异步压缩
     │   └── MemoryForgetting.kt     # Task 11:遗忘检查(集成到 load/save 路径)
-    └── test/kotlin/io/github/yeyi/agent/longtermemory/
+    └── test/kotlin/io/github/yeyi/agent/memory/shared/
         ├── MemoryFileTest.kt
         ├── PathMemoryStoreTest.kt
-        ├── LongTermMemoryTest.kt
+        ├── SharedMemoryTest.kt
         ├── MemoryRegistryTest.kt
         ├── SaveMemoryToolTest.kt
         ├── MemoryPluginTest.kt
-        └── LongTermMemoryIntegrationTest.kt
+        └── SharedMemoryIntegrationTest.kt
 
 agent/capability/src/main/kotlin/io/github/yeyi/agent/capability/
 └── CapabilityLoadTool.kt           # Task 1:改 lazy → getter
 ```
 
-`settings.gradle.kts` 需新增 `include(":agent:long-term-memory")`。
+`settings.gradle.kts` 需新增 `include(":agent:shared-memory")`。
 
 ---
 
@@ -160,12 +160,12 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ---
 
-## Task 2: 新建 :agent:long-term-memory 模块骨架
+## Task 2: 新建 :agent:shared-memory 模块骨架
 
 **Files:**
-- Create: `agent/long-term-memory/build.gradle.kts`
+- Create: `agent/shared-memory/build.gradle.kts`
 - Modify: `settings.gradle.kts`
-- Test: 跑 `./gradlew :agent:long-term-memory:help` 验证模块被识别
+- Test: 跑 `./gradlew :agent:shared-memory:help` 验证模块被识别
 
 **Interfaces:**
 - Consumes: 无(空模块)
@@ -176,12 +176,12 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 修改 `settings.gradle.kts`,在 `include(":agent:skill")` 之后追加:
 
 ```kotlin
-include(":agent:long-term-memory")
+include(":agent:shared-memory")
 ```
 
 - [ ] **Step 2: 创建 build.gradle.kts**
 
-新建 `agent/long-term-memory/build.gradle.kts`,内容仿照 `agent/skill/build.gradle.kts`:
+新建 `agent/shared-memory/build.gradle.kts`,内容仿照 `agent/skill/build.gradle.kts`:
 
 ```kotlin
 plugins {
@@ -217,26 +217,26 @@ tasks.test {
 - [ ] **Step 3: 创建源目录占位**
 
 ```bash
-mkdir -p agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory
-mkdir -p agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory
+mkdir -p agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory.shared
+mkdir -p agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory.shared
 ```
 
-在 `src/main/kotlin/io/github/yeyi/agent/longtermemory/` 下创建占位文件 `package.txt`(空),让 Gradle 不报"无源文件":
+在 `src/main/kotlin/io/github/yeyi/agent/memory/shared/` 下创建占位文件 `package.txt`(空),让 Gradle 不报"无源文件":
 
 ```bash
-touch agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/package.txt
+touch agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/package.txt
 ```
 
 - [ ] **Step 4: 验证模块被 Gradle 识别**
 
-Run: `./gradlew :agent:long-term-memory:help`
+Run: `./gradlew :agent:shared-memory:help`
 Expected: PASS — 输出 help 信息,无错误
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add settings.gradle.kts agent/long-term-memory/
-git commit -m "chore(long-term-memory): 新建模块骨架
+git add settings.gradle.kts agent/shared-memory/
+git commit -m "chore(shared-memory): 新建模块骨架
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -246,8 +246,8 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 3: MemoryFile —— frontmatter 解析/序列化
 
 **Files:**
-- Create: `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryFile.kt`
-- Test: `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/MemoryFileTest.kt`
+- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryFile.kt`
+- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryFileTest.kt`
 
 **Interfaces:**
 - Consumes: `java.time.Instant`
@@ -258,10 +258,10 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 写失败测试 — 往返序列化**
 
-新建 `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/MemoryFileTest.kt`:
+新建 `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryFileTest.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import java.time.Instant
 import kotlin.test.Test
@@ -369,20 +369,20 @@ class MemoryFileTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.MemoryFileTest"`
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.MemoryFileTest"`
 Expected: FAIL — `MemoryFile` 未定义
 
 - [ ] **Step 3: 实现 MemoryFile**
 
-新建 `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryFile.kt`:
+新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryFile.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import java.time.Instant
 
 /**
- * 长期记忆 md 文件 —— frontmatter 元数据 + Markdown 正文。
+ * 共享记忆 md 文件 —— frontmatter 元数据 + Markdown 正文。
  *
  * 文件格式:
  * ```
@@ -465,15 +465,15 @@ public data class MemoryFile(
 
 - [ ] **Step 4: 跑测试验证通过**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.MemoryFileTest"`
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.MemoryFileTest"`
 Expected: PASS — 5 个测试全部通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryFile.kt \
-        agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/MemoryFileTest.kt
-git commit -m "feat(long-term-memory): MemoryFile frontmatter 解析与序列化
+git add agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryFile.kt \
+        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryFileTest.kt
+git commit -m "feat(shared-memory): MemoryFile frontmatter 解析与序列化
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -483,8 +483,8 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 4: MemoryStore —— 存储抽象 + PathMemoryStore
 
 **Files:**
-- Create: `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryStore.kt`
-- Test: `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/PathMemoryStoreTest.kt`
+- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryStore.kt`
+- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathMemoryStoreTest.kt`
 
 **Interfaces:**
 - Consumes: `java.nio.file.Path`, `kotlinx.coroutines.Dispatchers`
@@ -495,10 +495,10 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/PathMemoryStoreTest.kt`:
+新建 `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathMemoryStoreTest.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import kotlinx.coroutines.test.runTest
 import java.nio.file.Files
@@ -576,22 +576,22 @@ class PathMemoryStoreTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.PathMemoryStoreTest"`
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.PathMemoryStoreTest"`
 Expected: FAIL — `MemoryStore` / `PathMemoryStore` 未定义
 
 - [ ] **Step 3: 实现 MemoryStore + PathMemoryStore**
 
-新建 `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryStore.kt`:
+新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryStore.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import java.nio.file.Path
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * 长期记忆文件存储抽象。默认实现 [PathMemoryStore] 走文件系统,宿主可注入自定义实现。
+ * 共享记忆文件存储抽象。默认实现 [PathMemoryStore] 走文件系统,宿主可注入自定义实现。
  *
  * 所有方法为 suspend,允许实现内部走 IO dispatcher。
  * [list] 返回所有 `.md` 文件名(不含后缀),**排除 `user`**(user.md 是特殊保留名,不作为普通话题注册)。
@@ -645,41 +645,41 @@ public class PathMemoryStore(private val directory: Path) : MemoryStore {
 
 - [ ] **Step 4: 跑测试验证通过**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.PathMemoryStoreTest"`
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.PathMemoryStoreTest"`
 Expected: PASS — 7 个测试全部通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryStore.kt \
-        agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/PathMemoryStoreTest.kt
-git commit -m "feat(long-term-memory): MemoryStore 抽象与 PathMemoryStore 默认实现
+git add agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryStore.kt \
+        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/PathMemoryStoreTest.kt
+git commit -m "feat(shared-memory): MemoryStore 抽象与 PathMemoryStore 默认实现
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
 
 ---
 
-## Task 5: LongTermMemory —— Capability 接口 + Default 实现
+## Task 5: SharedMemory —— Capability 接口 + Default 实现
 
 **Files:**
-- Create: `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/LongTermMemory.kt`
-- Test: `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/LongTermMemoryTest.kt`
+- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt`
+- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt`
 
 **Interfaces:**
 - Consumes: `Capability<Unit, MemoryContext>`(来自 `:agent:capability`)、`MemoryStore`、`MemoryFile`(Task 3/4)
 - Produces:
-  - `public interface LongTermMemory : Capability<Unit, MemoryContext>`(含 `load()` 抽象方法 + `CAPABILITY_TYPE = "memory"` companion)
-  - `internal class DefaultLongTermMemory(...)` — 持久化 + lastAccessedAt 更新(暂不含遗忘检查,Task 11 加)
+  - `public interface SharedMemory : Capability<Unit, MemoryContext>`(含 `load()` 抽象方法 + `CAPABILITY_TYPE = "memory"` companion)
+  - `internal class DefaultSharedMemory(...)` — 持久化 + lastAccessedAt 更新(暂不含遗忘检查,Task 11 加)
 
-**注意:** 本 task 暂不引入 `MemoryContext`,因为 `MemoryContext` 在 Task 6 创建。本 task 的 `DefaultLongTermMemory.load()` 直接用构造器传入的 `MemoryStore`,不依赖 context 字段。`activate` 调 `load()` 时 context 参数忽略。
+**注意:** 本 task 暂不引入 `MemoryContext`,因为 `MemoryContext` 在 Task 6 创建。本 task 的 `DefaultSharedMemory.load()` 直接用构造器传入的 `MemoryStore`,不依赖 context 字段。`activate` 调 `load()` 时 context 参数忽略。
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/LongTermMemoryTest.kt`:
+新建 `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import io.github.yeyi.agent.capability.CapabilityContext
 import io.github.yeyi.agent.capability.CapabilityContextFactory
@@ -695,7 +695,7 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 
-class LongTermMemoryTest {
+class SharedMemoryTest {
 
     private val tempDir = Files.createTempDirectory("ltm-test")
     private val store = PathMemoryStore(tempDir)
@@ -719,14 +719,14 @@ class LongTermMemoryTest {
 
     @Test
     fun `CAPABILITY_TYPE is memory`() {
-        assertEquals("memory", LongTermMemory.CAPABILITY_TYPE)
+        assertEquals("memory", SharedMemory.CAPABILITY_TYPE)
     }
 
     @Test
     fun `load returns full md content and updates lastAccessedAt`() = runTest {
         seedMemory("travel", "去东南亚")
         val before = Instant.now()
-        val memory = DefaultLongTermMemory("travel", "desc for travel", store)
+        val memory = DefaultSharedMemory("travel", "desc for travel", store)
         val content = memory.load()
         val after = Instant.now()
 
@@ -744,14 +744,14 @@ class LongTermMemoryTest {
     @Test
     fun `activate delegates to load`() = runTest {
         seedMemory("food", "喜欢吃辣")
-        val memory = DefaultLongTermMemory("food", "desc for food", store)
+        val memory = DefaultSharedMemory("food", "desc for food", store)
         val result = memory.activate(null, stubMemoryContext())
         assertTrue(result.contains("喜欢吃辣"))
     }
 
     @Test
     fun `name and description come from constructor`() {
-        val m = DefaultLongTermMemory("topic", "my desc", store)
+        val m = DefaultSharedMemory("topic", "my desc", store)
         assertEquals("topic", m.name)
         assertEquals("my desc", m.description)
     }
@@ -778,21 +778,21 @@ class LongTermMemoryTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.LongTermMemoryTest"`
-Expected: FAIL — `LongTermMemory` / `DefaultLongTermMemory` / `MemoryContext` / `MemoryRegistry` 未定义
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryTest"`
+Expected: FAIL — `SharedMemory` / `DefaultSharedMemory` / `MemoryContext` / `MemoryRegistry` 未定义
 
-- [ ] **Step 3: 实现 LongTermMemory + DefaultLongTermMemory**
+- [ ] **Step 3: 实现 SharedMemory + DefaultSharedMemory**
 
-新建 `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/LongTermMemory.kt`:
+新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import io.github.yeyi.agent.capability.Capability
 import java.time.Instant
 
 /**
- * 一个长期记忆话题 —— 对应根目录下的一个 `.md` 文件。
+ * 一个共享记忆话题 —— 对应根目录下的一个 `.md` 文件。
  *
  * 实现 [Capability] 接口,通过 `CapabilityLoadTool` 暴露为 `load_memory` 工具的可路由条目。
  * LLM 调用 `load_memory(name=...)` 时,框架按 name 路由到对应实例,调 [load] 返回 md 全文。
@@ -802,10 +802,10 @@ import java.time.Instant
  * - 都是"按需加载",description 告诉 LLM 何时使用,正文不预加载
  *
  * 与 Skill 的区别:
- * - Skill 是静态注册,LongTermMemory 由 [MemoryRegistry] 在 install/rescan 时动态构建
+ * - Skill 是静态注册,SharedMemory 由 [MemoryRegistry] 在 install/rescan 时动态构建
  * - load() 触发 lastAccessedAt 更新和遗忘检查
  */
-public interface LongTermMemory : Capability<Unit, MemoryContext> {
+public interface SharedMemory : Capability<Unit, MemoryContext> {
     /**
      * 加载本话题的 md 全文(frontmatter + 正文)。
      *
@@ -827,11 +827,11 @@ public interface LongTermMemory : Capability<Unit, MemoryContext> {
 /**
  * 默认实现 —— 持有 [memoryStore] 与 [name],[load] 时读文件 + 更新 lastAccessedAt。
  */
-internal class DefaultLongTermMemory(
+internal class DefaultSharedMemory(
     override val name: String,
     override val description: String,
     private val memoryStore: MemoryStore,
-) : LongTermMemory {
+) : SharedMemory {
     override suspend fun load(): String {
         val raw = memoryStore.read(name) ?: return "(memory expired)"
         val (frontmatter, body) = MemoryFile.parse(raw)
@@ -846,7 +846,7 @@ internal class DefaultLongTermMemory(
 
 - [ ] **Step 4: 跑测试验证失败(MemoryContext / MemoryRegistry 还没建)**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.LongTermMemoryTest"`
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryTest"`
 Expected: FAIL — 仍是 `MemoryContext` / `MemoryRegistry` 未定义
 
 **这是预期的** — 测试中 stubMemoryContext 引用了 Task 6 才会创建的 `MemoryContext` 和 `MemoryRegistry`。先继续 Task 6,完成后回到本 task 跑测试。
@@ -858,7 +858,7 @@ Expected: FAIL — 仍是 `MemoryContext` / `MemoryRegistry` 未定义
 ## Task 6: MemoryContext —— 执行上下文 + Factory
 
 **Files:**
-- Create: `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryContext.kt`
+- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryContext.kt`
 - Test: 本 task 不单独写测试,在 Task 5 测试中已 stub,Task 5/6 完成后一起验证
 
 **Interfaces:**
@@ -870,10 +870,10 @@ Expected: FAIL — 仍是 `MemoryContext` / `MemoryRegistry` 未定义
 
 - [ ] **Step 1: 实现 MemoryContext + Factory**
 
-新建 `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryContext.kt`:
+新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryContext.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import io.github.yeyi.agent.capability.CapabilityContext
 import io.github.yeyi.agent.capability.CapabilityContextFactory
@@ -925,21 +925,21 @@ internal class MemoryContextFactory(
 ## Task 7: MemoryRegistry —— 注册中心 + rescan
 
 **Files:**
-- Create: `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryRegistry.kt`
-- Test: `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/MemoryRegistryTest.kt`
+- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistry.kt`
+- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistryTest.kt`
 
 **Interfaces:**
-- Consumes: `CapabilityRegistry<LongTermMemory, Unit, MemoryContext>` / `DefaultCapabilityRegistry` / `MemoryStore` / `MemoryFile`
+- Consumes: `CapabilityRegistry<SharedMemory, Unit, MemoryContext>` / `DefaultCapabilityRegistry` / `MemoryStore` / `MemoryFile`
 - Produces:
-  - `public class MemoryRegistry(memoryStore, memoryFileLimit, forgetDuration, llmProvider) : CapabilityRegistry<LongTermMemory, Unit, MemoryContext>`
+  - `public class MemoryRegistry(memoryStore, memoryFileLimit, forgetDuration, llmProvider) : CapabilityRegistry<SharedMemory, Unit, MemoryContext>`
   - `public suspend fun rescan()` — 扫描目录,同步 registry 与文件系统状态
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/MemoryRegistryTest.kt`:
+新建 `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistryTest.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ChatResponse
@@ -1036,15 +1036,15 @@ class MemoryRegistryTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.MemoryRegistryTest"`
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.MemoryRegistryTest"`
 Expected: FAIL — `MemoryRegistry` 未定义
 
 - [ ] **Step 3: 实现 MemoryRegistry**
 
-新建 `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryRegistry.kt`:
+新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistry.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import io.github.yeyi.agent.capability.CapabilityRegistry
 import io.github.yeyi.agent.capability.DefaultCapabilityRegistry
@@ -1054,7 +1054,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /**
- * 长期记忆注册中心,负责 (re)scan 目录、维护 name → LongTermMemory 映射。
+ * 共享记忆注册中心,负责 (re)scan 目录、维护 name → SharedMemory 映射。
  *
  * - [rescan] 扫描根目录所有 `.md` 文件(由 [MemoryStore.list] 返回,已排除 `user.md`),
  *   解析 frontmatter,同步 registry 与文件系统状态。
@@ -1066,8 +1066,8 @@ public class MemoryRegistry(
     private val memoryFileLimit: Int,
     private val forgetDuration: Duration,
     private val llmProvider: LlmProvider?,
-) : CapabilityRegistry<LongTermMemory, Unit, MemoryContext> by DefaultCapabilityRegistry(
-    capabilityType = LongTermMemory.CAPABILITY_TYPE
+) : CapabilityRegistry<SharedMemory, Unit, MemoryContext> by DefaultCapabilityRegistry(
+    capabilityType = SharedMemory.CAPABILITY_TYPE
 ) {
     private val mutex = Mutex()
 
@@ -1092,11 +1092,11 @@ public class MemoryRegistry(
         }
     }
 
-    private suspend fun loadFromStore(name: String): LongTermMemory? {
+    private suspend fun loadFromStore(name: String): SharedMemory? {
         val content = memoryStore.read(name) ?: return null
         return try {
             val (frontmatter, _) = MemoryFile.parse(content)
-            DefaultLongTermMemory(frontmatter.name, frontmatter.description, memoryStore)
+            DefaultSharedMemory(frontmatter.name, frontmatter.description, memoryStore)
         } catch (e: Exception) {
             null // 解析失败的文件跳过
         }
@@ -1106,18 +1106,18 @@ public class MemoryRegistry(
 
 - [ ] **Step 4: 跑 Task 5/6/7 所有测试验证通过**
 
-Run: `./gradlew :agent:long-term-memory:test`
-Expected: PASS — LongTermMemoryTest、MemoryRegistryTest 全部通过
+Run: `./gradlew :agent:shared-memory:test`
+Expected: PASS — SharedMemoryTest、MemoryRegistryTest 全部通过
 
 - [ ] **Step 5: 提交 Task 5/6/7**
 
 ```bash
-git add agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/LongTermMemory.kt \
-        agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryContext.kt \
-        agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryRegistry.kt \
-        agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/LongTermMemoryTest.kt \
-        agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/MemoryRegistryTest.kt
-git commit -m "feat(long-term-memory): LongTermMemory/MemoryContext/MemoryRegistry 核心类型
+git add agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt \
+        agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryContext.kt \
+        agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistry.kt \
+        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt \
+        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryRegistryTest.kt
+git commit -m "feat(shared-memory): SharedMemory/MemoryContext/MemoryRegistry 核心类型
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -1127,8 +1127,8 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 8: SaveMemoryTool —— 写入工具(不含压缩/遗忘)
 
 **Files:**
-- Create: `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/SaveMemoryTool.kt`
-- Test: `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/SaveMemoryToolTest.kt`
+- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`
+- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt`
 
 **Interfaces:**
 - Consumes: `Tool` / `ToolExecutionResult` / `ToolParameters` / `MemoryStore` / `MemoryFile` / `MemoryRegistry` / `CapabilityContextFactory<MemoryContext>`
@@ -1141,10 +1141,10 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/SaveMemoryToolTest.kt`:
+新建 `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.capability.CapabilityContextFactory
@@ -1302,15 +1302,15 @@ class SaveMemoryToolTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.SaveMemoryToolTest"`
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest"`
 Expected: FAIL — `SaveMemoryTool` 未定义
 
 - [ ] **Step 3: 实现 SaveMemoryTool(不含压缩/遗忘)**
 
-新建 `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/SaveMemoryTool.kt`:
+新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import io.github.yeyi.agent.capability.CapabilityContextFactory
 import io.github.yeyi.agent.tool.Tool
@@ -1327,7 +1327,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
- * LLM 写入长期记忆的工具。
+ * LLM 写入共享记忆的工具。
  *
  * 参数:
  * - name: 话题名(对应文件名,不含 .md)
@@ -1349,7 +1349,7 @@ internal class SaveMemoryTool(
     override val name: String = "save_memory"
 
     override val description: String = """
-        将信息写入长期记忆。当用户告诉你值得跨会话记住的事实(偏好、背景、约定等)时调用本工具。
+        将信息写入共享记忆。当用户告诉你值得跨会话记住的事实(偏好、背景、约定等)时调用本工具。
 
         参数:
         - name: 话题名(英文短词,如 "travel-preferences")。若话题已存在则更新;若不存在则新建。
@@ -1423,15 +1423,15 @@ internal class SaveMemoryTool(
 
 - [ ] **Step 4: 跑测试验证通过**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.SaveMemoryToolTest"`
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest"`
 Expected: PASS — 8 个测试全部通过
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/SaveMemoryTool.kt \
-        agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/SaveMemoryToolTest.kt
-git commit -m "feat(long-term-memory): SaveMemoryTool 写入工具(append/replace)
+git add agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt \
+        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt
+git commit -m "feat(shared-memory): SaveMemoryTool 写入工具(append/replace)
 
 不含压缩与遗忘,Task 10/11 扩展。
 
@@ -1443,23 +1443,23 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 9: MemoryPlugin + DSL —— 接线与 user.md 初始化
 
 **Files:**
-- Create: `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryPlugin.kt`
-- Create: `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryExtensions.kt`
-- Test: `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/MemoryPluginTest.kt`
+- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryPlugin.kt`
+- Create: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryExtensions.kt`
+- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryPluginTest.kt`
 
 **Interfaces:**
 - Consumes: `AgentPlugin` / `AgentPluginContext` / `CapabilityAdapter` / `MemoryStore` / `MemoryRegistry` / `SaveMemoryTool` / `MemoryFile`
 - Produces:
   - `public object MemoryPluginConfig` — placeholder config 类型(满足 `AgentPlugin<C : Any>` 约束)
   - `internal class MemoryPlugin(...) : AgentPlugin<MemoryPluginConfig>`
-  - `public fun AgentBuilder.longTermMemory(directory, memoryFileLimit, forgetDuration, llmProvider, memoryStore, enableDelegateAdaptMode)`
+  - `public fun AgentBuilder.sharedMemory(directory, memoryFileLimit, forgetDuration, llmProvider, memoryStore, enableDelegateAdaptMode)`
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/MemoryPluginTest.kt`:
+新建 `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryPluginTest.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.AgentPluginContext
@@ -1617,15 +1617,15 @@ class MemoryPluginTest {
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.MemoryPluginTest"`
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.MemoryPluginTest"`
 Expected: FAIL — `MemoryPlugin` / `MemoryExtensions` 未定义
 
 - [ ] **Step 3: 实现 MemoryPlugin + MemoryPluginConfig**
 
-新建 `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryPlugin.kt`:
+新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryPlugin.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import io.github.yeyi.agent.AgentPlugin
 import io.github.yeyi.agent.AgentPluginContext
@@ -1647,7 +1647,7 @@ import kotlinx.coroutines.runBlocking
 public object MemoryPluginConfig
 
 /**
- * 长期记忆插件的接线类。
+ * 共享记忆插件的接线类。
  *
  * 直接实现 [AgentPlugin] 而非继承 [io.github.yeyi.agent.capability.CapabilityPlugin],
  * 因为需要在 install 阶段调 [AgentPluginContext.appendInstructions] 注入 user.md ——
@@ -1673,7 +1673,7 @@ internal class MemoryPlugin(
     private val registry: MemoryRegistry,
 ) : AgentPlugin<MemoryPluginConfig> {
 
-    override val id: String = "long-term-memory"
+    override val id: String = "shared-memory"
 
     private val compressScope = CoroutineScope(SupervisorJob())
     private val ctxFactory: CapabilityContextFactory<MemoryContext> = MemoryContextFactory(
@@ -1732,19 +1732,18 @@ internal class MemoryPlugin(
 
 - [ ] **Step 4: 实现 MemoryExtensions**
 
-新建 `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryExtensions.kt`:
+新建 `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryExtensions.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.llm.LlmProvider
 import java.nio.file.Path
 import java.time.Duration
-import java.time.Duration.Companion.days
 
 /**
- * 注册长期记忆插件到 Agent。
+ * 注册共享记忆插件到 Agent。
  *
  * @param directory 记忆文件根目录,宿主必传
  * @param memoryFileLimit 单文件字符上限,超则异步压缩。默认 8000
@@ -1753,10 +1752,10 @@ import java.time.Duration.Companion.days
  * @param memoryStore 文件 IO 抽象;null 时用 [PathMemoryStore]。默认 null
  * @param enableDelegateAdaptMode load_memory 是否走委托模式(单一工具 + name 路由)。默认 true
  */
-public fun AgentBuilder.longTermMemory(
+public fun AgentBuilder.sharedMemory(
     directory: Path,
     memoryFileLimit: Int = 8000,
-    forgetDuration: Duration = 30.days,
+    forgetDuration: Duration = Duration.ofDays(30),
     llmProvider: LlmProvider? = null,
     memoryStore: MemoryStore? = null,
     enableDelegateAdaptMode: Boolean = true,
@@ -1778,16 +1777,16 @@ public fun AgentBuilder.longTermMemory(
 
 - [ ] **Step 5: 跑测试验证通过**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.MemoryPluginTest"`
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.MemoryPluginTest"`
 Expected: PASS — 5 个测试全部通过
 
 - [ ] **Step 6: 提交**
 
 ```bash
-git add agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryPlugin.kt \
-        agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/MemoryExtensions.kt \
-        agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/MemoryPluginTest.kt
-git commit -m "feat(long-term-memory): MemoryPlugin 接线 + AgentBuilder DSL
+git add agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryPlugin.kt \
+        agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/MemoryExtensions.kt \
+        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/MemoryPluginTest.kt
+git commit -m "feat(shared-memory): MemoryPlugin 接线 + AgentBuilder DSL
 
 - install 时创建 user.md 空模板,rescan 话题,appendInstructions 注入 user 正文
 - 通过 CapabilityAdapter.of 拼装 load_memory,auxiliary 注册 save_memory
@@ -1801,8 +1800,8 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 10: 异步压缩
 
 **Files:**
-- Modify: `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/SaveMemoryTool.kt`
-- Test: `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/SaveMemoryToolTest.kt`(追加压缩测试)
+- Modify: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`
+- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt`(追加压缩测试)
 
 **Interfaces:**
 - Consumes: `MemoryContext.llmProvider` / `ChatRequest` / `ChatMessage.System` / `ChatResponse.message.content`
@@ -1852,7 +1851,7 @@ fun `save triggers async compression when body exceeds memoryFileLimit`() = runT
 
 - [ ] **Step 2: 跑测试验证失败**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.SaveMemoryToolTest.save triggers async compression when body exceeds memoryFileLimit"`
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest.save triggers async compression when body exceeds memoryFileLimit"`
 Expected: FAIL — body 仍是原始长内容(`compressMemory` 是空实现)
 
 - [ ] **Step 3: 实现 compressMemory**
@@ -1868,7 +1867,7 @@ private suspend fun compressMemory(
 ) {
     val targetSize = ctx.memoryFileLimit / 2
     val prompt = """
-        请总结以下长期记忆内容,保留关键信息,压缩到 $targetSize 字符以内。
+        请总结以下共享记忆内容,保留关键信息,压缩到 $targetSize 字符以内。
         只输出压缩后的正文,不要任何前缀说明。
 
         原始内容:
@@ -1887,15 +1886,15 @@ private suspend fun compressMemory(
 
 - [ ] **Step 4: 跑测试验证通过**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.SaveMemoryToolTest"`
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest"`
 Expected: PASS — 9 个测试全部通过(含新增压缩测试)
 
 - [ ] **Step 5: 提交**
 
 ```bash
-git add agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/SaveMemoryTool.kt \
-        agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/SaveMemoryToolTest.kt
-git commit -m "feat(long-term-memory): 异步压缩,超 memoryFileLimit 时调 LLM 总结
+git add agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt \
+        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt
+git commit -m "feat(shared-memory): 异步压缩,超 memoryFileLimit 时调 LLM 总结
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -1905,9 +1904,9 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 11: 遗忘检查(集成到 load/save 路径)
 
 **Files:**
-- Modify: `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/LongTermMemory.kt`(load 时检查)
-- Modify: `agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/SaveMemoryTool.kt`(save 时检查)
-- Test: 扩展 `LongTermMemoryTest.kt` 和 `SaveMemoryToolTest.kt`
+- Modify: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt`(load 时检查)
+- Modify: `agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt`(save 时检查)
+- Test: 扩展 `SharedMemoryTest.kt` 和 `SaveMemoryToolTest.kt`
 
 **Interfaces:**
 - Consumes: `MemoryContext.forgetDuration` / `MemoryContext.memoryStore` / `MemoryContext.registry`
@@ -1915,7 +1914,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 写失败测试 — load 时遗忘过期文件**
 
-在 `LongTermMemoryTest.kt` 末尾追加:
+在 `SharedMemoryTest.kt` 末尾追加:
 
 ```kotlin
 @Test
@@ -1924,7 +1923,7 @@ fun `load deletes file when lastAccessedAt exceeds forgetDuration`() = runTest {
     seedMemory("old-topic", "旧内容", lastAccessedAt = oldTime)
     val shortForgetDuration = java.time.Duration.ofSeconds(30) // 30 秒就遗忘
 
-    val memory = DefaultLongTermMemory("old-topic", "desc for old-topic", store)
+    val memory = DefaultSharedMemory("old-topic", "desc for old-topic", store)
     // 用短 forgetDuration 的 context
     val stubLlm = object : io.github.yeyi.agent.llm.LlmProvider {
         override val name: String = "stub"
@@ -1951,7 +1950,7 @@ fun `load does not forget user file even when expired`() = runTest {
     seedMemory("user", "用户画像", lastAccessedAt = oldTime)
     val shortForgetDuration = java.time.Duration.ofSeconds(30)
 
-    val memory = DefaultLongTermMemory("user", "用户画像", store)
+    val memory = DefaultSharedMemory("user", "用户画像", store)
     val stubLlm = object : io.github.yeyi.agent.llm.LlmProvider {
         override val name: String = "stub"
         override suspend fun chat(request: io.github.yeyi.agent.llm.ChatRequest) =
@@ -2006,19 +2005,19 @@ fun `save deletes file when lastAccessedAt exceeds forgetDuration`() = runTest {
 
 - [ ] **Step 3: 跑测试验证失败**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.LongTermMemoryTest.load deletes file when lastAccessedAt exceeds forgetDuration" --tests "io.github.yeyi.agent.longtermemory.SaveMemoryToolTest.save deletes file when lastAccessedAt exceeds forgetDuration"`
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryTest.load deletes file when lastAccessedAt exceeds forgetDuration" --tests "io.github.yeyi.agent.memory.shared.SaveMemoryToolTest.save deletes file when lastAccessedAt exceeds forgetDuration"`
 Expected: FAIL — 遗忘逻辑未实现
 
-- [ ] **Step 4: 改 DefaultLongTermMemory.load 集成遗忘检查**
+- [ ] **Step 4: 改 DefaultSharedMemory.load 集成遗忘检查**
 
-修改 `LongTermMemory.kt` 的 `DefaultLongTermMemory`:
+修改 `SharedMemory.kt` 的 `DefaultSharedMemory`:
 
 ```kotlin
-internal class DefaultLongTermMemory(
+internal class DefaultSharedMemory(
     override val name: String,
     override val description: String,
     private val memoryStore: MemoryStore,
-) : LongTermMemory {
+) : SharedMemory {
     override suspend fun load(): String = "(load should not be called without context)"
 
     override suspend fun activate(arguments: Unit?, context: MemoryContext): String {
@@ -2198,7 +2197,7 @@ override suspend fun execute(arguments: JsonElement, context: ToolExecutionConte
 
 Task 5 测试里的 `memory.activate(null, stubMemoryContext())` 仍可用,但 `stubMemoryContext()` 的 `forgetDuration` 是 30 天,seedMemory 用的 `lastAccessedAt = Instant.parse("2026-11-25T10:00:00Z")` 在 30 天内,不会触发遗忘。如果测试跑得离 2026-11-25 太远(超过 30 天),会触发遗忘——为避免时间漂移,把 Task 5 测试里 seedMemory 用的 `lastAccessedAt` 改成 `Instant.now()`。
 
-修改 `LongTermMemoryTest.kt` 的 `seedMemory` 默认参数:
+修改 `SharedMemoryTest.kt` 的 `seedMemory` 默认参数:
 
 ```kotlin
 private fun seedMemory(name: String, body: String, lastAccessedAt: Instant = Instant.now()) {
@@ -2210,19 +2209,19 @@ private fun seedMemory(name: String, body: String, lastAccessedAt: Instant = Ins
 }
 ```
 
-- [ ] **Step 7: 跑所有长期记忆测试验证通过**
+- [ ] **Step 7: 跑所有共享记忆测试验证通过**
 
-Run: `./gradlew :agent:long-term-memory:test`
+Run: `./gradlew :agent:shared-memory:test`
 Expected: PASS — 所有测试通过
 
 - [ ] **Step 8: 提交**
 
 ```bash
-git add agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/LongTermMemory.kt \
-        agent/long-term-memory/src/main/kotlin/io/github/yeyi/agent/longtermemory/SaveMemoryTool.kt \
-        agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/LongTermMemoryTest.kt \
-        agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/SaveMemoryToolTest.kt
-git commit -m "feat(long-term-memory): 遗忘检查集成到 load/save 路径
+git add agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SharedMemory.kt \
+        agent/shared-memory/src/main/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryTool.kt \
+        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryTest.kt \
+        agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SaveMemoryToolTest.kt
+git commit -m "feat(shared-memory): 遗忘检查集成到 load/save 路径
 
 - load/save 时基于原始 lastAccessedAt 检查 forgetDuration
 - user.md 豁免遗忘
@@ -2236,7 +2235,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ## Task 12: 集成测试 — 端到端 save → load 流程
 
 **Files:**
-- Test: `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/LongTermMemoryIntegrationTest.kt`
+- Test: `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryIntegrationTest.kt`
 
 **Interfaces:**
 - Consumes: 所有前序 task 的产物
@@ -2244,10 +2243,10 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 - [ ] **Step 1: 写集成测试**
 
-新建 `agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/LongTermMemoryIntegrationTest.kt`:
+新建 `agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryIntegrationTest.kt`:
 
 ```kotlin
-package io.github.yeyi.agent.longtermemory
+package io.github.yeyi.agent.memory.shared
 
 import io.github.yeyi.agent.AgentContext
 import io.github.yeyi.agent.AgentPersona
@@ -2275,7 +2274,7 @@ import kotlin.test.AfterTest
 import kotlin.test.Test
 import kotlin.test.assertTrue
 
-class LongTermMemoryIntegrationTest {
+class SharedMemoryIntegrationTest {
 
     private val tempDir = Files.createTempDirectory("ltm-integration")
     private val store = PathMemoryStore(tempDir)
@@ -2378,14 +2377,14 @@ class LongTermMemoryIntegrationTest {
 
 - [ ] **Step 2: 跑测试验证通过**
 
-Run: `./gradlew :agent:long-term-memory:test --tests "io.github.yeyi.agent.longtermemory.LongTermMemoryIntegrationTest"`
+Run: `./gradlew :agent:shared-memory:test --tests "io.github.yeyi.agent.memory.shared.SharedMemoryIntegrationTest"`
 Expected: PASS — 3 个集成测试全部通过
 
 - [ ] **Step 3: 提交**
 
 ```bash
-git add agent/long-term-memory/src/test/kotlin/io/github/yeyi/agent/longtermemory/LongTermMemoryIntegrationTest.kt
-git commit -m "test(long-term-memory): 端到端 save→load 集成测试
+git add agent/shared-memory/src/test/kotlin/io/github/yeyi/agent/memory/shared/SharedMemoryIntegrationTest.kt
+git commit -m "test(shared-memory): 端到端 save→load 集成测试
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -2397,9 +2396,9 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 **Files:**
 - 无新建文件,跑全量测试验证
 
-- [ ] **Step 1: 跑长期记忆模块全部测试**
+- [ ] **Step 1: 跑共享记忆模块全部测试**
 
-Run: `./gradlew :agent:long-term-memory:test`
+Run: `./gradlew :agent:shared-memory:test`
 Expected: PASS — 所有测试通过
 
 - [ ] **Step 2: 跑 capability 模块测试确认无回归**
@@ -2414,13 +2413,13 @@ Expected: PASS — 所有模块测试通过
 
 - [ ] **Step 4: (可选)在 demos/agent 加示例**
 
-如果用户希望 demos 里有一个长期记忆示例,可在 `demos/agent/src/main/kotlin/io/github/yeyi/agent/demo/agent/runtime/` 下新增 `memories/` 目录,放一个简单的 demo。本步骤可选,根据用户需求决定。
+如果用户希望 demos 里有一个共享记忆示例,可在 `demos/agent/src/main/kotlin/io/github/yeyi/agent/demo/agent/runtime/` 下新增 `memories/` 目录,放一个简单的 demo。本步骤可选,根据用户需求决定。
 
 - [ ] **Step 5: 提交(若有 demo 改动)**
 
 ```bash
 git add demos/agent/
-git commit -m "demo(agent): 长期记忆示例接入
+git commit -m "demo(agent): 共享记忆示例接入
 
 Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 ```
@@ -2434,7 +2433,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 | Spec 章节 | 对应 Task |
 |---|---|
 | §3 模块结构 | Task 2 |
-| §4.1 LongTermMemory | Task 5 |
+| §4.1 SharedMemory | Task 5 |
 | §4.2 MemoryContext | Task 6 |
 | §4.3 MemoryRegistry + rescan | Task 7 |
 | §4.4 MemoryPlugin | Task 9 |
@@ -2466,13 +2465,13 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 - `MemoryRegistry` 构造参数顺序在所有 Task 一致:`memoryStore, memoryFileLimit, forgetDuration, llmProvider`
 - `SaveMemoryTool` 构造参数顺序一致:`registry, contextFactory, compressScope`
 - `MemoryPlugin` 构造参数顺序一致:`directory, memoryFileLimit, forgetDuration, llmProvider, memoryStore, enableDelegateAdaptMode, registry`
-- `AgentBuilder.longTermMemory` 参数顺序在 Task 9 与 spec §4.8 一致
+- `AgentBuilder.sharedMemory` 参数顺序在 Task 9 与 spec §4.8 一致
 
 ### 4. 已知偏离 spec
 
 1. **`MemoryPlugin` 不继承 `CapabilityPlugin`** — spec §2/§4.4 已说明原因(`CapabilityPlugin.install` 是 final 且不支持 `appendInstructions`)。Plan Task 9 实现为直接实现 `AgentPlugin<MemoryPluginConfig>`。
 2. **`MemoryPluginConfig` object** — `AgentPlugin<C : Any>` 不接受 `Unit`,需要占位 config 类型。spec 未提及,plan 补充。
-3. **`DefaultLongTermMemory.load()` 返回提示字符串** — 遗忘检查需要 context,但 `load()` 无参,实际逻辑移到 `activate`。Task 11 Step 4 已说明。
+3. **`DefaultSharedMemory.load()` 返回提示字符串** — 遗忘检查需要 context,但 `load()` 无参,实际逻辑移到 `activate`。Task 11 Step 4 已说明。
 4. **`java.time.Duration` 替代 `kotlin.time.Duration`** — JVM 项目统一用 java.time,与 core 一致。
 5. **frontmatter 不引入 YAML 库** — 自写最小化解析,只支持 `key: value` 行 + `---` 分隔符。
 
@@ -2480,7 +2479,7 @@ Co-Authored-By: Claude Opus 4.7 <noreply@anthropic.com>"
 
 ## Execution Handoff
 
-Plan complete and saved to `docs/superpowers/plans/2026-11-25-long-term-memory.md`. Two execution options:
+Plan complete and saved to `docs/superpowers/plans/2026-11-25-shared-memory.md`. Two execution options:
 
 **1. Subagent-Driven (recommended)** - I dispatch a fresh subagent per task, review between tasks, fast iteration
 
