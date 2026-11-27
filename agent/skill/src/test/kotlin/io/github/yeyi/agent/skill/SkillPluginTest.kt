@@ -25,7 +25,7 @@ class SkillPluginTest {
             _tools.add(tool)
         }
 
-        override fun appendInstructions(content: String) {}
+        override fun addInstruction(content: String, label: String?) {}
     }
 
     private fun AgentBuilder.installedTools(): List<Tool> {

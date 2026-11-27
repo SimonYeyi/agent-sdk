@@ -29,7 +29,7 @@ class LazyToolExtensionsTest {
         override fun registerTool(tool: Tool) {
             tools.add(tool)
         }
-        override fun appendInstructions(content: String) {}
+        override fun addInstruction(content: String, label: String?) {}
 
         fun getInstalledTools(): List<Tool> = tools.toList()
     }

@@ -26,7 +26,7 @@ class SubagentPluginTest {
             _tools.add(tool)
         }
 
-        override fun appendInstructions(content: String) {
+        override fun addInstruction(content: String, label: String?) {
             // not used in tests
         }
     }

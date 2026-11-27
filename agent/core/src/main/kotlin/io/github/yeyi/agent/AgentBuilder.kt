@@ -135,8 +135,8 @@ public class AgentBuilder {
     private fun installPlugins() {
         val pluginContext = object : AgentPluginContext {
             override fun registerTool(tool: Tool) = toolRegistry.register(tool)
-            override fun appendInstructions(content: String) {
-                persona.capabilities(content)
+            override fun addInstruction(content: String, label: String?) {
+                persona.extra(content, label)
             }
         }
         plugins.values.forEach { p ->

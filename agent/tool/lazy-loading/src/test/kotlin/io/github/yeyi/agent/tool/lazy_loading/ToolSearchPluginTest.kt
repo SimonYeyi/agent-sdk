@@ -31,7 +31,7 @@ class ToolSearchPluginTest {
             override fun registerTool(tool: Tool) {
                 installedTools = installedTools + tool
             }
-            override fun appendInstructions(content: String) {}
+            override fun addInstruction(content: String, label: String?) {}
         }
 
         val plugin = ToolSearchPlugin(registry, dynamicToolCaller)
@@ -55,7 +55,7 @@ class ToolSearchPluginTest {
             override fun registerTool(tool: Tool) {
                 installedTools = installedTools + tool
             }
-            override fun appendInstructions(content: String) {}
+            override fun addInstruction(content: String, label: String?) {}
         }
 
         val plugin = ToolSearchPlugin(registry, dynamicToolCaller)
@@ -78,7 +78,7 @@ class ToolSearchPluginTest {
             override fun registerTool(tool: Tool) {
                 installedTools = installedTools + tool
             }
-            override fun appendInstructions(content: String) {}
+            override fun addInstruction(content: String, label: String?) {}
         }
 
         val plugin = ToolSearchPlugin(registry, dynamicToolCaller)
