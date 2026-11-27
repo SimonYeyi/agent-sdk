@@ -1,7 +1,7 @@
 # 共享记忆插件设计
 
 > 日期：2026-11-26 · 状态：**Proposed**
-> 模块：`agent/memory/shared`（新增）+ `agent/capability`（最小改动）
+> 模块：`agent/memory/shared`（新增）
 > 范围：新增一个独立的共享记忆插件,与 core 中的短期会话 Memory 正交;LLM 通过 `load_shared_memory` / `save_shared_memory` 两个工具读写 markdown 记忆文件,每轮主动注入 `user.md` 用户画像到 system prompt,并提供遗忘与压缩机制。
 
 ---
@@ -11,9 +11,9 @@
 | 项 | 值 |
 |---|---|
 | 提案代号 | shared-memory |
-| 关联模块 | `agent/memory/shared`（新增）+ `agent/capability`（改动） |
-| 关联前置 | `Capability` / `CapabilityPlugin` / `CapabilityLoadTool` / `AgentPlugin` / `ToolExecutionContext.agentContext.llmProvider` |
-| 破坏性变更 | **否**——`CapabilityLoadTool` 的 `description` / `parametersSchema` 从 `by lazy` 改为每轮求值属行为微调,不破坏 API 形态;其余均为新增 |
+| 关联模块 | `agent/memory/shared`（新增） |
+| 关联前置 | `AgentPlugin` / `Tool` / `ToolExecutionContext.agentContext.llmProvider` |
+| 破坏性变更 | **否**——纯新增模块,不改动现有模块 |
 
 ---
 
@@ -37,9 +37,7 @@
 
 ## 2. 设计原则
 
-- **与 Skill 形态对称**:复用 `Capability` 框架,`load_shared_memory` 通过 `CapabilityAdapter.of` 拼装(委托模式,继承 `CapabilityLoadTool`)。`save_shared_memory` 作为独立 auxiliary tool 暴露。
-- **不继承 `CapabilityPlugin`**:`CapabilityPlugin.install` 是 `final override` 且只调 `registerTool`,无法在 install 阶段调 `appendInstructions` 注入 user.md。因此 `SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(`SharedMemoryPluginConfig` 是 object 占位,满足 `C : Any` 约束),内部手工调 `CapabilityAdapter.of(...).adapt()` + `context.registerTool(...)` + `context.appendInstructions(...)`。
-- **最小改动 capability 框架**:把 `CapabilityLoadTool` 的 `description` / `parametersSchema` 从 `by lazy` 改为每轮求值,使得重扫后下一轮 LLM 自动看到新话题。不引入 `reinstallPlugin` 等新 API。
+- **独立实现,不依赖 capability 框架**:共享记忆是内部生成的(由 `SharedMemoryRegistry` 扫描目录构建),不需要外部宿主或插件提供 `Capability` 实例,与 Skill 的"外部注册"形态本质不同。`SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(`SharedMemoryPluginConfig` 是 object 占位,满足 `C : Any` 约束),`load_shared_memory` / `save_shared_memory` 两个工具都是普通 `Tool`,在 `install` 里手工 `registerTool`。不继承 `CapabilityPlugin`、不调 `CapabilityAdapter`、不依赖 `CapabilityLoadTool`。
 - **写入决策在 LLM**:不暴露写入 API 给宿主代码,只有 `save_shared_memory` 工具。宿主只负责传 `directory` 和可选的 `LlmProvider` / `SharedMemoryStore`。
 - **存储抽象最小**:`SharedMemoryStore` 接口默认走 `Path`,允许宿主注入自定义实现。不预先做 Android/iOS 平台适配。
 - **生命周期检查只在读写路径**:压缩在 `save_shared_memory` 后异步触发;遗忘在 `load_shared_memory` / `save_shared_memory` 后对当前操作的 md 同步检查。不被访问的文件不检查——这正是遗忘的目的。
@@ -58,10 +56,10 @@ agent/memory/shared/
 ├── build.gradle.kts
 └── src
     ├── main/kotlin/io/github/yeyi/agent/memory/shared/
-    │   ├── SharedMemory.kt          # interface SharedMemory : Capability<Unit, SharedMemoryContext>
-    │   ├── SharedMemoryContext.kt           # class SharedMemoryContext : CapabilityContext
+    │   ├── SharedMemory.kt          # interface SharedMemory(普通接口,load() 返回 md 全文)
+    │   ├── SharedMemoryContext.kt           # class SharedMemoryContext(普通上下文,不继承 CapabilityContext)
     │   ├── SharedMemoryPlugin.kt            # internal class SharedMemoryPlugin : AgentPlugin<SharedMemoryPluginConfig>
-    │   ├── SharedMemoryRegistry.kt          # class SharedMemoryRegistry : CapabilityRegistry<...>,提供 rescan()
+    │   ├── SharedMemoryRegistry.kt          # class SharedMemoryRegistry(普通容器 + rescan,不继承 CapabilityRegistry)
     │   ├── SharedMemoryStore.kt             # interface SharedMemoryStore + PathSharedMemoryStore 默认实现
     │   ├── SharedMemoryFile.kt              # md frontmatter 解析/序列化
     │   ├── SaveSharedMemoryTool.kt          # auxiliary tool,LLM 写入记忆
@@ -72,7 +70,6 @@ agent/memory/shared/
 
 依赖关系:
 - `api(project(":agent:core"))` — `AgentBuilder` / `AgentPlugin` / `Tool` / `AgentContext.llmProvider`
-- `api(project(":agent:capability"))` — `Capability` / `CapabilityPlugin` / `CapabilityLoadTool` / `CapabilityRegistry`
 - `api(libs.kotlinx.serialization.json)` — frontmatter 解析
 - `api(libs.kotlinx.coroutines.core)` — per-name Mutex(store 串行化)
 
@@ -80,28 +77,21 @@ agent/memory/shared/
 
 ## 4. 核心类型
 
-### 4.1 `SharedMemory` —— Capability 实例
+### 4.1 `SharedMemory` —— 话题实体
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
 
-import io.github.yeyi.agent.capability.Capability
-
 /**
  * 一个共享记忆话题 —— 对应根目录下的一个 `.md` 文件。
  *
- * 实现 [Capability] 接口,通过 [CapabilityLoadTool] 暴露为 `load_shared_memory` 工具的可路由条目。
- * LLM 调用 `load_shared_memory(name=...)` 时,框架按 name 路由到对应实例,调 [load] 返回 md 全文。
+ * 由 [SharedMemoryRegistry] 在 install/rescan 时扫描目录动态构建,不依赖外部宿主注册。
+ * `load_shared_memory(name=...)` 工具按 name 路由到对应实例,调 [load] 返回 md 全文注入 LLM 上下文。
  *
- * 与 Skill 的对称点:
- * - 都是 `Capability<Unit, Ctx>`,load() 返回文本注入 LLM 上下文
- * - 都是"按需加载",description 告诉 LLM 何时使用,正文不预加载
- *
- * 与 Skill 的区别:
- * - Skill 是静态注册,SharedMemory 由 [SharedMemoryRegistry] 在 install/rescan 时动态构建
+ * - "按需加载":description 告诉 LLM 何时使用,正文不预加载
  * - load() 触发 lastAccessedAt 更新和遗忘检查
  */
-public interface SharedMemory : Capability<Unit, SharedMemoryContext> {
+public interface SharedMemory {
     /**
      * 加载本话题的 md 全文(frontmatter + 正文)。
      *
@@ -109,15 +99,10 @@ public interface SharedMemory : Capability<Unit, SharedMemoryContext> {
      * - 更新 frontmatter 的 `lastAccessedAt` 并写回文件
      * - 触发本话题的遗忘检查(若 lastAccessedAt 在 update 前已超 [SharedMemoryPlugin.forgetDuration],则删除文件并从 registry 移除)
      *
+     * @param context 执行上下文,提供遗忘检查所需的 `forgetDuration` / `registry` 等
      * @return md 全文;若文件已被遗忘机制删除,返回 "(memory expired)" 提示
      */
-    override suspend fun load(): String
-
-    override suspend fun activate(arguments: Unit?, context: SharedMemoryContext): String = load()
-
-    public companion object {
-        internal const val CAPABILITY_TYPE: String = "shared_memory"
-    }
+    public suspend fun load(context: SharedMemoryContext): String
 }
 ```
 
@@ -126,8 +111,6 @@ public interface SharedMemory : Capability<Unit, SharedMemoryContext> {
 ```kotlin
 package io.github.yeyi.agent.memory.shared
 
-import io.github.yeyi.agent.capability.CapabilityContext
-import io.github.yeyi.agent.capability.CapabilityContextFactory
 import io.github.yeyi.agent.llm.LlmProvider
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import java.time.Duration
@@ -148,7 +131,7 @@ public class SharedMemoryContext(
     public val registry: SharedMemoryRegistry,
     public val memoryFileLimit: Int,
     public val forgetDuration: Duration,
-) : CapabilityContext
+)
 
 internal class SharedMemoryContextFactory(
     private val memoryStore: SharedMemoryStore,
@@ -156,8 +139,8 @@ internal class SharedMemoryContextFactory(
     private val registry: SharedMemoryRegistry,
     private val memoryFileLimit: Int,
     private val forgetDuration: Duration,
-) : CapabilityContextFactory<SharedMemoryContext> {
-    override fun create(context: ToolExecutionContext): SharedMemoryContext {
+) {
+    fun create(context: ToolExecutionContext): SharedMemoryContext {
         val effectiveLlmProvider = llmProvider ?: context.agentContext.llmProvider
         return SharedMemoryContext(memoryStore, effectiveLlmProvider, registry, memoryFileLimit, forgetDuration)
     }
@@ -169,8 +152,6 @@ internal class SharedMemoryContextFactory(
 ```kotlin
 package io.github.yeyi.agent.memory.shared
 
-import io.github.yeyi.agent.capability.CapabilityRegistry
-import io.github.yeyi.agent.capability.DefaultCapabilityRegistry
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.time.Duration
@@ -187,15 +168,30 @@ public class SharedMemoryRegistry(
     private val memoryFileLimit: Int,
     private val forgetDuration: Duration,
     private val llmProvider: LlmProvider?,
-) : CapabilityRegistry<SharedMemory, Unit, SharedMemoryContext> by DefaultCapabilityRegistry(
-    capabilityType = SharedMemory.CAPABILITY_TYPE
 ) {
     private val mutex = Mutex()
+    private val memories: MutableMap<String, SharedMemory> = LinkedHashMap()
+
+    /** 当前已注册的所有记忆(快照)。 */
+    public fun all(): List<SharedMemory> = mutex.withLock { memories.values.toList() }
+
+    /** 按 name 查找记忆。 */
+    public fun get(name: String): SharedMemory? = mutex.withLock { memories[name] }
+
+    /** 注册或替换一个记忆。 */
+    public fun register(memory: SharedMemory): Unit = mutex.withLock {
+        memories[memory.name] = memory
+    }
+
+    /** 按 name 移除记忆(遗忘机制用)。 */
+    public fun remove(name: String): Unit = mutex.withLock {
+        memories.remove(name)
+    }
 
     /** 扫描根目录,同步 registry 与文件系统状态。 */
     public suspend fun rescan(): Unit = mutex.withLock {
         val files = memoryStore.list() // 返回所有 .md 文件名,排除 user.md
-        val existing = all().associateBy { it.name }.toMutableMap()
+        val existing = memories.toMutableMap()
 
         // 移除已不存在的
         existing.keys.removeAll { name -> name !in files }
@@ -203,38 +199,31 @@ public class SharedMemoryRegistry(
         // 新增未注册的
         for (name in files) {
             if (existing[name] == null) {
-                val memory = loadFromStore(name) ?: continue
-                register(memory)
+                val content = memoryStore.read(name) ?: continue
+                val (frontmatter, _) = SharedMemoryFile.parse(content)
+                existing[name] = DefaultSharedMemory(
+                    name = frontmatter.name,
+                    description = frontmatter.description,
+                    memoryStore = memoryStore,
+                )
             }
         }
-    }
 
-    private suspend fun loadFromStore(name: String): SharedMemory? {
-        val content = memoryStore.read(name) ?: return null
-        val (frontmatter, _) = SharedMemoryFile.parse(content)
-        return DefaultSharedMemory(
-            name = frontmatter.name,
-            description = frontmatter.description,
-            memoryStore = memoryStore,
-            // 其他字段...
-        )
+        memories.clear()
+        memories.putAll(existing)
     }
 }
 ```
 
 ### 4.4 `SharedMemoryPlugin` —— 接线契约
 
-**不继承 `CapabilityPlugin`**:虽然复用 `CapabilityAdapter.of` 拼装 `load_shared_memory`,但 `CapabilityPlugin.install` 是 `final override` 且只调 `registerTool`,无法在 install 阶段调 `appendInstructions` 注入 user.md。因此 `SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(`SharedMemoryPluginConfig` 是 object 占位),内部手工调 `CapabilityAdapter.of(...).adapt()` 拿到 `load_shared_memory` 工具,与 `save_shared_memory` 一起注册,再单独调 `context.appendInstructions(user.md 内容)`。
+**直接实现 `AgentPlugin`**:不继承 `CapabilityPlugin`、不调 `CapabilityAdapter`、不依赖 `CapabilityLoadTool`。`load_shared_memory` / `save_shared_memory` 两个工具都是普通 `Tool`,在 `install` 里手工 `registerTool`。`SharedMemoryPluginConfig` 是 object 占位,满足 `AgentPlugin<C : Any>` 的 `C : Any` 约束。
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
 
 import io.github.yeyi.agent.AgentPlugin
 import io.github.yeyi.agent.AgentPluginContext
-import io.github.yeyi.agent.capability.CapabilityAdapter
-import io.github.yeyi.agent.capability.CapabilityContextFactory
-import io.github.yeyi.agent.tool.Tool
-import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
 
@@ -248,33 +237,25 @@ public object SharedMemoryPluginConfig
 /**
  * 共享记忆插件的接线类。
  *
- * 直接实现 [AgentPlugin] 而非继承 [io.github.yeyi.agent.capability.CapabilityPlugin],
- * 因为需要在 install 阶段调 [AgentPluginContext.appendInstructions] 注入 user.md ——
- * CapabilityPlugin.install 是 final 且不调 appendInstructions。
- *
- * 仍复用 [CapabilityAdapter.of] 拼装 load_shared_memory(委托模式),与 Skill 形态对称。
- *
- * install 流程:
+ * 直接实现 [AgentPlugin],install 阶段完成:
  * 1. 初始化 [SharedMemoryStore] (默认 [PathSharedMemoryStore])
  * 2. 若 `user.md` 不存在,创建空模板(真实元数据 + 空正文)
  * 3. registry.rescan() 加载所有现存话题
  * 4. context.appendInstructions 注入 `user.md` 正文到 persona 能力区
- * 5. CapabilityAdapter.of(registry, ctxFactory, null, enableDelegateAdaptMode).adapt()
- *    → [load_shared_memory] 工具,registerTool
- * 6. registerTool(save_shared_memory)
+ * 5. registerTool(LoadSharedMemoryTool(registry, ctxFactory))  → load_shared_memory
+ * 6. registerTool(SaveSharedMemoryTool(registry, ctxFactory))  → save_shared_memory
  */
 internal class SharedMemoryPlugin(
     private val memoryStore: SharedMemoryStore,
     private val memoryFileLimit: Int,
     private val forgetDuration: Duration,
     private val llmProvider: LlmProvider?,
-    private val enableDelegateAdaptMode: Boolean,
     private val registry: SharedMemoryRegistry,
 ) : AgentPlugin<SharedMemoryPluginConfig> {
 
     override val id: String = "shared-memory"
 
-    private val ctxFactory: CapabilityContextFactory<SharedMemoryContext> = SharedMemoryContextFactory(
+    private val ctxFactory: SharedMemoryContextFactory = SharedMemoryContextFactory(
         memoryStore = memoryStore,
         llmProvider = llmProvider,
         registry = registry,
@@ -292,12 +273,8 @@ internal class SharedMemoryPlugin(
             context.appendInstructions(userBody)
         }
 
-        // 注册 load_shared_memory(委托模式,继承 CapabilityLoadTool)
-        CapabilityAdapter.of(registry, ctxFactory, null, enableDelegateAdaptMode)
-            .adapt()
-            .forEach { context.registerTool(it) }
-
-        // 注册 save_shared_memory(auxiliary,压缩并入 save 流程,无需独立协程)
+        // 注册两个工具(普通 Tool,不经过 CapabilityAdapter)
+        context.registerTool(LoadSharedMemoryTool(registry, ctxFactory))
         context.registerTool(SaveSharedMemoryTool(registry, ctxFactory))
     }
 
@@ -330,12 +307,64 @@ internal class SharedMemoryPlugin(
 
 **注意 `runBlocking` 的使用**:`install` 是同步签名(`AgentPlugin.install` 非 suspend),但 `SharedMemoryStore` 的操作是 suspend。`runBlocking` 在 install 阶段阻塞直到完成,这是插件初始化的合理代价——install 在 Agent 构建期执行,不在 LLM 推理路径上。
 
-### 4.5 `SaveSharedMemoryTool` —— auxiliary 工具
+### 4.5 `LoadSharedMemoryTool` —— 读出工具
+
+普通 `Tool`,不继承 `CapabilityLoadTool`。description 每轮求值(用 getter 而非 `by lazy`),拼出当前 registry 中所有记忆的 name + description 列表,使重扫后下一轮 LLM 自动看到新话题。execute 按 `name` 参数路由到 `SharedMemory` 实例调 `load(context)`。
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
 
-import io.github.yeyi.agent.capability.CapabilityContextFactory
+import io.github.yeyi.agent.tool.Tool
+import io.github.yeyi.agent.tool.ToolExecutionContext
+import io.github.yeyi.agent.tool.ToolExecutionResult
+import io.github.yeyi.agent.tool.ToolParameters
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+
+internal class LoadSharedMemoryTool(
+    private val registry: SharedMemoryRegistry,
+    private val contextFactory: SharedMemoryContextFactory,
+) : Tool {
+    override val name: String = "load_shared_memory"
+
+    override val description: String
+        get() = buildString {
+            appendLine("加载某个共享记忆文件的全文。")
+            appendLine("当前可用的记忆文件:")
+            if (registry.all().isEmpty()) {
+                appendLine("(暂无)")
+            } else {
+                registry.all().forEach { m ->
+                    appendLine("- ${m.name}：${m.description}")
+                }
+            }
+            appendLine("传入 name 调用,正文按需加载到上下文。")
+        }.trimEnd()
+
+    override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
+        """{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}"""
+    )
+
+    override suspend fun execute(
+        arguments: kotlinx.serialization.json.JsonElement,
+        context: ToolExecutionContext
+    ): ToolExecutionResult {
+        val name = (arguments.jsonObject["name"] as? JsonPrimitive)?.content
+            ?: return ToolExecutionResult.error("Missing 'name'")
+        val memory = registry.get(name)
+            ?: return ToolExecutionResult.error("Memory not found: $name")
+        val ctx = contextFactory.create(context)
+        return ToolExecutionResult.success(memory.load())
+    }
+}
+```
+
+### 4.6 `SaveSharedMemoryTool` —— auxiliary 工具
+
+```kotlin
+package io.github.yeyi.agent.memory.shared
+
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -368,7 +397,7 @@ import java.time.Instant
  */
 internal class SaveSharedMemoryTool(
     private val registry: SharedMemoryRegistry,
-    private val contextFactory: CapabilityContextFactory<SharedMemoryContext>,
+    private val contextFactory: SharedMemoryContextFactory,
 ) : Tool {
     override val name: String = "save_shared_memory"
 
@@ -502,7 +531,7 @@ internal class SaveSharedMemoryTool(
 }
 ```
 
-### 4.6 `SharedMemoryStore` —— 存储抽象
+### 4.7 `SharedMemoryStore` —— 存储抽象
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -604,7 +633,7 @@ public class PathSharedMemoryStore(private val directory: Path) : SharedMemorySt
 }
 ```
 
-### 4.7 `SharedMemoryFile` —— frontmatter + Markdown
+### 4.8 `SharedMemoryFile` —— frontmatter + Markdown
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -637,7 +666,7 @@ public data class SharedMemoryFile(
 }
 ```
 
-### 4.8 `SharedMemoryExtensions` —— DSL
+### 4.9 `SharedMemoryExtensions` —— DSL
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -654,14 +683,12 @@ import java.time.Duration
  * @param memoryFileLimit 单文件字符上限,超则同步压缩。默认 8000
  * @param forgetDuration 遗忘时间,文件超过此时长未被读写则删。默认 30 天
  * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
- * @param enableDelegateAdaptMode load_shared_memory 是否走委托模式(单一工具 + name 路由)。默认 true
  */
 public fun AgentBuilder.sharedMemory(
     directory: Path,
     memoryFileLimit: Int = 8000,
     forgetDuration: Duration = Duration.ofDays(30),
     llmProvider: LlmProvider? = null,
-    enableDelegateAdaptMode: Boolean = true,
 ) {
     val store = PathSharedMemoryStore(directory)
     val registry = SharedMemoryRegistry(store, memoryFileLimit, forgetDuration, llmProvider)
@@ -670,7 +697,6 @@ public fun AgentBuilder.sharedMemory(
         forgetDuration = forgetDuration,
         llmProvider = llmProvider,
         memoryStore = store,
-        enableDelegateAdaptMode = enableDelegateAdaptMode,
         registry = registry,
     )
     plugin(plugin)  // configure block 为空,initialize 在 install 内部触发
@@ -679,58 +705,14 @@ public fun AgentBuilder.sharedMemory(
 
 ---
 
-## 5. Capability 框架改动
+## 5. 数据流
 
-### 5.1 `CapabilityLoadTool` description / parametersSchema 改为每轮求值
-
-文件:`agent/capability/src/main/kotlin/io/github/yeyi/agent/capability/CapabilityLoadTool.kt`
-
-改动:
-
-```kotlin
-// Before
-override val description: String by lazy {
-    """
-    |当以下 $capabilityType 适用于本次任务时，调用本工具以激活使用：
-    |${registry.all().joinToString("\n") { "- ${it.name}：${it.description}" }}
-    |如果本次任务需要多个 $capabilityType 并行处理，可以生成多个工具调用。
-    """.trimMargin()
-}
-
-override val parametersSchema: ToolParameters by lazy { /* ... */ }
-
-// After
-override val description: String get() = """
-    |当以下 $capabilityType 适用于本次任务时，调用本工具以激活使用：
-    |${registry.all().joinToString("\n") { "- ${it.name}：${it.description}" }}
-    |如果本次任务需要多个 $capabilityType 并行处理，可以生成多个工具调用。
-""".trimMargin()
-
-override val parametersSchema: ToolParameters get() {
-    // 同原 lazy 块的逻辑,改为 getter
-}
-```
-
-**理由**:
-- `Tool.toDefinition()` 在每轮构造 ChatRequest 时被调用,直接读 `description` / `parametersSchema`。
-- `by lazy` 首次访问后缓存,后续轮次拿旧值——重扫后新增的 capability 不会被 LLM 看到。
-- 改为 getter 后,每轮重新读 `registry.all()`,新增/删除的 capability 自动反映到 LLM 可见的 tool description。
-- 性能影响:每轮多一次字符串拼接(微秒级,LLM 调用本身是秒级),可忽略。
-
-**对现有 Skill/Subagent/Toolset 的影响**:
-- 行为变化:之前注册新 capability 需要重启会话才生效,现在下一轮自动生效。
-- API 兼容:无,纯内部实现调整。
-
----
-
-## 6. 数据流
-
-### 6.1 install 阶段
+### 5.1 install 阶段
 
 ```
 AgentBuilder.sharedMemory(directory, ...)
   → 创建 SharedMemoryRegistry(memoryStore, ...)
-  → 创建 SharedMemoryPlugin(...)  // 不继承 CapabilityPlugin,直接实现 AgentPlugin
+  → 创建 SharedMemoryPlugin(...)  // 直接实现 AgentPlugin
   → plugin(plugin)
     → SharedMemoryPlugin.install(context)
       → runBlocking { initialize() }
@@ -739,13 +721,11 @@ AgentBuilder.sharedMemory(directory, ...)
         → registry.rescan()              # 扫描所有 .md(排除 user),构建内存注册表
       → store.read("user")               # 读 user.md 正文
       → context.appendInstructions(body) # 注入到 persona 能力区
-      → CapabilityAdapter.of(registry, ctxFactory, null, enableDelegateAdaptMode=true)
-        → adapt() 返回 [CapabilityLoadTool] (即 load_shared_memory)
-        → context.registerTool(load_shared_memory)
-      → context.registerTool(save_shared_memory)
+      → context.registerTool(LoadSharedMemoryTool(registry, ctxFactory))   # load_shared_memory
+      → context.registerTool(SaveSharedMemoryTool(registry, ctxFactory))   # save_shared_memory
 ```
 
-### 6.2 每轮 LLM 请求
+### 5.2 每轮 LLM 请求
 
 ```
 ReActAgent 构造 ChatRequest
@@ -757,13 +737,12 @@ ReActAgent 构造 ChatRequest
   → LLM 看到所有话题名 + user 画像
 ```
 
-### 6.3 LLM 调用 load_shared_memory(name="travel")
+### 5.3 LLM 调用 load_shared_memory(name="travel")
 
 ```
 load_shared_memory.execute({name: "travel"})
   → registry.get("travel")
-  → capability.activate(null, SharedMemoryContext)
-    → SharedMemory.load()
+  → memory.load()
       → memoryStore.modify("travel") { current ->           # per-name 锁内
           parse(current) → (frontmatter, body)
           遗忘检查: if (name != "user" && now - frontmatter.lastAccessedAt > forgetDuration)
@@ -775,7 +754,7 @@ load_shared_memory.execute({name: "travel"})
   → ToolExecutionResult.success(content)
 ```
 
-### 6.4 LLM 调用 save_shared_memory(name, content, mode)
+### 5.4 LLM 调用 save_shared_memory(name, content, mode)
 
 ```
 save_shared_memory.execute({name, content, mode, old_text?})
@@ -803,7 +782,7 @@ save_shared_memory.execute({name, content, mode, old_text?})
   → 返回 ToolExecutionResult.success("Saved ... (N chars) [Compressed.]")
 ```
 
-### 6.5 同步压缩
+### 5.5 同步压缩
 
 ```
 compressMemory(name, frontmatter, body)
@@ -888,7 +867,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 
 - 真实 LLM 调用(用 mock)。
 - Android 平台适配(用 Path 在 JVM 测试)。
-- 与 Skill/Subagent 共存的兼容性(靠 Capability 框架保证)。
+- 与 Skill/Subagent 共存的兼容性(共享记忆是独立 Tool,不依赖 Capability 框架,共存由 ToolRegistry 自然保证)。
 
 ---
 
@@ -911,8 +890,8 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 
 ## 10. 实现顺序建议
 
-1. 改 `CapabilityLoadTool` description / parametersSchema 为 getter(影响所有 capability 模块,需跑一遍现有测试)。
-2. 新建 `agent/memory/shared` 模块,实现 `SharedMemoryStore` / `SharedMemoryFile` / `SharedMemory` / `SharedMemoryRegistry` / `SharedMemoryContext`。
+1. 新建 `agent/memory/shared` 模块,实现 `SharedMemoryStore` / `SharedMemoryFile` / `SharedMemory` / `SharedMemoryRegistry` / `SharedMemoryContext`。
+2. 实现 `LoadSharedMemoryTool`(读出路径)。
 3. 实现 `SaveSharedMemoryTool`(不含压缩,先跑通读写路径)。
 4. 实现 `SharedMemoryPlugin` + `SharedMemoryExtensions`,接入 AgentBuilder。
 5. 加同步压缩逻辑(并入 save 流程,与 write 同锁)。
