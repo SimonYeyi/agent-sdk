@@ -53,11 +53,20 @@ public class AgentPersona(public val role: String) {
     /**
      * 添加附加文本段落。
      *
+     * [label] 为 null 时追加匿名段落，多次调用累加；非 null 时 label 作为段落标识，
+     * 同名段落原位替换内容（位置不变），不存在则追加。
+     *
      * @param content 段落内容
      * @param label 可选标签；有值时以 label 作为标签名包裹内容，为 null 时直接输出 content
      */
-    public fun extra(content: String, label: String? = null): AgentPersona =
-        apply { extras.add(label to content) }
+    public fun extra(content: String, label: String? = null): AgentPersona = apply {
+        if (label == null) {
+            extras.add(null to content)
+        } else {
+            val idx = extras.indexOfFirst { it.first == label }
+            if (idx >= 0) extras[idx] = label to content else extras.add(label to content)
+        }
+    }
 
     override fun toString(): String {
         val sections = mutableListOf<String>()

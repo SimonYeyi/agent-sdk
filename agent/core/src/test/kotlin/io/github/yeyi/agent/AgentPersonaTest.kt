@@ -111,6 +111,41 @@ class AgentPersonaTest {
     }
 
     @Test
+    fun `extras with same label replaces content`() {
+        val persona = AgentPersona("role")
+            .extra("第一版工具列表", "Tools")
+            .extra("第二版工具列表", "Tools")
+        assertEquals(
+            "role\n\n<Tools>\n第二版工具列表\n</Tools>",
+            persona.toString()
+        )
+    }
+
+    @Test
+    fun `labeled extra replaces in place keeping section order`() {
+        val persona = AgentPersona("role")
+            .extra("first", "A")
+            .extra("middle", "B")
+            .extra("last", "C")
+            .extra("middle replaced", "B")
+        assertEquals(
+            "role\n\n<A>\nfirst\n</A>\n\n<B>\nmiddle replaced\n</B>\n\n<C>\nlast\n</C>",
+            persona.toString()
+        )
+    }
+
+    @Test
+    fun `extras with different labels accumulate`() {
+        val persona = AgentPersona("role")
+            .extra("法律内容", "法律约束")
+            .extra("安全内容", "安全约束")
+        assertEquals(
+            "role\n\n<法律约束>\n法律内容\n</法律约束>\n\n<安全约束>\n安全内容\n</安全约束>",
+            persona.toString()
+        )
+    }
+
+    @Test
     fun `null personality and knowledge are skipped`() {
         val persona = AgentPersona("role").personality("Friendly")
         val rendered = persona.toString()
