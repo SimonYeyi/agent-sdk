@@ -331,7 +331,9 @@ internal class SharedMemoryPlugin(
     override fun install(context: AgentPluginContext) {
         val userBody = runBlocking { initialize() }  // ensureUserMemory;内部 loader.modify 已自动 reload
 
-        // 注入 user.md 正文到 persona 尾部独立段落(具名 label,便于后续原位刷新)
+        // 注入 user.md 正文到 persona 尾部独立段落(具名 label,便于后续原位刷新)。
+        // 不在这里加标题/占位:"存在一个可写的 user 记忆"由 save_shared_memory 的 description 告知,
+        // 每轮随 tools 下发,比 persona 里的固定文字更可靠。
         if (userBody.isNotBlank()) {
             context.addInstruction(userBody, "user-profile")
         }
@@ -478,6 +480,10 @@ internal class SharedMemorySaveTool(
         调用前请先看 load_shared_memory 工具描述里列出的（已存在）记忆文件列表,选择要记录的内容归属于哪个记忆文件:
         - 有合适的记忆文件:传该记忆文件的 name,description 留空(记忆文件已存在，不需要描述)
         - 没有合适的记忆文件:传新 name + 必填的 description(一句话告诉未来的自己何时该加载本记忆文件)，由程序新建
+
+        另有一个内置记忆 "user"(用户画像),它不出现在上面的列表里,内容每轮自动注入你的 system prompt:
+        - 用户透露了稳定的偏好、背景、习惯、身份信息时,用 name="user" 写入,它会跨会话注入；
+        - system prompt 里那段关于用户偏好/背景的文字就是 user 的现有内容,update 时引用其中原文作 old_text。
 
         参数:
         - name: 记忆文件名(英文短词,如 "travel-preferences")。
@@ -850,8 +856,9 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 - 读取:不在记忆清单中(`SharedMemoryStore.list()` 排除 `user`),且 `SharedMemoryLoadTool` 对保留名直接返回错误——
   这是必需的:**`loader.load(name)` 不再经过快照**,快照排除 user 挡不住它,必须在工具层显式拦(直接读文件就能读到)。
 - 写入:`save_shared_memory("user", ...)` 允许。append 用于累积新画像条目;update 用于"忘记 xxx"/"改一下 xxx"——LLM 从 system prompt 中看到 user.md 现有内容,引用要改的片段作 old_text,提供 content(空串表示删除)。user.md 不进 loader,LLM 不能 load,所以 update 的 old_text 必须凭 system prompt 中注入的内容引用。
-- 注入:`install` 时读 `user.md` 正文,通过 `addInstruction(body, "user-profile")` 注入 persona 尾部独立段落(具名 label,同名段落原位替换)。
-  - **注意**:首次 install 时 user.md 为空,注入空字符串无效果。后续 LLM 通过 save_shared_memory 写入后,需要下一会话才能注入——本设计不在运行时重读 user.md 注入。这是限制,见 §8。
+- 注入:`install` 时读 `user.md` 正文,通过 `addInstruction(body, "user-profile")` 注入 persona 尾部独立段落(具名 label,同名段落原位替换);正文为空时不注入。
+  - **告知 `user` 可写**不靠 persona:save 工具 description 里明确写了"另有一个内置记忆 user,不在列表里,用 name=`user` 写入"。工具描述每轮都随 `tools` 下发,不依赖正文是否为空。
+  - **注意**:正文是 install 时快照的。运行时 LLM 通过 `save_shared_memory("user", ...)` 更新后,**当前会话不会重新注入**——要等下一次会话。这是限制,见 §8。
 - 遗忘豁免:`user.md` 不在 `list()` 中,reload 永远不会碰它。
 
 ### 6.2 reload 的并发安全
@@ -912,7 +919,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
   - 已有记忆更新 lastAccessedAt;已过期记忆被 save 复活(不删除)
   - 超过 memoryFileLimit → 触发同步压缩(mock LlmProvider)
   - save 后其他过期记忆被清理(loader.modify 内部 reload 生效)
-- `SharedMemoryPlugin.initialize`:user.md 不存在时创建,已存在时不覆盖。
+- `SharedMemoryPlugin.initialize`:user.md 不存在时创建,已存在时不覆盖;正文为空时 install 不注入段落。
 - `SharedMemoryLoadTool.execute`:保留名 `user` 返回错误(即使 `user.md` 在磁盘上存在也不返回正文);不存在的 name 返回 not found。
 
 ### 7.2 集成测试
