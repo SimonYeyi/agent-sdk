@@ -138,9 +138,10 @@ internal class SharedMemorySaveTool(
         // suspend (String?) -> String?,返回 null 另有语义(删除文件),"没通过校验"
         // 只能留个记号带出来。校验原因两两互斥,所以一个 String 就够,不必每个校验一个布尔。
         var failure: String? = null     // 非 null = 本次未落盘,外层原样返回这条错误
-        var note = ""           // 成功时的附注(正文被压缩 / 超限照存)
-        var receipt = "Saved memory '$name'." // 删掉条目时换成另一种回执
+        var note = ""                   // 成功时的附注(正文被压缩 / 超限照存)
         var storedBody = ""             // 最终写入的正文(user 用它刷新 system prompt)
+        // 删除条目时换成 "Removed one entry from memory ...";默认是写入成功的回执
+        var receipt = "Saved memory '$name'."
 
         loader.modify(name) { current ->
             val meta = if (current == null) {
