@@ -129,6 +129,9 @@ internal class SharedMemory(
     /**
      * 用本元数据 + [body] 渲染 md 全文,写回文件时使用。
      *
+     * 记忆文件只由本模块读写,**不是给人编辑的入口**:每次读写都按下列格式整体重写,
+     * 手工加入的字段 / 注释 / 缩进 / 换行风格都会在下次读写时被规范化(甚至被丢弃)。
+     *
      * frontmatter 固定 4 行,值永远单行:`name` / `description` 渲染前把换行折成空格
      * (description 是给 LLM 看的一句话,不需要多行);时间用 `Instant.toString()`(ISO-8601)。
      * 不做 YAML 引号转义——解析端按"第一个 `:` 切分 + trim"读回,两边规则必须对称。
@@ -215,7 +218,10 @@ internal class SharedMemoryLoader private constructor(
     /**
      * 读取一条记忆的正文,并把 lastAccessedAt 刷新为 now。
      *
-     * 只读:不判淘汰(判定只在 [reload],所以即将因超条数被淘汰的记忆在删掉前依旧能读出)。
+     * 不改业务内容,但**会写盘**:刷新时间戳只能靠 `render` 整体重写,所以文件 mtime 会变。
+     * 这是"访问时间存在 frontmatter 里"的直接结果,不是异常(见 §8.1 第 9 条)。
+     *
+     * 不判淘汰(判定只在 [reload],所以即将因超条数被淘汰的记忆在删掉前依旧能读出)。
      * 正文在 per-name 锁内读得,即"读"那一刻磁盘上的内容,不会与并发 save 错位;
      * 刚被刷新过的 lastAccessedAt 也让它在随后的 [reload] 里排在淘汰队尾。
      * 完成后自动 [reload]:条目超出 maxFileCount 时淘汰其他最久未访问的记忆。
@@ -1120,6 +1126,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 6. **目录注册表常驻不回收**:`SharedMemoryLoader.instances` 是进程级 `ConcurrentHashMap`,`of()` 不回收入口。宿主不断换目录(如每次请求一个临时目录)会缓慢累积——量级上应当"每用户/每 agent 一个稳定目录",v1 不做引用计数。
 7. **user 段落只能整体替换**:`AgentPluginContext` 没有 remove 段落的能力,所以 user 正文被清空时会留下一个空段落(`<user-profile></user-profile>`);若将来确实需要"彻底移除",得先在 core 补一个 `removeInstruction(label)`。
 8. **`maxFileCharSize` 是软上限**:压缩失败(LLM 报错 / 摘要没变短)时超长正文照存,读路径不做拦截也不截断。真正保证"单条装得下"的只有 `save` 时的压缩这一次尝试。
+9. **记忆文件不支持人工维护**:frontmatter 由 `render` 全量生成,`load` 也会写回(刷新 `lastAccessedAt`),所以手工添加的字段 / 注释 / 换行风格都会在下一次读写时被规范化。`load` 引起的 mtime 变化是**预期行为**——访问时间存在文件里,不写回就记不住;只有把目录纳入 git / 云同步 / 增量备份的宿主需要知道这一点。删文件是允许的(下次 reload 就消失),改内容不是。
 
 ### 8.2 未来扩展
 
