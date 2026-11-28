@@ -2,7 +2,7 @@
 
 > 日期：2026-11-26 · 状态：**Proposed**
 > 模块：`agent/memory/shared`（新增）
-> 范围：新增一个独立的共享记忆插件,与 core 中的短期会话 Memory 正交;LLM 通过 `load_shared_memory` / `save_shared_memory` 两个工具读写 markdown 记忆文件,每轮主动注入 `user.md` 用户画像到 system prompt,并提供遗忘与压缩机制。
+> 范围：新增一个独立的共享记忆插件,与 core 中的短期会话 Memory 正交;LLM 通过 `load_shared_memory` / `save_shared_memory` 两个工具读写 markdown 记忆文件,每轮主动注入 `user.md` 用户画像到 system prompt,并提供条数淘汰与压缩机制。
 
 ---
 
@@ -25,7 +25,7 @@
 1. 记忆以 markdown 文件形式存储,一个文件一个记忆,与 Skill 的 `load` 机制对称——LLM 看到 `load_shared_memory` 工具的 description 里列出所有记忆名+描述,需要时传 `name` 调用,正文按需加载进上下文。
 2. `user.md` 作为与具体记忆无关的用户画像,每轮主动注入 system prompt,不走 `load_shared_memory` 路径。
 3. 记忆的"该写什么、什么时候写"由 LLM 自主决定——只有模型能判断什么值得记。对应工具是 `save_shared_memory`。
-4. 共享记忆需要生命周期管理:超过一定时间没被读写则遗忘;单文件过大则压缩。
+4. 共享记忆需要体积管理:单条记忆超过 `maxFileCharSize`(字符)则同步压缩;目录里记忆条数超过 `maxFileCount` 时,按 `lastAccessedAt` 由远到近淘汰。
 5. 存储位置由宿主决定(必传 `directory`),插件不做平台推断。
 
 与现有 `Memory` 的区别:
@@ -39,11 +39,12 @@
 
 - **独立实现,不依赖 capability 框架**:共享记忆是内部生成的(由 `SharedMemoryLoader` 扫描目录构建),不需要外部宿主或插件提供 `Capability` 实例,与 Skill 的"外部注册"形态本质不同。`SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(`SharedMemoryPluginConfig` 是 object 占位,满足 `C : Any` 约束),`load_shared_memory` / `save_shared_memory` 两个工具都是普通 `Tool`,在 `install` 里手工 `registerTool`。不继承 `CapabilityPlugin`、不调 `CapabilityAdapter`、不依赖 `CapabilityLoadTool`。
 - **公开面最小**:对外只暴露一个扩展函数 `AgentBuilder.sharedMemory(...)`。`SharedMemory` / `SharedMemoryLoader` / `SharedMemoryStore` / `PathSharedMemoryStore` / 两个 Tool / `SharedMemoryPlugin` / `SharedMemoryPluginConfig` 全部 `internal`——它们是同一模块内的实现细节,宿主不需要也不应该感知。将来要开放(如平台存储适配)再逐个提权。
-- **写入决策在 LLM**:不暴露写入 API 给宿主代码,只有 `save_shared_memory` 工具。宿主只负责传 `directory` 与可选的 `memoryFileLimit` / `LlmProvider`。
+- **写入决策在 LLM**:不暴露写入 API 给宿主代码,只有 `save_shared_memory` 工具。宿主只负责传 `directory` 与可选的 `maxFileCount` / `maxFileCharSize` / `LlmProvider`。
 - **存储抽象最小**:`SharedMemoryStore` 是模块内部的可替换缝(单测可换内存实现),v1 只有 `PathSharedMemoryStore` 一个实现,不对外暴露。不预先做 Android/iOS 平台适配。
-- **分层清晰**:`SharedMemory` 是纯值对象(元数据 + md 编解码),不持 store、无 IO;`SharedMemoryStore` 只管文本存取;`SharedMemoryLoader` 独占持有 store,负责扫描、过期判定与读写入口(锁内读 + touch、`modify`)。依赖方向只有 `Loader → SharedMemory / Store`。
-- **过期清理只发生在 reload**:遗忘的唯一判定点是 `SharedMemoryLoader.reload()`。loader 的读写入口(`load` / `modify`)完成操作后各自自动调一次 `reload()`,删除过期文件并重建"只含可读记忆"的快照——工具与插件都不感知。读写路径自身不判过期——本次操作的记忆 `lastAccessedAt` 刚被刷新,天然不会被删,要清理的是**其他**长期未访问的记忆。压缩仍并入 `save_shared_memory` 流程同步触发。
-- **同一目录一份状态**:`SharedMemoryLoader.of(directory)` 按目录在进程内单例。共享记忆本身就意味着"同一个目录 = 同一份记忆",所以**快照与 per-name 锁都得跟着目录唯一**,而不是跟着 Agent 实例——否则两个 Agent 挂同一目录时,per-name 锁各一把(写可能互相覆盖),A 新建的记忆 B 的清单永远发现不了。
+- **分层清晰**:`SharedMemory` 是纯值对象(元数据 + md 编解码),不持 store、无 IO;`SharedMemoryStore` 只管文本存取;`SharedMemoryLoader` 独占持有 store,负责扫描、条数淘汰与读写入口(锁内读 + touch、`modify`)。依赖方向只有 `Loader → SharedMemory / Store`。
+- **淘汰由条数触发,不由时间触发**:没有"多久没读写就删"这种规则——一条重要但久未提及的记忆不该因为用户两个月没聊天而消失。只在记忆条数超过 `maxFileCount` 时,才按 `lastAccessedAt` 由远到近淘汰到回到条数内。判定点仍只有 `SharedMemoryLoader.reload()` 一处,由 `load` / `modify` 完成操作后自动触发;压缩仍并入 `save_shared_memory` 流程同步触发。
+- **不要磁盘字节维度**:记忆清单必须写进 `load_shared_memory` 的 description,条数天然不允许太多,五十条 × 几千字的目录永远撑不满磁盘。"能装多少字节"不是真实约束,"清单多长、单条多大"才是。所以两个参数各管一件事:`maxFileCount` 管目录里有几条(`description` 清单长度 + 淘汰),`maxFileCharSize` 管单条多大(上下文/token + 压缩)。
+- **同一目录一份状态**:`SharedMemoryLoader.of(directory)` 按目录在进程内单例。共享记忆本身就意味着"同一个目录 = 同一份记忆",所以**快照、per-name 锁、条数上限都得跟着目录唯一**,而不是跟着 Agent 实例——否则两个 Agent 挂同一目录时,per-name 锁各一把(写可能互相覆盖),A 新建的记忆 B 的清单永远发现不了。条数上限冲突时直接报错(见 §4.2)。
 - **包名独立**:新模块包名 `io.github.yeyi.agent.memory.shared`,避开 core 已有的 `io.github.yeyi.agent.memory`(防止同包跨模块冲突)。
 
 ---
@@ -65,7 +66,7 @@ agent/memory/shared/
     ├── main/kotlin/io/github/yeyi/agent/memory/shared/
     │   ├── SharedMemory.kt          # internal class SharedMemory(纯值对象:元数据 + md 编解码,无 IO)
     │   ├── SharedMemoryPlugin.kt    # internal class SharedMemoryPlugin : AgentPlugin<SharedMemoryPluginConfig>
-    │   ├── SharedMemoryLoader.kt    # internal class:按目录单例(of) / 扫描 / 过期清理 / 读写入口(内部自动 reload)
+    │   ├── SharedMemoryLoader.kt    # internal class:按目录单例(of) / 扫描 / 条数淘汰 / 读写入口(内部自动 reload)
     │   ├── SharedMemoryStore.kt     # internal interface SharedMemoryStore + internal PathSharedMemoryStore
     │   ├── SharedMemoryLoadTool.kt  # internal class,工具 load_shared_memory
     │   ├── SharedMemorySaveTool.kt  # internal class,工具 save_shared_memory(含同步压缩)
@@ -95,7 +96,6 @@ agent/memory/shared/
 ```kotlin
 package io.github.yeyi.agent.memory.shared
 
-import java.time.Duration
 import java.time.Instant
 
 /**
@@ -110,7 +110,7 @@ import java.time.Instant
  *
  * - "按需加载":description 告诉 LLM 何时使用,正文不预加载
  * - 正文不在实体上驻留,而是在 [parse] / [bodyOf] / [render] 之间以 String 流转
- * - 过期判断只由 `SharedMemoryLoader.reload` 通过 [isExpired] 做
+ * - 淘汰判断只由 `SharedMemoryLoader.reload` 做(条目超出 `maxFileCount` 时按 [lastAccessedAt] 由远到近)
  */
 internal class SharedMemory(
     /** 记忆名(等于文件名,不含 .md)。解析时以文件名为准。 */
@@ -119,13 +119,9 @@ internal class SharedMemory(
     val description: String,
     /** 创建时间。 */
     val createdAt: Instant,
-    /** 最后一次被 load/save 的时间,遗忘判断的依据。 */
+    /** 最后一次被 load/save 的时间。只用作条数淘汰时的排序依据(最久未访问的先删)。 */
     val lastAccessedAt: Instant,
 ) {
-    /** 是否超过 forgetDuration 未被读写。只由 `SharedMemoryLoader.reload` 使用。 */
-    fun isExpired(now: Instant, forgetDuration: Duration): Boolean =
-        Duration.between(lastAccessedAt, now) > forgetDuration
-
     /** 拷贝一份新实体,并把访问时间更新为 [lastAccessedAt](实体不可变)。 */
     fun copyWith(lastAccessedAt: Instant): SharedMemory =
         SharedMemory(name, description, createdAt, lastAccessedAt)
@@ -147,9 +143,9 @@ internal class SharedMemory(
          * 纯函数:解析 md 全文的 frontmatter 构建元数据。[name] 取文件名(不含 .md),
          * 与 frontmatter 中的 name 冲突时以文件名为准。不抛异常。
          *
-         * 缺字段兜底原则是"宁可永不过期,也不能误删":
+         * 缺字段兜底原则是"宁可当新,不要排到淘汰队首":
          * - 缺 `createdAt` → 用 `lastAccessedAt`;缺 `lastAccessedAt` → 用 `createdAt`
-         * - 两者都缺或时间戳无法解析 → 用解析时刻 now(而不是 EPOCH,否则下次 reload 直接删掉)
+         * - 两者都缺或时间戳无法解析 → 用解析时刻 now(而不是 EPOCH,否则它永远是条数淘汰的第一个)
          * - 缺 `description` → 空串
          * - 没有 frontmatter(整段都是正文)→ 全部兜底,全文作正文
          */
@@ -165,7 +161,7 @@ internal class SharedMemory(
 }
 ```
 
-### 4.2 `SharedMemoryLoader` —— 扫描、过期清理与快照
+### 4.2 `SharedMemoryLoader` —— 扫描、条数淘汰与快照
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -174,12 +170,11 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.nio.file.Files
 import java.nio.file.Path
-import java.time.Duration
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
 
 /**
- * 共享记忆加载器,负责扫描目录、清理过期记忆、维护 name → SharedMemory 快照。
+ * 共享记忆加载器,负责扫描目录、条数超额时淘汰、维护 name → SharedMemory 快照。
  *
  * 与 CapabilityRegistry 不同:这里没有外部注册者,清单完全由目录扫描得到,
  * 因此不提供 register/remove,对外只有 [load] 读取 + [modify] 写入 + 只读查找;
@@ -187,26 +182,27 @@ import java.util.concurrent.ConcurrentHashMap
  *
  * **internal**:宿主拿不到本类,也就不存在"忘记调 reload"或"调错顺序"的问题。
  *
- * - [reload] 是遗忘的唯一判定点:扫描根目录所有 `.md` 文件(排除 `user.md`),
- *   删除过期文件,再用剩下的"可读"记忆整体替换快照。
- * - 因此快照恒为可读集合:凡 [all] / [get] 返回的记忆一定未过期。
- * - [load] 是读出路径:在 per-name 锁内取正文并刷新访问时间,不判过期,完成后自动 [reload]。
+ * - [reload] 是淘汰的唯一判定点:扫描根目录所有 `.md` 文件(排除 `user.md`),
+ *   记忆条数超过 [maxFileCount] 时按 lastAccessedAt 由远到近删除,再用剩下的记忆整体替换快照。
+ * - 没有时间维度的遗忘:条数没超就一条不删,所以快照里可能存在很久没被访问的记忆。
+ * - [load] 是读出路径:在 per-name 锁内取正文并刷新访问时间,不判淘汰,完成后自动 [reload]。
  * - [modify] 是写入入口:插件与 save 工具都经此访问存储,完成后同样自动 [reload]。
  * - 快照只由本类维护,所以"重建快照"收在 [load] / [modify] 内部,调用方不可能漏掉。
  * - 已删除的文件从清单移除;新增的文件加入清单;变更的 frontmatter 反映到 description。
  * - 容错:单个文件读失败或内容损坏 → 跳过该项(不进快照、也不删),reload 不因单文件问题整体失败。
  * - 线程安全:reload 在 [mutex] 内重建不可变快照,查找直接读快照,无需加锁。
  * - **同一目录一份状态**:实例由 [of] 按目录在进程内共享。多个 Agent 挂同一 `directory` 时
- *   看到的是同一份快照(对方新建的记忆立刻出现在清单里)与同一套 per-name 锁。
+ *   看到的是同一份快照(对方新建的记忆立刻出现在清单里)、同一套 per-name 锁、同一个条数上限。
  * - 构造器 `private`:唯一生产构造路径是 [of],模块内也无法另造一个绕过注册表的实例;测试走 [create]。
  */
 internal class SharedMemoryLoader private constructor(
     private val memoryStore: SharedMemoryStore,
-    private val forgetDuration: Duration,
+    /** 目录里最多保留的记忆条数;超出部分按 lastAccessedAt 淘汰。 */
+    private val maxFileCount: Int,
 ) {
     private val mutex = Mutex()
 
-    /** 不可变快照;reload 整体替换,读方无锁。快照中只含未过期的记忆。 */
+    /** 不可变快照;reload 整体替换,读方无锁。 */
     @Volatile
     private var snapshot: Map<String, SharedMemory> = emptyMap()
 
@@ -219,12 +215,12 @@ internal class SharedMemoryLoader private constructor(
     /**
      * 读取一条记忆的正文,并把 lastAccessedAt 刷新为 now。
      *
-     * 只读:不判过期(判定只在 [reload],因此已超阈值的记忆也照样能读出)。
+     * 只读:不判淘汰(判定只在 [reload],所以即将因超条数被淘汰的记忆在删掉前依旧能读出)。
      * 正文在 per-name 锁内读得,即"读"那一刻磁盘上的内容,不会与并发 save 错位;
-     * 刚被刷新过的 lastAccessedAt 也使随后的 [reload] 不会把它误删。
-     * 完成后自动 [reload]:遗忘了其他长期未访问的记忆。
+     * 刚被刷新过的 lastAccessedAt 也让它在随后的 [reload] 里排在淘汰队尾。
+     * 完成后自动 [reload]:条目超出 maxFileCount 时淘汰其他最久未访问的记忆。
      *
-     * @return 正文(不含 frontmatter);文件不存在(已被遗忘)时返回 null
+     * @return 正文(不含 frontmatter);文件不存在(已被淘汰)时返回 null
      */
     suspend fun load(name: String): String? {
         var body: String? = null
@@ -246,56 +242,69 @@ internal class SharedMemoryLoader private constructor(
      * Loader 是 store 与快照的唯一持有者,插件与 save 工具都经此访问存储,
      * 所以"写完顺手重建快照"放在这里,调用方无法遗漏。
      *
-     * 实现约束:[reload] 会对过期候选再进一次 per-name 锁,嵌套会自锁——
+     * 实现约束:[reload] 会对淘汰候选再进一次 per-name 锁,嵌套会自锁——
      * 所以 reload 只能放在 store.modify 返回之后,不能放进 transform 里。
      */
     internal suspend fun modify(name: String, transform: suspend (current: String?) -> String?): String? {
         val result = memoryStore.modify(name, transform)
-        reload()  // 本次写入的记忆 lastAccessedAt 刚刷新,不会被删
+        reload()  // 本次写入的记忆 lastAccessedAt 刚刷新,排在淘汰队尾
         return result
     }
 
     /**
-     * 重扫根目录:删除过期记忆,重建快照。
+     * 重扫根目录:记忆条数超过 [maxFileCount] 则淘汰最久未访问的,重建快照。
      *
      * 由 [load] / [modify] 在操作完成后自动调用,不对外暴露:快照只由本类维护,
      * 外部无法也不能"只重建快照而不做读写",也就无法造成快照与磁盘脱节。
-     * 若将来需要宿主主动巡检,再单独开一个公开的巡检入口。
-     * 当前操作的记忆 lastAccessedAt 刚被刷新,不会命中过期判定——被遗忘的是**其他**记忆。
+     *
+     * 淘汰规则(只在超出条数时生效):
+     * - 只数条数,不量字节:`load_shared_memory` 的 description 要列出全部记忆名,
+     *   条数才是上下文里真正装不下的东西;单条的体积另由 save 时的压缩兜住。
+     *   `user.md` 不在 [SharedMemoryStore.list] 里,既不占名额也不参与淘汰。
+     * - 按 lastAccessedAt 升序淘汰(最久未访问先删),平局按 name 升序,保证可断言。
+     * - 每次只删到刚好回到 [maxFileCount] 条;条数上限 ≥ 1 由 DSL 的 require 保证,
+     *   所以不会把自己删空。
+     * - 候选进 per-name 锁内二次判定:若 lastAccessedAt 已被并发 touch 变新,放过它。
      *
      * 调用约束:不得在任何 per-name 锁内调用(会自锁)。
      */
     private suspend fun reload(): Unit = mutex.withLock {
-        val now = Instant.now()
-        val next = LinkedHashMap<String, SharedMemory>()
-
-        // list() 返回所有 .md 文件名(不含 user.md),即遗忘的候选集
+        // 1. 全量读取:坏文件跳过(不占名额、不删)
+        val metas = LinkedHashMap<String, SharedMemory>()
         for (name in memoryStore.list()) {
-            // 单文件读失败或正被并发删除:跳过该文件,不中断整轮,也不删除它(不毁用户数据)
             val content = runCatching { memoryStore.read(name) }.getOrNull() ?: continue
-            val memory = SharedMemory.parse(name, content)
-            if (!memory.isExpired(now, forgetDuration)) {
-                next[name] = memory
-                continue
-            }
-
-            // 疑似过期:进 per-name 锁内重新判定后再删,避免误删刚被并发 save/load 刷新过的记忆
-            val kept = memoryStore.modify(name) { current ->
-                val latest = current?.let { SharedMemory.parse(name, it) }
-                    ?: return@modify null
-                if (latest.isExpired(Instant.now(), forgetDuration)) null else current
-            } ?: continue
-            next[name] = SharedMemory.parse(name, kept)
+            metas[name] = SharedMemory.parse(name, content)
         }
 
-        snapshot = next
+        // 2. 没超额:一条不删。这是常态——条数是唯一约束,不是时间
+        if (metas.size <= maxFileCount) {
+            snapshot = metas
+            return@withLock
+        }
+
+        // 3. 超额:最久未访问的先走
+        val evictOrder = metas.values.sortedWith(compareBy({ it.lastAccessedAt }, { it.name }))
+        for (candidate in evictOrder) {
+            if (metas.size <= maxFileCount) break
+
+            val observed = candidate.lastAccessedAt
+            var removed = false
+            memoryStore.modify(candidate.name) { current ->
+                if (current == null) return@modify null
+                val latest = SharedMemory.parse(candidate.name, current)
+                // 并发 touch 过(时间戳变新)→ 放过它,下次 reload 再说
+                if (latest.lastAccessedAt.isAfter(observed)) return@modify current
+                removed = true
+                null
+            }
+            if (removed) metas.remove(candidate.name)
+        }
+
+        snapshot = metas
     }
 
     companion object {
-        /** v1 不开放配置:先固定 30 天。 */
-        private val DEFAULT_FORGET_DURATION: Duration = Duration.ofDays(30)
-
-        /** 目录 → loader。进程内共享:同一目录只有一个快照与一套 per-name 锁。 */
+        /** 目录 → loader。进程内共享:同一目录只有一个快照、一套锁、一个条数上限。 */
         private val instances = ConcurrentHashMap<String, SharedMemoryLoader>()
 
         /**
@@ -304,22 +313,37 @@ internal class SharedMemoryLoader private constructor(
          * key 用 [Path.toRealPath],避免 `./mem` 与 `/abs/mem` 被当成两个目录而各自持锁与快照;
          * 目录不存在时先创建(store 的读写本来也要求目录存在)。
          *
+         * 条数上限是目录的属性(它决定目录里能放几条),所以只由首次注册决定;后续对同一目录传了不同的上限
+         * 直接报错——静默忽略会变成"我明明传了 50 条却没生效"这种最难查的错。
+         * 上限必传:默认值只写在公开的 [AgentBuilder.sharedMemory] 上,不让第二处默认值出现。
+         *
          * 注册表进程内常驻、不做回收:目录数量级是"每用户 / 每 agent 一份"。
          */
-        internal fun of(directory: Path): SharedMemoryLoader {
+        internal fun of(
+            directory: Path,
+            maxFileCount: Int,
+        ): SharedMemoryLoader {
             Files.createDirectories(directory)
             val real = directory.toRealPath()
-            return instances.computeIfAbsent(real.toString()) {
-                SharedMemoryLoader(PathSharedMemoryStore(real), DEFAULT_FORGET_DURATION)
-            }
+            // compute 对同一 key 原子:"检查已有上限 + 注册"不能被另一个线程插进去
+            return instances.compute(real.toString()) { _, existing ->
+                if (existing == null) {
+                    SharedMemoryLoader(PathSharedMemoryStore(real), maxFileCount)
+                } else {
+                    require(existing.maxFileCount == maxFileCount) {
+                        "directory $real is already used with maxFileCount=${existing.maxFileCount}, got $maxFileCount"
+                    }
+                    existing
+                }
+            }!!
         }
 
         /**
-         * 仅供测试:绕过注册表,直接注入内存 store 与极短阈值(否则 30 天阈值无法验证过期)。
+         * 仅供测试:绕过注册表,直接注入内存 store 与极小的条数上限(否则难以触发淘汰)。
          * 用 [SharedMemoryStore] 而非目录,测试也就不必碰磁盘。
          */
-        internal fun create(memoryStore: SharedMemoryStore, forgetDuration: Duration): SharedMemoryLoader =
-            SharedMemoryLoader(memoryStore, forgetDuration)
+        internal fun create(memoryStore: SharedMemoryStore, maxFileCount: Int): SharedMemoryLoader =
+            SharedMemoryLoader(memoryStore, maxFileCount)
     }
 }
 ```
@@ -351,14 +375,14 @@ internal object SharedMemoryPluginConfig
  * 1. 经 loader.modify(RESERVED_USER) 确保 `user.md` 存在(不存在则写空正文模板)
  * 2. context.addInstruction(userBody, "user-profile") 注入 `user.md` 正文到 persona 尾部独立段落
  * 3. registerTool(SharedMemoryLoadTool(loader))  → load_shared_memory
- * 4. registerTool(SharedMemorySaveTool(loader, memoryFileLimit, llmProvider)) → save_shared_memory
+ * 4. registerTool(SharedMemorySaveTool(loader, maxFileCharSize, llmProvider)) → save_shared_memory
  *
- * 插件不持有 [SharedMemoryStore]、也不调 reload():存储与快照都由 [SharedMemoryLoader] 独占维护,
- * 读写入口内部自动重建快照。
+ * 插件不持有 [SharedMemoryStore]、也不调 reload():存储、快照与条数淘汰都由 [SharedMemoryLoader]
+ * 独占维护,读写入口内部自动重建快照。
  */
 internal class SharedMemoryPlugin(
     private val loader: SharedMemoryLoader,
-    private val memoryFileLimit: Int,
+    private val maxFileCharSize: Int,
     private val llmProvider: LlmProvider?,
 ) : AgentPlugin<SharedMemoryPluginConfig> {
 
@@ -379,11 +403,11 @@ internal class SharedMemoryPlugin(
         // 注册两个工具(普通 Tool,不经过 CapabilityAdapter)
         context.registerTool(SharedMemoryLoadTool(loader))
         context.registerTool(
-            SharedMemorySaveTool(loader, memoryFileLimit, llmProvider)
+            SharedMemorySaveTool(loader, maxFileCharSize, llmProvider)
         )
     }
 
-    // 不再显式调 reload():loader.modify 内部已完成快照重建 + 遗忘清理
+    // 不再显式调 reload():loader.modify 内部已完成快照重建 + 条数淘汰
     private suspend fun initialize(): String = ensureUserMemory()
 
     // 若 user.md 不存在,创建空模板;返回 user.md 正文(供 install 注入)
@@ -393,7 +417,7 @@ internal class SharedMemoryPlugin(
             description = "用户画像,每轮主动注入 system prompt",
             now = Instant.now(),
         )
-        // 已存在时 modify 会原样重写一次(原子替换),成本可接受;顺带的 reload 完成 install 首次遗忘清理
+        // 已存在时 modify 会原样重写一次(原子替换),成本可接受;顺带的 reload 完成 install 首次条数检查
         val content = loader.modify(SharedMemory.RESERVED_USER) { current ->
             current ?: empty.render(body = "")
         } ?: return ""
@@ -406,7 +430,7 @@ internal class SharedMemoryPlugin(
 
 ### 4.4 `SharedMemoryLoadTool` —— 读出工具
 
-普通 `Tool`,不继承 `CapabilityLoadTool`。description 每轮求值(用 getter 而非 `by lazy`),拼出当前 loader 快照中所有记忆的 name + description 列表,使 reload 后下一轮 LLM 自动看到新记忆。execute 只调一句 `loader.load(name)`(锁内读正文 + 刷新访问时间,不判过期;完成后 loader 内部自动 reload,遗忘的是其他过期记忆)。
+普通 `Tool`,不继承 `CapabilityLoadTool`。description 每轮求值(用 getter 而非 `by lazy`),拼出当前 loader 快照中所有记忆的 name + description 列表,使 reload 后下一轮 LLM 自动看到新记忆。execute 只调一句 `loader.load(name)`(锁内读正文 + 刷新访问时间,不判淘汰;完成后 loader 内部自动 reload,条目超出 `maxFileCount` 时淘汰其他最久未访问的记忆)。
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -457,7 +481,7 @@ internal class SharedMemoryLoadTool(
             )
         }
 
-        // 锁内读正文 + 刷新 lastAccessedAt,不判过期;loader 随后自动 reload
+        // 锁内读正文 + 刷新 lastAccessedAt,不判淘汰;loader 随后自动 reload
         val content = loader.load(name)
             ?: return ToolExecutionResult.error("Memory not found: $name (it may have been forgotten)")
 
@@ -493,12 +517,12 @@ import java.time.Instant
  *
  * 副作用:
  * - 更新 frontmatter.lastAccessedAt(= now):写入即访问
- * - 写入后 loader.modify 内部自动 reload:重建快照(新记忆由此进入清单),并遗忘其他过期记忆
- *   (本次写入的记忆 lastAccessedAt 刚刷新,不会被删;user.md 不在 list() 中,天然豁免)
- * - 写入后若 newBody 超过 memoryFileLimit,同步调 LLM 压缩并覆盖写回(与 write 同一把 per-name 锁,无竞态窗口)
+ * - 写入后 loader.modify 内部自动 reload:重建快照(新记忆由此进入清单);若记忆条数超过 maxFileCount,
+ *   按 lastAccessedAt 由远到近淘汰,直到回到条数内(本次写入的记忆刚被 touch,排在队尾)
+ * - 写入后若 newBody 超过 maxFileCharSize(字符数,≈ token),同步调 LLM 压缩并覆盖写回(与 write 同一把 per-name 锁,无竞态窗口)
  *
- * **不做过期检查**:写入即视为访问,已过期的记忆会被"复活"(追加/替换旧正文并刷新 lastAccessedAt),
- * 而不是被遗忘。遗忘只发生在随后的 reload 里,且针对的是其他记忆。
+ * **不判淘汰**:写入即视为访问。单条超出 maxFileCharSize 由压缩兜住;条数超额的淘汰只在随后的 reload 里发生,
+ * 且针对的是**其他**最久未访问的记忆。
  *
  * 返回:写入确认信息(包含字符数、是否触发压缩)
  *
@@ -507,7 +531,7 @@ import java.time.Instant
  */
 internal class SharedMemorySaveTool(
     private val loader: SharedMemoryLoader,
-    private val memoryFileLimit: Int,
+    private val maxFileCharSize: Int,
     private val llmProvider: LlmProvider?,
 ) : Tool {
     override val name: String = "save_shared_memory"
@@ -557,12 +581,12 @@ internal class SharedMemorySaveTool(
         // 状态变量:由 transform 内部写入,execute 外层读取以决定返回值
         var notFound = false            // update 模式 old_text 找不到 / update 不存在 / 非法 mode
         var missingDescription = false  // 新建记忆但 description 为空
-        var finalLen = 0                // 最终正文长度
+        var finalChars = 0                // 最终正文字符数(上下文占用口径)
         var compressed = false          // 是否触发压缩
 
         loader.modify(name) { current ->
             val meta = if (current == null) {
-                if (description.isNullOrBlank()) { missingDescription = true; return@modify null }
+                if (description.isNullOrBlank()) { missingDescription = true; return@modify current }
                 SharedMemory.create(name, description, now)
             } else {
                 // 已有记忆:description / createdAt 沿用旧值,忽略入参
@@ -570,22 +594,25 @@ internal class SharedMemorySaveTool(
             }
             val body = current?.let { SharedMemory.bodyOf(it) } ?: ""
 
+            // 失败路径一律 return@modify current:store 把 null 视为"删除文件",
+            // 只有原样返回才不会被误当成删除请求
             val newBody = when (mode) {
                 "append" -> if (body.isBlank()) content else "$body\n\n$content"
                 "update" -> {
-                    if (current == null) { notFound = true; return@modify null }
-                    if (!body.contains(oldText!!)) { notFound = true; return@modify null }
+                    if (current == null || !body.contains(oldText!!)) { notFound = true; return@modify current }
                     body.replace(oldText, content)
                 }
-                else -> { notFound = true; return@modify null }
+                else -> { notFound = true; return@modify current }
             }
 
-            val finalBody = if (newBody.length > memoryFileLimit) {
-                compressMemory(llmProvider, memoryFileLimit, newBody)?.also { compressed = it.length < newBody.length } ?: newBody
+            val finalBody = if (newBody.length > maxFileCharSize) {
+                compressMemory(llmProvider, maxFileCharSize, newBody)?.also {
+                    compressed = it.length < newBody.length
+                } ?: newBody
             } else {
                 newBody
             }
-            finalLen = finalBody.length
+            finalChars = finalBody.length
             meta.copyWith(lastAccessedAt = now).render(finalBody)  // 写入即访问
         }
 
@@ -599,16 +626,16 @@ internal class SharedMemorySaveTool(
         }
 
         return ToolExecutionResult.success(
-            "Saved memory '$name' ($finalLen chars).${if (compressed) " Compressed." else ""}"
+            "Saved memory '$name' ($finalChars chars).${if (compressed) " Compressed." else ""}"
         )
     }
 
     private suspend fun compressMemory(
         llmProvider: LlmProvider,
-        memoryFileLimit: Int,
+        maxFileCharSize: Int,
         body: String,
     ): String? {
-        val targetSize = memoryFileLimit / 2
+        val targetChars = maxFileCharSize / 2
         val prompt = """
             请整理以下共享记忆内容,按以下规则压缩:
             1. 去重:相似信息只保留最后一份，但不是简单的裁切，而是语义融合
@@ -616,7 +643,7 @@ internal class SharedMemorySaveTool(
             3. 合并:相关信息合并为更紧凑的表述(如"喜欢海鲜"+"喜欢日料"→"喜欢海鲜与日料")
             4. 保留:所有关键事实必须保留,不能因压缩丢失语义，且保持原有的记忆条目的格式与顺序
 
-            只输出压缩后的正文,不要任何前缀说明。压缩到 $targetSize 字符以内。
+            只输出压缩后的正文,不要任何前缀说明。压缩到 $targetChars 字以内。
 
             原始内容:
             $body
@@ -628,7 +655,7 @@ internal class SharedMemorySaveTool(
             ),
         )
         val summary = runCatching { llmProvider.chat(request).message.content }.getOrNull() ?: return null
-        // 无效兜底:压缩结果没有变短,说明压缩失败,返回 null 让调用方保留原文
+        // 无效兜底:压缩结果没有变短(字符数),说明压缩失败,返回 null 让调用方保留原文
         return if (summary.length < body.length) summary else null
     }
 }
@@ -688,7 +715,7 @@ internal interface SharedMemoryStore {
     suspend fun exists(name: String): Boolean
 
     /**
-     * 所有 `.md` 文件名(不含后缀),即 reload 的遗忘候选集。
+     * 所有 `.md` 文件名(不含后缀),即 reload 的条数统计与淘汰候选集。
      *
      * 过滤三件事:排除 [SharedMemory.RESERVED_USER]、只保留符合 [MEMORY_NAME_PATTERN] 的名字、忽略 `.tmp` 残留。
      */
@@ -700,9 +727,9 @@ internal interface SharedMemoryStore {
  *
  * - 文件名:`$directory/$name.md`,`name` 先过 [MEMORY_NAME_PATTERN] 校验
  * - IO 走 [Dispatchers.IO]
- * - `user.md` 文件存在但不列入 list()(避免被 loader 当作普通记忆加载、遗忘)
+ * - `user.md` 文件存在但不列入 list()(避免被 loader 当作普通记忆参与条数统计与淘汰)
  * - 非记忆文件不参与:名字不符合 [MEMORY_NAME_PATTERN] 的 `.md` 与 `.tmp` 残留都不进 list(),
- *   因此既不会被扫描也不会被遗忘(宿主可以在同目录放其他文件)
+ *   因此既不占名额也不会被淘汰(宿主可以在同目录放其他文件)
  * - per-name 互斥:[locks] 为每个 name 维护一把 [Mutex],[modify] 全程持锁,
  *   使 save 与压缩、save 与 load 对同一 name 串行。
  *   (store 由按目录单例的 [SharedMemoryLoader] 持有,所以同一目录全进程只有这一套锁。)
@@ -781,20 +808,23 @@ import java.nio.file.Path
  * `sharedMemory` 是跨会话的 markdown 记忆,两者正交。
  *
  * @param directory 记忆文件根目录,宿主必传(不存在会自动创建)。
- *   同一目录在进程内共享同一份快照与同一套锁,多个 Agent 传同一目录即共享同一份记忆。
- * @param memoryFileLimit 单文件字符上限,超则同步压缩。默认 8000,必须 > 0
+ *   同一目录在进程内共享同一份快照、同一套锁与同一个条数上限,多个 Agent 传同一目录即共享同一份记忆。
+ * @param maxFileCount 目录里最多保留的记忆条数,超出则按最久未访问淘汰。默认 50
+ * @param maxFileCharSize 单条记忆的字符数上限(≈ 上下文/token 预算),超则同步压缩。默认 8000
  * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
  */
 public fun AgentBuilder.sharedMemory(
     directory: Path,
-    memoryFileLimit: Int = 8000,
+    maxFileCount: Int = 50,
+    maxFileCharSize: Int = 8000,
     llmProvider: LlmProvider? = null,
 ) {
-    require(memoryFileLimit > 0) { "memoryFileLimit must be positive: $memoryFileLimit" }
+    require(maxFileCount > 0) { "maxFileCount must be positive: $maxFileCount" }
+    require(maxFileCharSize > 0) { "maxFileCharSize must be positive: $maxFileCharSize" }
     plugin(
         SharedMemoryPlugin(
-            loader = SharedMemoryLoader.of(directory),
-            memoryFileLimit = memoryFileLimit,
+            loader = SharedMemoryLoader.of(directory, maxFileCount),
+            maxFileCharSize = maxFileCharSize,
             llmProvider = llmProvider,
         )
     )
@@ -808,16 +838,17 @@ public fun AgentBuilder.sharedMemory(
 ### 5.1 install 阶段
 
 ```
-AgentBuilder.sharedMemory(directory, memoryFileLimit, llmProvider)
-  → require 校验参数(memoryFileLimit 必须 > 0)
-  → SharedMemoryLoader.of(directory)          # 按目录单例:createDirectories + toRealPath 作 key,已存在则复用
-  → plugin(SharedMemoryPlugin(loader, memoryFileLimit, llmProvider))
+AgentBuilder.sharedMemory(directory, maxFileCount, maxFileCharSize, llmProvider)
+  → require 校验参数(maxFileCount 条 > 0、maxFileCharSize 字符 > 0)
+  → SharedMemoryLoader.of(directory, maxFileCount)   # 按目录单例:createDirectories + toRealPath 作 key
+                                                       # 已存在则复用;传了不同 maxFileCount 直接报错
+  → plugin(SharedMemoryPlugin(loader, maxFileCharSize, llmProvider))
     → SharedMemoryPlugin.install(context)
       → runBlocking { initialize() }
         → ensureUserMemory()             # 经 loader.modify(RESERVED_USER) 建空模板;完成后 loader 内部已自动 reload
       → context.addInstruction(userBody, "user-profile") # 注入到 persona 尾部独立段落
       → context.registerTool(SharedMemoryLoadTool(loader))                    # load_shared_memory
-      → context.registerTool(SharedMemorySaveTool(loader, memoryFileLimit, llmProvider)) # save_shared_memory
+      → context.registerTool(SharedMemorySaveTool(loader, maxFileCharSize, llmProvider)) # save_shared_memory
 ```
 
 ### 5.2 每轮 LLM 请求
@@ -840,10 +871,10 @@ load_shared_memory.execute({name: "travel"})
   → loader.load("travel")
       → memoryStore.modify("travel") { current ->        # per-name 锁内
           text = bodyOf(current)                          # 锁内读到的最新正文,即本次返回值
-          parse(current).copyWith(lastAccessedAt = now).render(text)   # 只刷新访问时间,不判过期
+          parse(current).copyWith(lastAccessedAt = now).render(text)   # 只刷新访问时间,不判淘汰
         }
-      → 返回 text;文件不存在(已遗忘)时返回 null
-  → loader.load 内部自动 reload()                          # 遗忘:删除其他过期记忆 + 重建快照
+      → 返回 text;文件不存在(已被淘汰)时返回 null
+  → loader.load 内部自动 reload()                          # 条数超额则淘汰最久未访问的 + 重建快照
   → ToolExecutionResult.success(正文 / error "not found")
 ```
 
@@ -857,17 +888,16 @@ save_shared_memory.execute({name, content, mode, old_text?})
       current != null → parse,description / createdAt 沿用旧值
       mode=append: body + "\n\n" + content
       mode=update:
-        current == null → notFound 标记,返回 null
-        body.contains(old_text) 失败 → notFound 标记,返回 null
+        current == null 或 body.contains(old_text) 失败 → notFound 标记,原样返回 current(不落盘)
         body.replace(old_text, content)   # content="" 表示删除
-      不判过期:lastAccessedAt = now(写入即访问,已过期记忆被复活)
-      若 newBody.length > memoryFileLimit:
+      不判淘汰:lastAccessedAt = now(写入即访问,本次写入排在淘汰队尾)
+      若 newBody.length > maxFileCharSize(字符):
         → 同步调 compressMemory(newBody)   # 仍在 modify 锁内
         → 压缩成功(summary 更短):用 summary 作 finalBody,compressed 标记
         → 压缩失败(null 或 summary 不变短):保留 newBody
       返回 meta.copyWith(lastAccessedAt = now).render(finalBody)   # 原子写回
     }
-  → loader.modify 内部自动 reload()                     # 新记忆进入快照 + 遗忘其他过期记忆
+  → loader.modify 内部自动 reload()                     # 新记忆进入快照 + 条数超额时淘汰其他最久未访问的
   → notFound → 返回 error "old_text not found or memory does not exist"
   → 返回 "Saved ... (N chars) [Compressed.]"
 ```
@@ -875,8 +905,8 @@ save_shared_memory.execute({name, content, mode, old_text?})
 ### 5.5 同步压缩
 
 ```
-compressMemory(llmProvider, memoryFileLimit, body)
-  → llmProvider.chat(压缩到 ${memoryFileLimit/2} 字符以内)   # 失败返回 null
+compressMemory(llmProvider, maxFileCharSize, body)
+  → llmProvider.chat(压缩到约 ${maxFileCharSize/2} 字以内)   # 字符口径;失败返回 null
   → runCatching { ... }.getOrNull()   # 失败返回 null,保留 newBody
   → 返回 summary
 ```
@@ -893,19 +923,19 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 - 创建:`install` 时若不存在,创建空模板(真实元数据 + 空正文)。
 - 读取:不在记忆清单中(`SharedMemoryStore.list()` 排除 `user`),且 `SharedMemoryLoadTool` 对保留名直接返回错误——
   这是必需的:**`loader.load(name)` 不再经过快照**,快照排除 user 挡不住它,必须在工具层显式拦(直接读文件就能读到)。
-- 写入:`save_shared_memory("user", ...)` 允许。append 用于累积新画像条目;update 用于"忘记 xxx"/"改一下 xxx"——LLM 从 system prompt 中看到 user.md 现有内容,引用要改的片段作 old_text,提供 content(空串表示删除)。user.md 不进 loader,LLM 不能 load,所以 update 的 old_text 必须凭 system prompt 中注入的内容引用。
+- 写入:`save_shared_memory("user", ...)` 允许。append 用于累积新画像条目;update 用于"忘记 xxx"/"改一下 xxx"——LLM 从 system prompt 中看到 user.md 现有内容,引用要改的片段作 old_text,提供 content(空串表示删除)。user.md 不在 `list()` 里,LLM 不能 load,所以 update 的 old_text 必须凭 system prompt 中注入的内容引用。
 - 注入:`install` 时读 `user.md` 正文,通过 `addInstruction(body, "user-profile")` 注入 persona 尾部独立段落(具名 label,同名段落原位替换);正文为空时不注入。
   - **告知 `user` 可写**不靠 persona:save 工具 description 里明确写了"另有一个内置记忆 user,不在列表里,用 name=`user` 写入"。工具描述每轮都随 `tools` 下发,不依赖正文是否为空。
   - **注意**:正文是 install 时快照的。运行时 LLM 通过 `save_shared_memory("user", ...)` 更新后,**当前会话不会重新注入**——要等下一次会话。这是限制,见 §8。
-- 遗忘豁免:`user.md` 不在 `list()` 中,reload 永远不会碰它。
+- 淘汰豁免:`user.md` 不在 `list()` 中,reload 不数它也不淘汰它。
 
 ### 6.2 reload 的并发安全
 
 - `SharedMemoryLoader.reload()` 用 `Mutex` 保护,重建后整体替换 `@Volatile` 快照。
 - 触发点:`load()` / `modify()` 完成后自动调用;工具与插件不再自行触发。
 - `SharedMemoryLoader.load()` 的读 + touch 走 store 的 per-name 锁,与同名 save 串行,返回值即锁内那一刻的磁盘内容。
-- `reload` 内部的过期删除在 per-name 锁内二次判定,与并发 load/save 串行,不会误删刚被刷新的记忆。
-- 快照中只含未过期记忆:`all()` / `get()` 返回的一定可读;读方直接读快照,无锁;reload 期间旧快照仍可读,切换原子。
+- `reload` 内部的淘汰删除在 per-name 锁内二次判定:若 lastAccessedAt 已被并发 touch 变新则跳过,与并发 load/save 串行。
+- 快照与磁盘一致:`all()` / `get()` 反映最近一次 reload 的结果;读方直接读快照,无锁;reload 期间旧快照仍可读,切换原子。
 - **并发会话共享同一份状态**:`SharedMemoryLoader.of(directory)` 保证同一目录只存在一个 loader,所以多个 Agent 实例共享快照与 per-name 锁——A 新建的记忆,在 B 下一轮构造请求(读 `loader.all()`)时就出现了;两边写同一 name 也是串行。
 
 ### 6.3 压缩失败与并发
@@ -913,21 +943,24 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 - **压缩位置**:压缩是 `save_shared_memory` 流程内的一步,在 `modify` 的 transform 里算完 finalBody 才一次性写入、然后才返回,与 write 共享 store 的 per-name 锁。不是独立协程。
 - **失败语义**:压缩在两种情况下返回 null,save 流程保留 append/update 后的 newBody 作为最终 body:
   1. LLM 调用抛错(网络、限流等)
-  2. LLM 返回的 summary 长度 ≥ 原 body(压缩无效,没变短)
-  下次 save 若 `newBody.length` 仍超 `memoryFileLimit` 会再次触发压缩——这是"压缩失败则直接追加,等下一次写入时再次触发"的落点。
+  2. LLM 返回的 summary 字符数 ≥ 原 body(压缩无效,没变短)
+  下次 save 若 `newBody.length` 仍超 `maxFileCharSize` 会再次触发压缩——这是"压缩失败则直接追加,等下一次写入时再次触发"的落点。
 - **并发**:save 与 load 全程在 `store.modify` 的 per-name 锁内执行,包含 read、压缩(LLM 调用)、write。同 name 操作串行,不同 name 可并行。单进程内不存在 lost update 或压缩覆盖竞态。
 - **跨进程**:不支持。按目录的单例也只在进程内成立;若宿主跨进程共享同一 `directory`,须自行加协调层。
 
-### 6.4 遗忘的语义
+### 6.4 条数淘汰的语义
 
-- **唯一判定点**:`SharedMemoryLoader.reload()`。`SharedMemoryLoader.load()` 与 `SharedMemorySaveTool` 都不判过期。
-- **触发时机**:由 loader 的读写入口自动触发——`SharedMemoryLoader.load` / `modify` 完成各自操作后调一次 `reload()`。工具与插件都不感知,也不会遗漏。
-- **清理范围**:目录中所有普通记忆(`list()` 不含 `user.md`)。所以每次读写都会"顺手"遗忘其他长期未访问的记忆,而不只是自己。
-- **本次操作的记忆不会被删**:load 刚把 lastAccessedAt 刷为 now,save 刚写入 lastAccessedAt = now;reload 在 per-name 锁内二次判定,不与并发读写竞争。
-- **save 对已过期记忆等于"复活"**:不判过期,直接写入并刷新 lastAccessedAt。
-- **`user.md` 豁免**:不在 `list()` 中,reload 永远不会碰它。
-- **遗忘阈值固定 30 天**:v1 不开放配置(`SharedMemoryLoader.DEFAULT_FORGET_DURATION`)。测试需要短阈值时用 `SharedMemoryLoader.create(store, duration)` 绕过单例。
-- **没人读写就不清理**:没有后台巡检,也没有对外的清理入口(loader 不对外暴露),清理只靠下一次读写。
+- **唯一判定点**:`SharedMemoryLoader.reload()`。`load()` 与 `SharedMemorySaveTool` 都不判淘汰。
+- **触发时机**:由 loader 的读写入口自动触发——`load` / `modify` 完成各自操作后调一次 `reload()`。工具与插件都不感知。
+- **只有超额才淘汰**:条数 ≤ `maxFileCount` 时一条都不删。"很久没访问"本身不构成删除理由,只在超出条数时才按 `lastAccessedAt` 由远到近腾地方。
+- **计数口径**:目录里符合 `MEMORY_NAME_PATTERN` 的 `.md` 条数(`list()` 的结果);`user.md` 不在其中,既不占名额也不参与淘汰。
+- **单条大小不参与淘汰**:一条很长但没超过 `maxFileCharSize` 的记忆不会被淘汰,压缩是它唯一的约束;反过来,压缩失败留下的超长记忆也不会因为"太大"而被删。
+- **不会删空**:条数上限 ≥ 1 由 DSL 的 `require` 保证,循环条件 `metas.size <= maxFileCount` 一满足就停,所以只会删到刚好回到上限。
+- **本次操作的记忆排在队尾**:load 刚把 lastAccessedAt 刷为 now,save 刚写入 now;reload 在 per-name 锁内二次判定,不与并发读写竞争。
+- **删到刚好回到上限为止**:正常写入一次只多一条,所以一次 reload 只淘汰一条——写第 N+1 条 → 删最久未访问的那条 → 回到 N 条就停,下一条新记忆到来时才再淘汰一条。只有目录被外部一次性塞进多个 `.md` 时,才会在下次 reload 一次连删到刚好 N 条。两种路径都是"够用就停",不会连锁清空。
+- **淘汰不回报**:save 的返回里不说淘汰了谁,但下一轮 `load_shared_memory` 的 description 会重新列出当前清单(改进方向见 §8.2)。
+- **手工删文件同样生效**:宿主/用户直接删掉一个 `.md`,下一次 reload 后它就从清单消失,并且不再占名额。
+- **没有后台巡检**:清理只随 `load` / `modify` 的 `reload()` 发生。宿主长时间不调工具时,目录可能一直超出条数,直到下一次读写才收敛。
 
 ### 6.5 与短期 Memory 的关系
 
@@ -943,31 +976,33 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 ### 7.1 单元测试
 
 - `SharedMemory.parse / bodyOf / render`:frontmatter 解析的往返一致性(render 后 parse + bodyOf 能还原元数据与正文),且 `parse` 不依赖 store(纯函数、无 IO);缺失字段、乱序字段、特殊字符、文件名与 frontmatter name 冲突时以文件名为准。
-  - 缺 `lastAccessedAt` 的文件解析后 **不得** 被判为过期(兜底用 now 而非 EPOCH)
+  - 缺 `lastAccessedAt` 的文件解析后 **不得** 被排到淘汰队首(兜底用 now 而非 EPOCH)
   - 没有 frontmatter / 半截 frontmatter 的文件不抛异常,正文取全文
   - `description` 含换行 / 冒号 / 中文时 render → parse 往返后与原值一致(换行已折成空格)
 - `MEMORY_NAME_PATTERN`:接受 `travel` / `user` / `a.b-c_1`;拒绝 `../x`、`a/b`、空串、65 字符、`.hidden`(首字符非字母数字)。
 - `PathSharedMemoryStore`:在 tempdir 上读写删列表,IO 异常路径;`list()` 只返回合法名——`中文.md` / `a b.md` / `x.md.tmp` / `user.md` 都不出现。
-- `SharedMemoryLoader` 的过期清理(`reload` 已 private,经 `load` / `modify` 间接验证):新增/删除/变更文件的同步;过期文件被删除且不进入快照;未过期文件保留。
-- `SharedMemoryLoader.load`:锁内取正文并刷新 lastAccessedAt,不判过期(已超阈值的文件仍能读出);文件不存在返回 null 且不新建空文件。
+- `SharedMemoryLoader` 的条数淘汰(`reload` 已 private,经 `load` / `modify` 间接验证):条数未超额时**一条都不删**;超额时按 lastAccessedAt 由远到近删到刚好回到 `maxFileCount`;`user.md` 既不占名额也不淘汰;并发 touch 过的候选被跳过;单条超长但未超 `maxFileCharSize` 不影响淘汰。
+- `SharedMemoryLoader.load`:锁内取正文并刷新 lastAccessedAt,不判淘汰(即将被淘汰的文件在删掉前仍能读出);文件不存在返回 null 且不新建空文件。
 - `SharedMemoryLoader.load` / `modify` 完成后快照即同步:调用返回后 `get()` / `all()` 立刻反映新状态,调用方无需(也不应)再自行调 `reload()`。
 - `SharedMemoryLoader` 容错:目录中放一个不可读 / 内容异常的文件,`load` / `modify` 不抛异常,该文件不进快照也不被删除。
-- `SharedMemoryLoader.of`:同一目录两次调用返回**同一实例**(快照与锁共享);`./mem` 与绝对路径归一到同一 key;不同目录互不影响。(测试用 `@TempDir` 保证目录唯一,避免全局注册表串场)
+- `SharedMemoryLoader.of`:同一目录两次调用返回**同一实例**(快照与锁共享);`./mem` 与绝对路径归一到同一 key;同一目录传不同 `maxFileCount` 抛 IllegalArgumentException;不同目录互不影响。(测试用 `@TempDir` 保证目录唯一,避免全局注册表串场)
+- `SharedMemoryLoader.create`:可注入极小条数上限与内存 store,不碰磁盘;`create` 出的实例与注册表无关。
 - `SharedMemorySaveTool.execute`:
   - append / update 两种 mode(update 配 old_text,content 作替换文本,支持局部替换与删除)
   - 非法 name(`../x`、含 `/`、超长)返回 isError,不落盘
   - 新记忆创建 → loader 内部已 reload,`loader.get` 立即可命中
-  - 已有记忆更新 lastAccessedAt;已过期记忆被 save 复活(不删除)
-  - 超过 memoryFileLimit → 触发同步压缩(mock LlmProvider)
-  - save 后其他过期记忆被清理(loader.modify 内部 reload 生效)
+  - 已有记忆更新 lastAccessedAt
+  - 超过 maxFileCharSize(字符) → 触发同步压缩(mock LlmProvider)
+  - save 后条数超额 → 淘汰其他最久未访问的(loader.modify 内部 reload 生效)
 - `SharedMemoryPlugin.initialize`:user.md 不存在时创建,已存在时不覆盖;正文为空时 install 不注入段落。
 - `SharedMemoryLoadTool.execute`:保留名 `user` 返回错误(即使 `user.md` 在磁盘上存在也不返回正文);不存在的 name 返回 not found。
 
 ### 7.2 集成测试
 
 - 用 mock `LlmProvider`,模拟 LLM 调用 `save_shared_memory("travel", "...")` → `load_shared_memory("travel")` → 返回写入内容。
-- 模拟压缩:`memoryFileLimit=100`,写入 200 字符内容,验证压缩被触发且 md 最终被覆盖为压缩后内容。
-- 模拟遗忘:用 `SharedMemoryLoader.create(store, 1.milliseconds)` 注入极短阈值(`of()` 固定 30 天,无法直接测过期),创建 A、B 两个记忆,load A 后令 A、B 均超期,再 load B——验证 reload 在 load 之后把 A 删掉,而 B 因刚被读取幸存。
+- 模拟压缩:`maxFileCharSize=100`(字符),写入 200 字符内容,验证压缩被触发且 md 最终被覆盖为压缩后内容。再补一条:同为 200 字符但全为中文时仍触发(证明按字符而非字节判定)。
+- 模拟淘汰:用 `SharedMemoryLoader.create(store, maxFileCount = 2)` 注入小上限,建 A/B 两条间隔写入的记忆,再写入 C——验证最久未访问的 A 先被删,B/C 保留;再把上限设为 1 写入 D,验证只留最新的一条,且不会删空。
+- 缺省情况下(条数未超额)多次 load/save 不删任何文件——确保没有残留的时间遗忘。
 
 ### 7.3 不在测试范围
 
@@ -983,30 +1018,32 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 
 1. **user.md 注入是静态的**:`install` 时一次性读 `user.md` 内容通过 `addInstruction(body, "user-profile")` 注入 persona 尾部独立段落,运行时 LLM 通过 `save_shared_memory` 更新 user.md 后,**当前会话不会重新注入**——要等下一次会话。`addInstruction` 的具名 label 支持同名段落原位替换,插件若在 install 后保留 `AgentPluginContext`,理论上可在运行期重刷该段落;但当前设计不保留 context,故仍需 `onTurnFinished` 等 turn hook 才能实现每轮重读注入,而目前插件接口只支持 `registerTool` + `addInstruction`。
 2. **跨进程并发不支持**:per-name Mutex 只在单进程内生效,按目录的 loader 单例也只是**进程内**共享。两个进程挂同一 `directory` 时,既可能 lost update,也互看不见对方新建的记忆。宿主跨进程共享须自行加协调层。
-3. **遗忘无后台巡检**:清理只随 loader 的 `load` / `modify` 内部 `reload()` 发生。宿主长时间不调工具时,过期文件会留在磁盘(下次读写或下次 install 时被清理)。需要独立巡检时,得先开放一个公开的巡检 API(`reload()` 目前是 private)。
+3. **淘汰无后台巡检**:条数统计与淘汰只随 loader 的 `load` / `modify` 内部 `reload()` 发生。宿主长时间不调工具时,目录可能一直超出条数(下次读写或下次 install 时才收敛)。需要主动巡检时,得先开放一个公开入口(`reload()` 目前是 private)。
 4. **存储实现不可替换**:`SharedMemoryStore` 是 `internal`,宿主只能走 `PathSharedMemoryStore`。由于依赖 `java.nio.file`,**Android API < 26 不可用**。需要平台适配时,把接口提为 `public` 并在 DSL 加 `store` 参数即可(注入缝已预留)。
-5. **记忆文件名只认 ASCII**:符合 `[A-Za-z0-9._-]` 且 ≤ 64。目录里其他 `.md`(中文名、带空格)会被 `list()` 忽略——既不进快照也不会被遗忘,算是"安全地看不见"。
-6. **遗忘阈值不可配**:固定 30 天(`DEFAULT_FORGET_DURATION`)。需要按场景调整时,再给 DSL 加 `forgetDuration` 参数;但同一目录的 loader 是共享的,不同 Agent 传不同值会冲突,届时要先定优先级(首建为准 or 取最小)。
+5. **记忆文件名只认 ASCII**:符合 `[A-Za-z0-9._-]` 且 ≤ 64。目录里其他 `.md`(中文名、带空格)会被 `list()` 忽略——既不进快照也不占名额,算是"安全地看不见"。
+6. **条数上限只能首次设定**:同一目录的 loader 共享,所以 `maxFileCount` 只由首次注册决定;后续对同一目录传不同值会直接抛 IllegalArgumentException。需要按场景调整时,得先保证该目录只有一个"归属方"。
 7. **目录注册表常驻不回收**:`SharedMemoryLoader.instances` 是进程级 `ConcurrentHashMap`,`of()` 不回收入口。宿主不断换目录(如每次请求一个临时目录)会缓慢累积——量级上应当"每用户/每 agent 一个稳定目录",v1 不做引用计数。
 
 ### 8.2 未来扩展
 
 1. **user.md 动态注入**:加 turn hook,每轮开始重读 user.md 注入。
-2. **定时巡检**:开放一个公开的巡检入口(把 `reload()` 提为 public 或加 `purgeExpired()`),由宿主定时调用,或后续加后台巡检策略。
+2. **手动巡检/整理**:开放一个公开入口(把 `reload()` 提为 public 或加 `purge()` / `compact()`),由宿主主动触发淘汰或压缩。
 3. **记忆合并**:多个相关 md 合并为一个,需要 LLM 识别"相关"。
-4. **跨进程快照失效感知**:多进程共享同一 `directory` 时,A 进程 save 后 B 进程的 loader 快照仍是旧的。未来可加 FS watch 或 polling reload,使 B 进程自动感知新记忆。v1 不处理。
+4. **淘汰回报给 LLM**:`save_shared_memory` 的返回里带上本次被淘汰的记忆名,让模型知道哪些信息丢了,可及时重写。
+5. **淘汰规则改成 LLM 决策**:不再只按 lastAccessedAt,而是把清单交给模型选"该删哪条、该合并哪几条"——按时间淘汰依旧分不清重要与不重要。
+6. **跨进程快照失效感知**:多进程共享同一 `directory` 时,A 进程 save 后 B 进程的 loader 快照仍是旧的。未来可加 FS watch 或 polling reload,使 B 进程自动感知新记忆。v1 不处理。
 
 ---
 
 ## 9. 实现顺序建议
 
 1. 在 `settings.gradle.kts` 加 `include(":agent:memory:shared")`,建模块(模板同 `agent/skill`,`explicitApi()`,不引 serialization 插件)。
-2. 实现 `SharedMemoryStore` / `SharedMemory`(纯值对象,含 frontmatter 解析与渲染)/ `SharedMemoryLoader`(含按目录单例 `of()`、过期清理与 `load` / `modify` 入口)。
+2. 实现 `SharedMemoryStore` / `SharedMemory`(纯值对象,含 frontmatter 解析与渲染)/ `SharedMemoryLoader`(含按目录单例 `of()`、条数淘汰与 `load` / `modify` 入口)。
 3. 实现 `SharedMemoryLoadTool`(读出路径)。
 4. 实现 `SharedMemorySaveTool`(不含压缩,先跑通读写路径)。
 5. 实现 `SharedMemoryPlugin` + `AgentBuilder.sharedMemory(...)`,接入 AgentBuilder。
 6. 加同步压缩逻辑(并入 save 流程,与 write 同锁)。
-7. 实现 reload 的过期清理,并将它收进 `load` / `modify` 内部自动调用(工具与插件不显式调)。
+7. 实现 reload 的条数淘汰(条数统计 + 最久未访问优先),并将它收进 `load` / `modify` 内部自动调用(工具与插件不显式调)。
 8. 加 user.md 初始化 + addInstruction 注入。
 9. 单元测试 + 集成测试。
 10. demos/agent 加一个共享记忆示例。
