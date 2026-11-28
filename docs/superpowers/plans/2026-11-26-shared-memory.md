@@ -882,7 +882,7 @@ return ToolExecutionResult.success("Saved memory '$name'.$note")
 | update 整行替换 | 命中行被替换，其余行与顺序不变 |
 | update 空 content 删行 | 该行消失且**不留空行**，行数 -1 |
 | update 未命中 | isError 且含 `old_text not found`，文件字节不变 |
-| update 的 name 不存在 | isError（同 `old_text not found` 分支），**不新建文件** |
+| update 的 name 不存在 | isError，**不新建文件**；带 description 时走 `old_text not found`（建 meta → 空正文 → 无行可命中），不带时 meta 段先报 `Missing 'description'`（§4.5 的判定顺序如此，两分支都不落盘） |
 | update 空 / 全空白 old_text | isError，不落盘 |
 | update 半行引用 | 只引用了某行的前半句 → isError，不落盘 |
 | 重复行只改第一条 | 正文两行完全相同 → 只替换上面那行，下面那行原样 |
