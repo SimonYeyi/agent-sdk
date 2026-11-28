@@ -170,6 +170,22 @@ class SharedMemorySaveToolTest {
     }
 
     @Test
+    fun `deleting an entry is reported as a removal, not as a save`() = runTest {
+        val store = FakeSharedMemoryStore()
+        val loader = SharedMemoryLoader.create(store, 5)
+        loader.modify("travel") { md("travel", body = "- a\n- b") }
+
+        val result = tool(loader).execute(
+            args(name = "travel", mode = "update", oldText = "- b", content = ""),
+            context,
+        )
+
+        assertFalse(result.isError, result.text())
+        assertEquals("Removed one entry from memory 'travel'.", result.text())
+        assertEquals("- a", SharedMemory.bodyOf(store.contentOf("travel")!!))
+    }
+
+    @Test
     fun `update that matches nothing reports not found and leaves the file untouched`() = runTest {
         val store = FakeSharedMemoryStore()
         val loader = SharedMemoryLoader.create(store, 5)
@@ -323,6 +339,50 @@ class SharedMemorySaveToolTest {
         assertEquals(before, store.contentOf("travel"))
     }
 
+    @Test
+    fun `update without content is rejected instead of deleting the entry`() = runTest {
+        val store = FakeSharedMemoryStore()
+        val loader = SharedMemoryLoader.create(store, 5)
+        loader.modify("travel") { md("travel", body = "- a\n- b") }
+        val before = store.contentOf("travel")
+
+        val result = tool(loader).execute(
+            args(name = "travel", mode = "update", oldText = "- b"),
+            context,
+        )
+
+        assertTrue(result.isError)
+        assertTrue("Missing 'content'" in result.text(), result.text())
+        assertEquals(before, store.contentOf("travel"), "omitting content must not delete a line")
+    }
+
+    @Test
+    fun `append with blank content is rejected instead of adding an empty line`() = runTest {
+        val store = FakeSharedMemoryStore()
+        val loader = SharedMemoryLoader.create(store, 5)
+        loader.modify("travel") { md("travel", body = "- a") }
+        val before = store.contentOf("travel")
+
+        val result = tool(loader).execute(args(name = "travel", content = "   "), context)
+
+        assertTrue(result.isError)
+        assertTrue("Missing 'content'" in result.text(), result.text())
+        assertEquals(before, store.contentOf("travel"))
+    }
+
+    @Test
+    fun `an over-long description is truncated on creation`() = runTest {
+        val store = FakeSharedMemoryStore()
+        val loader = SharedMemoryLoader.create(store, 5)
+
+        tool(loader).execute(
+            args(name = "travel", description = "d".repeat(500), content = "- x"),
+            context,
+        )
+
+        assertEquals(SharedMemory.MAX_DESCRIPTION_CHARS, loader.get("travel")?.description?.length)
+    }
+
     // ---------- 时间 / 快照 ----------
 
     @Test
@@ -432,6 +492,35 @@ class SharedMemorySaveToolTest {
 
         val result = tool(loader, maxFileCharSize = 100)
             .execute(args(name = "big", content = "n".repeat(30)), context)
+
+        assertTrue(result.isError)
+        assertTrue("too large to compress" in result.text(), result.text())
+        assertEquals(before, store.contentOf("big"))
+    }
+
+    @Test
+    fun `an oversized memory can still be shrunk by update`() = runTest {
+        val store = FakeSharedMemoryStore()
+        val loader = SharedMemoryLoader.create(store, 5)
+        val huge = "- " + "x".repeat(500)
+        loader.modify("big") { md("big", body = huge) }
+
+        val result = tool(loader, maxFileCharSize = 100)
+            .execute(args(name = "big", mode = "update", oldText = huge, content = "- 短"), context)
+
+        assertFalse(result.isError, result.text())
+        assertEquals("- 短", SharedMemory.bodyOf(store.contentOf("big")!!))
+    }
+
+    @Test
+    fun `growing a memory that is already beyond the hard limit is rejected`() = runTest {
+        val store = FakeSharedMemoryStore()
+        val loader = SharedMemoryLoader.create(store, 5)
+        loader.modify("big") { md("big", body = "- " + "x".repeat(500)) }
+        val before = store.contentOf("big")
+
+        val result = tool(loader, maxFileCharSize = 100)
+            .execute(args(name = "big", content = "- 新条目"), context)
 
         assertTrue(result.isError)
         assertTrue("too large to compress" in result.text(), result.text())

@@ -23,7 +23,7 @@ internal val MEMORY_NAME_PATTERN: Regex = Regex("[A-Za-z0-9][A-Za-z0-9._-]{0,63}
  *
  * **internal**:存储是模块内部的可替换缝(单测可换内存实现),宿主不感知也不注入。
  *
- * 并发语义:[modify] 对同一 [name] 串行执行——transform 在 per-name 锁内运行,
+ * 并发语义:[modify] 对同一 'name' 串行执行——transform 在 per-name 锁内运行,
  * 使 save/load/压缩等复合操作(read → 计算 → write)对同一 name 原子化,
  * 消除单进程内的 lost update 与覆盖竞态。不同 name 之间可并行。
  *
@@ -38,6 +38,8 @@ internal interface SharedMemoryStore {
      * - 返回内容与当前内容**完全相同**(含同为 null)时视为无变更:不落盘、不刷新 mtime、不产生任何 IO。
      *   失败路径因此可以用 `return@modify current` 表达"什么都不做",既省掉一次无谓写入,
      *   也不会让落盘异常(如 Windows 上 rename 被拒)盖掉调用方要返回的业务错误
+     * - 删除请求也可能失败(Windows 上目标被句柄占):此时不改文件,而是原样返回 `current`,
+     *   等价于"什么都没发生"。调用方必须用**返回值**判定是否真的删掉了,不要用自己请求了什么
      * - transform 内部可执行 suspend 操作(如调 LLM 压缩),全程持锁,不会被同名操作插入
      * - 返回值为最终写入(或删除前的)内容,供调用方使用
      */
@@ -73,7 +75,7 @@ internal interface SharedMemoryStore {
  *   (store 由按目录单例的 [SharedMemoryLoader] 持有,所以同一目录全进程只有这一套锁。)
  * - write 走原子写入:先写 `.tmp` 再 [Files.move] 带 [StandardCopyOption.ATOMIC_MOVE] 替换目标,
  *   避免写一半中断导致文件损坏(残留的 `.tmp` 不会被 [list] 当成记忆,也不影响读取)
- * - 内容未变不落盘:[modify] 在 [transform] 返回与当前内容相同的字符串时直接返回,不写 `.tmp`。
+ * - 内容未变不落盘:[modify] 在 'transform' 返回与当前内容相同的字符串时直接返回,不写 `.tmp`。
  *   稳态的 `user.md` 初始化(原样返回当前值)与 save 的失败路径因此都是零 IO
  */
 internal class PathSharedMemoryStore(private val directory: Path) : SharedMemoryStore {
@@ -102,17 +104,20 @@ internal class PathSharedMemoryStore(private val directory: Path) : SharedMemory
         // 内容未变(含"文件本来就不存在"):不产生任何写入。省掉一次无谓的 write + rename,
         // 也让失败路径的 return@modify current 真正无副作用。
         if (result == current) return@withNameLock result
+        if (result == null) {
+            // 删除也要按"是否真的发生"回答:delete 失败(Windows 上句柄被占)时文件仍在,
+            // 此时原样返回 current(=没有变化),调用方(淘汰)才不会把还在磁盘上的条目
+            // 从快照里摘掉、造成快照与磁盘脱节
+            val deleted = withContext(Dispatchers.IO) { target.delete() }
+            return@withNameLock if (deleted) null else current
+        }
         withContext(Dispatchers.IO) {
-            if (result == null) {
-                target.delete()
-            } else {
-                val tmp = directory.resolve("$name.md.tmp")
-                Files.write(tmp, result.toByteArray(Charsets.UTF_8))
-                Files.move(
-                    tmp, target.toPath(),
-                    StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE,
-                )
-            }
+            val tmp = directory.resolve("$name.md.tmp")
+            Files.write(tmp, result.toByteArray(Charsets.UTF_8))
+            Files.move(
+                tmp, target.toPath(),
+                StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE,
+            )
         }
         result
     }

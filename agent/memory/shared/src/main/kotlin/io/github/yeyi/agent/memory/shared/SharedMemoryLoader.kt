@@ -99,6 +99,8 @@ internal class SharedMemoryLoader private constructor(
      *   条数才是上下文里真正装不下的东西;单条的体积另由 save 时的压缩尽力收进预算(软上限,失败则原文照存)。
      *   `user.md` 不在 [SharedMemoryStore.list] 里,既不占名额也不参与淘汰。
      * - 按 lastAccessedAt 升序淘汰(最久未访问先删),平局按 name 升序,保证可断言。
+     * - 快照按 name 升序构建:清单顺序不随文件系统枚举顺序变,`load_shared_memory` 的
+     *   工具描述因此逐轮稳定(不白白打乱 prompt 前缀)。
      * - 每次只删到刚好回到 [maxFileCount] 条;条数上限 ≥ 1 由 DSL 的 require 保证,
      *   所以不会把自己删空。
      * - 候选进 per-name 锁内二次判定:若 lastAccessedAt 已被并发 touch 变新,放过它。
@@ -108,7 +110,7 @@ internal class SharedMemoryLoader private constructor(
     private suspend fun reload(): Unit = mutex.withLock {
         // 1. 全量读取:坏文件跳过(不占名额、不删)
         val metas = LinkedHashMap<String, SharedMemory>()
-        for (name in memoryStore.list()) {
+        for (name in memoryStore.list().sorted()) {
             val content = runCatching { memoryStore.read(name) }.getOrNull() ?: continue
             metas[name] = SharedMemory.parse(name, content)
         }
@@ -121,20 +123,20 @@ internal class SharedMemoryLoader private constructor(
 
         // 3. 超额:最久未访问的先走
         val evictOrder = metas.values.sortedWith(compareBy({ it.lastAccessedAt }, { it.name }))
-        for (candidate in evictOrder) {
+        for ((name, _, _, observed) in evictOrder) {
             if (metas.size <= maxFileCount) break
 
-            val observed = candidate.lastAccessedAt
-            var removed = false
-            memoryStore.modify(candidate.name) { current ->
+            // 用**返回值**判定是否真的删掉了:transform 返回 null 是删除请求,但并发 touch
+            // 会返回 current(放过它),store 删盘失败也返回 current(文件还在)。
+            // 只有拿到 null 才从快照里摘掉,否则快照会与磁盘脱节。
+            val after = memoryStore.modify(name) { current ->
                 if (current == null) return@modify null
-                val latest = SharedMemory.parse(candidate.name, current)
+                val latest = SharedMemory.parse(name, current)
                 // 并发 touch 过(时间戳变新)→ 放过它,下次 reload 再说
                 if (latest.lastAccessedAt.isAfter(observed)) return@modify current
-                removed = true
                 null
             }
-            if (removed) metas.remove(candidate.name)
+            if (after == null) metas.remove(name)
         }
 
         snapshot = metas

@@ -53,6 +53,15 @@ internal data class SharedMemory(
         const val RESERVED_USER: String = "user"
 
         /**
+         * description 的长度上限。
+         *
+         * description 不只是文件元数据:它每轮都被 `load_shared_memory` 的 tool description
+         * 拼成 "- name:description" 下发,是常驻上下文成本。正文有 `maxFileCharSize` 兜底,
+         * 这里必须对称地收住,否则一条失控的描述会在之后每一轮里重复付费。
+         */
+        const val MAX_DESCRIPTION_CHARS: Int = 200
+
+        /**
          * 纯函数:解析 md 全文的 frontmatter 构建元数据。[name] 取文件名(不含 .md),
          * 与 frontmatter 中的 name 冲突时以文件名为准。不抛异常。
          *
@@ -88,7 +97,9 @@ internal data class SharedMemory(
 
             return SharedMemory(
                 name = name,                                 // 文件名优先,忽略 frontmatter 里的 name
-                description = fields["description"].orEmpty(),
+                // 外部写入的 frontmatter 不受本模块控制,同样在入口截断(否则手工塞一条超长
+                // description 会永久驻进每轮的 tool description)
+                description = fields["description"].orEmpty().take(MAX_DESCRIPTION_CHARS),
                 createdAt = created,
                 lastAccessedAt = accessed,
             )
@@ -104,8 +115,18 @@ internal data class SharedMemory(
             return lines.drop(closing + 2).joinToString("\n")
         }
 
-        /** 新建一个记忆(user.md 初始化用)。 */
+        /**
+         * 新建一个记忆(user.md 初始化用)。
+         *
+         * description 在此截断到 [MAX_DESCRIPTION_CHARS]:这里是"由外部文本(md frontmatter /
+         * LLM 入参)构造记忆"的唯一入口,上限收在入口,下游(渲染、清单、淘汰)就不必各自防御。
+         */
         fun create(name: String, description: String, now: Instant): SharedMemory =
-            SharedMemory(name, description, createdAt = now, lastAccessedAt = now)
+            SharedMemory(
+                name = name,
+                description = description.take(MAX_DESCRIPTION_CHARS),
+                createdAt = now,
+                lastAccessedAt = now,
+            )
     }
 }

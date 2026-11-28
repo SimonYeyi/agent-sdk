@@ -131,4 +131,18 @@ class SharedMemoryTest {
 
         assertEquals(body, SharedMemory.bodyOf(memory().render(body)))
     }
+
+    @Test
+    fun `description is truncated to the cap on create`() {
+        val created = SharedMemory.create("travel", "d".repeat(500), this.created)
+
+        assertEquals(SharedMemory.MAX_DESCRIPTION_CHARS, created.description.length)
+    }
+
+    @Test
+    fun `description is truncated to the cap on parse`() {
+        val text = "---\ndescription: ${"d".repeat(500)}\n---\nbody"
+
+        assertEquals(SharedMemory.MAX_DESCRIPTION_CHARS, SharedMemory.parse("travel", text).description.length)
+    }
 }

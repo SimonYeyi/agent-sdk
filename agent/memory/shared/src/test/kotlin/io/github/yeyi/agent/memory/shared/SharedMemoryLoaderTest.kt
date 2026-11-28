@@ -82,6 +82,20 @@ class SharedMemoryLoaderTest {
     }
 
     @Test
+    fun `snapshot is ordered by name`() = runTest {
+        val store = FakeSharedMemoryStore()
+        store.put("c", content("c", at(2)))
+        store.put("a", content("a", at(0)))
+        store.put("b", content("b", at(1)))
+        val loader = SharedMemoryLoader.create(store, maxFileCount = 5)
+
+        loader.load("a")
+
+        // 清单顺序不能随文件系统枚举顺序变:load_shared_memory 的工具描述逐轮稳定
+        assertEquals(listOf("a", "b", "c"), loader.all().map { it.name })
+    }
+
+    @Test
     fun `evicts the least recently accessed when over limit`() = runTest {
         val store = FakeSharedMemoryStore()
         val loader = SharedMemoryLoader.create(store, maxFileCount = 2)

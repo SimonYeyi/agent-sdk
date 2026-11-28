@@ -66,7 +66,9 @@ internal class SharedMemoryPlugin(
     /**
      * 若 user.md 不存在,创建空模板;返回 user.md 正文(供 install 注入)。
      *
-     * 已存在时 modify 会原样重写一次(原子替换),成本可接受;顺带的 reload 完成 install 首次条数检查。
+     * 已存在时 transform 原样返回当前内容,而 store 对"内容未变"做 no-op(零 IO),
+     * 所以重复 install 不会重写文件;真正发生的只有 loader.modify 末尾的 reload,
+     * install 的首次条数检查就靠它。
      */
     private suspend fun ensureUserMemory(): String {
         val empty = SharedMemory.create(
