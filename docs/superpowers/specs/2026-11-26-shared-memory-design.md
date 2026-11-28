@@ -126,7 +126,7 @@ public class SharedMemory internal constructor(
             val body = SharedMemory.bodyOf(current)
             loaded = body
             SharedMemory.parse(name, current, memoryStore)
-                .updated(lastAccessedAt = Instant.now())
+                .copyWith(lastAccessedAt = Instant.now())
                 .render(body)
         }
         return loaded
@@ -136,8 +136,8 @@ public class SharedMemory internal constructor(
     public fun isExpired(now: Instant, forgetDuration: Duration): Boolean =
         Duration.between(lastAccessedAt, now) > forgetDuration
 
-    /** 返回替换了元数据的副本(实体不可变)。 */
-    internal fun updated(lastAccessedAt: Instant = this.lastAccessedAt): SharedMemory =
+    /** 拷贝一份新实体,并把访问时间更新为 [lastAccessedAt](实体不可变)。 */
+    internal fun copyWith(lastAccessedAt: Instant): SharedMemory =
         SharedMemory(name, description, createdAt, lastAccessedAt, memoryStore)
 
     /** 用本元数据 + [body] 渲染 md 全文,写回文件时使用。 */
@@ -482,7 +482,7 @@ internal class SharedMemorySaveTool(
                 newBody
             }
             finalLen = finalBody.length
-            meta.updated(lastAccessedAt = now).render(finalBody)  // 写入即访问
+            meta.copyWith(lastAccessedAt = now).render(finalBody)  // 写入即访问
         }
 
         // 写入结束后统一 reload:新记忆进入快照 + 遗忘其他过期记忆。
@@ -713,7 +713,7 @@ load_shared_memory.execute({name: "travel"})
   → memory.load()
       → memoryStore.modify("travel") { current ->        # per-name 锁内
           body = bodyOf(current)                          # 锁内读到的最新正文,即本次返回值
-          updated(lastAccessedAt = now).render(body)      # 只刷新访问时间,不判过期
+          copyWith(lastAccessedAt = now).render(body)     # 只刷新访问时间,不判过期
         }
       → 返回 body;文件已不存在时返回 null
   → loader.reload()                                       # 遗忘:删除其他过期记忆 + 重建快照
@@ -738,7 +738,7 @@ save_shared_memory.execute({name, content, mode, old_text?})
         → 同步调 compressMemory(newBody)   # 仍在 modify 锁内
         → 压缩成功(summary 更短):用 summary 作 finalBody,compressed 标记
         → 压缩失败(null 或 summary 不变短):保留 newBody
-      返回 meta.updated(lastAccessedAt = now).render(finalBody)   # 原子写回
+      返回 meta.copyWith(lastAccessedAt = now).render(finalBody)   # 原子写回
     }
   → loader.reload()                                  # 新记忆进入快照 + 遗忘其他过期记忆
   → notFound → 返回 error "old_text not found or memory does not exist"
