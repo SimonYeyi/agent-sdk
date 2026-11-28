@@ -1127,6 +1127,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 7. **user 段落只能整体替换**:`AgentPluginContext` 没有 remove 段落的能力,所以 user 正文被清空时会留下一个空段落(`<user-profile></user-profile>`);若将来确实需要"彻底移除",得先在 core 补一个 `removeInstruction(label)`。
 8. **`maxFileCharSize` 是软上限**:压缩失败(LLM 报错 / 摘要没变短)时超长正文照存,读路径不做拦截也不截断。真正保证"单条装得下"的只有 `save` 时的压缩这一次尝试。
 9. **记忆文件不支持人工维护**:frontmatter 由 `render` 全量生成,`load` 也会写回(刷新 `lastAccessedAt`),所以手工添加的字段 / 注释 / 换行风格都会在下一次读写时被规范化。`load` 引起的 mtime 变化是**预期行为**——访问时间存在文件里,不写回就记不住;只有把目录纳入 git / 云同步 / 增量备份的宿主需要知道这一点。删文件是允许的(下次 reload 就消失),改内容不是。
+10. **per-name 锁表按 name 累积、不回收**:`PathSharedMemoryStore.locks` 为每个出现过的 name 留一个 `Mutex`,记忆被淘汰时不清除。不能在淘汰时 `remove`:它与 `computeIfAbsent` 之间没有原子性,"刚拿到的锁被移除、第三方又造一把"会让同名并发写重新变得可能——宁可留一个对象也不能丢互斥。量级上可忽略:每条目约 100 字节(含 map 节点),按每天新增 100 个不同名字、持续一年算也只有几 MB,而宿主进程通常活不到这个量级。若将来确需收敛,正确形态是固定分段锁(按 `name.hashCode()` 经 `Math.floorMod` 取模,段数按同时在途的操作数而非记忆总数决定),而不是淘汰时回收;且必须是可挂起的 `Mutex`,不能用 `Any` + `synchronized`——压缩在锁内挂起数秒,阻塞线程会耗尽调度线程池。
 
 ### 8.2 未来扩展
 
