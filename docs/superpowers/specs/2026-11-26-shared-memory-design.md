@@ -40,6 +40,7 @@
 - **独立实现,不依赖 capability 框架**:共享记忆是内部生成的(由 `SharedMemoryLoader` 扫描目录构建),不需要外部宿主或插件提供 `Capability` 实例,与 Skill 的"外部注册"形态本质不同。`SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(`SharedMemoryPluginConfig` 是 object 占位,满足 `C : Any` 约束),`load_shared_memory` / `save_shared_memory` 两个工具都是普通 `Tool`,在 `install` 里手工 `registerTool`。不继承 `CapabilityPlugin`、不调 `CapabilityAdapter`、不依赖 `CapabilityLoadTool`。
 - **写入决策在 LLM**:不暴露写入 API 给宿主代码,只有 `save_shared_memory` 工具。宿主只负责传 `directory` 和可选的 `LlmProvider` / `SharedMemoryStore`。
 - **存储抽象最小**:`SharedMemoryStore` 接口默认走 `Path`,允许宿主注入自定义实现。不预先做 Android/iOS 平台适配。
+- **分层清晰**:`SharedMemory` 是纯值对象(元数据 + md 编解码),不持 store、无 IO;`SharedMemoryStore` 只管文本存取;`SharedMemoryLoader` 负责扫描、过期判定与读取编排(锁内读 + touch)。依赖方向只有 `Loader → SharedMemory / Store`。
 - **过期清理只发生在 reload**:遗忘的唯一判定点是 `SharedMemoryLoader.reload()`。`load_shared_memory` / `save_shared_memory` 完成读写后各调一次 `reload()`,`reload` 删除过期文件并重建"只含可读记忆"的快照。读写路径自身不判过期——本次操作的记忆 `lastAccessedAt` 刚被刷新,天然不会被删,要清理的是**其他**长期未访问的记忆。压缩仍并入 `save_shared_memory` 流程同步触发。
 - **包名独立**:新模块包名 `io.github.yeyi.agent.memory.shared`,避开 core 已有的 `io.github.yeyi.agent.memory`(防止同包跨模块冲突)。
 
@@ -56,9 +57,9 @@ agent/memory/shared/
 ├── build.gradle.kts
 └── src
     ├── main/kotlin/io/github/yeyi/agent/memory/shared/
-    │   ├── SharedMemory.kt          # class SharedMemory(一个记忆 = 一个 md 文件:元数据 + 正文 + load())
+    │   ├── SharedMemory.kt          # class SharedMemory(纯值对象:元数据 + md 编解码,无 IO)
     │   ├── SharedMemoryPlugin.kt            # internal class SharedMemoryPlugin : AgentPlugin<SharedMemoryPluginConfig>
-    │   ├── SharedMemoryLoader.kt            # 扫描/过期清理/查找记忆快照(reload),无外部注册
+    │   ├── SharedMemoryLoader.kt            # 扫描/过期清理/读取(load)/查找快照(reload),无外部注册
     │   ├── SharedMemoryStore.kt             # interface SharedMemoryStore + PathSharedMemoryStore 默认实现
     │   ├── SharedMemoryLoadTool.kt          # 读出工具
     │   ├── SharedMemorySaveTool.kt          # 写入工具,LLM 写入记忆
@@ -76,11 +77,13 @@ agent/memory/shared/
 
 ## 4. 核心类型
 
-### 4.1 `SharedMemory` —— 记忆实体(元数据 + 文件解析/渲染)
+### 4.1 `SharedMemory` —— 记忆实体(纯值对象 + 文件编解码)
 
 `SharedMemory` 同时承担两个职责:一个记忆的元数据(`name` / `description` / `createdAt` / `lastAccessedAt`),以及整个 `.md` 文件的解析与渲染(正文以 `String` 参数在 `parse` / `bodyOf` / `render` 之间流转)。不再有独立的 `SharedMemoryFile` 类型——实体与文件是同一回事。
 
-**正文不驻留在实体上**:快照只缓存元数据,正文永远以锁内读到的最新内容为准。否则快照里的正文会成为一份无人读取、又可能与磁盘不一致的副本(load 不返它,save 不用它)。
+**它是纯值对象:不持 `SharedMemoryStore`,没有任何 IO 能力。** 读取(锁内读正文 + 刷新 `lastAccessedAt`)由 [`SharedMemoryLoader.load`] 执行。两个好处:`parse` 是纯函数、可单测;依赖方向只剩 `Loader → SharedMemory / Store` 单向,不再有实体回指 store。
+
+**正文不驻留在实体上**:快照只缓存元数据,正文永远以锁内读到的最新内容为准。否则快照里的正文会成为一份无人读取、又可能与磁盘不一致的副本。
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -89,14 +92,15 @@ import java.time.Duration
 import java.time.Instant
 
 /**
- * 一个共享记忆 —— 元数据 + 对 `.md` 文件全文(frontmatter + 正文)的解析/渲染能力。
+ * 一个共享记忆 —— 纯值对象:元数据 + 对 `.md` 文件全文(frontmatter + 正文)的解析/渲染能力。
+ *
+ * 不持有 [SharedMemoryStore],没有任何 IO:本类只回答"这段文本是什么记忆"和
+ * "把记忆渲染回文本",读写编排由 [SharedMemoryLoader] 负责。
  *
  * 由 [SharedMemoryLoader] 在 reload 时解析构建,不依赖外部宿主注册。
- * `load_shared_memory(name=...)` 工具从快照取到实例后调 [load] 读出正文注入 LLM 上下文。
  *
  * - "按需加载":description 告诉 LLM 何时使用,正文不预加载
  * - 正文不在实体上驻留,而是在 [parse] / [bodyOf] / [render] 之间以 String 流转
- * - [load] 只负责读:刷新 lastAccessedAt 后返回正文,**不做过期判断**
  * - 过期判断只由 [SharedMemoryLoader.reload] 通过 [isExpired] 做
  */
 public class SharedMemory internal constructor(
@@ -108,54 +112,31 @@ public class SharedMemory internal constructor(
     public val createdAt: Instant,
     /** 最后一次被 load/save 的时间,遗忘判断的依据。 */
     public val lastAccessedAt: Instant,
-    private val memoryStore: SharedMemoryStore,
 ) {
-    /**
-     * 读取本记忆正文,并把 lastAccessedAt 刷新为 now。
-     *
-     * 只负责读:不检查是否过期。判定只发生在 [SharedMemoryLoader.reload],
-     * 因此刚被读过的记忆不会被随后的 reload 删除。
-     * 返回的正文在 per-name 锁内读得,即"读"那一刻磁盘上的内容,不会与并发 save 错位。
-     *
-     * @return 正文(不含 frontmatter);文件已不存在时返回 null
-     */
-    public suspend fun load(): String? {
-        var loaded: String? = null
-        memoryStore.modify(name) { current ->
-            if (current == null) return@modify null
-            val body = SharedMemory.bodyOf(current)
-            loaded = body
-            SharedMemory.parse(name, current, memoryStore)
-                .copyWith(lastAccessedAt = Instant.now())
-                .render(body)
-        }
-        return loaded
-    }
-
     /** 是否超过 [forgetDuration] 未被读写。只由 [SharedMemoryLoader.reload] 使用。 */
     public fun isExpired(now: Instant, forgetDuration: Duration): Boolean =
         Duration.between(lastAccessedAt, now) > forgetDuration
 
     /** 拷贝一份新实体,并把访问时间更新为 [lastAccessedAt](实体不可变)。 */
     internal fun copyWith(lastAccessedAt: Instant): SharedMemory =
-        SharedMemory(name, description, createdAt, lastAccessedAt, memoryStore)
+        SharedMemory(name, description, createdAt, lastAccessedAt)
 
     /** 用本元数据 + [body] 渲染 md 全文,写回文件时使用。 */
     internal fun render(body: String): String { /* "---" + frontmatter + "---" + body */ }
 
     public companion object {
         /**
-         * 解析 md 全文的 frontmatter,构建元数据。[name] 取文件名(不含 .md),
+         * 纯函数:解析 md 全文的 frontmatter 构建元数据。[name] 取文件名(不含 .md),
          * 与 frontmatter 中的 name 冲突时以文件名为准。缺字段时用安全默认值兜底,不抛异常。
          */
-        public fun parse(name: String, content: String, memoryStore: SharedMemoryStore): SharedMemory { /* YAML */ }
+        public fun parse(name: String, content: String): SharedMemory { /* YAML */ }
 
         /** 取正文(去掉 frontmatter 后的部分)。 */
         public fun bodyOf(content: String): String { /* frontmatter 之后的文本 */ }
 
         /** 新建一个记忆(user.md 初始化用)。 */
-        public fun create(name: String, description: String, now: Instant, memoryStore: SharedMemoryStore): SharedMemory =
-            SharedMemory(name, description, createdAt = now, lastAccessedAt = now, memoryStore = memoryStore)
+        public fun create(name: String, description: String, now: Instant): SharedMemory =
+            SharedMemory(name, description, createdAt = now, lastAccessedAt = now)
     }
 }
 ```
@@ -174,11 +155,12 @@ import java.time.Instant
  * 共享记忆加载器,负责扫描目录、清理过期记忆、维护 name → SharedMemory 快照。
  *
  * 与 CapabilityRegistry 不同:这里没有外部注册者,清单完全由目录扫描得到,
- * 因此不提供公开的 register/remove,只有 [reload] 重扫 + 只读查找。
+ * 因此不提供公开的 register/remove,只有 [reload] 重扫 + [load] 读取 + 只读查找。
  *
  * - [reload] 是遗忘的唯一判定点:扫描根目录所有 `.md` 文件(排除 `user.md`),
  *   删除过期文件,再用剩下的"可读"记忆整体替换快照。
  * - 因此快照恒为可读集合:凡 [all] / [get] 返回的记忆一定未过期。
+ * - [load] 是读出路径:在 per-name 锁内取正文并刷新访问时间,不判过期。
  * - 已删除的文件从清单移除;新增的文件加入清单;变更的 frontmatter 反映到 description。
  * - 线程安全:reload 在 [mutex] 内重建不可变快照,查找直接读快照,无需加锁。
  */
@@ -199,6 +181,28 @@ public class SharedMemoryLoader(
     public fun get(name: String): SharedMemory? = snapshot[name]
 
     /**
+     * 读取一条记忆的正文,并把 lastAccessedAt 刷新为 now。
+     *
+     * 只读:不判过期(判定只在 [reload],因此已超阈值的记忆也照样能读出)。
+     * 正文在 per-name 锁内读得,即"读"那一刻磁盘上的内容,不会与并发 save 错位;
+     * 刚被刷新过的 lastAccessedAt 也使随后的 [reload] 不会把它误删。
+     *
+     * @return 正文(不含 frontmatter);文件不存在(已被遗忘)时返回 null
+     */
+    public suspend fun load(name: String): String? {
+        var body: String? = null
+        memoryStore.modify(name) { current ->
+            if (current == null) return@modify null
+            val text = SharedMemory.bodyOf(current)
+            body = text
+            SharedMemory.parse(name, current)
+                .copyWith(lastAccessedAt = Instant.now())
+                .render(text)
+        }
+        return body
+    }
+
+    /**
      * 重扫根目录:删除过期记忆,重建快照。
      *
      * 触发点:install 初始化、load 读完后、save 写完后。
@@ -211,7 +215,7 @@ public class SharedMemoryLoader(
         // list() 返回所有 .md 文件名(不含 user.md),即遗忘的候选集
         for (name in memoryStore.list()) {
             val content = memoryStore.read(name) ?: continue
-            val memory = SharedMemory.parse(name, content, memoryStore)
+            val memory = SharedMemory.parse(name, content)
             if (!memory.isExpired(now, forgetDuration)) {
                 next[name] = memory
                 continue
@@ -219,11 +223,11 @@ public class SharedMemoryLoader(
 
             // 疑似过期:进 per-name 锁内重新判定后再删,避免误删刚被并发 save/load 刷新过的记忆
             val kept = memoryStore.modify(name) { current ->
-                val latest = current?.let { SharedMemory.parse(name, it, memoryStore) }
+                val latest = current?.let { SharedMemory.parse(name, it) }
                     ?: return@modify null
                 if (latest.isExpired(Instant.now(), forgetDuration)) null else current
             } ?: continue
-            next[name] = SharedMemory.parse(name, kept, memoryStore)
+            next[name] = SharedMemory.parse(name, kept)
         }
 
         snapshot = next
@@ -298,7 +302,6 @@ internal class SharedMemoryPlugin(
             name = "user",
             description = "用户画像,每轮主动注入 system prompt",
             now = Instant.now(),
-            memoryStore = memoryStore,
         )
         val content = memoryStore.modify("user") { current ->
             current ?: empty.render(body = "")  // 不存在则写空模板;存在则保持原样
@@ -312,7 +315,7 @@ internal class SharedMemoryPlugin(
 
 ### 4.4 `SharedMemoryLoadTool` —— 读出工具
 
-普通 `Tool`,不继承 `CapabilityLoadTool`。description 每轮求值(用 getter 而非 `by lazy`),拼出当前 loader 快照中所有记忆的 name + description 列表,使 reload 后下一轮 LLM 自动看到新记忆。execute 先从 loader 快照取 `SharedMemory`,调 `load()` 读出正文,**随后调 `loader.reload()`** —— 本次记忆刚被 touch,不会被删,被遗忘的是其他过期记忆。
+普通 `Tool`,不继承 `CapabilityLoadTool`。description 每轮求值(用 getter 而非 `by lazy`),拼出当前 loader 快照中所有记忆的 name + description 列表,使 reload 后下一轮 LLM 自动看到新记忆。execute 调 `loader.load(name)`(锁内读正文 + 刷新访问时间,不判过期),**随后调 `loader.reload()`** —— 本次记忆刚被 touch,不会被删,被遗忘的是其他过期记忆。
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -354,17 +357,13 @@ internal class SharedMemoryLoadTool(
     ): ToolExecutionResult {
         val name = (arguments.jsonObject["name"] as? JsonPrimitive)?.content
             ?: return ToolExecutionResult.error("Missing 'name'")
-        val memory = loader.get(name)
-            ?: return ToolExecutionResult.error("Memory not found: $name")
 
-        val content = memory.load()   // 只读:刷新 lastAccessedAt,不判过期
-        loader.reload()               // 读完后遗忘其他过期记忆(本记忆刚被 touch,不会被删)
+        // 锁内读正文 + 刷新 lastAccessedAt,不判过期
+        val content = loader.load(name)
+            ?: return ToolExecutionResult.error("Memory not found: $name (it may have been forgotten)")
 
-        return if (content == null) {
-            ToolExecutionResult.success("Memory '$name' was forgotten and deleted.")
-        } else {
-            ToolExecutionResult.success(content)
-        }
+        loader.reload()  // 读完后遗忘其他过期记忆(本记忆刚被 touch,不会被删)
+        return ToolExecutionResult.success(content)
     }
 }
 ```
@@ -459,10 +458,10 @@ internal class SharedMemorySaveTool(
         memoryStore.modify(name) { current ->
             val meta = if (current == null) {
                 if (description.isNullOrBlank()) { missingDescription = true; return@modify null }
-                SharedMemory.create(name, description, now, memoryStore)
+                SharedMemory.create(name, description, now)
             } else {
                 // 已有记忆:description / createdAt 沿用旧值,忽略入参
-                SharedMemory.parse(name, current, memoryStore)
+                SharedMemory.parse(name, current)
             }
             val body = current?.let { SharedMemory.bodyOf(it) } ?: ""
 
@@ -709,15 +708,14 @@ ReActAgent 构造 ChatRequest
 
 ```
 load_shared_memory.execute({name: "travel"})
-  → loader.get("travel")                                 # 读快照(快照中只含未过期记忆)
-  → memory.load()
+  → loader.load("travel")
       → memoryStore.modify("travel") { current ->        # per-name 锁内
-          body = bodyOf(current)                          # 锁内读到的最新正文,即本次返回值
-          copyWith(lastAccessedAt = now).render(body)     # 只刷新访问时间,不判过期
+          text = bodyOf(current)                          # 锁内读到的最新正文,即本次返回值
+          parse(current).copyWith(lastAccessedAt = now).render(text)   # 只刷新访问时间,不判过期
         }
-      → 返回 body;文件已不存在时返回 null
+      → 返回 text;文件不存在(已遗忘)时返回 null
   → loader.reload()                                       # 遗忘:删除其他过期记忆 + 重建快照
-  → ToolExecutionResult.success(正文 / "was forgotten")
+  → ToolExecutionResult.success(正文 / error "not found")
 ```
 
 ### 5.4 LLM 调用 save_shared_memory(name, content, mode)
@@ -774,6 +772,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 
 - `SharedMemoryLoader.reload()` 用 `Mutex` 保护,重建后整体替换 `@Volatile` 快照。
 - 触发点:install 初始化、`load_shared_memory` 读完后、`save_shared_memory` 写完后。
+- `SharedMemoryLoader.load()` 的读 + touch 走 store 的 per-name 锁,与同名 save 串行,返回值即锁内那一刻的磁盘内容。
 - `reload` 内部的过期删除在 per-name 锁内二次判定,与并发 load/save 串行,不会误删刚被刷新的记忆。
 - 快照中只含未过期记忆:`all()` / `get()` 返回的一定可读;读方直接读快照,无锁;reload 期间旧快照仍可读,切换原子。
 
@@ -789,7 +788,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 
 ### 7.4 遗忘的语义
 
-- **唯一判定点**:`SharedMemoryLoader.reload()`。`SharedMemory.load()` 与 `SharedMemorySaveTool` 都不判过期。
+- **唯一判定点**:`SharedMemoryLoader.reload()`。`SharedMemoryLoader.load()` 与 `SharedMemorySaveTool` 都不判过期。
 - **触发时机**:`load_shared_memory` 读完后、`save_shared_memory` 写完后各调一次 `reload()`;install 时也调一次。
 - **清理范围**:目录中所有普通记忆(`list()` 不含 `user.md`)。所以每次读写都会"顺手"遗忘其他长期未访问的记忆,而不只是自己。
 - **本次操作的记忆不会被删**:load 刚把 lastAccessedAt 刷为 now,save 刚写入 lastAccessedAt = now;reload 在 per-name 锁内二次判定,不与并发读写竞争。
@@ -810,10 +809,10 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 
 ### 8.1 单元测试
 
-- `SharedMemory.parse / bodyOf / render`:frontmatter 解析的往返一致性(render 后 parse + bodyOf 能还原元数据与正文),缺失字段、乱序字段、特殊字符、文件名与 frontmatter name 冲突时以文件名为准。
+- `SharedMemory.parse / bodyOf / render`:frontmatter 解析的往返一致性(render 后 parse + bodyOf 能还原元数据与正文),且 `parse` 不依赖 store(纯函数、无 IO);缺失字段、乱序字段、特殊字符、文件名与 frontmatter name 冲突时以文件名为准。
 - `PathSharedMemoryStore`:在 tempdir 上读写删列表,IO 异常路径。
 - `SharedMemoryLoader.reload`:新增/删除/变更文件的同步;过期文件被删除且不进入快照;未过期文件保留。
-- `SharedMemory.load`:只刷新 lastAccessedAt 并返回正文,不判过期(已超阈值的文件仍能读出)。
+- `SharedMemoryLoader.load`:锁内取正文并刷新 lastAccessedAt,不判过期(已超阈值的文件仍能读出);文件不存在返回 null 且不新建空文件。
 - `SharedMemorySaveTool.execute`:
   - append / update 两种 mode(update 配 old_text,content 作替换文本,支持局部替换与删除)
   - 新记忆创建 → reload 后可被 `loader.get` 命中
