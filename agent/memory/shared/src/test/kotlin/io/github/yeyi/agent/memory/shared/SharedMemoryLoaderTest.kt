@@ -173,6 +173,43 @@ class SharedMemoryLoaderTest {
     }
 
     @Test
+    fun `candidate whose delete is refused stays in snapshot and on disk`() = runTest {
+        val store = FakeSharedMemoryStore()
+        store.put("a", content("a", at(0)))
+        store.put("b", content("b", at(1)))
+        store.put("c", content("c", at(2)))
+        // a 最旧、是第一个淘汰候选;让它删盘失败(Windows 上 File.delete() 返回 false)
+        store.refuseDelete = setOf("a")
+        val loader = SharedMemoryLoader.create(store, maxFileCount = 2)
+
+        loader.load("c")
+
+        assertTrue(store.exists("a"), "a delete that did not happen must not be reported as done")
+        assertTrue(loader.all().any { it.name == "a" }, "the snapshot must keep what is still on disk")
+        assertFalse(store.exists("b"), "eviction moves on to the next coldest one")
+        assertEquals(setOf("a", "c"), loader.all().map { it.name }.toSet())
+    }
+
+    @Test
+    fun `eviction stops scanning instead of dropping what it failed to delete`() = runTest {
+        val store = FakeSharedMemoryStore()
+        store.put("a", content("a", at(0)))
+        store.put("b", content("b", at(1)))
+        // 两个候选都删不掉:淘汰不能为了凑数继续剔,更不能白转圈
+        store.refuseDelete = setOf("a", "b")
+        val loader = SharedMemoryLoader.create(store, maxFileCount = 1)
+
+        loader.modify("c") { content("c", at(2)) }
+
+        // 候选已经扫完而两条都还在:如实超限(size > maxFileCount),
+        // 而不是把快照抹成"已回收"——那会让下一轮清单与磁盘对不上
+        assertEquals(setOf("a", "b"), loader.all().map { it.name }.toSet())
+        assertTrue(store.exists("a"))
+        assertTrue(store.exists("b"))
+        assertFalse(store.exists("c"), "只有真正被删掉的那条能从快照里消失")
+    }
+
+    @Test
     fun `unreadable file is skipped without being deleted`() = runTest {
         val store = FakeSharedMemoryStore()
         store.put("good", content("good", at(0)))

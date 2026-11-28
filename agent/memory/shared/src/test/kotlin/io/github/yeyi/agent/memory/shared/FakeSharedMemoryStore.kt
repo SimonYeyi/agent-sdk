@@ -17,6 +17,15 @@ internal class FakeSharedMemoryStore : SharedMemoryStore {
     /** 让指定 name 的 [read] 抛异常,用于验证 reload 的单文件容错。 */
     var failOnRead: Set<String> = emptySet()
 
+    /**
+     * 让指定 name 的**删除被拒**:transform 返回 null 时文件仍在,modify 原样返回 current。
+     *
+     * 模拟 `PathSharedMemoryStore` 在 Windows 上 `File.delete()` 返回 false 的情形
+     * (杀软 / 索引器短暂持句柄)。"请求过删除"与"真的删掉了"不是一回事,
+     * 调用方必须按**返回值**判定,否则快照会比磁盘少一条。
+     */
+    var refuseDelete: Set<String> = emptySet()
+
     /** 在 [modify] 执行 transform 之前触发,用于模拟同名并发写入(如 reload 淘汰期间的 touch)。 */
     var onBeforeModify: (suspend (String) -> Unit)? = null
 
@@ -31,9 +40,16 @@ internal class FakeSharedMemoryStore : SharedMemoryStore {
     override suspend fun modify(name: String, transform: suspend (current: String?) -> String?): String? =
         locks.computeIfAbsent(name) { Mutex() }.withLock {
             onBeforeModify?.invoke(name)
-            val next = transform(files[name])
-            if (next == null) files.remove(name) else files[name] = next
-            next
+            val current = files[name]
+            val next = transform(current)
+            if (next != null) {
+                files[name] = next
+                return@withLock next
+            }
+            // 删除请求:被拒时文件不改、返回 current(等价于"什么都没发生"),与真实 store 一致
+            if (name in refuseDelete) return@withLock current
+            files.remove(name)
+            null
         }
 
     override suspend fun read(name: String): String? {
