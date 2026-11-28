@@ -29,13 +29,14 @@ internal class CapabilityLoadTool<C : Capability<T, Ctx>, T : Any, Ctx : Capabil
 
     override val name: String = "load_$capabilityType"
 
-    override val description: String by lazy {
-        """
+    // 动态渲染而非 lazy 缓存：每次读取都基于 registry 当前内容，
+    // buildRequest 每轮迭代重新读取 description，registry 变化下一轮即对 LLM 可见。
+    override val description: String
+        get() = """
         |当以下 $capabilityType 适用于本次任务时，调用本工具以激活使用：
         |${registry.all().joinToString("\n") { "- ${it.name}：${it.description}" }}
         |如果本次任务需要多个 $capabilityType 并行处理，可以生成多个工具调用。
     """.trimMargin()
-    }
 
     override val parametersSchema: ToolParameters by lazy {
         val properties = buildJsonObject {

@@ -8,6 +8,7 @@ import io.github.yeyi.agent.toDefinition
 import io.github.yeyi.agent.llm.ChatMessage
 import io.github.yeyi.agent.llm.ChatRequest
 import io.github.yeyi.agent.llm.ContentPart
+import io.github.yeyi.agent.capability.CapabilityRegistry
 import io.github.yeyi.agent.llm.LlmProvider
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
@@ -19,7 +20,9 @@ import kotlinx.serialization.json.jsonPrimitive
 /**
  * 搜索工具，返回匹配的工具列表供 LLM 选择。
  */
-internal class SearchTool(private val registry: LazyToolRegistry) : Tool {
+internal class SearchTool(
+    private val registry: CapabilityRegistry<LazyTool, Unit, SchemaLazyContext>
+) : Tool {
     override val name: String = NAME
 
     override val description: String =

@@ -22,7 +22,7 @@ import io.github.yeyi.agent.tool.Tool
  * }
  * ```
  *
- * 插件只能通过 [context][AgentPluginContext] 添加工具或追加指令说明，
+ * 插件只能通过 [context][AgentPluginContext] 添加工具或写入指令说明，
  * 无法访问或修改 Agent 的其他配置。
  *
  * @param C 配置类型
@@ -41,7 +41,7 @@ public interface AgentPlugin<C : Any> {
      * 将插件安装到 [AgentPluginContext]。
      *
      * 插件只能通过 [AgentPluginContext.registerTool] 注册工具，
-     * 或通过 [AgentPluginContext.appendInstructions] 追加指令说明。
+     * 或通过 [AgentPluginContext.addInstruction] 写入指令说明。
      */
     public fun install(context: AgentPluginContext)
 
@@ -55,7 +55,7 @@ public interface AgentPlugin<C : Any> {
 /**
  * 插件上下文 — 插件只能通过此接口操作 Agent。
  *
- * 只暴露 [registerTool] 和 [appendInstructions] 两个方法，防止插件覆盖 Agent 核心配置。
+ * 只暴露 [registerTool] 和 [addInstruction] 两个方法，防止插件覆盖 Agent 核心配置。
  */
 public interface AgentPluginContext {
     /**
@@ -64,9 +64,16 @@ public interface AgentPluginContext {
     public fun registerTool(tool: Tool)
 
     /**
-     * 追加一条指令说明，写入 [AgentPersona] 的能力区域。
+     * 写入一条指令说明，渲染为 [AgentPersona] 的独立段落。
      *
-     * @param content 追加的指令说明
+     * [label] 为 null 时追加匿名段落，多次调用累加；非 null 时为具名段落，
+     * 同名段落原位替换内容。label 全局共享：多个插件使用同一 label 时，
+     * 后写入者覆盖先到者的段落 —— 冲突由插件作者自行规约命名。
+     *
+     * 具名段落为插件提供了更新自身指令的入口（如特定情况下刷新 persona 中的提示词）。
+     *
+     * @param content 指令说明内容
+     * @param label 段落标识
      */
-    public fun appendInstructions(content: String)
+    public fun addInstruction(content: String, label: String? = null)
 }
