@@ -25,7 +25,7 @@
 1. 记忆以 markdown 文件形式存储,一个文件一个记忆,与 Skill 的 `load` 机制对称——LLM 看到 `load_shared_memory` 工具的 description 里列出所有记忆名+描述,需要时传 `name` 调用,正文按需加载进上下文。
 2. `user.md` 作为与具体记忆无关的用户画像,每轮主动注入 system prompt,不走 `load_shared_memory` 路径。
 3. 记忆的"该写什么、什么时候写"由 LLM 自主决定——只有模型能判断什么值得记。对应工具是 `save_shared_memory`。
-4. 共享记忆需要体积管理:单条记忆超过 `maxFileCharSize`(字符)则同步压缩;目录里记忆条数超过 `maxFileCount` 时,按 `lastAccessedAt` 由远到近淘汰。
+4. 共享记忆需要体积管理:单条记忆超过 `maxFileCharSize`(字符)则同步压缩(压缩失败则原文照存,见 §6.3);目录里记忆条数超过 `maxFileCount` 时,按 `lastAccessedAt` 由远到近淘汰。
 5. 存储位置由宿主决定(必传 `directory`),插件不做平台推断。
 
 与现有 `Memory` 的区别:
@@ -43,7 +43,7 @@
 - **存储抽象最小**:`SharedMemoryStore` 是模块内部的可替换缝(单测可换内存实现),v1 只有 `PathSharedMemoryStore` 一个实现,不对外暴露。不预先做 Android/iOS 平台适配。
 - **分层清晰**:`SharedMemory` 是纯值对象(元数据 + md 编解码),不持 store、无 IO;`SharedMemoryStore` 只管文本存取;`SharedMemoryLoader` 独占持有 store,负责扫描、条数淘汰与读写入口(锁内读 + touch、`modify`)。依赖方向只有 `Loader → SharedMemory / Store`。
 - **淘汰由条数触发,不由时间触发**:没有"多久没读写就删"这种规则——一条重要但久未提及的记忆不该因为用户两个月没聊天而消失。只在记忆条数超过 `maxFileCount` 时,才按 `lastAccessedAt` 由远到近淘汰到回到条数内。判定点仍只有 `SharedMemoryLoader.reload()` 一处,由 `load` / `modify` 完成操作后自动触发;压缩仍并入 `save_shared_memory` 流程同步触发。
-- **不要磁盘字节维度**:记忆清单必须写进 `load_shared_memory` 的 description,条数天然不允许太多,五十条 × 几千字的目录永远撑不满磁盘。"能装多少字节"不是真实约束,"清单多长、单条多大"才是。所以两个参数各管一件事:`maxFileCount` 管目录里有几条(`description` 清单长度 + 淘汰),`maxFileCharSize` 管单条多大(上下文/token + 压缩)。
+- **不要磁盘字节维度**:记忆清单必须写进 `load_shared_memory` 的 description,条数天然不允许太多,二十条 × 几千字的目录永远撑不满磁盘。"能装多少字节"不是真实约束,"清单多长、单条多大"才是。所以两个参数各管一件事:`maxFileCount` 管目录里有几条(`description` 清单长度 + 淘汰),`maxFileCharSize` 管单条多大(上下文/token + 触发压缩)。注意后者是**软上限**:压缩失败时超长正文仍会落盘(见 §6.3),真正硬拦截的只有"超过上限 4 倍直接拒绝写入"。
 - **同一目录一份状态**:`SharedMemoryLoader.of(directory)` 按目录在进程内单例。共享记忆本身就意味着"同一个目录 = 同一份记忆",所以**快照、per-name 锁、条数上限都得跟着目录唯一**,而不是跟着 Agent 实例——否则两个 Agent 挂同一目录时,per-name 锁各一把(写可能互相覆盖),A 新建的记忆 B 的清单永远发现不了。条数上限冲突时直接报错(见 §4.2)。
 - **包名独立**:新模块包名 `io.github.yeyi.agent.memory.shared`,避开 core 已有的 `io.github.yeyi.agent.memory`(防止同包跨模块冲突)。
 
@@ -259,7 +259,7 @@ internal class SharedMemoryLoader private constructor(
      *
      * 淘汰规则(只在超出条数时生效):
      * - 只数条数,不量字节:`load_shared_memory` 的 description 要列出全部记忆名,
-     *   条数才是上下文里真正装不下的东西;单条的体积另由 save 时的压缩兜住。
+     *   条数才是上下文里真正装不下的东西;单条的体积另由 save 时的压缩尽力收进预算(软上限,失败则原文照存)。
      *   `user.md` 不在 [SharedMemoryStore.list] 里,既不占名额也不参与淘汰。
      * - 按 lastAccessedAt 升序淘汰(最久未访问先删),平局按 name 升序,保证可断言。
      * - 每次只删到刚好回到 [maxFileCount] 条;条数上限 ≥ 1 由 DSL 的 require 保证,
@@ -460,10 +460,11 @@ internal class SharedMemoryLoadTool(
         get() = buildString {
             appendLine("加载共享记忆。")
             appendLine("当前可用的记忆文件:")
-            if (loader.all().isEmpty()) {
+            val memories = loader.all()   // 只取一次快照:判空与遍历必须是同一份
+            if (memories.isEmpty()) {
                 appendLine("(暂无)")
             } else {
-                loader.all().forEach { m ->
+                memories.forEach { m ->
                     appendLine("- ${m.name}：${m.description}")
                 }
             }
@@ -514,14 +515,23 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.time.Instant
 
 /**
+ * 压缩输入的容错倍数:`newBody` 超过 `maxFileCharSize` 的这个倍数时直接拒绝写入。
+ *
+ * compressMemory 要把全文塞进 LLM 的 prompt,连输入窗口都装不下的内容压不了;
+ * 放行只会让磁盘上多一个永远超长的记忆,之后每次 load 都击穿上下文预算。
+ */
+private const val MAX_COMPRESS_INPUT_FACTOR = 4
+
+/**
  * LLM 写入共享记忆的工具。
  *
  * 参数:
  * - name: 记忆名(对应文件名,不含 .md)。字符合集 `[A-Za-z0-9._-]`、≤ 64,与 store 的校验一致
  *   (不校验就会变成路径穿越:`../../x` 写出目录之外)
  * - description: 记忆描述(给 LLM 看的"何时使用本记忆"提示)。**新建记忆时必填**;已有记忆忽略此参数
- * - content: 写入内容(markdown)
- * - mode: "append" 追加到正文末尾 / "update" 局部替换(配 old_text,content 作替换文本)。
+ * - content: 写入内容。正文一行一条,所以这里也应是单行
+ * - mode: "append" 在正文末尾新增一条条目 / "update" 用 content 整条替换掉一条旧条目。
+ *   正文按行组织(一行一条),所以 old_text 必须与其中一整行完全相同,update 天然只命中一条;
  *   普通记忆改内容必须先 load 拿到正文再复制 old_text;用户画像 user 的正文常驻 system prompt,
  *   所以 update 天然是它的主路径。
  *
@@ -529,12 +539,14 @@ import java.time.Instant
  * - 更新 frontmatter.lastAccessedAt(= now):写入即访问
  * - 写入后 loader.modify 内部自动 reload:重建快照(新记忆由此进入清单);若记忆条数超过 maxFileCount,
  *   按 lastAccessedAt 由远到近淘汰,直到回到条数内(本次写入的记忆刚被 touch,排在队尾)
- * - 写入后若 newBody 超过 maxFileCharSize(字符数,≈ token),同步调 LLM 压缩并覆盖写回(与 write 同一把 per-name 锁,无竞态窗口)
+ * - 写入后若 newBody 超过 maxFileCharSize(字符数,≈ token),先在 transform 内同步调 LLM 压缩,
+ *   算完 finalBody 再一次性写入(与 write 同一把 per-name 锁,无竞态窗口)
  * - 写入的是 user 时,写成功后调 [onUserProfileUpdated] 把**最终正文**(可能已被压缩)原位替换进
  *   system prompt 的 user 段落。下一次 buildRequest 就看到新值——user 永远不会停在 install 快照上。
  *
- * **不判淘汰**:写入即视为访问。单条超出 maxFileCharSize 由压缩兜住;条数超额的淘汰只在随后的 reload 里发生,
- * 且针对的是**其他**最久未访问的记忆。
+ * **不判淘汰**:写入即视为访问。单条超出 maxFileCharSize 时先试压缩,但压缩可能失败——
+ * 所以它是**软上限**(失败时原文照存并回执 WARNING);真正拦死超长入参的是"超过上限 4 倍直接拒绝写入"。
+ * 条数超额的淘汰只在随后的 reload 里发生,且针对的是**其他**最久未访问的记忆。
  *
  * 返回:写入确认信息。不回字符数(内部指标,模型无可行动的判断依据);
  * 但压缩成功/失败必须说明——磁盘上的内容可能不等于它写入的原文。
@@ -565,18 +577,20 @@ internal class SharedMemorySaveTool(
         参数:
         - name: 记忆文件名(英文短词,如 "travel-preferences")。
         - description: 记忆文件描述。新建记忆文件时必填,选中合适的记忆文件时忽略。例:"用户旅行偏好与历史行程"
-        - content: 记忆内容。append 模式下追加到现有正文末尾;update 模式下作为替换后的新片段(空串表示删除该片段)。
+        - content: 记忆内容。正文按行组织,一行一条,所以 content 也应是单行;
+                   append 模式下必填,作为新条目追加到正文末尾;
+                   update 模式下作为该条目的新版本(空串表示删除该条目)。
         - mode: "append" 或 "update",默认 "append"。
-          - append: 追加 content 到现有正文末尾。记忆文件新建时也走此模式(此时正文为空)。
-          - update: 局部替换。需配 old_text,工具读旧正文找到 old_text 替换为 content。
-                    改普通记忆前,先用 load_shared_memory 读一次正文,再从读到的文本里复制 old_text;
-                    user 除外(正文已在 system prompt 里)。
-                    content 为空串表示删除该片段。找不到 old_text 则返回错误,不修改文件。
-        - old_text: 仅 update 模式必填。要被替换的原文片段,必须与现有正文中的文本精确匹配。
+          - append: 在正文末尾新增一条条目。记忆文件新建时也走此模式(此时正文为空)。
+          - update: 整条更新。old_text 必须与现有正文中的**一整行完全相同**(不只是其中几个字),
+                    工具用 content 替换掉那一行。这是条目替换,不是词句替换;
+                    要改多条就调多次,每次给一条。
+        - old_text: 仅 update 模式必填。要被替换的那一整条条目,必须与正文中某一行完全一致
+                    (含你写入时的标点与空格),不能为空串。不是关键词,也不是半句话。
     """.trimIndent()
 
     override val parametersSchema: ToolParameters = ToolParameters.JsonSchema(
-        """{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","update"]},"old_text":{"type":"string"}},"required":["name","content"]}"""
+        """{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"content":{"type":"string"},"mode":{"type":"string","enum":["append","update"]},"old_text":{"type":"string"}},"required":["name"]}"""
     )
 
     override suspend fun execute(arguments: JsonElement, context: ToolExecutionContext): ToolExecutionResult {
@@ -590,7 +604,11 @@ internal class SharedMemorySaveTool(
         val content = arguments.jsonObject["content"]?.jsonPrimitive?.content
             ?: if (mode == "append") return ToolExecutionResult.error("Missing 'content'") else ""
         val oldText = arguments.jsonObject["old_text"]?.jsonPrimitive?.content
-            ?: if (mode == "update") return ToolExecutionResult.error("Missing 'old_text'") else null
+        // old_text 必须指向一段真实文本:空串能通过 contains 校验,而按它做替换会在
+        // 每两个字符之间插入 content,把整篇正文毁掉
+        if (mode == "update" && oldText.isNullOrBlank()) {
+            return ToolExecutionResult.error("Missing or empty 'old_text': quote an existing passage verbatim")
+        }
 
         val llmProvider = llmProvider ?: context.agentContext.llmProvider
         val now = Instant.now()
@@ -598,6 +616,7 @@ internal class SharedMemorySaveTool(
         // 状态变量:由 transform 内部写入,execute 外层读取以决定返回值
         var notFound = false            // update 模式 old_text 找不到 / update 不存在 / 非法 mode
         var missingDescription = false  // 新建记忆但 description 为空
+        var tooLarge = false            // 远超 maxFileCharSize,连压缩输入都装不下 → 拒绝写入
         var compressed = false          // 超限且压缩成功(正文已被改写)
         var overLimitKept = false       // 超限但压缩失败(超长原文照存)
         var storedBody = ""             // 最终写入的正文(user 用它刷新 system prompt)
@@ -615,12 +634,28 @@ internal class SharedMemorySaveTool(
             // 失败路径一律 return@modify current:store 把 null 视为"删除文件",
             // 只有原样返回才不会被误当成删除请求
             val newBody = when (mode) {
-                "append" -> if (body.isBlank()) content else "$body\n\n$content"
+                // 一行一条:追加就是接一行
+                "append" -> if (body.isBlank()) content else "$body\n$content"
                 "update" -> {
-                    if (current == null || !body.contains(oldText!!)) { notFound = true; return@modify current }
-                    body.replace(oldText, content)
+                    // 条目级替换:old_text 必须与某一整行完全一致(trim 后比较)。
+                    // 不按子串匹配——否则只引用几个字也会命中,结果改掉半句话
+                    val target = oldText!!.trim()
+                    val lines = body.lines()
+                    val index = lines.indexOfFirst { it.trim() == target }
+                    if (current == null || index < 0) { notFound = true; return@modify current }
+                    // content 为空串 → 删除该条目(removeAt,不留空行);否则整行换成新版本
+                    lines.toMutableList().apply {
+                        if (content.isBlank()) removeAt(index) else this[index] = content
+                    }.joinToString("\n")
                 }
                 else -> { notFound = true; return@modify current }
+            }
+
+            // 压缩本身要把 newBody 整个塞进 LLM prompt,连输入窗口都装不下的内容压不了:
+            // 放行只会落一个永远超长的文件、之后每次 load 都爆上下文预算
+            if (newBody.length > maxFileCharSize * MAX_COMPRESS_INPUT_FACTOR) {
+                tooLarge = true
+                return@modify current
             }
 
             // compressMemory 返回非 null 时已保证比原文短,无需再比长度
@@ -636,11 +671,17 @@ internal class SharedMemorySaveTool(
         }
 
         when {
+            tooLarge -> return ToolExecutionResult.error(
+                "Content is over ${maxFileCharSize * MAX_COMPRESS_INPUT_FACTOR} chars, too large to compress; " +
+                    "split it into several saves of under $maxFileCharSize chars each"
+            )
             missingDescription -> return ToolExecutionResult.error(
                 "Missing 'description': required when creating a new memory '$name'"
             )
             notFound -> return ToolExecutionResult.error(
-                if (mode == "update") "old_text not found or memory '$name' does not exist" else "Invalid mode: $mode"
+                if (mode == "update") {
+                    "old_text not found: no line in '$name' matches it exactly; quote the whole entry line"
+                } else "Invalid mode: $mode"
             )
         }
 
@@ -840,13 +881,14 @@ import java.nio.file.Path
  *
  * @param directory 记忆文件根目录,宿主必传(不存在会自动创建)。
  *   同一目录在进程内共享同一份快照、同一套锁与同一个条数上限,多个 Agent 传同一目录即共享同一份记忆。
- * @param maxFileCount 目录里最多保留的记忆条数,超出则按最久未访问淘汰。默认 50
+ * @param maxFileCount 目录里最多保留的记忆条数,超出则按最久未访问淘汰。默认 20
  * @param maxFileCharSize 单条记忆的字符数上限(≈ 上下文/token 预算),超则同步压缩。默认 8000
+ *   注意这是**软上限**:压缩失败时超长正文照存;超过 `maxFileCharSize × 4` 的入参才直接拒绝。
  * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
  */
 public fun AgentBuilder.sharedMemory(
     directory: Path,
-    maxFileCount: Int = 50,
+    maxFileCount: Int = 20,
     maxFileCharSize: Int = 8000,
     llmProvider: LlmProvider? = null,
 ) {
@@ -920,19 +962,21 @@ save_shared_memory.execute({name, content, mode, old_text?})
   → loader.modify(name) { current ->                     # per-name 锁内,整流程原子(经 loader 委托到 store)
       current == null → SharedMemory.create(name, description, now),body = ""
       current != null → parse,description / createdAt 沿用旧值
-      mode=append: body + "\n\n" + content
+      mode=append: body + "\n" + content            # 正文一行一条,追加就是接一行
       mode=update:
-        current == null 或 body.contains(old_text) 失败 → notFound 标记,原样返回 current(不落盘)
-        body.replace(old_text, content)   # content="" 表示删除
+        old_text 为空串 → 直接 error
+        current == null 或没有任何一行与 old_text 完全相同(trim 后) → notFound,原样返回 current(不落盘)
+        整行替换:用 content 替换那一行;content="" 表示删除该行(不留空行)
       不判淘汰:lastAccessedAt = now(写入即访问,本次写入排在淘汰队尾)
+      若 newBody.length > maxFileCharSize × 4:→ 直接 error,不落盘(压缩输入都装不下)
       若 newBody.length > maxFileCharSize(字符):
         → 同步调 compressMemory(newBody)   # 仍在 modify 锁内
         → 压缩成功(summary 更短):用 summary 作 finalBody,compressed 标记
-        → 压缩失败(null 或 summary 不变短):保留 newBody
+        → 压缩失败(null 或 summary 不变短):保留 newBody,overLimitKept 标记
       返回 meta.copyWith(lastAccessedAt = now).render(finalBody)   # 原子写回
     }
   → loader.modify 内部自动 reload()                     # 新记忆进入快照 + 条数超额时淘汰其他最久未访问的
-  → notFound → 返回 error "old_text not found or memory does not exist"
+  → tooLarge / missingDescription / notFound → 返回对应 error(均不落盘)
   → name == "user" → onUserProfileUpdated(storedBody)    # 用落盘后的最终正文原位替换 persona 里的 user 段落
   → 返回 "Saved memory 'x'." + 压缩说明 / 超限 WARNING / 无
 ```
@@ -946,7 +990,8 @@ compressMemory(llmProvider, maxFileCharSize, body)
   → 返回 summary
 ```
 
-压缩不是独立协程,而是 save 流程在 write 之后的一步,与 write 共享 store 的 per-name 锁。
+压缩不是独立协程,而是 save 流程在 write **之前**的一步:transform 内算完 finalBody 才一次性写入。
+整段与 write 共享 store 的 per-name 锁,所以不存在"先落盘原文再回改"的中间态。
 save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接看到。
 
 ---
@@ -958,7 +1003,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 - 创建:`install` 时若不存在,创建空模板(真实元数据 + 空正文)。
 - 读取:不在记忆清单中(`SharedMemoryStore.list()` 排除 `user`),且 `SharedMemoryLoadTool` 对保留名直接返回错误——
   这是必需的:**`loader.load(name)` 不再经过快照**,快照排除 user 挡不住它,必须在工具层显式拦(直接读文件就能读到)。
-- 写入:`save_shared_memory("user", ...)` 允许。append 用于累积新画像条目;update 用于"忘记 xxx"/"改一下 xxx"——LLM 从 system prompt 中看到 user.md 现有内容,引用要改的片段作 old_text,提供 content(空串表示删除)。user.md 不在 `list()` 里,LLM 不能 load,所以 update 的 old_text 只能凭 system prompt 中注入的内容引用——这正是下面"写时刷新"必须要成立的原因。
+- 写入:`save_shared_memory("user", ...)` 允许。append 用于累积新画像条目;update 用于"忘记 xxx"/"改一下 xxx"——正文一行一条,LLM 从 system prompt 中看到 user.md 现有内容,引用要改的**那一整行**作 old_text,提供 content 作新版本(空串表示删除该行)。user.md 不在 `list()` 里,LLM 不能 load,所以 update 的 old_text 只能凭 system prompt 中注入的内容引用——这正是下面"写时刷新"必须要成立的原因。
 - 注入与刷新:两件事,一个 label(`user-profile`)。
   - `install` 时读 `user.md` 正文,`addInstruction(body, "user-profile")` 注入 persona 尾部独立段落;正文为空时不注入。
   - 每次 `save_shared_memory("user", ...)` **成功后**,插件用**落盘后的最终正文**(可能已被压缩)调 `addInstruction(新正文, "user-profile")` 原位替换该段落。工具通过构造器注入的 `onUserProfileUpdated` 回调通知插件,自己不知道 persona 的存在。
@@ -977,13 +1022,15 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 - 快照与磁盘一致:`all()` / `get()` 反映最近一次 reload 的结果;读方直接读快照,无锁;reload 期间旧快照仍可读,切换原子。
 - **并发会话共享同一份状态**:`SharedMemoryLoader.of(directory)` 保证同一目录只存在一个 loader,所以多个 Agent 实例共享快照与 per-name 锁——A 新建的记忆,在 B 下一轮构造请求(读 `loader.all()`)时就出现了;两边写同一 name 也是串行。
 
-### 6.3 压缩失败与并发
+### 6.3 压缩语义与并发
 
 - **压缩位置**:压缩是 `save_shared_memory` 流程内的一步,在 `modify` 的 transform 里算完 finalBody 才一次性写入、然后才返回,与 write 共享 store 的 per-name 锁。不是独立协程。
 - **失败语义**:压缩在两种情况下返回 null,save 流程保留 append/update 后的 newBody 作为最终 body:
   1. LLM 调用抛错(网络、限流等)
   2. LLM 返回的 summary 字符数 ≥ 原 body(压缩无效,没变短)
   下次 save 若 `newBody.length` 仍超 `maxFileCharSize` 会再次触发压缩——这是"压缩失败则直接追加,等下一次写入时再次触发"的落点。
+- **超硬上限直接拒绝**:`newBody.length > maxFileCharSize × 4` 时不尝试压缩,直接返回错误、不落盘。理由是压缩本身要把全文塞进 LLM prompt,连输入窗口都装不下的内容压不了;放行只会让磁盘上多一个永远超长的记忆,之后每次 `load` 都击穿上下文预算。错误回执提示模型分段写入。
+- **`maxFileCharSize` 是软上限**:压缩失败时超长原文照存,而读路径(`loader.load`)不检查长度、也不静默截断(截断既丢信息,又让模型无从得知)。所以"单条不超 `maxFileCharSize`"只在压缩成功时成立。
 - **回执对齐真实磁盘内容**:压缩成功 → 回执说明"存的是改写后的摘要";超限且压缩失败 → 回执带 WARNING 说"超长原文照存"。不回字符数。理由:压缩改写后磁盘内容就不再是模型写入的原文（后续 load 读到的是摘要）,不告知会让它以为原文完整存在。
 - **并发**:save 与 load 全程在 `store.modify` 的 per-name 锁内执行,包含 read、压缩(LLM 调用)、write。同 name 操作串行,不同 name 可并行。单进程内不存在 lost update 或压缩覆盖竞态。
 - **跨进程**:不支持。按目录的单例也只在进程内成立;若宿主跨进程共享同一 `directory`,须自行加协调层。
@@ -1028,14 +1075,20 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 - `SharedMemoryLoader.of`:同一目录两次调用返回**同一实例**(快照与锁共享);`./mem` 与绝对路径归一到同一 key;同一目录传不同 `maxFileCount` 抛 IllegalArgumentException;不同目录互不影响。(测试用 `@TempDir` 保证目录唯一,避免全局注册表串场)
 - `SharedMemoryLoader.create`:可注入极小条数上限与内存 store,不碰磁盘;`create` 出的实例与注册表无关。
 - `SharedMemorySaveTool.execute`:
-  - append / update 两种 mode(update 配 old_text,content 作替换文本,支持局部替换与删除)
+  - append 新增一行 / update 整行替换与删除(空串删行,不留空行)
   - 非法 name(`../x`、含 `/`、超长)返回 isError,不落盘
   - 新记忆创建 → loader 内部已 reload,`loader.get` 立即可命中
   - 已有记忆更新 lastAccessedAt
   - 超过 maxFileCharSize(字符) → 触发同步压缩(mock LlmProvider)
   - 回执不含字符数;压缩成功时带 "compressed" 说明,压缩失败但超限时带 WARNING
+  - update 的 old_text 为空串 / 全空白 → 返回 error 且不落盘
+  - update 的 old_text 只引用了半行 / 漏了标点 → 返回 error,不落盘(条目必须整行匹配)
+  - update 的 old_text 与多行都相同 → 只替换最上面那一行,其余不动
+  - update 的 content 为空串 → 删除该行且不留空行,其余行顺序不变
+  - old_text / content 含 `$`、`\`、`.`、`(` → 按字面量逐行比较,不做正则解析
+  - newBody 超过 `maxFileCharSize × 4` → 返回 error 且不落盘(压缩输入都装不下)
   - save 后条数超额 → 淘汰其他最久未访问的(loader.modify 内部 reload 生效)
-  - `onUserProfileUpdated`:name==`user` 且写入成功时被调用一次,失败路径(notFound / missingDescription)不调;其他 name 不调;传 null 时一切照旧。
+  - `onUserProfileUpdated`:name==`user` 且写入成功时被调用一次,失败路径(notFound / missingDescription / tooLarge)不调;其他 name 不调;传 null 时一切照旧。
 - `SharedMemoryPlugin.initialize`:user.md 不存在时创建,已存在时不覆盖;正文为空时 install 不注入段落。
 - `SharedMemoryPlugin` 运行期刷新:save("user") 成功后 persona 文本立即更新(v1 → v2),且 `<user-profile>` 只出现一次(原位替换而非追加);save 其他记忆不改变 persona;触发压缩时刷新用的是压缩后正文而非入参 content。
 - `SharedMemoryLoadTool.execute`:保留名 `user` 返回错误(即使 `user.md` 在磁盘上存在也不返回正文);不存在的 name 返回 not found。
@@ -1066,6 +1119,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 5. **条数上限只能首次设定**:同一目录的 loader 共享,所以 `maxFileCount` 只由首次注册决定;后续对同一目录传不同值会直接抛 IllegalArgumentException。需要按场景调整时,得先保证该目录只有一个"归属方"。
 6. **目录注册表常驻不回收**:`SharedMemoryLoader.instances` 是进程级 `ConcurrentHashMap`,`of()` 不回收入口。宿主不断换目录(如每次请求一个临时目录)会缓慢累积——量级上应当"每用户/每 agent 一个稳定目录",v1 不做引用计数。
 7. **user 段落只能整体替换**:`AgentPluginContext` 没有 remove 段落的能力,所以 user 正文被清空时会留下一个空段落(`<user-profile></user-profile>`);若将来确实需要"彻底移除",得先在 core 补一个 `removeInstruction(label)`。
+8. **`maxFileCharSize` 是软上限**:压缩失败(LLM 报错 / 摘要没变短)时超长正文照存,读路径不做拦截也不截断。真正保证"单条装得下"的只有 `save` 时的压缩这一次尝试。
 
 ### 8.2 未来扩展
 
