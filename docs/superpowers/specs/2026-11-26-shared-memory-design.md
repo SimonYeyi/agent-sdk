@@ -61,8 +61,8 @@ agent/memory/shared/
     │   ├── SharedMemoryLoader.kt            # 扫描/重载/查找记忆清单(reload),无外部注册
     │   ├── SharedMemoryStore.kt             # interface SharedMemoryStore + PathSharedMemoryStore 默认实现
     │   ├── SharedMemoryFile.kt              # md frontmatter 解析/序列化
-    │   ├── LoadSharedMemoryTool.kt          # 读出工具
-    │   ├── SaveSharedMemoryTool.kt          # 写入工具,LLM 写入记忆
+    │   ├── SharedMemoryLoadTool.kt          # 读出工具
+    │   ├── SharedMemorySaveTool.kt          # 写入工具,LLM 写入记忆
     │   └── SharedMemoryExtensions.kt        # AgentBuilder.sharedMemory(...) DSL
     └── test/kotlin/io/github/yeyi/agent/memory/shared/
         └── (各组件单元测试)
@@ -219,8 +219,8 @@ public object SharedMemoryPluginConfig
  * 2. 若 `user.md` 不存在,创建空模板(真实元数据 + 空正文)
  * 3. loader.reload() 加载所有现存记忆
  * 4. context.addInstruction(userBody, "user-profile") 注入 `user.md` 正文到 persona 尾部独立段落
- * 5. registerTool(LoadSharedMemoryTool(loader))  → load_shared_memory
- * 6. registerTool(SaveSharedMemoryTool(loader, memoryStore, memoryFileLimit, forgetDuration, llmProvider)) → save_shared_memory
+ * 5. registerTool(SharedMemoryLoadTool(loader))  → load_shared_memory
+ * 6. registerTool(SharedMemorySaveTool(loader, memoryStore, memoryFileLimit, forgetDuration, llmProvider)) → save_shared_memory
  */
 internal class SharedMemoryPlugin(
     private val memoryStore: SharedMemoryStore,
@@ -243,9 +243,9 @@ internal class SharedMemoryPlugin(
         }
 
         // 注册两个工具(普通 Tool,不经过 CapabilityAdapter)
-        context.registerTool(LoadSharedMemoryTool(loader))
+        context.registerTool(SharedMemoryLoadTool(loader))
         context.registerTool(
-            SaveSharedMemoryTool(loader, memoryStore, memoryFileLimit, forgetDuration, llmProvider)
+            SharedMemorySaveTool(loader, memoryStore, memoryFileLimit, forgetDuration, llmProvider)
         )
     }
 
@@ -278,7 +278,7 @@ internal class SharedMemoryPlugin(
 
 **注意 `runBlocking` 的使用**:`install` 是同步签名(`AgentPlugin.install` 非 suspend),但 `SharedMemoryStore` 的操作是 suspend。`runBlocking` 在 install 阶段阻塞直到完成,这是插件初始化的合理代价——install 在 Agent 构建期执行,不在 LLM 推理路径上。
 
-### 4.4 `LoadSharedMemoryTool` —— 读出工具
+### 4.4 `SharedMemoryLoadTool` —— 读出工具
 
 普通 `Tool`,不继承 `CapabilityLoadTool`。description 每轮求值(用 getter 而非 `by lazy`),拼出当前 loader 中所有记忆的 name + description 列表,使 reload 后下一轮 LLM 自动看到新记忆。execute 按 `name` 参数路由到 `SharedMemory` 实例调 `load()`(记忆自持 store 与 forgetDuration,无需上下文)。
 
@@ -293,7 +293,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-internal class LoadSharedMemoryTool(
+internal class SharedMemoryLoadTool(
     private val loader: SharedMemoryLoader,
 ) : Tool {
     override val name: String = "load_shared_memory"
@@ -329,7 +329,7 @@ internal class LoadSharedMemoryTool(
 }
 ```
 
-### 4.5 `SaveSharedMemoryTool` —— auxiliary 工具
+### 4.5 `SharedMemorySaveTool` —— auxiliary 工具
 
 ```kotlin
 package io.github.yeyi.agent.memory.shared
@@ -366,7 +366,7 @@ import java.time.Instant
  * 并发语义:本工具自身不持锁,串行性由 [SharedMemoryStore] 的 per-name 互斥保证——
  * save 与 load、save 与压缩对同一 name 自动串行。
  */
-internal class SaveSharedMemoryTool(
+internal class SharedMemorySaveTool(
     private val loader: SharedMemoryLoader,
     private val memoryStore: SharedMemoryStore,
     private val memoryFileLimit: Int,
@@ -695,8 +695,8 @@ AgentBuilder.sharedMemory(directory, ...)
         → loader.reload()                # 扫描所有 .md(排除 user),重建快照
       → store.read("user")               # 读 user.md 正文
       → context.addInstruction(body, "user-profile") # 注入到 persona 尾部独立段落
-      → context.registerTool(LoadSharedMemoryTool(loader))                    # load_shared_memory
-      → context.registerTool(SaveSharedMemoryTool(loader, store, memoryFileLimit, forgetDuration, llmProvider)) # save_shared_memory
+      → context.registerTool(SharedMemoryLoadTool(loader))                    # load_shared_memory
+      → context.registerTool(SharedMemorySaveTool(loader, store, memoryFileLimit, forgetDuration, llmProvider)) # save_shared_memory
 ```
 
 ### 5.2 每轮 LLM 请求
@@ -823,7 +823,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 - `SharedMemoryFile.parse / serialize`:frontmatter 解析的往返一致性,缺失字段、乱序字段、特殊字符。
 - `PathSharedMemoryStore`:在 tempdir 上读写删列表,IO 异常路径。
 - `SharedMemoryLoader.reload`:新增/删除/变更文件的同步。
-- `SaveSharedMemoryTool.execute`:
+- `SharedMemorySaveTool.execute`:
   - append / update 两种 mode(update 配 old_text,content 作替换文本,支持局部替换与删除)
   - 新记忆创建 → 触发 reload
   - 已有记忆更新 lastAccessedAt
@@ -866,8 +866,8 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 ## 10. 实现顺序建议
 
 1. 新建 `agent/memory/shared` 模块,实现 `SharedMemoryStore` / `SharedMemoryFile` / `SharedMemory` / `SharedMemoryLoader`。
-2. 实现 `LoadSharedMemoryTool`(读出路径)。
-3. 实现 `SaveSharedMemoryTool`(不含压缩,先跑通读写路径)。
+2. 实现 `SharedMemoryLoadTool`(读出路径)。
+3. 实现 `SharedMemorySaveTool`(不含压缩,先跑通读写路径)。
 4. 实现 `SharedMemoryPlugin` + `SharedMemoryExtensions`,接入 AgentBuilder。
 5. 加同步压缩逻辑(并入 save 流程,与 write 同锁)。
 6. 加遗忘检查。
