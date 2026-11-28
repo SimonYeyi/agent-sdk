@@ -17,6 +17,9 @@ internal class FakeSharedMemoryStore : SharedMemoryStore {
     /** 让指定 name 的 [read] 抛异常,用于验证 reload 的单文件容错。 */
     var failOnRead: Set<String> = emptySet()
 
+    /** 在 [modify] 执行 transform 之前触发,用于模拟同名并发写入(如 reload 淘汰期间的 touch)。 */
+    var onBeforeModify: (suspend (String) -> Unit)? = null
+
     /** 测试断言用:直接看当前落盘内容。 */
     fun contentOf(name: String): String? = files[name]
 
@@ -27,6 +30,7 @@ internal class FakeSharedMemoryStore : SharedMemoryStore {
 
     override suspend fun modify(name: String, transform: suspend (current: String?) -> String?): String? =
         locks.computeIfAbsent(name) { Mutex() }.withLock {
+            onBeforeModify?.invoke(name)
             val next = transform(files[name])
             if (next == null) files.remove(name) else files[name] = next
             next
