@@ -66,6 +66,9 @@ internal interface SharedMemoryStore {
  * 基于 [Path] 的 [SharedMemoryStore] 默认实现。
  *
  * - 文件名:`$directory/$name.md`,`name` 先过 [MEMORY_NAME_PATTERN] 校验
+ * - 目录必须已存在:建目录只由 [SharedMemoryLoader.of] 负责(它要先建好才能 `toRealPath` 作 key),
+ *   这里不自建——两处 mkdir 会掩盖"谁负责建目录",且 `File.mkdirs()` 失败只返回 false,
+ *   把原因静默吞掉,直到读写时才以空清单 / `NoSuchFileException` 的形式暴露
  * - IO 走 [Dispatchers.IO]
  * - `user.md` 文件存在但不列入 [list] (避免被 loader 当作普通记忆参与条数统计与淘汰)
  * - 非记忆文件不参与:名字不符合 [MEMORY_NAME_PATTERN] 的 `.md` 与 `.tmp` 残留都不进 [list],
@@ -79,7 +82,6 @@ internal interface SharedMemoryStore {
  *   稳态的 `user.md` 初始化(原样返回当前值)与 save 的失败路径因此都是零 IO
  */
 internal class PathSharedMemoryStore(private val directory: Path) : SharedMemoryStore {
-    init { directory.toFile().mkdirs() }
 
     // 按 name 累积、不回收：见 spec §8.1 第 10 条。
     // 禁止在淘汰时 remove —— 与 computeIfAbsent 之间没有原子性，
