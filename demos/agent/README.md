@@ -19,3 +19,5 @@ Android 端对话式 Agent Demo,展示 SDK 核心能力在 Compose UI 下的集�
 - 上限：默认 20 条、单条 8000 字符；超额按最久未访问淘汰，超长在写入时由 LLM 同步压缩。
   调参入口是 `AgentBuilder.sharedMemory(directory, maxFileCount, maxFileCharSize, llmProvider)`。
 - 内置 `user`：正文注入 system prompt，写它等于改 agent 的画像；它不在记忆清单里，也不占条目名额。
+  它的正文每轮都进上下文，所以上限比普通记忆紧得多：固定 1000 字符
+  （实际取 `min(maxFileCharSize, MAX_USER_BODY_CHARS)`，宿主只能调得更紧），超出同样由 LLM 压缩。

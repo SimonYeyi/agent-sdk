@@ -25,7 +25,7 @@
 1. 记忆以 markdown 文件形式存储,一个文件一个记忆,与 Skill 的 `load` 机制对称——LLM 看到 `load_shared_memory` 工具的 description 里列出所有记忆名+描述,需要时传 `name` 调用,正文按需加载进上下文。
 2. `user.md` 作为与具体记忆无关的用户画像,每轮主动注入 system prompt,不走 `load_shared_memory` 路径。
 3. 记忆的"该写什么、什么时候写"由 LLM 自主决定——只有模型能判断什么值得记。对应工具是 `save_shared_memory`。
-4. 共享记忆需要体积管理:单条记忆超过 `maxFileCharSize`(字符)则同步压缩(压缩失败则原文照存,见 §6.3);目录里记忆条数超过 `maxFileCount` 时,按 `lastAccessedAt` 由远到近淘汰。
+4. 共享记忆需要体积管理:单条记忆超过 `maxFileCharSize`(字符;user 另有更紧的 `MAX_USER_BODY_CHARS` = 1000)则同步压缩(压缩失败则原文照存,见 §6.3);目录里记忆条数超过 `maxFileCount` 时,按 `lastAccessedAt` 由远到近淘汰。
 5. 存储位置由宿主决定(必传 `directory`),插件不做平台推断。
 
 与现有 `Memory` 的区别:
@@ -43,7 +43,7 @@
 - **存储抽象最小**:`SharedMemoryStore` 是模块内部的可替换缝(单测可换内存实现),v1 只有 `PathSharedMemoryStore` 一个实现,不对外暴露。不预先做 Android/iOS 平台适配。
 - **分层清晰**:`SharedMemory` 是纯值对象(元数据 + md 编解码),不持 store、无 IO;`SharedMemoryStore` 只管文本存取;`SharedMemoryLoader` 独占持有 store,负责扫描、条数淘汰与读写入口(锁内读 + touch、`modify`)。依赖方向只有 `Loader → SharedMemory / Store`。
 - **淘汰由条数触发,不由时间触发**:没有"多久没读写就删"这种规则——一条重要但久未提及的记忆不该因为用户两个月没聊天而消失。只在记忆条数超过 `maxFileCount` 时,才按 `lastAccessedAt` 由远到近淘汰到回到条数内。判定点仍只有 `SharedMemoryLoader.reload()` 一处,由 `load` / `modify` 完成操作后自动触发;压缩仍并入 `save_shared_memory` 流程同步触发。
-- **不要磁盘字节维度**:记忆清单必须写进 `load_shared_memory` 的 description,条数天然不允许太多,二十条 × 几千字的目录永远撑不满磁盘。"能装多少字节"不是真实约束,"清单多长、单条多大"才是。所以两个参数各管一件事:`maxFileCount` 管目录里有几条(`description` 清单长度 + 淘汰),`maxFileCharSize` 管单条多大(上下文/token + 触发压缩)。注意后者是**软上限**:压缩失败时超长正文仍会落盘(见 §6.3),真正硬拦截的只有"超过上限 4 倍直接拒绝写入"。
+- **不要磁盘字节维度**:记忆清单必须写进 `load_shared_memory` 的 description,条数天然不允许太多,二十条 × 几千字的目录永远撑不满磁盘。"能装多少字节"不是真实约束,"清单多长、单条多大"才是。所以两个参数各管一件事:`maxFileCount` 管目录里有几条(`description` 清单长度 + 淘汰),`maxFileCharSize` 管单条多大(上下文/token + 触发压缩)。user 的正文每轮注入 system prompt,**不**沿用这个额度:它的上限取 min(maxFileCharSize, `MAX_USER_BODY_CHARS` = 1000),只收紧不放宽(见 §4.1)。注意后者是**软上限**:压缩失败时超长正文仍会落盘(见 §6.3),真正硬拦截的只有"超过上限 4 倍直接拒绝写入"。
 - **同一目录一份状态**:`SharedMemoryLoader.of(directory)` 按目录在进程内单例。共享记忆本身就意味着"同一个目录 = 同一份记忆",所以**快照、per-name 锁、条数上限都得跟着目录唯一**,而不是跟着 Agent 实例——否则两个 Agent 挂同一目录时,per-name 锁各一把(写可能互相覆盖),A 新建的记忆 B 的清单永远发现不了。条数上限冲突时直接报错(见 §4.2)。
 - **包名独立**:新模块包名 `io.github.yeyi.agent.memory.shared`,避开 core 已有的 `io.github.yeyi.agent.memory`(防止同包跨模块冲突)。
 
@@ -152,6 +152,23 @@ internal data class SharedMemory(
          * 可行动的报错;外部手写的 frontmatter 不受本模块控制,[parse] 原样保留。
          */
         const val MAX_DESCRIPTION_CHARS: Int = 200
+
+        /**
+         * user 画像正文的长度上限(字符数)。
+         *
+         * user 与普通记忆的差别在于正文的去向:普通记忆的正文按需 load,只有 description
+         * 常驻上下文;user 的正文则每轮都被整段注入 system prompt,是**每轮都付**的固定开销。
+         * 因此它不能沿用 `maxFileCharSize`(单条记忆的预算,默认 8000),必须有按"每轮"计的
+         * 更紧上限:save 工具对 user 取 min(maxFileCharSize, 本值)——只收紧,不放宽。
+         *
+         * 放在这里而不是 save 工具内:它是"user 这条保留记忆"的规则,与 [RESERVED_USER]
+         * 归属同一条线——关于 user 的一切都在本类声明。本类自身不消费它:[parse] / [render]
+         * 不检查正文长度,外部写入的超长 user.md 照样能读;真正执行它的只有 save 工具。
+         *
+         * 超限走压缩而不是拒绝(与普通记忆同一条路径):画像本来就是会增长的,拒绝会让模型
+         * 无事可做;压缩失败仍照存,因为把已有偏好丢掉比多付几千字符更糟。
+         */
+        const val MAX_USER_BODY_CHARS: Int = 1000
 
         /**
          * 纯函数:解析 md 全文的 frontmatter 构建元数据。[name] 取文件名(不含 .md),
@@ -552,7 +569,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import java.time.Instant
 
 /**
- * 压缩输入的容错倍数:`newBody` 超过 `maxFileCharSize` 的这个倍数、**且这次写入把它撑得更长**时,
+ * 压缩输入的容错倍数:`newBody` 超过有效上限的这个倍数、**且这次写入把它撑得更长**时,
  * 直接拒绝写入;把超限正文改短的写入一律放行(否则超限文件永久不可修)。
  *
  * compressMemory 要把全文塞进 LLM 的 prompt,连输入窗口都装不下的内容压不了;
@@ -580,12 +597,13 @@ private const val MAX_COMPRESS_INPUT_FACTOR = 4
  * - 更新 frontmatter.lastAccessedAt(= now):写入即访问
  * - 写入后 loader.modify 内部自动 reload:重建快照(新记忆由此进入清单);若记忆条数超过 maxFileCount,
  *   按 lastAccessedAt 由远到近淘汰,直到回到条数内(本次写入的记忆刚被 touch,排在队尾)
- * - 写入后若 newBody 超过 maxFileCharSize(字符数,≈ token),先在 transform 内同步调 LLM 压缩,
- *   算完 finalBody 再一次性写入(与 write 同一把 per-name 锁,无竞态窗口)
+ * - 写入后若 newBody 超过上限(字符数,≈ token;普通记忆取 maxFileCharSize,
+ *   user 取 min(maxFileCharSize, [SharedMemory.MAX_USER_BODY_CHARS])),先在 transform 内
+ *   同步调 LLM 压缩,算完 finalBody 再一次性写入(与 write 同一把 per-name 锁,无竞态窗口)
  * - 写入的是 user 时,写成功后调 [onUserProfileUpdated] 把**最终正文**(可能已被压缩)原位替换进
  *   system prompt 的 user 段落。下一次 buildRequest 就看到新值——user 永远不会停在 install 快照上。
  *
- * **不判淘汰**:写入即视为访问。单条超出 maxFileCharSize 时先试压缩,但压缩可能失败——
+ * **不判淘汰**:写入即视为访问。单条超出上限时先试压缩,但压缩可能失败——
  * 所以它是**软上限**(失败时原文照存并回执 WARNING);真正拦死超长入参的是"超过上限 4 倍
  * 且这次把正文撑得更长"。条数超额的淘汰只在随后的 reload 里发生,且针对的是**其他**最久未访问的记忆。
  *
@@ -614,7 +632,8 @@ internal class SharedMemorySaveTool(
 
         另有一个内置记忆 "user"(用户画像),它不出现在上面的列表里,内容每轮自动注入你的 system prompt:
         - 用户透露了稳定的偏好、背景、习惯、身份信息时,用 name="user" 写入,它会跨会话注入；
-        - system prompt 里那段关于用户偏好/背景的文字就是 user 的现有内容,update 时引用其中原文作 old_text。
+        - system prompt 里那段关于用户偏好/背景的文字就是 user 的现有内容,update 时引用其中原文作 old_text；
+        - 它每一轮都注入,所以要写短:只留对以后对话有用的结论,不要写过程。
 
         参数:
         - name: 记忆文件名(英文短词,如 "travel-preferences")。
@@ -667,6 +686,13 @@ internal class SharedMemorySaveTool(
 
         val provider = llmProvider ?: context.agentContext.llmProvider
         val now = Instant.now()
+        // 取 min 而不是直接用常量:宿主把 maxFileCharSize 调得更紧时 user 跟着更紧,
+        // 但不能反向放宽——放宽等于允许每轮多付几千字符。上限本身的理由见 MAX_USER_BODY_CHARS。
+        val limit = if (name == SharedMemory.RESERVED_USER) {
+            minOf(maxFileCharSize, SharedMemory.MAX_USER_BODY_CHARS)
+        } else {
+            maxFileCharSize
+        }
 
         // 状态变量:由 transform 内部写入,execute 外层读取。
         // 闭包内为什么不能直接 return ToolExecutionResult:transform 的类型是
@@ -731,9 +757,9 @@ internal class SharedMemorySaveTool(
             // 放行只会落一个永远超长的文件、之后每次 load 都爆上下文预算。
             // 但硬门只拦"把正文撑大"的那一次写入:已经超限的记忆(宿主放进来的、或旧配置下
             // 压缩失败照存的)必须能靠 update 改短救回来,否则它永久不可修。
-            if (newBody.length > maxFileCharSize * MAX_COMPRESS_INPUT_FACTOR && newBody.length > body.length) {
-                failure = "Content is over ${maxFileCharSize * MAX_COMPRESS_INPUT_FACTOR} chars, too large to compress; " +
-                    "split it into several saves of under $maxFileCharSize chars each"
+            if (newBody.length > limit * MAX_COMPRESS_INPUT_FACTOR && newBody.length > body.length) {
+                failure = "Content is over ${limit * MAX_COMPRESS_INPUT_FACTOR} chars, too large to compress; " +
+                    "split it into several saves of under $limit chars each"
                 return@modify current
             }
 
@@ -741,15 +767,15 @@ internal class SharedMemorySaveTool(
             // 已超硬上限且这次没变长时不再尝试压缩:输入本身装不进 prompt,压也压不了,
             // 直接原样写入(软上限语义),让它先被改短,下一轮才有压缩的机会。
             val finalBody = when {
-                newBody.length <= maxFileCharSize -> newBody
-                newBody.length <= maxFileCharSize * MAX_COMPRESS_INPUT_FACTOR ->
-                    compressMemory(provider, maxFileCharSize, newBody)?.also {
-                        note = " Content was compressed to fit maxFileCharSize; the stored text is a rewritten summary, not what you sent."
+                newBody.length <= limit -> newBody
+                newBody.length <= limit * MAX_COMPRESS_INPUT_FACTOR ->
+                    compressMemory(provider, limit, newBody)?.also {
+                        note = " Content was compressed to fit the size limit; the stored text is a rewritten summary, not what you sent."
                     } ?: newBody.also {
-                        note = " WARNING: content exceeds maxFileCharSize and compression failed; it was stored as-is."
+                        note = " WARNING: content exceeds the size limit and compression failed; it was stored as-is."
                     }
                 else -> newBody.also {
-                    note = " WARNING: content exceeds maxFileCharSize and compression failed; it was stored as-is."
+                    note = " WARNING: content exceeds the size limit and compression failed; it was stored as-is."
                 }
             }
             storedBody = finalBody          // 供 user 刷新 persona 段落用
@@ -775,10 +801,10 @@ internal class SharedMemorySaveTool(
 
     private suspend fun compressMemory(
         llmProvider: LlmProvider,
-        maxFileCharSize: Int,
+        limit: Int,
         body: String,
     ): String? {
-        val targetChars = maxFileCharSize / 2
+        val targetChars = limit / 2
         val prompt = """
             请整理以下共享记忆内容,按以下规则压缩:
             1. 去重:相似信息只保留最后一份，但不是简单的裁切，而是语义融合
@@ -967,6 +993,8 @@ import java.nio.file.Path
  * @param maxFileCount 目录里最多保留的记忆条数,超出则按最久未访问淘汰。默认 20
  * @param maxFileCharSize 单条记忆的字符数上限(≈ 上下文/token 预算),超则同步压缩。默认 8000
  *   注意这是**软上限**:压缩失败时超长正文照存;超过 `maxFileCharSize × 4` 且这次又把正文撑大的写入才直接拒绝。
+ *   user 的正文不适用该值:它每轮注入 system prompt,实际上限是 min(maxFileCharSize, `MAX_USER_BODY_CHARS` = 1000),
+ *   宿主只能把它调得更紧,不能放宽。
  * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
  */
 public fun AgentBuilder.sharedMemory(
@@ -1053,8 +1081,9 @@ save_shared_memory.execute({name, content, mode, old_text?})
         current == null 或没有任何一行与 old_text 完全相同(trim 后) → 记为失败原因,原样返回 current(不落盘)
         整行替换:用 content 替换那一行;content 为空白表示删除该行(不留空行,回执改为 Removed one entry from ...)
       不判淘汰:lastAccessedAt = now(写入即访问,本次写入排在淘汰队尾)
-      若 newBody.length > maxFileCharSize × 4 且这次没把正文改短:→ 直接 error,不落盘(压缩输入都装不下)
-      若 newBody.length > maxFileCharSize(字符):
+      limit = name=="user" ? min(maxFileCharSize, MAX_USER_BODY_CHARS=1000) : maxFileCharSize  # 本次待写正文的有效上限
+      若 newBody.length > limit × 4 且这次没把正文改短:→ 直接 error,不落盘(压缩输入都装不下)
+      若 newBody.length > limit(字符):
         → 同步调 compressMemory(newBody)   # 仍在 modify 锁内
         → 压缩成功(summary 更短):用 summary 作 finalBody,回执附"已被压缩"说明
         → 压缩失败(null 或 summary 不变短):保留 newBody,原样写入 + 超限 WARNING
@@ -1115,10 +1144,10 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 - **失败语义**:压缩在两种情况下返回 null,save 流程保留 append/update 后的 newBody 作为最终 body:
   1. LLM 调用抛错(网络、限流等)
   2. LLM 返回的 summary 字符数 ≥ 原 body(压缩无效,没变短)
-  下次 save 若 `newBody.length` 仍超 `maxFileCharSize` 会再次触发压缩——这是"压缩失败则直接追加,等下一次写入时再次触发"的落点。
-- **超硬上限直接拒绝**:`newBody.length > maxFileCharSize × 4` **且这次没把正文改短**时不尝试压缩,直接返回错误、不落盘。理由是压缩本身要把全文塞进 LLM prompt,连输入窗口都装不下的内容压不了;放行只会让磁盘上多一个永远超长的记忆,之后每次 `load` 都击穿上下文预算。错误回执提示模型分段写入。
+  下次 save 若 `newBody.length` 仍超该条记忆的有效上限(普通记忆 `maxFileCharSize`,user 取 min(maxFileCharSize, `MAX_USER_BODY_CHARS`))会再次触发压缩——这是"压缩失败则直接追加,等下一次写入时再次触发"的落点。
+- **超硬上限直接拒绝**:`newBody.length > 有效上限 × 4` **且这次没把正文改短**时不尝试压缩,直接返回错误、不落盘。理由是压缩本身要把全文塞进 LLM prompt,连输入窗口都装不下的内容压不了;放行只会让磁盘上多一个永远超长的记忆,之后每次 `load` 都击穿上下文预算。错误回执提示模型分段写入。
   反过来,已经超限的记忆(宿主放进来的、或旧配置下压缩失败照存的)必须能靠 `update` 改短救回来——否则它永久不可修。把超限正文改短的写入一律放行,且不再尝试压缩(输入同样装不下),按软上限语义直接落盘并带 WARNING。
-- **`maxFileCharSize` 是软上限**:压缩失败时超长原文照存,而读路径(`loader.load`)不检查长度、也不静默截断(截断既丢信息,又让模型无从得知)。所以"单条不超 `maxFileCharSize`"只在压缩成功时成立。
+- **`maxFileCharSize` 是软上限**:压缩失败时超长原文照存,而读路径(`loader.load`)不检查长度、也不静默截断(截断既丢信息,又让模型无从得知)。所以"单条不超 `maxFileCharSize`"只在压缩成功时成立。user 的额度不随 `maxFileCharSize` 放宽:它的正文每轮注入,上限恒为 min(maxFileCharSize, `MAX_USER_BODY_CHARS` = 1000)。
 - **回执对齐真实磁盘内容**:压缩成功 → 回执说明"存的是改写后的摘要";超限且压缩失败 → 回执带 WARNING 说"超长原文照存"。不回字符数。理由:压缩改写后磁盘内容就不再是模型写入的原文（后续 load 读到的是摘要）,不告知会让它以为原文完整存在。
 - **并发**:save 与 load 全程在 `store.modify` 的 per-name 锁内执行,包含 read、压缩(LLM 调用)、write。同 name 操作串行,不同 name 可并行。单进程内不存在 lost update 或压缩覆盖竞态。
 - **跨进程**:不支持。按目录的单例也只在进程内成立;若宿主跨进程共享同一 `directory`,须自行加协调层。
@@ -1169,6 +1198,8 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
   - 新记忆创建 → loader 内部已 reload,`loader.get` 立即可命中
   - 已有记忆更新 lastAccessedAt
   - 超过 maxFileCharSize(字符) → 触发同步压缩(mock LlmProvider)
+  - user 正文超过 `MAX_USER_BODY_CHARS`(1000)→ 即使 maxFileCharSize 远大于它也压缩;同长度的普通记忆不压缩
+  - user 的硬门按 min(maxFileCharSize, MAX_USER_BODY_CHARS) 判定:4001 字符被拒;宿主把 maxFileCharSize 调到 100 时 user 跟着变紧
   - 回执不含字符数;压缩成功时带 "compressed" 说明,压缩失败但超限时带 WARNING
   - update 的 old_text 为空串 / 全空白 → 返回 error 且不落盘
   - update 的 old_text 只引用了半行 / 漏了标点 → 返回 error,不落盘(条目必须整行匹配)
@@ -1178,8 +1209,8 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
   - append 传空白 content → 返回 error 且不落盘(不得向正文里塞空行)
   - 新建时 description 超长 → 返回 error 且不落盘;已有记忆的超长 description 被忽略(照常写入)
   - old_text / content 含 `$`、`\`、`.`、`(` → 按字面量逐行比较,不做正则解析
-  - newBody 超过 `maxFileCharSize × 4` 且这次把它撑大 → 返回 error 且不落盘(压缩输入都装不下)
-  - 已经超 `maxFileCharSize × 4` 的记忆被 update 改短 → 放行并落盘(否则它永久不可修)
+  - newBody 超过有效上限 × 4 且这次把它撑大 → 返回 error 且不落盘(压缩输入都装不下)
+  - 已经超有效上限 × 4 的记忆被 update 改短 → 放行并落盘(否则它永久不可修)
   - save 后条数超额 → 淘汰其他最久未访问的(loader.modify 内部 reload 生效)
   - `onUserProfileUpdated`:name==`user` 且写入成功时被调用一次,失败路径(正文超大 / description 缺失或超长 / old_text 未命中)不调;其他 name 不调;传 null 时一切照旧。
 - `SharedMemoryPlugin.initialize`:user.md 不存在时创建,已存在时不覆盖;正文为空时 install 不注入段落。

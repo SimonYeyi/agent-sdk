@@ -577,6 +577,75 @@ class SharedMemorySaveToolTest {
         assertFalse("length" in result.text())
     }
 
+    // ---------- user 正文的独立上限 ----------
+
+    @Test
+    fun `the user body is compressed at its own limit even under a much larger maxFileCharSize`() = runTest {
+        val store = FakeSharedMemoryStore()
+        val loader = SharedMemoryLoader.create(store, 5)
+        val summary = "z".repeat(50)
+
+        // maxFileCharSize = 8000 远大于 user 的 1000:这个长度对普通记忆根本不会被压缩
+        val result = tool(loader, maxFileCharSize = 8_000, provider = providerReturning(summary))
+            .execute(
+                args(
+                    name = SharedMemory.RESERVED_USER,
+                    description = "画像",
+                    content = "y".repeat(SharedMemory.MAX_USER_BODY_CHARS + 1),
+                ),
+                context,
+            )
+
+        assertFalse(result.isError, result.text())
+        assertEquals(summary, SharedMemory.bodyOf(store.contentOf(SharedMemory.RESERVED_USER)!!))
+        assertTrue("compressed" in result.text(), result.text())
+    }
+
+    @Test
+    fun `an ordinary memory of the same length is not compressed`() = runTest {
+        val store = FakeSharedMemoryStore()
+        val loader = SharedMemoryLoader.create(store, 5)
+        val content = "y".repeat(SharedMemory.MAX_USER_BODY_CHARS + 1)
+
+        // 同一个长度、同一个上限,换个名字就不该触发压缩:收紧只针对 user
+        val result = tool(loader, maxFileCharSize = 8_000, provider = providerReturning("z".repeat(50)))
+            .execute(args(name = "travel", description = "d", content = content), context)
+
+        assertFalse(result.isError, result.text())
+        assertEquals(content, SharedMemory.bodyOf(store.contentOf("travel")!!))
+        assertFalse("compressed" in result.text(), result.text())
+    }
+
+    @Test
+    fun `the user hard limit never exceeds its own budget`() = runTest {
+        val store = FakeSharedMemoryStore()
+        val loader = SharedMemoryLoader.create(store, 5)
+
+        // 硬门 = 1000 × 4(MAX_COMPRESS_INPUT_FACTOR,file-private 故写字面量):
+        // 4001 字符被拒,而不是按 maxFileCharSize 的 32000 放行
+        val over = tool(loader, maxFileCharSize = 8_000)
+            .execute(
+                args(
+                    name = SharedMemory.RESERVED_USER,
+                    description = "画像",
+                    content = "y".repeat(SharedMemory.MAX_USER_BODY_CHARS * 4 + 1),
+                ),
+                context,
+            )
+
+        assertTrue(over.isError)
+        assertTrue("too large to compress" in over.text(), over.text())
+        assertNull(store.contentOf(SharedMemory.RESERVED_USER))
+
+        // 反向:宿主把 maxFileCharSize 调得比 1000 更紧时,user 跟着变紧而不是守住 1000
+        store.put(SharedMemory.RESERVED_USER, md(SharedMemory.RESERVED_USER, body = "- 喜欢海鲜"))
+        val tighter = tool(loader, maxFileCharSize = 100)
+            .execute(args(name = SharedMemory.RESERVED_USER, content = "y".repeat(401)), context)
+
+        assertTrue(tighter.isError)
+        assertTrue("too large to compress" in tighter.text(), tighter.text())
+    }
+
     // ---------- 与 loader 的联动 ----------
 
     @Test

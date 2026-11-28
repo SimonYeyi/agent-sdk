@@ -66,6 +66,23 @@ internal data class SharedMemory(
         const val MAX_DESCRIPTION_CHARS: Int = 200
 
         /**
+         * user 画像正文的长度上限(字符数)。
+         *
+         * user 与普通记忆的差别在于正文的去向:普通记忆的正文按需 load,只有 description
+         * 常驻上下文;user 的正文则每轮都被整段注入 system prompt,是**每轮都付**的固定开销。
+         * 因此它不能沿用 `maxFileCharSize`(单条记忆的预算,默认 8000),必须有按"每轮"计的
+         * 更紧上限:save 工具对 user 取 min(maxFileCharSize, 本值)——只收紧,不放宽。
+         *
+         * 放在这里而不是 save 工具内:它是"user 这条保留记忆"的规则,与 [RESERVED_USER]
+         * 归属同一条线——关于 user 的一切都在本类声明。本类自身不消费它:[parse] / [render]
+         * 不检查正文长度,外部写入的超长 user.md 照样能读;真正执行它的只有 save 工具。
+         *
+         * 超限走压缩而不是拒绝(与普通记忆同一条路径):画像本来就是会增长的,拒绝会让模型
+         * 无事可做;压缩失败仍照存,因为把已有偏好丢掉比多付几千字符更糟。
+         */
+        const val MAX_USER_BODY_CHARS: Int = 1000
+
+        /**
          * 纯函数:解析 md 全文的 frontmatter 构建元数据。[name] 取文件名(不含 .md),
          * 与 frontmatter 中的 name 冲突时以文件名为准。不抛异常。
          *

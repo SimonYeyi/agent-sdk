@@ -42,8 +42,9 @@ private const val MAX_COMPRESS_INPUT_FACTOR = 4
  * - 更新 frontmatter.lastAccessedAt(= now):写入即访问
  * - 写入后 loader.modify 内部自动 reload:重建快照(新记忆由此进入清单);若记忆条数超过 maxFileCount,
  *   按 lastAccessedAt 由远到近淘汰,直到回到条数内(本次写入的记忆刚被 touch,排在队尾)
- * - 写入后若 newBody 超过 maxFileCharSize(字符数,≈ token),先在 transform 内同步调 LLM 压缩,
- *   算完 finalBody 再一次性写入(与 write 同一把 per-name 锁,无竞态窗口)
+ * - 写入后若 newBody 超过上限(字符数,≈ token;普通记忆取 maxFileCharSize,
+ *   user 取 min(maxFileCharSize, [SharedMemory.MAX_USER_BODY_CHARS])),先在 transform 内
+ *   同步调 LLM 压缩,算完 finalBody 再一次性写入(与 write 同一把 per-name 锁,无竞态窗口)
  * - 写入的是 user 时,写成功后调 [onUserProfileUpdated] 把**最终正文**(可能已被压缩)原位替换进
  *   system prompt 的 user 段落。下一次 buildRequest 就看到新值——user 永远不会停在 install 快照上。
  *
@@ -76,7 +77,8 @@ internal class SharedMemorySaveTool(
 
         另有一个内置记忆 "user"(用户画像),它不出现在上面的列表里,内容每轮自动注入你的 system prompt:
         - 用户透露了稳定的偏好、背景、习惯、身份信息时,用 name="user" 写入,它会跨会话注入；
-        - system prompt 里那段关于用户偏好/背景的文字就是 user 的现有内容,update 时引用其中原文作 old_text。
+        - system prompt 里那段关于用户偏好/背景的文字就是 user 的现有内容,update 时引用其中原文作 old_text；
+        - 它每一轮都注入,所以要写短:只留对以后对话有用的结论,不要写过程。
 
         参数:
         - name: 记忆文件名(英文短词,如 "travel-preferences")。
@@ -132,6 +134,13 @@ internal class SharedMemorySaveTool(
 
         val provider = llmProvider ?: context.agentContext.llmProvider
         val now = Instant.now()
+        // 取 min 而不是直接用常量:宿主把 maxFileCharSize 调得更紧时 user 跟着更紧,
+        // 但不能反向放宽——放宽等于允许每轮多付几千字符。上限本身的理由见 MAX_USER_BODY_CHARS。
+        val limit = if (name == SharedMemory.RESERVED_USER) {
+            minOf(maxFileCharSize, SharedMemory.MAX_USER_BODY_CHARS)
+        } else {
+            maxFileCharSize
+        }
 
         // 状态变量:由 transform 内部写入,execute 外层读取。
         // 闭包内为什么不能直接 return ToolExecutionResult:transform 的类型是
@@ -196,9 +205,9 @@ internal class SharedMemorySaveTool(
             // 放行只会落一个永远超长的文件、之后每次 load 都爆上下文预算。
             // 但硬门只拦"把正文撑大"的那一次写入:已经超限的记忆(宿主放进来的、或旧配置下
             // 压缩失败照存的)必须能靠 update 改短救回来,否则它永久不可修。
-            if (newBody.length > maxFileCharSize * MAX_COMPRESS_INPUT_FACTOR && newBody.length > body.length) {
-                failure = "Content is over ${maxFileCharSize * MAX_COMPRESS_INPUT_FACTOR} chars, too large to compress; " +
-                    "split it into several saves of under $maxFileCharSize chars each"
+            if (newBody.length > limit * MAX_COMPRESS_INPUT_FACTOR && newBody.length > body.length) {
+                failure = "Content is over ${limit * MAX_COMPRESS_INPUT_FACTOR} chars, too large to compress; " +
+                    "split it into several saves of under $limit chars each"
                 return@modify current
             }
 
@@ -206,15 +215,15 @@ internal class SharedMemorySaveTool(
             // 已超硬上限且这次没变长时不再尝试压缩:输入本身装不进 prompt,压也压不了,
             // 直接原样写入(软上限语义),让它先被改短,下一轮才有压缩的机会。
             val finalBody = when {
-                newBody.length <= maxFileCharSize -> newBody
-                newBody.length <= maxFileCharSize * MAX_COMPRESS_INPUT_FACTOR ->
-                    compressMemory(provider, maxFileCharSize, newBody)?.also {
-                        note = " Content was compressed to fit maxFileCharSize; the stored text is a rewritten summary, not what you sent."
+                newBody.length <= limit -> newBody
+                newBody.length <= limit * MAX_COMPRESS_INPUT_FACTOR ->
+                    compressMemory(provider, limit, newBody)?.also {
+                        note = " Content was compressed to fit the size limit; the stored text is a rewritten summary, not what you sent."
                     } ?: newBody.also {
-                        note = " WARNING: content exceeds maxFileCharSize and compression failed; it was stored as-is."
+                        note = " WARNING: content exceeds the size limit and compression failed; it was stored as-is."
                     }
                 else -> newBody.also {
-                    note = " WARNING: content exceeds maxFileCharSize and compression failed; it was stored as-is."
+                    note = " WARNING: content exceeds the size limit and compression failed; it was stored as-is."
                 }
             }
             storedBody = finalBody          // 供 user 刷新 persona 段落用
@@ -240,10 +249,10 @@ internal class SharedMemorySaveTool(
 
     private suspend fun compressMemory(
         llmProvider: LlmProvider,
-        maxFileCharSize: Int,
+        limit: Int,
         body: String,
     ): String? {
-        val targetChars = maxFileCharSize / 2
+        val targetChars = limit / 2
         val prompt = """
             请整理以下共享记忆内容,按以下规则压缩:
             1. 去重:相似信息只保留最后一份，但不是简单的裁切，而是语义融合

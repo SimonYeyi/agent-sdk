@@ -17,9 +17,7 @@ import kotlinx.serialization.json.jsonObject
  * execute 只调一句 [SharedMemoryLoader.load]:锁内读正文 + 刷新访问时间,不判淘汰;
  * 完成后 loader 内部自动 reload,条目超出 `maxFileCount` 时淘汰其他最久未访问的记忆。
  */
-internal class SharedMemoryLoadTool(
-    private val loader: SharedMemoryLoader,
-) : Tool {
+internal class SharedMemoryLoadTool(private val loader: SharedMemoryLoader) : Tool {
     override val name: String = "load_shared_memory"
 
     override val description: String
@@ -53,7 +51,7 @@ internal class SharedMemoryLoadTool(
         if (name == SharedMemory.RESERVED_USER) {
             return ToolExecutionResult.error(
                 "'${SharedMemory.RESERVED_USER}' is the auto-injected user profile and is not in the memory list; " +
-                    "its content is already in your system prompt. Use save_shared_memory to update it."
+                        "its content is already in your system prompt. Use save_shared_memory to update it."
             )
         }
 
