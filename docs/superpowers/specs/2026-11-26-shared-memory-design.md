@@ -642,7 +642,13 @@ internal interface SharedMemoryStore {
     suspend fun read(name: String): String?
 
     suspend fun exists(name: String): Boolean
-    suspend fun list(): List<String> // 所有 .md 文件名(不含 .md 后缀),排除 RESERVED_USER;即 reload 的遗忘候选集
+
+    /**
+     * 所有 `.md` 文件名(不含后缀),即 reload 的遗忘候选集。
+     *
+     * 过滤三件事:排除 [SharedMemory.RESERVED_USER]、只保留符合 [MEMORY_NAME_PATTERN] 的名字、忽略 `.tmp` 残留。
+     */
+    suspend fun list(): List<String>
 }
 
 /**
@@ -651,6 +657,8 @@ internal interface SharedMemoryStore {
  * - 文件名:`$directory/$name.md`,`name` 先过 [MEMORY_NAME_PATTERN] 校验
  * - IO 走 [Dispatchers.IO]
  * - `user.md` 文件存在但不列入 list()(避免被 loader 当作普通记忆加载、遗忘)
+ * - 非记忆文件不参与:名字不符合 [MEMORY_NAME_PATTERN] 的 `.md` 与 `.tmp` 残留都不进 list(),
+ *   因此既不会被扫描也不会被遗忘(宿主可以在同目录放其他文件)
  * - per-name 互斥:[locks] 为每个 name 维护一把 [Mutex],[modify] 全程持锁,
  *   使 save 与压缩、save 与 load 对同一 name 串行
  * - write 走原子写入:先写 `.tmp` 再 [Files.move] 带 [StandardCopyOption.ATOMIC_MOVE] 替换目标,
@@ -700,7 +708,12 @@ internal class PathSharedMemoryStore(private val directory: Path) : SharedMemory
     }
 
     override suspend fun list(): List<String> = withContext(Dispatchers.IO) {
-        directory.toFile().listFiles { f -> f.extension == "md" && f.nameWithoutExtension != SharedMemory.RESERVED_USER }
+        directory.toFile()
+            .listFiles { f ->
+                f.extension == "md" &&
+                    f.nameWithoutExtension != SharedMemory.RESERVED_USER &&
+                    MEMORY_NAME_PATTERN.matches(f.nameWithoutExtension)  // 非法名字(中文 / 空格)一律当非记忆文件
+            }
             ?.map { it.nameWithoutExtension }
             ?: emptyList()
     }
@@ -887,7 +900,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
   - 没有 frontmatter / 半截 frontmatter 的文件不抛异常,正文取全文
   - `description` 含换行 / 冒号 / 中文时 render → parse 往返后与原值一致(换行已折成空格)
 - `MEMORY_NAME_PATTERN`:接受 `travel` / `user` / `a.b-c_1`;拒绝 `../x`、`a/b`、空串、65 字符、`.hidden`(首字符非字母数字)。
-- `PathSharedMemoryStore`:在 tempdir 上读写删列表,IO 异常路径。
+- `PathSharedMemoryStore`:在 tempdir 上读写删列表,IO 异常路径;`list()` 只返回合法名——`中文.md` / `a b.md` / `x.md.tmp` / `user.md` 都不出现。
 - `SharedMemoryLoader` 的过期清理(`reload` 已 private,经 `load` / `modify` 间接验证):新增/删除/变更文件的同步;过期文件被删除且不进入快照;未过期文件保留。
 - `SharedMemoryLoader.load`:锁内取正文并刷新 lastAccessedAt,不判过期(已超阈值的文件仍能读出);文件不存在返回 null 且不新建空文件。
 - `SharedMemoryLoader.load` / `modify` 完成后快照即同步:调用返回后 `get()` / `all()` 立刻反映新状态,调用方无需(也不应)再自行调 `reload()`。
@@ -924,6 +937,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 2. **跨进程并发不支持**:per-name Mutex 只在单进程内生效。若多个进程/Agent 实例挂同一 `directory`,可能 lost update。宿主跨进程共享须自行加协调层。
 3. **遗忘无后台巡检**:清理只随 loader 的 `load` / `modify` 内部 `reload()` 发生。宿主长时间不调工具时,过期文件会留在磁盘(下次读写或下次 install 时被清理)。需要独立巡检时,得先开放一个公开的巡检 API(`reload()` 目前是 private)。
 4. **存储实现不可替换**:`SharedMemoryStore` 是 `internal`,宿主只能走 `PathSharedMemoryStore`。由于依赖 `java.nio.file`,**Android API < 26 不可用**。需要平台适配时,把接口提为 `public` 并在 DSL 加 `store` 参数即可(注入缝已预留)。
+5. **记忆文件名只认 ASCII**:符合 `[A-Za-z0-9._-]` 且 ≤ 64。目录里其他 `.md`(中文名、带空格)会被 `list()` 忽略——既不进快照也不会被遗忘,算是"安全地看不见"。
 
 ### 8.2 未来扩展
 
