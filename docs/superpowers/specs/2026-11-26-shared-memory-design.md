@@ -39,10 +39,11 @@
 
 - **独立实现,不依赖 capability 框架**:共享记忆是内部生成的(由 `SharedMemoryLoader` 扫描目录构建),不需要外部宿主或插件提供 `Capability` 实例,与 Skill 的"外部注册"形态本质不同。`SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(`SharedMemoryPluginConfig` 是 object 占位,满足 `C : Any` 约束),`load_shared_memory` / `save_shared_memory` 两个工具都是普通 `Tool`,在 `install` 里手工 `registerTool`。不继承 `CapabilityPlugin`、不调 `CapabilityAdapter`、不依赖 `CapabilityLoadTool`。
 - **公开面最小**:对外只暴露一个扩展函数 `AgentBuilder.sharedMemory(...)`。`SharedMemory` / `SharedMemoryLoader` / `SharedMemoryStore` / `PathSharedMemoryStore` / 两个 Tool / `SharedMemoryPlugin` / `SharedMemoryPluginConfig` 全部 `internal`——它们是同一模块内的实现细节,宿主不需要也不应该感知。将来要开放(如平台存储适配)再逐个提权。
-- **写入决策在 LLM**:不暴露写入 API 给宿主代码,只有 `save_shared_memory` 工具。宿主只负责传 `directory` 与可选的 `memoryFileLimit` / `forgetDuration` / `LlmProvider`。
+- **写入决策在 LLM**:不暴露写入 API 给宿主代码,只有 `save_shared_memory` 工具。宿主只负责传 `directory` 与可选的 `memoryFileLimit` / `LlmProvider`。
 - **存储抽象最小**:`SharedMemoryStore` 是模块内部的可替换缝(单测可换内存实现),v1 只有 `PathSharedMemoryStore` 一个实现,不对外暴露。不预先做 Android/iOS 平台适配。
 - **分层清晰**:`SharedMemory` 是纯值对象(元数据 + md 编解码),不持 store、无 IO;`SharedMemoryStore` 只管文本存取;`SharedMemoryLoader` 独占持有 store,负责扫描、过期判定与读写入口(锁内读 + touch、`modify`)。依赖方向只有 `Loader → SharedMemory / Store`。
 - **过期清理只发生在 reload**:遗忘的唯一判定点是 `SharedMemoryLoader.reload()`。loader 的读写入口(`load` / `modify`)完成操作后各自自动调一次 `reload()`,删除过期文件并重建"只含可读记忆"的快照——工具与插件都不感知。读写路径自身不判过期——本次操作的记忆 `lastAccessedAt` 刚被刷新,天然不会被删,要清理的是**其他**长期未访问的记忆。压缩仍并入 `save_shared_memory` 流程同步触发。
+- **同一目录一份状态**:`SharedMemoryLoader.of(directory)` 按目录在进程内单例。共享记忆本身就意味着"同一个目录 = 同一份记忆",所以**快照与 per-name 锁都得跟着目录唯一**,而不是跟着 Agent 实例——否则两个 Agent 挂同一目录时,per-name 锁各一把(写可能互相覆盖),A 新建的记忆 B 的清单永远发现不了。
 - **包名独立**:新模块包名 `io.github.yeyi.agent.memory.shared`,避开 core 已有的 `io.github.yeyi.agent.memory`(防止同包跨模块冲突)。
 
 ---
@@ -64,7 +65,7 @@ agent/memory/shared/
     ├── main/kotlin/io/github/yeyi/agent/memory/shared/
     │   ├── SharedMemory.kt          # internal class SharedMemory(纯值对象:元数据 + md 编解码,无 IO)
     │   ├── SharedMemoryPlugin.kt    # internal class SharedMemoryPlugin : AgentPlugin<SharedMemoryPluginConfig>
-    │   ├── SharedMemoryLoader.kt    # internal class:扫描/过期清理/读写入口(load / modify,内部自动 reload)
+    │   ├── SharedMemoryLoader.kt    # internal class:按目录单例(of) / 扫描 / 过期清理 / 读写入口(内部自动 reload)
     │   ├── SharedMemoryStore.kt     # internal interface SharedMemoryStore + internal PathSharedMemoryStore
     │   ├── SharedMemoryLoadTool.kt  # internal class,工具 load_shared_memory
     │   ├── SharedMemorySaveTool.kt  # internal class,工具 save_shared_memory(含同步压缩)
@@ -73,7 +74,7 @@ agent/memory/shared/
         └── (各组件单元测试)
 ```
 
-依赖关系(全部**不**向上游泄漏:模块对外 API 只有 `Path` / `Duration` / `LlmProvider`):
+依赖关系(全部**不**向上游泄漏:模块对外 API 只有 `Path` / `LlmProvider`):
 - `api(project(":agent:core"))` — `AgentBuilder` / `AgentPlugin` / `Tool` / `AgentContext.llmProvider`(core 已 `api` 导出 coroutines / serialization)
 - `implementation(libs.kotlinx.serialization.json)` — 只用于工具参数 `JsonElement`
 - `implementation(libs.kotlinx.coroutines.core)` — per-name `Mutex`、`runBlocking`
@@ -171,8 +172,11 @@ package io.github.yeyi.agent.memory.shared
 
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.nio.file.Files
+import java.nio.file.Path
 import java.time.Duration
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * 共享记忆加载器,负责扫描目录、清理过期记忆、维护 name → SharedMemory 快照。
@@ -192,8 +196,11 @@ import java.time.Instant
  * - 已删除的文件从清单移除;新增的文件加入清单;变更的 frontmatter 反映到 description。
  * - 容错:单个文件读失败或内容损坏 → 跳过该项(不进快照、也不删),reload 不因单文件问题整体失败。
  * - 线程安全:reload 在 [mutex] 内重建不可变快照,查找直接读快照,无需加锁。
+ * - **同一目录一份状态**:实例由 [of] 按目录在进程内共享。多个 Agent 挂同一 `directory` 时
+ *   看到的是同一份快照(对方新建的记忆立刻出现在清单里)与同一套 per-name 锁。
+ * - 构造器 `private`:唯一生产构造路径是 [of],模块内也无法另造一个绕过注册表的实例;测试走 [create]。
  */
-internal class SharedMemoryLoader(
+internal class SharedMemoryLoader private constructor(
     private val memoryStore: SharedMemoryStore,
     private val forgetDuration: Duration,
 ) {
@@ -282,6 +289,37 @@ internal class SharedMemoryLoader(
         }
 
         snapshot = next
+    }
+
+    companion object {
+        /** v1 不开放配置:先固定 30 天。 */
+        private val DEFAULT_FORGET_DURATION: Duration = Duration.ofDays(30)
+
+        /** 目录 → loader。进程内共享:同一目录只有一个快照与一套 per-name 锁。 */
+        private val instances = ConcurrentHashMap<String, SharedMemoryLoader>()
+
+        /**
+         * 按目录共享的单例入口(生产路径的唯一用法,DSL 只经此拿 loader)。
+         *
+         * key 用 [Path.toRealPath],避免 `./mem` 与 `/abs/mem` 被当成两个目录而各自持锁与快照;
+         * 目录不存在时先创建(store 的读写本来也要求目录存在)。
+         *
+         * 注册表进程内常驻、不做回收:目录数量级是"每用户 / 每 agent 一份"。
+         */
+        internal fun of(directory: Path): SharedMemoryLoader {
+            Files.createDirectories(directory)
+            val real = directory.toRealPath()
+            return instances.computeIfAbsent(real.toString()) {
+                SharedMemoryLoader(PathSharedMemoryStore(real), DEFAULT_FORGET_DURATION)
+            }
+        }
+
+        /**
+         * 仅供测试:绕过注册表,直接注入内存 store 与极短阈值(否则 30 天阈值无法验证过期)。
+         * 用 [SharedMemoryStore] 而非目录,测试也就不必碰磁盘。
+         */
+        internal fun create(memoryStore: SharedMemoryStore, forgetDuration: Duration): SharedMemoryLoader =
+            SharedMemoryLoader(memoryStore, forgetDuration)
     }
 }
 ```
@@ -666,7 +704,8 @@ internal interface SharedMemoryStore {
  * - 非记忆文件不参与:名字不符合 [MEMORY_NAME_PATTERN] 的 `.md` 与 `.tmp` 残留都不进 list(),
  *   因此既不会被扫描也不会被遗忘(宿主可以在同目录放其他文件)
  * - per-name 互斥:[locks] 为每个 name 维护一把 [Mutex],[modify] 全程持锁,
- *   使 save 与压缩、save 与 load 对同一 name 串行
+ *   使 save 与压缩、save 与 load 对同一 name 串行。
+ *   (store 由按目录单例的 [SharedMemoryLoader] 持有,所以同一目录全进程只有这一套锁。)
  * - write 走原子写入:先写 `.tmp` 再 [Files.move] 带 [StandardCopyOption.ATOMIC_MOVE] 替换目标,
  *   避免写一半中断导致文件损坏(残留的 `.tmp` 不会被 list() 当成记忆,也不影响读取)
  */
@@ -734,7 +773,6 @@ package io.github.yeyi.agent.memory.shared
 import io.github.yeyi.agent.AgentBuilder
 import io.github.yeyi.agent.llm.LlmProvider
 import java.nio.file.Path
-import java.time.Duration
 
 /**
  * 注册共享记忆插件到 Agent —— **本模块唯一的公开 API**。
@@ -742,22 +780,20 @@ import java.time.Duration
  * 与 core 的 `AgentBuilder.memory(Memory, maxRounds)`(短期会话历史)区分开,所以不叫 `memory(...)`:
  * `sharedMemory` 是跨会话的 markdown 记忆,两者正交。
  *
- * @param directory 记忆文件根目录,宿主必传(不存在会自动创建)
+ * @param directory 记忆文件根目录,宿主必传(不存在会自动创建)。
+ *   同一目录在进程内共享同一份快照与同一套锁,多个 Agent 传同一目录即共享同一份记忆。
  * @param memoryFileLimit 单文件字符上限,超则同步压缩。默认 8000,必须 > 0
- * @param forgetDuration 记忆超过此时长未被读写则被遗忘删除。默认 30 天,必须 > 0
  * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
  */
 public fun AgentBuilder.sharedMemory(
     directory: Path,
     memoryFileLimit: Int = 8000,
-    forgetDuration: Duration = Duration.ofDays(30),
     llmProvider: LlmProvider? = null,
 ) {
     require(memoryFileLimit > 0) { "memoryFileLimit must be positive: $memoryFileLimit" }
-    require(forgetDuration > Duration.ZERO) { "forgetDuration must be positive: $forgetDuration" }
     plugin(
         SharedMemoryPlugin(
-            loader = SharedMemoryLoader(PathSharedMemoryStore(directory), forgetDuration),
+            loader = SharedMemoryLoader.of(directory),
             memoryFileLimit = memoryFileLimit,
             llmProvider = llmProvider,
         )
@@ -772,9 +808,10 @@ public fun AgentBuilder.sharedMemory(
 ### 5.1 install 阶段
 
 ```
-AgentBuilder.sharedMemory(directory, memoryFileLimit, forgetDuration, llmProvider)
-  → require 校验参数(memoryFileLimit / forgetDuration 必须 > 0)
-  → plugin(SharedMemoryPlugin(loader = SharedMemoryLoader(PathSharedMemoryStore(directory), forgetDuration), ...))
+AgentBuilder.sharedMemory(directory, memoryFileLimit, llmProvider)
+  → require 校验参数(memoryFileLimit 必须 > 0)
+  → SharedMemoryLoader.of(directory)          # 按目录单例:createDirectories + toRealPath 作 key,已存在则复用
+  → plugin(SharedMemoryPlugin(loader, memoryFileLimit, llmProvider))
     → SharedMemoryPlugin.install(context)
       → runBlocking { initialize() }
         → ensureUserMemory()             # 经 loader.modify(RESERVED_USER) 建空模板;完成后 loader 内部已自动 reload
@@ -789,6 +826,7 @@ AgentBuilder.sharedMemory(directory, memoryFileLimit, forgetDuration, llmProvide
 ReActAgent 构造 ChatRequest
   → ToolRegistry.all().map { it.toDefinition() }
     → load_shared_memory.toDefinition()  # 读 description,触发 getter → 读 loader.all() → 列出所有记忆名+描述
+                                          # 同目录共享的快照:别的 Agent 刚写的记忆也在里面
     → save_shared_memory.toDefinition()
   → ChatRequest.tools = [load_shared_memory, save_shared_memory, ...其他工具]
   → system prompt 中含 user.md 内容(通过 addInstruction 注入 persona 尾部独立段落)
@@ -868,6 +906,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 - `SharedMemoryLoader.load()` 的读 + touch 走 store 的 per-name 锁,与同名 save 串行,返回值即锁内那一刻的磁盘内容。
 - `reload` 内部的过期删除在 per-name 锁内二次判定,与并发 load/save 串行,不会误删刚被刷新的记忆。
 - 快照中只含未过期记忆:`all()` / `get()` 返回的一定可读;读方直接读快照,无锁;reload 期间旧快照仍可读,切换原子。
+- **并发会话共享同一份状态**:`SharedMemoryLoader.of(directory)` 保证同一目录只存在一个 loader,所以多个 Agent 实例共享快照与 per-name 锁——A 新建的记忆,在 B 下一轮构造请求(读 `loader.all()`)时就出现了;两边写同一 name 也是串行。
 
 ### 6.3 压缩失败与并发
 
@@ -877,7 +916,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
   2. LLM 返回的 summary 长度 ≥ 原 body(压缩无效,没变短)
   下次 save 若 `newBody.length` 仍超 `memoryFileLimit` 会再次触发压缩——这是"压缩失败则直接追加,等下一次写入时再次触发"的落点。
 - **并发**:save 与 load 全程在 `store.modify` 的 per-name 锁内执行,包含 read、压缩(LLM 调用)、write。同 name 操作串行,不同 name 可并行。单进程内不存在 lost update 或压缩覆盖竞态。
-- **跨进程**:不支持。若宿主跨进程共享同一 `directory`,须自行加协调层。
+- **跨进程**:不支持。按目录的单例也只在进程内成立;若宿主跨进程共享同一 `directory`,须自行加协调层。
 
 ### 6.4 遗忘的语义
 
@@ -887,6 +926,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 - **本次操作的记忆不会被删**:load 刚把 lastAccessedAt 刷为 now,save 刚写入 lastAccessedAt = now;reload 在 per-name 锁内二次判定,不与并发读写竞争。
 - **save 对已过期记忆等于"复活"**:不判过期,直接写入并刷新 lastAccessedAt。
 - **`user.md` 豁免**:不在 `list()` 中,reload 永远不会碰它。
+- **遗忘阈值固定 30 天**:v1 不开放配置(`SharedMemoryLoader.DEFAULT_FORGET_DURATION`)。测试需要短阈值时用 `SharedMemoryLoader.create(store, duration)` 绕过单例。
 - **没人读写就不清理**:没有后台巡检,也没有对外的清理入口(loader 不对外暴露),清理只靠下一次读写。
 
 ### 6.5 与短期 Memory 的关系
@@ -912,6 +952,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 - `SharedMemoryLoader.load`:锁内取正文并刷新 lastAccessedAt,不判过期(已超阈值的文件仍能读出);文件不存在返回 null 且不新建空文件。
 - `SharedMemoryLoader.load` / `modify` 完成后快照即同步:调用返回后 `get()` / `all()` 立刻反映新状态,调用方无需(也不应)再自行调 `reload()`。
 - `SharedMemoryLoader` 容错:目录中放一个不可读 / 内容异常的文件,`load` / `modify` 不抛异常,该文件不进快照也不被删除。
+- `SharedMemoryLoader.of`:同一目录两次调用返回**同一实例**(快照与锁共享);`./mem` 与绝对路径归一到同一 key;不同目录互不影响。(测试用 `@TempDir` 保证目录唯一,避免全局注册表串场)
 - `SharedMemorySaveTool.execute`:
   - append / update 两种 mode(update 配 old_text,content 作替换文本,支持局部替换与删除)
   - 非法 name(`../x`、含 `/`、超长)返回 isError,不落盘
@@ -926,7 +967,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 
 - 用 mock `LlmProvider`,模拟 LLM 调用 `save_shared_memory("travel", "...")` → `load_shared_memory("travel")` → 返回写入内容。
 - 模拟压缩:`memoryFileLimit=100`,写入 200 字符内容,验证压缩被触发且 md 最终被覆盖为压缩后内容。
-- 模拟遗忘:`forgetDuration=1ms`,创建 A、B 两个记忆,load A 后令 A、B 均超期,再 load B——验证 reload 在 load 之后把 A 删掉,而 B 因刚被读取幸存。
+- 模拟遗忘:用 `SharedMemoryLoader.create(store, 1.milliseconds)` 注入极短阈值(`of()` 固定 30 天,无法直接测过期),创建 A、B 两个记忆,load A 后令 A、B 均超期,再 load B——验证 reload 在 load 之后把 A 删掉,而 B 因刚被读取幸存。
 
 ### 7.3 不在测试范围
 
@@ -941,10 +982,12 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 ### 8.1 当前限制
 
 1. **user.md 注入是静态的**:`install` 时一次性读 `user.md` 内容通过 `addInstruction(body, "user-profile")` 注入 persona 尾部独立段落,运行时 LLM 通过 `save_shared_memory` 更新 user.md 后,**当前会话不会重新注入**——要等下一次会话。`addInstruction` 的具名 label 支持同名段落原位替换,插件若在 install 后保留 `AgentPluginContext`,理论上可在运行期重刷该段落;但当前设计不保留 context,故仍需 `onTurnFinished` 等 turn hook 才能实现每轮重读注入,而目前插件接口只支持 `registerTool` + `addInstruction`。
-2. **跨进程并发不支持**:per-name Mutex 只在单进程内生效。若多个进程/Agent 实例挂同一 `directory`,可能 lost update。宿主跨进程共享须自行加协调层。
+2. **跨进程并发不支持**:per-name Mutex 只在单进程内生效,按目录的 loader 单例也只是**进程内**共享。两个进程挂同一 `directory` 时,既可能 lost update,也互看不见对方新建的记忆。宿主跨进程共享须自行加协调层。
 3. **遗忘无后台巡检**:清理只随 loader 的 `load` / `modify` 内部 `reload()` 发生。宿主长时间不调工具时,过期文件会留在磁盘(下次读写或下次 install 时被清理)。需要独立巡检时,得先开放一个公开的巡检 API(`reload()` 目前是 private)。
 4. **存储实现不可替换**:`SharedMemoryStore` 是 `internal`,宿主只能走 `PathSharedMemoryStore`。由于依赖 `java.nio.file`,**Android API < 26 不可用**。需要平台适配时,把接口提为 `public` 并在 DSL 加 `store` 参数即可(注入缝已预留)。
 5. **记忆文件名只认 ASCII**:符合 `[A-Za-z0-9._-]` 且 ≤ 64。目录里其他 `.md`(中文名、带空格)会被 `list()` 忽略——既不进快照也不会被遗忘,算是"安全地看不见"。
+6. **遗忘阈值不可配**:固定 30 天(`DEFAULT_FORGET_DURATION`)。需要按场景调整时,再给 DSL 加 `forgetDuration` 参数;但同一目录的 loader 是共享的,不同 Agent 传不同值会冲突,届时要先定优先级(首建为准 or 取最小)。
+7. **目录注册表常驻不回收**:`SharedMemoryLoader.instances` 是进程级 `ConcurrentHashMap`,`of()` 不回收入口。宿主不断换目录(如每次请求一个临时目录)会缓慢累积——量级上应当"每用户/每 agent 一个稳定目录",v1 不做引用计数。
 
 ### 8.2 未来扩展
 
@@ -958,7 +1001,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 ## 9. 实现顺序建议
 
 1. 在 `settings.gradle.kts` 加 `include(":agent:memory:shared")`,建模块(模板同 `agent/skill`,`explicitApi()`,不引 serialization 插件)。
-2. 实现 `SharedMemoryStore` / `SharedMemory`(纯值对象,含 frontmatter 解析与渲染)/ `SharedMemoryLoader`(含过期清理与 `load` / `modify` 入口)。
+2. 实现 `SharedMemoryStore` / `SharedMemory`(纯值对象,含 frontmatter 解析与渲染)/ `SharedMemoryLoader`(含按目录单例 `of()`、过期清理与 `load` / `modify` 入口)。
 3. 实现 `SharedMemoryLoadTool`(读出路径)。
 4. 实现 `SharedMemorySaveTool`(不含压缩,先跑通读写路径)。
 5. 实现 `SharedMemoryPlugin` + `AgentBuilder.sharedMemory(...)`,接入 AgentBuilder。
