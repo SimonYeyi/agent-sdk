@@ -73,7 +73,7 @@ agent/memory/shared/
 ├── build.gradle.kts
 └── src
     ├── main/kotlin/io/github/yeyi/agent/memory/shared/
-    │   ├── SharedMemory.kt            # 纯值对象：四字段 + parse/bodyOf/render/create/copyWith
+    │   ├── SharedMemory.kt            # 纯值对象：四字段 + parse/bodyOf/render/create（data class 自带 copy/equals）
     │   ├── SharedMemoryStore.kt       # MEMORY_NAME_PATTERN + 接口 + PathSharedMemoryStore
     │   ├── SharedMemoryLoader.kt      # 按目录单例 of()、load/modify 入口、快照、条数淘汰
     │   ├── SharedMemoryLoadTool.kt    # load_shared_memory
@@ -183,15 +183,12 @@ tasks.test {
 1. 定义类型骨架（字段、可见性、KDoc 照 spec §4.1）：
 
 ```kotlin
-internal class SharedMemory(
+internal data class SharedMemory(
     val name: String,
     val description: String,
     val createdAt: Instant,
     val lastAccessedAt: Instant,
 ) {
-    fun copyWith(lastAccessedAt: Instant): SharedMemory =
-        SharedMemory(name, description, createdAt, lastAccessedAt)
-
     fun render(body: String): String = buildString {
         append("---\n")
         append("name: ").append(name).append('\n')
@@ -478,7 +475,7 @@ suspend fun load(name: String): String? {
         val text = SharedMemory.bodyOf(current)
         body = text
         SharedMemory.parse(name, current)
-            .copyWith(lastAccessedAt = Instant.now())
+            .copy(lastAccessedAt = Instant.now())
             .render(text)
     }
     reload()   // 必须在 store.modify 返回之后
@@ -819,7 +816,7 @@ loader.modify(name) { current ->
         newBody
     }
     storedBody = finalBody
-    meta.copyWith(lastAccessedAt = now).render(finalBody)
+    meta.copy(lastAccessedAt = now).render(finalBody)
 }
 ```
 
@@ -1132,7 +1129,7 @@ grep -rn "reload()" agent/memory/shared/src/main
 | spec 小节 | 落在哪个 Task |
 |---|---|
 | §3 模块与依赖 | Task 1 |
-| §4.1 `SharedMemory`（parse / bodyOf / render / create / copyWith） | Task 2 |
+| §4.1 `SharedMemory`（parse / bodyOf / render / create） | Task 2 |
 | §4.2 `SharedMemoryLoader`（load / modify / reload / of / create） | Task 4 |
 | §4.3 `SharedMemoryPlugin`（user 初始化 + 写时刷新） | Task 7 |
 | §4.4 `SharedMemoryLoadTool` | Task 5 |
@@ -1166,7 +1163,7 @@ grep -rn "reload()" agent/memory/shared/src/main
 
 - 类型：`SharedMemory` / `SharedMemoryStore` / `PathSharedMemoryStore` / `SharedMemoryLoader` / `SharedMemoryLoadTool` / `SharedMemorySaveTool` / `SharedMemoryPlugin` / `SharedMemoryPluginConfig`
 - 顶层声明：`MEMORY_NAME_PATTERN`（`SharedMemoryStore.kt`）、`MAX_COMPRESS_INPUT_FACTOR`（`SharedMemorySaveTool.kt`，`private`）
-- 成员：`render(body)` / `bodyOf(content)` / `parse(name, content)` / `create(name, description, now)` / `copyWith(lastAccessedAt)` / `RESERVED_USER`
+- 成员：`render(body)` / `bodyOf(content)` / `parse(name, content)` / `create(name, description, now)` / `RESERVED_USER`；`copy` / `equals` / `hashCode` 由 `data class` 生成
 - Loader：`all()` / `get(name)` / `load(name)` / `modify(name, transform)` / `reload()` / `of(directory, maxFileCount)` / `create(memoryStore, maxFileCount)`
 - 工具名：`load_shared_memory` / `save_shared_memory`；工具参数：`name` / `description` / `content` / `mode` / `old_text`
 - persona label：`"user-profile"`（字面量，无常量）

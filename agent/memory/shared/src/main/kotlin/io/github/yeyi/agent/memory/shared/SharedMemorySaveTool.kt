@@ -166,7 +166,7 @@ internal class SharedMemorySaveTool(
                 newBody
             }
             storedBody = finalBody          // 供 user 刷新 persona 段落用
-            meta.copyWith(lastAccessedAt = now).render(finalBody)   // 写入即访问
+            meta.copy(lastAccessedAt = now).render(finalBody)   // 写入即访问
         }
 
         when {

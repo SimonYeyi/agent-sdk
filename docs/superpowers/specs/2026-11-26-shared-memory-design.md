@@ -64,7 +64,7 @@ agent/memory/shared/
 ├── build.gradle.kts
 └── src
     ├── main/kotlin/io/github/yeyi/agent/memory/shared/
-    │   ├── SharedMemory.kt          # internal class SharedMemory(纯值对象:元数据 + md 编解码,无 IO)
+    │   ├── SharedMemory.kt          # internal data class SharedMemory(纯值对象:元数据 + md 编解码,无 IO)
     │   ├── SharedMemoryPlugin.kt    # internal class SharedMemoryPlugin : AgentPlugin<SharedMemoryPluginConfig>
     │   ├── SharedMemoryLoader.kt    # internal class:按目录单例(of) / 扫描 / 条数淘汰 / 读写入口(内部自动 reload)
     │   ├── SharedMemoryStore.kt     # internal interface SharedMemoryStore + internal PathSharedMemoryStore
@@ -111,8 +111,10 @@ import java.time.Instant
  * - "按需加载":description 告诉 LLM 何时使用,正文不预加载
  * - 正文不在实体上驻留,而是在 [parse] / [bodyOf] / [render] 之间以 String 流转
  * - 淘汰判断只由 `SharedMemoryLoader.reload` 做(条目超出 `maxFileCount` 时按 [lastAccessedAt] 由远到近)
+ * - `data class`:纯值对象,自带 `copy` / `equals` / `hashCode`。刷新访问时间用
+ *   `copy(lastAccessedAt = ...)`,不原地修改
  */
-internal class SharedMemory(
+internal data class SharedMemory(
     /** 记忆名(等于文件名,不含 .md)。解析时以文件名为准。 */
     val name: String,
     /** 给 LLM 看的"何时使用本记忆"提示。 */
@@ -122,10 +124,6 @@ internal class SharedMemory(
     /** 最后一次被 load/save 的时间。只用作条数淘汰时的排序依据(最久未访问的先删)。 */
     val lastAccessedAt: Instant,
 ) {
-    /** 拷贝一份新实体,并把访问时间更新为 [lastAccessedAt](实体不可变)。 */
-    fun copyWith(lastAccessedAt: Instant): SharedMemory =
-        SharedMemory(name, description, createdAt, lastAccessedAt)
-
     /**
      * 用本元数据 + [body] 渲染 md 全文,写回文件时使用。
      *
@@ -235,7 +233,7 @@ internal class SharedMemoryLoader private constructor(
             val text = SharedMemory.bodyOf(current)
             body = text
             SharedMemory.parse(name, current)
-                .copyWith(lastAccessedAt = Instant.now())
+                .copy(lastAccessedAt = Instant.now())
                 .render(text)
         }
         reload()  // 必须在 store.modify 返回(锁已释放)之后;本记忆刚被 touch,不会被删
@@ -673,7 +671,7 @@ internal class SharedMemorySaveTool(
                 newBody
             }
             storedBody = finalBody          // 供 user 刷新 persona 段落用
-            meta.copyWith(lastAccessedAt = now).render(finalBody)  // 写入即访问
+            meta.copy(lastAccessedAt = now).render(finalBody)  // 写入即访问
         }
 
         when {
@@ -959,7 +957,7 @@ load_shared_memory.execute({name: "travel"})
   → loader.load("travel")
       → memoryStore.modify("travel") { current ->        # per-name 锁内
           text = bodyOf(current)                          # 锁内读到的最新正文,即本次返回值
-          parse(current).copyWith(lastAccessedAt = now).render(text)   # 只刷新访问时间,不判淘汰
+          parse(current).copy(lastAccessedAt = now).render(text)   # 只刷新访问时间,不判淘汰
         }
       → 返回 text;文件不存在(已被淘汰)时返回 null
   → loader.load 内部自动 reload()                          # 条数超额则淘汰最久未访问的 + 重建快照
@@ -985,7 +983,7 @@ save_shared_memory.execute({name, content, mode, old_text?})
         → 同步调 compressMemory(newBody)   # 仍在 modify 锁内
         → 压缩成功(summary 更短):用 summary 作 finalBody,compressed 标记
         → 压缩失败(null 或 summary 不变短):保留 newBody,overLimitKept 标记
-      返回 meta.copyWith(lastAccessedAt = now).render(finalBody)   # 原子写回
+      返回 meta.copy(lastAccessedAt = now).render(finalBody)   # 原子写回
     }
   → loader.modify 内部自动 reload()                     # 新记忆进入快照 + 条数超额时淘汰其他最久未访问的
   → tooLarge / missingDescription / notFound → 返回对应 error(均不落盘)

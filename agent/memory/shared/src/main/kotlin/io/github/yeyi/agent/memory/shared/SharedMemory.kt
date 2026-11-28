@@ -15,8 +15,10 @@ import java.time.Instant
  * - "按需加载":description 告诉 LLM 何时使用,正文不预加载
  * - 正文不在实体上驻留,而是在 [parse] / [bodyOf] / [render] 之间以 String 流转
  * - 淘汰判断只由 `SharedMemoryLoader.reload` 做(条目超出 `maxFileCount` 时按 [lastAccessedAt] 由远到近)
+ * - `data class`:纯值对象,自带 `copy` / `equals` / `hashCode`。刷新访问时间用
+ *   `copy(lastAccessedAt = ...)`,不原地修改
  */
-internal class SharedMemory(
+internal data class SharedMemory(
     /** 记忆名(等于文件名,不含 .md)。解析时以文件名为准。 */
     val name: String,
     /** 给 LLM 看的"何时使用本记忆"提示。 */
@@ -26,10 +28,6 @@ internal class SharedMemory(
     /** 最后一次被 load/save 的时间。只用作条数淘汰时的排序依据(最久未访问的先删)。 */
     val lastAccessedAt: Instant,
 ) {
-    /** 拷贝一份新实体,并把访问时间更新为 [lastAccessedAt](实体不可变)。 */
-    fun copyWith(lastAccessedAt: Instant): SharedMemory =
-        SharedMemory(name, description, createdAt, lastAccessedAt)
-
     /**
      * 用本元数据 + [body] 渲染 md 全文,写回文件时使用。
      *

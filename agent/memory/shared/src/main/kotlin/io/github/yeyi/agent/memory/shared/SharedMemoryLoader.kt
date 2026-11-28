@@ -66,7 +66,7 @@ internal class SharedMemoryLoader private constructor(
             val text = SharedMemory.bodyOf(current)
             body = text
             SharedMemory.parse(name, current)
-                .copyWith(lastAccessedAt = Instant.now())
+                .copy(lastAccessedAt = Instant.now())
                 .render(text)
         }
         reload()   // 必须在 store.modify 返回(锁已释放)之后;本记忆刚被 touch,不会被删
