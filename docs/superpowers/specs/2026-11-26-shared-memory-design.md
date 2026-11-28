@@ -63,7 +63,7 @@ agent/memory/shared/
     │   ├── SharedMemoryFile.kt              # md frontmatter 解析/序列化
     │   ├── SharedMemoryLoadTool.kt          # 读出工具
     │   ├── SharedMemorySaveTool.kt          # 写入工具,LLM 写入记忆
-    │   └── SharedMemoryExtensions.kt        # AgentBuilder.sharedMemory(...) DSL
+    │   └── SharedMemoryExtensions.kt        # AgentBuilder.memory(...) DSL
     └── test/kotlin/io/github/yeyi/agent/memory/shared/
         └── (各组件单元测试)
 ```
@@ -657,7 +657,7 @@ import java.time.Duration
  * @param forgetDuration 遗忘时间,文件超过此时长未被读写则删。默认 30 天
  * @param llmProvider 压缩用 LLM;null 时回退到 AgentContext.llmProvider。默认 null
  */
-public fun AgentBuilder.sharedMemory(
+public fun AgentBuilder.memory(
     directory: Path,
     memoryFileLimit: Int = 8000,
     forgetDuration: Duration = Duration.ofDays(30),
@@ -683,7 +683,7 @@ public fun AgentBuilder.sharedMemory(
 ### 5.1 install 阶段
 
 ```
-AgentBuilder.sharedMemory(directory, ...)
+AgentBuilder.memory(directory, ...)
   → 创建 SharedMemoryLoader(memoryStore, forgetDuration)
   → 创建 SharedMemoryPlugin(...)  // 直接实现 AgentPlugin
   → plugin(plugin)
