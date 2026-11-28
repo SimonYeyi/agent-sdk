@@ -16,6 +16,7 @@ dependencies {
     api(project(":agent:capability"))
     api(libs.kotlinx.serialization.json)
 
+    testImplementation(testFixtures(project(":agent:core")))
     testImplementation(libs.kotlin.test)
     testImplementation(libs.kotlin.test.junit)
     testImplementation(libs.kotlinx.coroutines.test)

@@ -1,7 +1,9 @@
 package io.github.yeyi.agent.skill
 
 import io.github.yeyi.agent.AgentBuilder
+import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentPluginContext
+import io.github.yeyi.agent.fakes.FakeAgentHook
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolRegistry
 import kotlin.test.Test
@@ -18,6 +20,7 @@ class SkillPluginTest {
     }
 
     private class FakePluginContext : AgentPluginContext {
+        override val hookPipeline: AgentHook = FakeAgentHook
         private val _tools = mutableListOf<Tool>()
         val tools: List<Tool> get() = _tools
 

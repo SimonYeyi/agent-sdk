@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.tool.lazy_loading
 
+import io.github.yeyi.agent.fakes.FakeAgentHook
 import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.text
 import io.github.yeyi.agent.tool.Tool
@@ -25,6 +26,7 @@ class LazyToolExtensionsTest {
     }
 
     private val mockPluginContext = object : io.github.yeyi.agent.AgentPluginContext {
+        override val hookPipeline: io.github.yeyi.agent.AgentHook = FakeAgentHook
         private val tools = mutableListOf<Tool>()
         override fun registerTool(tool: Tool) {
             tools.add(tool)

@@ -1,6 +1,8 @@
 package io.github.yeyi.agent.capability
 
+import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentPluginContext
+import io.github.yeyi.agent.fakes.FakeAgentHook
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -36,6 +38,7 @@ class CapabilityPluginTest {
     }
 
     private class FakePluginContext : AgentPluginContext {
+        override val hookPipeline: AgentHook = FakeAgentHook
         private val _tools = mutableListOf<Tool>()
         val tools: List<Tool> get() = _tools
 

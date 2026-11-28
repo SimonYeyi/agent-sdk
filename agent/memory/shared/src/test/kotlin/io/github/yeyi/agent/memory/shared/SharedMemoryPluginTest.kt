@@ -1,8 +1,10 @@
 package io.github.yeyi.agent.memory.shared
 
 import io.github.yeyi.agent.AgentBuilder
+import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentPersona
 import io.github.yeyi.agent.AgentPluginContext
+import io.github.yeyi.agent.fakes.FakeAgentHook
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.llm.ChatMessage
@@ -35,6 +37,7 @@ class SharedMemoryPluginTest {
     private val toolContext: ToolExecutionContext = ToolExecutionContext("call-1", testAgentContext())
 
     private class FakePluginContext : AgentPluginContext {
+        override val hookPipeline: AgentHook = FakeAgentHook
         val tools = mutableListOf<Tool>()
         val persona = AgentPersona("test")
         override fun registerTool(tool: Tool) {

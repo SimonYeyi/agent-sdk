@@ -22,7 +22,7 @@ import io.github.yeyi.agent.tool.Tool
  * }
  * ```
  *
- * 插件只能通过 [context][AgentPluginContext] 添加工具或写入指令说明，
+ * 插件只能通过 [context][AgentPluginContext] 添加工具、写入指令说明，或读取当前 hook，
  * 无法访问或修改 Agent 的其他配置。
  *
  * @param C 配置类型
@@ -41,7 +41,8 @@ public interface AgentPlugin<C : Any> {
      * 将插件安装到 [AgentPluginContext]。
      *
      * 插件只能通过 [AgentPluginContext.registerTool] 注册工具，
-     * 或通过 [AgentPluginContext.addInstruction] 写入指令说明。
+     * 通过 [AgentPluginContext.addInstruction] 写入指令说明，
+     * 或通过 [AgentPluginContext.hookPipeline] 读取当前 hook。
      */
     public fun install(context: AgentPluginContext)
 
@@ -55,9 +56,23 @@ public interface AgentPlugin<C : Any> {
 /**
  * 插件上下文 — 插件只能通过此接口操作 Agent。
  *
- * 只暴露 [registerTool] 和 [addInstruction] 两个方法，防止插件覆盖 Agent 核心配置。
+ * 只暴露 [registerTool]、[addInstruction] 两个写入入口和只读的 [hookPipeline]，
+ * 防止插件覆盖 Agent 核心配置。
  */
 public interface AgentPluginContext {
+    /**
+     * Agent 当前挂载的 [AgentHook]。
+     *
+     * [AgentHook] 是纯回调接口：自身没有 add/注册能力，一个 Agent 只能挂一个实例；
+     * 要追加回调只能靠 `agent/hook` 模块的 HookPipeline（[AgentHook] 的可组合实现）
+     * 从外层包一层间接完成。所以这里暴露的是**当前那个 hook 对象**而不是注册入口，
+     * 注册语义由 HookPipeline 承担，本接口不提供。
+     *
+     * 取值的时点：插件在 [AgentBuilder.build] 内 install，此时宿主的 [AgentBuilder.hook]
+     * 已执行完毕，读到的一定是最终值；宿主没设置时才是默认空实现。
+     */
+    public val hookPipeline: AgentHook
+
     /**
      * 向 [io.github.yeyi.agent.tool.ToolRegistry] 注册一个工具。
      */

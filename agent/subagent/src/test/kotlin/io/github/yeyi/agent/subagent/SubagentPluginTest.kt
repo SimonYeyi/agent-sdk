@@ -1,6 +1,8 @@
 package io.github.yeyi.agent.subagent
 
+import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentPluginContext
+import io.github.yeyi.agent.fakes.FakeAgentHook
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.memory.Memory
 import kotlin.test.Test
@@ -19,6 +21,7 @@ class SubagentPluginTest {
     }
 
     private class FakePluginContext : AgentPluginContext {
+        override val hookPipeline: AgentHook = FakeAgentHook
         private val _tools = mutableListOf<Tool>()
         val tools: List<Tool> get() = _tools
 

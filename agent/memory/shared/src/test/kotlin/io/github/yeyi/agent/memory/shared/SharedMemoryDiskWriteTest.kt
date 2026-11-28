@@ -1,6 +1,8 @@
 package io.github.yeyi.agent.memory.shared
 
+import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentPluginContext
+import io.github.yeyi.agent.fakes.FakeAgentHook
 import io.github.yeyi.agent.fakes.FakeLlmProvider
 import io.github.yeyi.agent.fakes.testAgentContext
 import io.github.yeyi.agent.tool.Tool
@@ -87,6 +89,7 @@ class SharedMemoryDiskWriteTest {
         SharedMemorySaveTool(loader, maxFileCharSize, FakeLlmProvider(), null)
 
     private class RecordingContext : AgentPluginContext {
+        override val hookPipeline: AgentHook = FakeAgentHook
         val instructions = mutableListOf<Pair<String, String?>>()
         override fun registerTool(tool: Tool) = Unit
         override fun addInstruction(content: String, label: String?) {

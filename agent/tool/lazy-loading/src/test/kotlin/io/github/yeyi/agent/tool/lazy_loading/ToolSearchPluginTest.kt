@@ -1,6 +1,8 @@
 package io.github.yeyi.agent.tool.lazy_loading
 
+import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentPluginContext
+import io.github.yeyi.agent.fakes.FakeAgentHook
 import io.github.yeyi.agent.tool.Tool
 import io.github.yeyi.agent.tool.ToolExecutionContext
 import io.github.yeyi.agent.tool.ToolExecutionResult
@@ -28,6 +30,7 @@ class ToolSearchPluginTest {
 
         var installedTools: List<Tool> = emptyList()
         val context = object : AgentPluginContext {
+            override val hookPipeline: AgentHook = FakeAgentHook
             override fun registerTool(tool: Tool) {
                 installedTools = installedTools + tool
             }
@@ -52,6 +55,7 @@ class ToolSearchPluginTest {
 
         var installedTools: List<Tool> = emptyList()
         val context = object : AgentPluginContext {
+            override val hookPipeline: AgentHook = FakeAgentHook
             override fun registerTool(tool: Tool) {
                 installedTools = installedTools + tool
             }
@@ -75,6 +79,7 @@ class ToolSearchPluginTest {
 
         var installedTools: List<Tool> = emptyList()
         val context = object : AgentPluginContext {
+            override val hookPipeline: AgentHook = FakeAgentHook
             override fun registerTool(tool: Tool) {
                 installedTools = installedTools + tool
             }

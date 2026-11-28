@@ -134,6 +134,7 @@ public class AgentBuilder {
 
     private fun installPlugins() {
         val pluginContext = object : AgentPluginContext {
+            override val hookPipeline: AgentHook get() = this@AgentBuilder.hook
             override fun registerTool(tool: Tool) = toolRegistry.register(tool)
             override fun addInstruction(content: String, label: String?) {
                 persona.extra(content, label)
