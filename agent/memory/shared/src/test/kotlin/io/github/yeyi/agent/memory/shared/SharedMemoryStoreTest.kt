@@ -10,6 +10,7 @@ import org.junit.Before
 import java.io.File
 import java.nio.file.Files
 import java.nio.file.Path
+import java.nio.file.attribute.FileTime
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -52,6 +53,33 @@ class SharedMemoryStoreTest {
         assertNull(result)
         assertFalse(store.exists("travel"))
         assertFalse(fileOf("travel").exists())
+    }
+
+    @Test
+    fun `transform returning current content performs no write`() = runTest {
+        store.modify("travel") { "- 喜欢海边" }
+        val file = fileOf("travel")
+        // 把 mtime 设成纪元 0:只要发生任何写入(含原子写回),mtime 必然被改成当下。
+        // 用哨兵值断言"没写",比比较前后 mtime 更确定——不受时间戳精度影响。
+        val sentinel = FileTime.fromMillis(0)
+        Files.setLastModifiedTime(file.toPath(), sentinel)
+
+        val result = store.modify("travel") { current -> current }
+
+        assertEquals("- 喜欢海边", result)
+        assertEquals(sentinel, Files.getLastModifiedTime(file.toPath()))
+        assertFalse(File(tempDir.toFile(), "travel.md.tmp").exists())
+    }
+
+    @Test
+    fun `transform returning null for a missing file creates nothing`() = runTest {
+        val result = store.modify("ghost") { current ->
+            assertNull(current)
+            null
+        }
+
+        assertNull(result)
+        assertTrue(tempDir.toFile().listFiles().orEmpty().isEmpty())
     }
 
     @Test

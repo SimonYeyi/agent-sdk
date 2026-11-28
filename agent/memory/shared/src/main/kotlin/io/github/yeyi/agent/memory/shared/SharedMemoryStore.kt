@@ -35,6 +35,9 @@ internal interface SharedMemoryStore {
      *
      * - [transform] 收到当前 md 全文(frontmatter + 正文);文件不存在时收到 null
      * - [transform] 返回新内容;**返回 null 表示删除文件**(不是"无操作")
+     * - 返回内容与当前内容**完全相同**(含同为 null)时视为无变更:不落盘、不刷新 mtime、不产生任何 IO。
+     *   失败路径因此可以用 `return@modify current` 表达"什么都不做",既省掉一次无谓写入,
+     *   也不会让落盘异常(如 Windows 上 rename 被拒)盖掉调用方要返回的业务错误
      * - transform 内部可执行 suspend 操作(如调 LLM 压缩),全程持锁,不会被同名操作插入
      * - 返回值为最终写入(或删除前的)内容,供调用方使用
      */
@@ -70,6 +73,8 @@ internal interface SharedMemoryStore {
  *   (store 由按目录单例的 [SharedMemoryLoader] 持有,所以同一目录全进程只有这一套锁。)
  * - write 走原子写入:先写 `.tmp` 再 [Files.move] 带 [StandardCopyOption.ATOMIC_MOVE] 替换目标,
  *   避免写一半中断导致文件损坏(残留的 `.tmp` 不会被 [list] 当成记忆,也不影响读取)
+ * - 内容未变不落盘:[modify] 在 [transform] 返回与当前内容相同的字符串时直接返回,不写 `.tmp`。
+ *   稳态的 `user.md` 初始化(原样返回当前值)与 save 的失败路径因此都是零 IO
  */
 internal class PathSharedMemoryStore(private val directory: Path) : SharedMemoryStore {
     init { directory.toFile().mkdirs() }
@@ -94,6 +99,9 @@ internal class PathSharedMemoryStore(private val directory: Path) : SharedMemory
         val target = fileOf(name)
         val current = withContext(Dispatchers.IO) { if (target.exists()) target.readText() else null }
         val result = transform(current)
+        // 内容未变(含"文件本来就不存在"):不产生任何写入。省掉一次无谓的 write + rename,
+        // 也让失败路径的 return@modify current 真正无副作用。
+        if (result == current) return@withNameLock result
         withContext(Dispatchers.IO) {
             if (result == null) {
                 target.delete()
