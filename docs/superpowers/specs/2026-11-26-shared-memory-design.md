@@ -407,8 +407,7 @@ internal class SharedMemorySaveTool(
         val oldText = arguments.jsonObject["old_text"]?.jsonPrimitive?.content
             ?: if (mode == "update") return ToolExecutionResult.error("Missing 'old_text'") else null
 
-        val effectiveLlmProvider = llmProvider ?: context.agentContext.llmProvider
-        val store = memoryStore
+        val llmProvider = llmProvider ?: context.agentContext.llmProvider
         val now = Instant.now()
 
         // 状态变量:由 transform 内部写入,execute 外层读取以决定返回值
@@ -419,7 +418,7 @@ internal class SharedMemorySaveTool(
         var finalLen = 0             // 最终正文长度
         var compressed = false       // 是否触发压缩
 
-        store.modify(name) { current ->
+        memoryStore.modify(name) { current ->
             val (frontmatter, body) = if (current == null) {
                 if (description.isNullOrBlank()) { missingDescription = true; return@modify null }
                 newCreated = true
@@ -447,7 +446,7 @@ internal class SharedMemorySaveTool(
 
             val updatedFrontmatter = frontmatter.copy(lastAccessedAt = now)
             val finalBody = if (newBody.length > memoryFileLimit) {
-                compressMemory(effectiveLlmProvider, memoryFileLimit, newBody)?.also { compressed = it.length < newBody.length } ?: newBody
+                compressMemory(llmProvider, memoryFileLimit, newBody)?.also { compressed = it.length < newBody.length } ?: newBody
             } else {
                 newBody
             }
@@ -475,7 +474,7 @@ internal class SharedMemorySaveTool(
     }
 
     private suspend fun compressMemory(
-        llm: LlmProvider,
+        llmProvider: LlmProvider,
         memoryFileLimit: Int,
         body: String,
     ): String? {
@@ -498,7 +497,7 @@ internal class SharedMemorySaveTool(
                 io.github.yeyi.agent.llm.ChatMessage.User(listOf(io.github.yeyi.agent.llm.ContentPart.Text(prompt))),
             ),
         )
-        val summary = runCatching { llm.chat(request).message.content }.getOrNull() ?: return null
+        val summary = runCatching { llmProvider.chat(request).message.content }.getOrNull() ?: return null
         // 无效兜底:压缩结果没有变短,说明压缩失败,返回 null 让调用方保留原文
         return if (summary.length < body.length) summary else null
     }
@@ -759,8 +758,8 @@ save_shared_memory.execute({name, content, mode, old_text?})
 ### 5.5 同步压缩
 
 ```
-compressMemory(llm, memoryFileLimit, body)
-  → llm.chat(压缩到 ${memoryFileLimit/2} 字符以内)   # 失败返回 null
+compressMemory(llmProvider, memoryFileLimit, body)
+  → llmProvider.chat(压缩到 ${memoryFileLimit/2} 字符以内)   # 失败返回 null
   → runCatching { ... }.getOrNull()   # 失败返回 null,保留 newBody
   → 返回 summary
 ```
