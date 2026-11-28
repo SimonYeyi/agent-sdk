@@ -319,10 +319,7 @@ internal class SharedMemoryLoader private constructor(
          *
          * 注册表进程内常驻、不做回收:目录数量级是"每用户 / 每 agent 一份"。
          */
-        internal fun of(
-            directory: Path,
-            maxFileCount: Int,
-        ): SharedMemoryLoader {
+        internal fun of(directory: Path, maxFileCount: Int): SharedMemoryLoader {
             Files.createDirectories(directory)
             val real = directory.toRealPath()
             // compute 对同一 key 原子:"检查已有上限 + 注册"不能被另一个线程插进去
@@ -373,9 +370,16 @@ internal object SharedMemoryPluginConfig
  *
  * 直接实现 [AgentPlugin],install 阶段完成:
  * 1. 经 loader.modify(RESERVED_USER) 确保 `user.md` 存在(不存在则写空正文模板)
- * 2. context.addInstruction(userBody, "user-profile") 注入 `user.md` 正文到 persona 尾部独立段落
+ * 2. refreshUserProfile(userBody) 注入 `user.md` 正文到 persona 尾部独立段落(正文为空则跳过)
  * 3. registerTool(SharedMemoryLoadTool(loader))  → load_shared_memory
- * 4. registerTool(SharedMemorySaveTool(loader, maxFileCharSize, llmProvider)) → save_shared_memory
+ * 4. registerTool(SharedMemorySaveTool(loader, maxFileCharSize, llmProvider, refreshUserProfile))
+ *    → save_shared_memory,同时把刷新入口注入给工具
+ *
+ * **运行期刷新（user 永远最新）**:插件保留 [AgentPluginContext] 引用，把
+ * `addInstruction(新正文, "user-profile")` 包装成回调交给 save 工具；工具写完 user 成功后调用它，
+ * 把最新正文**原位替换**进 system prompt 段落。因此 user 永远等于"磁盘上那一刻的正文"，
+ * 不需要 turn hook，也不需要每轮重读:[ReActAgent.buildRequest] 每轮都重新 `persona.toString()`，
+ * 运行期 `addInstruction` 立即生效。
  *
  * 插件不持有 [SharedMemoryStore]、也不调 reload():存储、快照与条数淘汰都由 [SharedMemoryLoader]
  * 独占维护,读写入口内部自动重建快照。
@@ -391,19 +395,23 @@ internal class SharedMemoryPlugin(
     override fun configure(block: SharedMemoryPluginConfig.() -> Unit) { /* no-op,配置已在构造器完成 */ }
 
     override fun install(context: AgentPluginContext) {
-        val userBody = runBlocking { initialize() }  // ensureUserMemory;内部 loader.modify 已自动 reload
+        // user 的刷新入口:save 写成功后调它,把最新正文原位替换进 persona。
+        // label 固定 "user-profile":addInstruction 遇同名段落即原位替换,不追加。
+        // 在这里捕获 context(而不是让工具去拿),契约最窄:工具只知道"user 变了,该通知一下"。
+        val refreshUserProfile: (String) -> Unit = { newBody ->
+            context.addInstruction(newBody, "user-profile")
+        }
 
+        val userBody = runBlocking { initialize() }  // ensureUserMemory;内部 loader.modify 已自动 reload
         // 注入 user.md 正文到 persona 尾部独立段落(具名 label,便于后续原位刷新)。
         // 不在这里加标题/占位:"存在一个可写的 user 记忆"由 save_shared_memory 的 description 告知,
         // 每轮随 tools 下发,比 persona 里的固定文字更可靠。
-        if (userBody.isNotBlank()) {
-            context.addInstruction(userBody, "user-profile")
-        }
+        if (userBody.isNotBlank()) refreshUserProfile(userBody)
 
         // 注册两个工具(普通 Tool,不经过 CapabilityAdapter)
         context.registerTool(SharedMemoryLoadTool(loader))
         context.registerTool(
-            SharedMemorySaveTool(loader, maxFileCharSize, llmProvider)
+            SharedMemorySaveTool(loader, maxFileCharSize, llmProvider, refreshUserProfile)
         )
     }
 
@@ -513,18 +521,23 @@ import java.time.Instant
  *   (不校验就会变成路径穿越:`../../x` 写出目录之外)
  * - description: 记忆描述(给 LLM 看的"何时使用本记忆"提示)。**新建记忆时必填**;已有记忆忽略此参数
  * - content: 写入内容(markdown)
- * - mode: "append" 追加到正文末尾 / "update" 局部替换(配 old_text,content 作替换文本)
+ * - mode: "append" 追加到正文末尾 / "update" 局部替换(配 old_text,content 作替换文本)。
+ *   普通记忆改内容必须先 load 拿到正文再复制 old_text;用户画像 user 的正文常驻 system prompt,
+ *   所以 update 天然是它的主路径。
  *
  * 副作用:
  * - 更新 frontmatter.lastAccessedAt(= now):写入即访问
  * - 写入后 loader.modify 内部自动 reload:重建快照(新记忆由此进入清单);若记忆条数超过 maxFileCount,
  *   按 lastAccessedAt 由远到近淘汰,直到回到条数内(本次写入的记忆刚被 touch,排在队尾)
  * - 写入后若 newBody 超过 maxFileCharSize(字符数,≈ token),同步调 LLM 压缩并覆盖写回(与 write 同一把 per-name 锁,无竞态窗口)
+ * - 写入的是 user 时,写成功后调 [onUserProfileUpdated] 把**最终正文**(可能已被压缩)原位替换进
+ *   system prompt 的 user 段落。下一次 buildRequest 就看到新值——user 永远不会停在 install 快照上。
  *
  * **不判淘汰**:写入即视为访问。单条超出 maxFileCharSize 由压缩兜住;条数超额的淘汰只在随后的 reload 里发生,
  * 且针对的是**其他**最久未访问的记忆。
  *
- * 返回:写入确认信息(包含字符数、是否触发压缩)
+ * 返回:写入确认信息。不回字符数(内部指标,模型无可行动的判断依据);
+ * 但压缩成功/失败必须说明——磁盘上的内容可能不等于它写入的原文。
  *
  * 并发语义:本工具自身不持锁,串行性由 [SharedMemoryStore] 的 per-name 互斥保证——
  * save 与 load、save 与压缩对同一 name 自动串行。存储经 [SharedMemoryLoader.modify] 访问。
@@ -533,6 +546,8 @@ internal class SharedMemorySaveTool(
     private val loader: SharedMemoryLoader,
     private val maxFileCharSize: Int,
     private val llmProvider: LlmProvider?,
+    /** user 正文落盘后的回调(由插件注入,内部调 addInstruction 原位替换 persona 段落);测试可传 null。 */
+    private val onUserProfileUpdated: ((String) -> Unit)? = null,
 ) : Tool {
     override val name: String = "save_shared_memory"
 
@@ -554,6 +569,8 @@ internal class SharedMemorySaveTool(
         - mode: "append" 或 "update",默认 "append"。
           - append: 追加 content 到现有正文末尾。记忆文件新建时也走此模式(此时正文为空)。
           - update: 局部替换。需配 old_text,工具读旧正文找到 old_text 替换为 content。
+                    改普通记忆前,先用 load_shared_memory 读一次正文,再从读到的文本里复制 old_text;
+                    user 除外(正文已在 system prompt 里)。
                     content 为空串表示删除该片段。找不到 old_text 则返回错误,不修改文件。
         - old_text: 仅 update 模式必填。要被替换的原文片段,必须与现有正文中的文本精确匹配。
     """.trimIndent()
@@ -581,8 +598,9 @@ internal class SharedMemorySaveTool(
         // 状态变量:由 transform 内部写入,execute 外层读取以决定返回值
         var notFound = false            // update 模式 old_text 找不到 / update 不存在 / 非法 mode
         var missingDescription = false  // 新建记忆但 description 为空
-        var finalChars = 0                // 最终正文字符数(上下文占用口径)
-        var compressed = false          // 是否触发压缩
+        var compressed = false          // 超限且压缩成功(正文已被改写)
+        var overLimitKept = false       // 超限但压缩失败(超长原文照存)
+        var storedBody = ""             // 最终写入的正文(user 用它刷新 system prompt)
 
         loader.modify(name) { current ->
             val meta = if (current == null) {
@@ -605,14 +623,15 @@ internal class SharedMemorySaveTool(
                 else -> { notFound = true; return@modify current }
             }
 
+            // compressMemory 返回非 null 时已保证比原文短,无需再比长度
             val finalBody = if (newBody.length > maxFileCharSize) {
                 compressMemory(llmProvider, maxFileCharSize, newBody)?.also {
-                    compressed = it.length < newBody.length
-                } ?: newBody
+                    compressed = true
+                } ?: newBody.also { overLimitKept = true }
             } else {
                 newBody
             }
-            finalChars = finalBody.length
+            storedBody = finalBody          // 供 user 刷新 persona 段落用
             meta.copyWith(lastAccessedAt = now).render(finalBody)  // 写入即访问
         }
 
@@ -625,9 +644,21 @@ internal class SharedMemorySaveTool(
             )
         }
 
-        return ToolExecutionResult.success(
-            "Saved memory '$name' ($finalChars chars).${if (compressed) " Compressed." else ""}"
-        )
+        // user 的正文就是 system prompt 的一部分:写成功后立即把最终正文(可能已被压缩)
+        // 原位替换进 persona。这是 user "永远最新" 的唯一机制:不需要 turn hook,也不需要重读磁盘。
+        // 压缩会改写正文,所以这里必须用落盘后的 finalBody,而不是调用方传入的 content。
+        if (name == SharedMemory.RESERVED_USER) {
+            onUserProfileUpdated?.invoke(storedBody)
+        }
+
+        // 回执只给模型能据此行动的信息:字符数不回;压缩/超限必须回,
+        // 否则模型会以为磁盘上还是它写下的原文,后续 update 的 old_text 就对不上
+        val note = when {
+            compressed -> " Content was compressed to fit maxFileCharSize; the stored text is a rewritten summary, not what you sent."
+            overLimitKept -> " WARNING: content exceeds maxFileCharSize and compression failed; it was stored as-is."
+            else -> ""
+        }
+        return ToolExecutionResult.success("Saved memory '$name'.$note")
     }
 
     private suspend fun compressMemory(
@@ -846,9 +877,11 @@ AgentBuilder.sharedMemory(directory, maxFileCount, maxFileCharSize, llmProvider)
     → SharedMemoryPlugin.install(context)
       → runBlocking { initialize() }
         → ensureUserMemory()             # 经 loader.modify(RESERVED_USER) 建空模板;完成后 loader 内部已自动 reload
-      → context.addInstruction(userBody, "user-profile") # 注入到 persona 尾部独立段落
+      → 构造 refreshUserProfile = { body -> context.addInstruction(body, "user-profile") }  # 保留 context;同名 label 即原位替换
+      → if (userBody.isNotBlank()) refreshUserProfile(userBody)   # 首次注入也走同一条路径
       → context.registerTool(SharedMemoryLoadTool(loader))                    # load_shared_memory
-      → context.registerTool(SharedMemorySaveTool(loader, maxFileCharSize, llmProvider)) # save_shared_memory
+      → context.registerTool(SharedMemorySaveTool(loader, maxFileCharSize, llmProvider, refreshUserProfile))
+                                                                           # save_shared_memory(带 user 刷新回调)
 ```
 
 ### 5.2 每轮 LLM 请求
@@ -860,7 +893,8 @@ ReActAgent 构造 ChatRequest
                                           # 同目录共享的快照:别的 Agent 刚写的记忆也在里面
     → save_shared_memory.toDefinition()
   → ChatRequest.tools = [load_shared_memory, save_shared_memory, ...其他工具]
-  → system prompt 中含 user.md 内容(通过 addInstruction 注入 persona 尾部独立段落)
+  → system prompt = persona.toString() 实时渲染,其中含 user 段落
+                                          # 每次 buildRequest 都重算:save(user) 后下一轮立即生效
   → LLM 看到所有记忆名 + user 画像
 ```
 
@@ -899,7 +933,8 @@ save_shared_memory.execute({name, content, mode, old_text?})
     }
   → loader.modify 内部自动 reload()                     # 新记忆进入快照 + 条数超额时淘汰其他最久未访问的
   → notFound → 返回 error "old_text not found or memory does not exist"
-  → 返回 "Saved ... (N chars) [Compressed.]"
+  → name == "user" → onUserProfileUpdated(storedBody)    # 用落盘后的最终正文原位替换 persona 里的 user 段落
+  → 返回 "Saved memory 'x'." + 压缩说明 / 超限 WARNING / 无
 ```
 
 ### 5.5 同步压缩
@@ -923,10 +958,14 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 - 创建:`install` 时若不存在,创建空模板(真实元数据 + 空正文)。
 - 读取:不在记忆清单中(`SharedMemoryStore.list()` 排除 `user`),且 `SharedMemoryLoadTool` 对保留名直接返回错误——
   这是必需的:**`loader.load(name)` 不再经过快照**,快照排除 user 挡不住它,必须在工具层显式拦(直接读文件就能读到)。
-- 写入:`save_shared_memory("user", ...)` 允许。append 用于累积新画像条目;update 用于"忘记 xxx"/"改一下 xxx"——LLM 从 system prompt 中看到 user.md 现有内容,引用要改的片段作 old_text,提供 content(空串表示删除)。user.md 不在 `list()` 里,LLM 不能 load,所以 update 的 old_text 必须凭 system prompt 中注入的内容引用。
-- 注入:`install` 时读 `user.md` 正文,通过 `addInstruction(body, "user-profile")` 注入 persona 尾部独立段落(具名 label,同名段落原位替换);正文为空时不注入。
-  - **告知 `user` 可写**不靠 persona:save 工具 description 里明确写了"另有一个内置记忆 user,不在列表里,用 name=`user` 写入"。工具描述每轮都随 `tools` 下发,不依赖正文是否为空。
-  - **注意**:正文是 install 时快照的。运行时 LLM 通过 `save_shared_memory("user", ...)` 更新后,**当前会话不会重新注入**——要等下一次会话。这是限制,见 §8。
+- 写入:`save_shared_memory("user", ...)` 允许。append 用于累积新画像条目;update 用于"忘记 xxx"/"改一下 xxx"——LLM 从 system prompt 中看到 user.md 现有内容,引用要改的片段作 old_text,提供 content(空串表示删除)。user.md 不在 `list()` 里,LLM 不能 load,所以 update 的 old_text 只能凭 system prompt 中注入的内容引用——这正是下面"写时刷新"必须要成立的原因。
+- 注入与刷新:两件事,一个 label(`user-profile`)。
+  - `install` 时读 `user.md` 正文,`addInstruction(body, "user-profile")` 注入 persona 尾部独立段落;正文为空时不注入。
+  - 每次 `save_shared_memory("user", ...)` **成功后**,插件用**落盘后的最终正文**(可能已被压缩)调 `addInstruction(新正文, "user-profile")` 原位替换该段落。工具通过构造器注入的 `onUserProfileUpdated` 回调通知插件,自己不知道 persona 的存在。
+  - 关键依据:`AgentPersona.extra(content, label)` 对同名 label 是原位替换;`ReActAgent.buildRequest` 每轮重新 `persona.toString()`。所以运行期写一次,模型下一次请求就看到新值。
+  - 结论:**user 永远与磁盘一致**,不依赖 turn hook,也没有"要等下一次会话"的窗口。
+  - 正文被清空时注入空串(渲染为空段落)。`AgentPluginContext` 没有 remove 接口,而跳过刷新会让模型继续看到过期画像——空段落是两害中更轻的一个。
+- 告知 `user` 可写不靠 persona:save 工具 description 里明确写了"另有一个内置记忆 user,不在列表里,用 name=`user` 写入"。工具描述每轮都随 `tools` 下发,不依赖正文是否为空。
 - 淘汰豁免:`user.md` 不在 `list()` 中,reload 不数它也不淘汰它。
 
 ### 6.2 reload 的并发安全
@@ -945,6 +984,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
   1. LLM 调用抛错(网络、限流等)
   2. LLM 返回的 summary 字符数 ≥ 原 body(压缩无效,没变短)
   下次 save 若 `newBody.length` 仍超 `maxFileCharSize` 会再次触发压缩——这是"压缩失败则直接追加,等下一次写入时再次触发"的落点。
+- **回执对齐真实磁盘内容**:压缩成功 → 回执说明"存的是改写后的摘要";超限且压缩失败 → 回执带 WARNING 说"超长原文照存"。不回字符数。理由:压缩改写后磁盘内容就不再是模型写入的原文（后续 load 读到的是摘要）,不告知会让它以为原文完整存在。
 - **并发**:save 与 load 全程在 `store.modify` 的 per-name 锁内执行,包含 read、压缩(LLM 调用)、write。同 name 操作串行,不同 name 可并行。单进程内不存在 lost update 或压缩覆盖竞态。
 - **跨进程**:不支持。按目录的单例也只在进程内成立;若宿主跨进程共享同一 `directory`,须自行加协调层。
 
@@ -993,8 +1033,11 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
   - 新记忆创建 → loader 内部已 reload,`loader.get` 立即可命中
   - 已有记忆更新 lastAccessedAt
   - 超过 maxFileCharSize(字符) → 触发同步压缩(mock LlmProvider)
+  - 回执不含字符数;压缩成功时带 "compressed" 说明,压缩失败但超限时带 WARNING
   - save 后条数超额 → 淘汰其他最久未访问的(loader.modify 内部 reload 生效)
+  - `onUserProfileUpdated`:name==`user` 且写入成功时被调用一次,失败路径(notFound / missingDescription)不调;其他 name 不调;传 null 时一切照旧。
 - `SharedMemoryPlugin.initialize`:user.md 不存在时创建,已存在时不覆盖;正文为空时 install 不注入段落。
+- `SharedMemoryPlugin` 运行期刷新:save("user") 成功后 persona 文本立即更新(v1 → v2),且 `<user-profile>` 只出现一次(原位替换而非追加);save 其他记忆不改变 persona;触发压缩时刷新用的是压缩后正文而非入参 content。
 - `SharedMemoryLoadTool.execute`:保留名 `user` 返回错误(即使 `user.md` 在磁盘上存在也不返回正文);不存在的 name 返回 not found。
 
 ### 7.2 集成测试
@@ -1016,22 +1059,21 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 
 ### 8.1 当前限制
 
-1. **user.md 注入是静态的**:`install` 时一次性读 `user.md` 内容通过 `addInstruction(body, "user-profile")` 注入 persona 尾部独立段落,运行时 LLM 通过 `save_shared_memory` 更新 user.md 后,**当前会话不会重新注入**——要等下一次会话。`addInstruction` 的具名 label 支持同名段落原位替换,插件若在 install 后保留 `AgentPluginContext`,理论上可在运行期重刷该段落;但当前设计不保留 context,故仍需 `onTurnFinished` 等 turn hook 才能实现每轮重读注入,而目前插件接口只支持 `registerTool` + `addInstruction`。
-2. **跨进程并发不支持**:per-name Mutex 只在单进程内生效,按目录的 loader 单例也只是**进程内**共享。两个进程挂同一 `directory` 时,既可能 lost update,也互看不见对方新建的记忆。宿主跨进程共享须自行加协调层。
-3. **淘汰无后台巡检**:条数统计与淘汰只随 loader 的 `load` / `modify` 内部 `reload()` 发生。宿主长时间不调工具时,目录可能一直超出条数(下次读写或下次 install 时才收敛)。需要主动巡检时,得先开放一个公开入口(`reload()` 目前是 private)。
-4. **存储实现不可替换**:`SharedMemoryStore` 是 `internal`,宿主只能走 `PathSharedMemoryStore`。由于依赖 `java.nio.file`,**Android API < 26 不可用**。需要平台适配时,把接口提为 `public` 并在 DSL 加 `store` 参数即可(注入缝已预留)。
-5. **记忆文件名只认 ASCII**:符合 `[A-Za-z0-9._-]` 且 ≤ 64。目录里其他 `.md`(中文名、带空格)会被 `list()` 忽略——既不进快照也不占名额,算是"安全地看不见"。
-6. **条数上限只能首次设定**:同一目录的 loader 共享,所以 `maxFileCount` 只由首次注册决定;后续对同一目录传不同值会直接抛 IllegalArgumentException。需要按场景调整时,得先保证该目录只有一个"归属方"。
-7. **目录注册表常驻不回收**:`SharedMemoryLoader.instances` 是进程级 `ConcurrentHashMap`,`of()` 不回收入口。宿主不断换目录(如每次请求一个临时目录)会缓慢累积——量级上应当"每用户/每 agent 一个稳定目录",v1 不做引用计数。
+1. **跨进程并发不支持**:per-name Mutex 只在单进程内生效,按目录的 loader 单例也只是**进程内**共享。两个进程挂同一 `directory` 时,既可能 lost update,也互看不见对方新建的记忆。宿主跨进程共享须自行加协调层。
+2. **淘汰无后台巡检**:条数统计与淘汰只随 loader 的 `load` / `modify` 内部 `reload()` 发生。宿主长时间不调工具时,目录可能一直超出条数(下次读写或下次 install 时才收敛)。需要主动巡检时,得先开放一个公开入口(`reload()` 目前是 private)。
+3. **存储实现不可替换**:`SharedMemoryStore` 是 `internal`,宿主只能走 `PathSharedMemoryStore`。由于依赖 `java.nio.file`,**Android API < 26 不可用**。需要平台适配时,把接口提为 `public` 并在 DSL 加 `store` 参数即可(注入缝已预留)。
+4. **记忆文件名只认 ASCII**:符合 `[A-Za-z0-9._-]` 且 ≤ 64。目录里其他 `.md`(中文名、带空格)会被 `list()` 忽略——既不进快照也不占名额,算是"安全地看不见"。
+5. **条数上限只能首次设定**:同一目录的 loader 共享,所以 `maxFileCount` 只由首次注册决定;后续对同一目录传不同值会直接抛 IllegalArgumentException。需要按场景调整时,得先保证该目录只有一个"归属方"。
+6. **目录注册表常驻不回收**:`SharedMemoryLoader.instances` 是进程级 `ConcurrentHashMap`,`of()` 不回收入口。宿主不断换目录(如每次请求一个临时目录)会缓慢累积——量级上应当"每用户/每 agent 一个稳定目录",v1 不做引用计数。
+7. **user 段落只能整体替换**:`AgentPluginContext` 没有 remove 段落的能力,所以 user 正文被清空时会留下一个空段落(`<user-profile></user-profile>`);若将来确实需要"彻底移除",得先在 core 补一个 `removeInstruction(label)`。
 
 ### 8.2 未来扩展
 
-1. **user.md 动态注入**:加 turn hook,每轮开始重读 user.md 注入。
-2. **手动巡检/整理**:开放一个公开入口(把 `reload()` 提为 public 或加 `purge()` / `compact()`),由宿主主动触发淘汰或压缩。
-3. **记忆合并**:多个相关 md 合并为一个,需要 LLM 识别"相关"。
-4. **淘汰回报给 LLM**:`save_shared_memory` 的返回里带上本次被淘汰的记忆名,让模型知道哪些信息丢了,可及时重写。
-5. **淘汰规则改成 LLM 决策**:不再只按 lastAccessedAt,而是把清单交给模型选"该删哪条、该合并哪几条"——按时间淘汰依旧分不清重要与不重要。
-6. **跨进程快照失效感知**:多进程共享同一 `directory` 时,A 进程 save 后 B 进程的 loader 快照仍是旧的。未来可加 FS watch 或 polling reload,使 B 进程自动感知新记忆。v1 不处理。
+1. **手动巡检/整理**:开放一个公开入口(把 `reload()` 提为 public 或加 `purge()` / `compact()`),由宿主主动触发淘汰或压缩。
+2. **记忆合并**:多个相关 md 合并为一个,需要 LLM 识别"相关"。
+3. **淘汰回报给 LLM**:`save_shared_memory` 的返回里带上本次被淘汰的记忆名,让模型知道哪些信息丢了,可及时重写。
+4. **淘汰规则改成 LLM 决策**:不再只按 lastAccessedAt,而是把清单交给模型选"该删哪条、该合并哪几条"——按时间淘汰依旧分不清重要与不重要。
+5. **跨进程快照失效感知**:多进程共享同一 `directory` 时,A 进程 save 后 B 进程的 loader 快照仍是旧的。未来可加 FS watch 或 polling reload,使 B 进程自动感知新记忆。v1 不处理。
 
 ---
 
@@ -1044,7 +1086,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 5. 实现 `SharedMemoryPlugin` + `AgentBuilder.sharedMemory(...)`,接入 AgentBuilder。
 6. 加同步压缩逻辑(并入 save 流程,与 write 同锁)。
 7. 实现 reload 的条数淘汰(条数统计 + 最久未访问优先),并将它收进 `load` / `modify` 内部自动调用(工具与插件不显式调)。
-8. 加 user.md 初始化 + addInstruction 注入。
+8. 加 user.md 初始化 + `addInstruction` 注入,并把"save(user) 成功后原位刷新该段落"的回调接到 save 工具上。
 9. 单元测试 + 集成测试。
 10. demos/agent 加一个共享记忆示例。
 
