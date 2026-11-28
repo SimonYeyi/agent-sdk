@@ -40,7 +40,7 @@
 - **独立实现,不依赖 capability 框架**:共享记忆是内部生成的(由 `SharedMemoryLoader` 扫描目录构建),不需要外部宿主或插件提供 `Capability` 实例,与 Skill 的"外部注册"形态本质不同。`SharedMemoryPlugin` 直接实现 `AgentPlugin<SharedMemoryPluginConfig>`(`SharedMemoryPluginConfig` 是 object 占位,满足 `C : Any` 约束),`load_shared_memory` / `save_shared_memory` 两个工具都是普通 `Tool`,在 `install` 里手工 `registerTool`。不继承 `CapabilityPlugin`、不调 `CapabilityAdapter`、不依赖 `CapabilityLoadTool`。
 - **写入决策在 LLM**:不暴露写入 API 给宿主代码,只有 `save_shared_memory` 工具。宿主只负责传 `directory` 和可选的 `LlmProvider` / `SharedMemoryStore`。
 - **存储抽象最小**:`SharedMemoryStore` 接口默认走 `Path`,允许宿主注入自定义实现。不预先做 Android/iOS 平台适配。
-- **分层清晰**:`SharedMemory` 是纯值对象(元数据 + md 编解码),不持 store、无 IO;`SharedMemoryStore` 只管文本存取;`SharedMemoryLoader` 负责扫描、过期判定与读取编排(锁内读 + touch)。依赖方向只有 `Loader → SharedMemory / Store`。
+- **分层清晰**:`SharedMemory` 是纯值对象(元数据 + md 编解码),不持 store、无 IO;`SharedMemoryStore` 只管文本存取;`SharedMemoryLoader` 独占持有 store,负责扫描、过期判定与读写入口(锁内读 + touch、`modify`)。依赖方向只有 `Loader → SharedMemory / Store`。
 - **过期清理只发生在 reload**:遗忘的唯一判定点是 `SharedMemoryLoader.reload()`。`load_shared_memory` / `save_shared_memory` 完成读写后各调一次 `reload()`,`reload` 删除过期文件并重建"只含可读记忆"的快照。读写路径自身不判过期——本次操作的记忆 `lastAccessedAt` 刚被刷新,天然不会被删,要清理的是**其他**长期未访问的记忆。压缩仍并入 `save_shared_memory` 流程同步触发。
 - **包名独立**:新模块包名 `io.github.yeyi.agent.memory.shared`,避开 core 已有的 `io.github.yeyi.agent.memory`(防止同包跨模块冲突)。
 
@@ -161,6 +161,7 @@ import java.time.Instant
  *   删除过期文件,再用剩下的"可读"记忆整体替换快照。
  * - 因此快照恒为可读集合:凡 [all] / [get] 返回的记忆一定未过期。
  * - [load] 是读出路径:在 per-name 锁内取正文并刷新访问时间,不判过期。
+ * - [modify] 是写入入口:插件与 save 工具都经此访问存储,store 由 loader 独占持有。
  * - 已删除的文件从清单移除;新增的文件加入清单;变更的 frontmatter 反映到 description。
  * - 线程安全:reload 在 [mutex] 内重建不可变快照,查找直接读快照,无需加锁。
  */
@@ -201,6 +202,15 @@ public class SharedMemoryLoader(
         }
         return body
     }
+
+    /**
+     * 写入路径的"锁内读-改-写",直接委托 [SharedMemoryStore.modify]。
+     *
+     * Loader 是 store 的唯一持有者,插件与 save 工具都经此访问存储,
+     * 不再各自持一份 store 引用(避免同一个引用在三个构造函数里传递)。
+     */
+    internal suspend fun modify(name: String, transform: suspend (current: String?) -> String?): String? =
+        memoryStore.modify(name, transform)
 
     /**
      * 重扫根目录:删除过期记忆,重建快照。
@@ -257,18 +267,18 @@ public object SharedMemoryPluginConfig
  * 共享记忆插件的接线类。
  *
  * 直接实现 [AgentPlugin],install 阶段完成:
- * 1. 初始化 [SharedMemoryStore] (默认 [PathSharedMemoryStore])
- * 2. 若 `user.md` 不存在,创建空模板(真实元数据 + 空正文)
- * 3. loader.reload() 清理过期记忆、重建可读快照
- * 4. context.addInstruction(userBody, "user-profile") 注入 `user.md` 正文到 persona 尾部独立段落
- * 5. registerTool(SharedMemoryLoadTool(loader))  → load_shared_memory
- * 6. registerTool(SharedMemorySaveTool(loader, memoryStore, memoryFileLimit, llmProvider)) → save_shared_memory
+ * 1. 若 `user.md` 不存在,创建空模板(经 loader.modify 写空正文模板)
+ * 2. loader.reload() 清理过期记忆、重建可读快照
+ * 3. context.addInstruction(userBody, "user-profile") 注入 `user.md` 正文到 persona 尾部独立段落
+ * 4. registerTool(SharedMemoryLoadTool(loader))  → load_shared_memory
+ * 5. registerTool(SharedMemorySaveTool(loader, memoryFileLimit, llmProvider)) → save_shared_memory
+ *
+ * 插件不持有 [SharedMemoryStore]:存储由 [SharedMemoryLoader] 独占,插件只吃 loader。
  */
 internal class SharedMemoryPlugin(
-    private val memoryStore: SharedMemoryStore,
+    private val loader: SharedMemoryLoader,
     private val memoryFileLimit: Int,
     private val llmProvider: LlmProvider?,
-    private val loader: SharedMemoryLoader,
 ) : AgentPlugin<SharedMemoryPluginConfig> {
 
     override val id: String = "shared-memory"
@@ -286,7 +296,7 @@ internal class SharedMemoryPlugin(
         // 注册两个工具(普通 Tool,不经过 CapabilityAdapter)
         context.registerTool(SharedMemoryLoadTool(loader))
         context.registerTool(
-            SharedMemorySaveTool(loader, memoryStore, memoryFileLimit, llmProvider)
+            SharedMemorySaveTool(loader, memoryFileLimit, llmProvider)
         )
     }
 
@@ -303,7 +313,7 @@ internal class SharedMemoryPlugin(
             description = "用户画像,每轮主动注入 system prompt",
             now = Instant.now(),
         )
-        val content = memoryStore.modify("user") { current ->
+        val content = loader.modify("user") { current ->
             current ?: empty.render(body = "")  // 不存在则写空模板;存在则保持原样
         } ?: return ""
         return SharedMemory.bodyOf(content)
@@ -404,11 +414,10 @@ import java.time.Instant
  * 返回:写入确认信息(包含字符数、是否触发压缩)
  *
  * 并发语义:本工具自身不持锁,串行性由 [SharedMemoryStore] 的 per-name 互斥保证——
- * save 与 load、save 与压缩对同一 name 自动串行。
+ * save 与 load、save 与压缩对同一 name 自动串行。存储经 [SharedMemoryLoader.modify] 访问。
  */
 internal class SharedMemorySaveTool(
     private val loader: SharedMemoryLoader,
-    private val memoryStore: SharedMemoryStore,
     private val memoryFileLimit: Int,
     private val llmProvider: LlmProvider?,
 ) : Tool {
@@ -455,7 +464,7 @@ internal class SharedMemorySaveTool(
         var finalLen = 0                // 最终正文长度
         var compressed = false          // 是否触发压缩
 
-        memoryStore.modify(name) { current ->
+        loader.modify(name) { current ->
             val meta = if (current == null) {
                 if (description.isNullOrBlank()) { missingDescription = true; return@modify null }
                 SharedMemory.create(name, description, now)
@@ -662,10 +671,9 @@ public fun AgentBuilder.memory(
     val store = PathSharedMemoryStore(directory)
     val loader = SharedMemoryLoader(store, forgetDuration)
     val plugin = SharedMemoryPlugin(
+        loader = loader,
         memoryFileLimit = memoryFileLimit,
         llmProvider = llmProvider,
-        memoryStore = store,
-        loader = loader,
     )
     plugin(plugin)  // configure block 为空,initialize 在 install 内部触发
 }
@@ -689,7 +697,7 @@ AgentBuilder.memory(directory, ...)
         → loader.reload()                # 扫描所有 .md(排除 user),删除过期,重建快照
       → context.addInstruction(userBody, "user-profile") # 注入到 persona 尾部独立段落
       → context.registerTool(SharedMemoryLoadTool(loader))                    # load_shared_memory
-      → context.registerTool(SharedMemorySaveTool(loader, store, memoryFileLimit, llmProvider)) # save_shared_memory
+      → context.registerTool(SharedMemorySaveTool(loader, memoryFileLimit, llmProvider)) # save_shared_memory
 ```
 
 ### 5.2 每轮 LLM 请求
@@ -723,7 +731,7 @@ load_shared_memory.execute({name: "travel"})
 ```
 save_shared_memory.execute({name, content, mode, old_text?})
   → 解析参数
-  → memoryStore.modify(name) { current ->                  # per-name 锁内,整流程原子
+  → loader.modify(name) { current ->                     # per-name 锁内,整流程原子(经 loader 委托到 store)
       current == null → SharedMemory.create(name, description, now),body = ""
       current != null → parse,description / createdAt 沿用旧值
       mode=append: body + "\n\n" + content
@@ -854,7 +862,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 
 ## 10. 实现顺序建议
 
-1. 新建 `agent/memory/shared` 模块,实现 `SharedMemoryStore` / `SharedMemory`(含 frontmatter 解析与渲染)/ `SharedMemoryLoader`(含过期清理)。
+1. 新建 `agent/memory/shared` 模块,实现 `SharedMemoryStore` / `SharedMemory`(纯值对象,含 frontmatter 解析与渲染)/ `SharedMemoryLoader`(含过期清理与 `load` / `modify` 入口)。
 2. 实现 `SharedMemoryLoadTool`(读出路径)。
 3. 实现 `SharedMemorySaveTool`(不含压缩,先跑通读写路径)。
 4. 实现 `SharedMemoryPlugin` + `SharedMemoryExtensions`,接入 AgentBuilder。
