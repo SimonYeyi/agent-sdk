@@ -53,11 +53,15 @@ internal data class SharedMemory(
         const val RESERVED_USER: String = "user"
 
         /**
-         * description 的长度上限。
+         * description 的长度上限(字符数)。
          *
          * description 不只是文件元数据:它每轮都被 `load_shared_memory` 的 tool description
          * 拼成 "- name:description" 下发,是常驻上下文成本。正文有 `maxFileCharSize` 兜底,
          * 这里必须对称地收住,否则一条失控的描述会在之后每一轮里重复付费。
+         *
+         * 超限的处理是**拒绝写入**而不是截断:截断等于静默改写调用方给的内容,模型会
+         * 以为整段都存住了。上限在 [create] 处断言(不变量),由 save 工具先校验并给出
+         * 可行动的报错;外部手写的 frontmatter 不受本模块控制,[parse] 原样保留。
          */
         const val MAX_DESCRIPTION_CHARS: Int = 200
 
@@ -97,9 +101,9 @@ internal data class SharedMemory(
 
             return SharedMemory(
                 name = name,                                 // 文件名优先,忽略 frontmatter 里的 name
-                // 外部写入的 frontmatter 不受本模块控制,同样在入口截断(否则手工塞一条超长
-                // description 会永久驻进每轮的 tool description)
-                description = fields["description"].orEmpty().take(MAX_DESCRIPTION_CHARS),
+                // 外部写入的 frontmatter 不受本模块控制:原样保留,不截断——静默改短等于
+                // 篡改宿主数据,而且下一次 render 会把这个截断结果永久写回去
+                description = fields["description"].orEmpty(),
                 createdAt = created,
                 lastAccessedAt = accessed,
             )
@@ -118,15 +122,20 @@ internal data class SharedMemory(
         /**
          * 新建一个记忆(user.md 初始化用)。
          *
-         * description 在此截断到 [MAX_DESCRIPTION_CHARS]:这里是"由外部文本(md frontmatter /
-         * LLM 入参)构造记忆"的唯一入口,上限收在入口,下游(渲染、清单、淘汰)就不必各自防御。
+         * [description] 超过 [MAX_DESCRIPTION_CHARS] 时直接抛 [IllegalArgumentException]:
+         * 这里是"由 LLM 入参构造记忆"的唯一入口,把上限做成不变量,下游(渲染、清单、
+         * 淘汰)就不必各自防御。save 工具在更外层先校验,好让模型拿到可行动的报错。
          */
-        fun create(name: String, description: String, now: Instant): SharedMemory =
-            SharedMemory(
+        fun create(name: String, description: String, now: Instant): SharedMemory {
+            require(description.length <= MAX_DESCRIPTION_CHARS) {
+                "description is over $MAX_DESCRIPTION_CHARS chars"
+            }
+            return SharedMemory(
                 name = name,
-                description = description.take(MAX_DESCRIPTION_CHARS),
+                description = description,
                 createdAt = now,
                 lastAccessedAt = now,
             )
+        }
     }
 }

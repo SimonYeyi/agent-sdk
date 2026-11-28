@@ -141,11 +141,15 @@ internal data class SharedMemory(
         const val RESERVED_USER: String = "user"
 
         /**
-         * description 的长度上限。
+         * description 的长度上限(字符数)。
          *
          * description 不只是文件元数据:它每轮都被 `load_shared_memory` 的 tool description
          * 拼成 "- name:description" 下发,是常驻上下文成本。正文有 `maxFileCharSize` 兜底,
          * 这里必须对称地收住,否则一条失控的描述会在之后每一轮里重复付费。
+         *
+         * 超限的处理是**拒绝写入**而不是截断:截断等于静默改写调用方给的内容,模型会
+         * 以为整段都存住了。上限在 [create] 处断言(不变量),由 save 工具先校验并给出
+         * 可行动的报错;外部手写的 frontmatter 不受本模块控制,[parse] 原样保留。
          */
         const val MAX_DESCRIPTION_CHARS: Int = 200
 
@@ -157,7 +161,8 @@ internal data class SharedMemory(
          * - 缺 `createdAt` → 用 `lastAccessedAt`;缺 `lastAccessedAt` → 用 `createdAt`
          * - 两者都缺或时间戳无法解析 → 用解析时刻 now(而不是 EPOCH,否则它永远是条数淘汰的第一个)
          * - 缺 `description` → 空串
-         * - `description` 超过 [MAX_DESCRIPTION_CHARS] → 截断(外部写入的 frontmatter 不受本模块控制)
+         * - `description` 超过 [MAX_DESCRIPTION_CHARS] → 原样保留(不截断:静默改短等于篡改
+         *   宿主数据,且下一次 render 会把截断结果永久写回去)
          * - 没有 frontmatter(整段都是正文)→ 全部兜底,全文作正文
          */
         fun parse(name: String, content: String): SharedMemory { /* 手写 frontmatter,非 YAML 库 */ }
@@ -168,16 +173,21 @@ internal data class SharedMemory(
         /**
          * 新建一个记忆(user.md 初始化用)。
          *
-         * description 在此截断到 [MAX_DESCRIPTION_CHARS]:这里是"由外部文本(md frontmatter /
-         * LLM 入参)构造记忆"的唯一入口,上限收在入口,下游(渲染、清单、淘汰)就不必各自防御。
+         * [description] 超过 [MAX_DESCRIPTION_CHARS] 时直接抛 [IllegalArgumentException]:
+         * 这里是"由 LLM 入参构造记忆"的唯一入口,把上限做成不变量,下游(渲染、清单、
+         * 淘汰)就不必各自防御。save 工具在更外层先校验,好让模型拿到可行动的报错。
          */
-        fun create(name: String, description: String, now: Instant): SharedMemory =
-            SharedMemory(
+        fun create(name: String, description: String, now: Instant): SharedMemory {
+            require(description.length <= MAX_DESCRIPTION_CHARS) {
+                "description is over $MAX_DESCRIPTION_CHARS chars"
+            }
+            return SharedMemory(
                 name = name,
-                description = description.take(MAX_DESCRIPTION_CHARS),
+                description = description,
                 createdAt = now,
                 lastAccessedAt = now,
             )
+        }
     }
 }
 ```
@@ -557,7 +567,8 @@ private const val MAX_COMPRESS_INPUT_FACTOR = 4
  * - name: 记忆名(对应文件名,不含 .md)。字符合集 `[A-Za-z0-9._-]`、≤ 64,与 store 的校验一致
  *   (不校验就会变成路径穿越:`../../x` 写出目录之外)
  * - description: 记忆描述(给 LLM 看的"何时使用本记忆"提示)。**新建记忆时必填**;已有记忆忽略此参数。
- *   超过 [SharedMemory.MAX_DESCRIPTION_CHARS] 时截断——它每轮随工具清单进上下文
+ *   超过 [SharedMemory.MAX_DESCRIPTION_CHARS] 时直接报错、不落盘——它每轮随工具清单进上下文,
+ *   必须由模型自己写短;静默截断会让它以为整段都存住了
  * - content: 写入内容。正文一行一条,所以这里也应是单行。两种模式都必须**显式给出**:
  *   键缺失一律报错;只有 update 下的显式空白串才表示删除该条目
  * - mode: "append" 在正文末尾新增一条条目 / "update" 用 content 整条替换掉一条旧条目。
@@ -607,7 +618,7 @@ internal class SharedMemorySaveTool(
 
         参数:
         - name: 记忆文件名(英文短词,如 "travel-preferences")。
-        - description: 记忆文件描述(≤200 字)。新建记忆文件时必填,选中合适的记忆文件时忽略。例:"用户旅行偏好与历史行程"
+        - description: 记忆描述(≤200 字,超长会报错)。新建记忆文件时必填,选中合适的记忆文件时忽略。例:"用户旅行偏好与历史行程"
         - content: 记忆内容。正文按行组织,一行一条,所以 content 也应是单行;两种模式都必须给出:
                    append 模式下必填(不能是空白),作为新条目追加到正文末尾;
                    update 模式下作为该条目的新版本;只有显式传空串 "" 才是删除该条目,省略本字段会报错。
@@ -632,6 +643,10 @@ internal class SharedMemorySaveTool(
         }
         val description = arguments.jsonObject["description"]?.jsonPrimitive?.content
         val mode = arguments.jsonObject["mode"]?.jsonPrimitive?.content ?: "append"
+        // mode 只有两个取值:提前拒掉非法值,别让它穿过整个 transform 才在 when 的 else 里被发现
+        if (mode != "append" && mode != "update") {
+            return ToolExecutionResult.error("Invalid mode: $mode")
+        }
         val content = arguments.jsonObject["content"]?.jsonPrimitive?.content
             ?: return ToolExecutionResult.error(
                 if (mode == "update") {
@@ -650,21 +665,31 @@ internal class SharedMemorySaveTool(
             return ToolExecutionResult.error("Missing 'content': append needs a non-blank entry line")
         }
 
-        val llmProvider = llmProvider ?: context.agentContext.llmProvider
+        val provider = llmProvider ?: context.agentContext.llmProvider
         val now = Instant.now()
 
-        // 状态变量:由 transform 内部写入,execute 外层读取以决定返回值
-        var notFound = false            // update 模式 old_text 找不到 / update 不存在 / 非法 mode
-        var missingDescription = false  // 新建记忆但 description 为空
-        var tooLarge = false            // 远超 maxFileCharSize 且本次写入又把它撑大 → 拒绝写入
-        var compressed = false          // 超限且压缩成功(正文已被改写)
-        var overLimitKept = false       // 超限但没压(压缩失败 / 输入太大没必要试),原文照存
-        var deletedEntry = false        // update 模式下删掉了一条条目(回执要单独说明)
+        // 状态变量:由 transform 内部写入,execute 外层读取。
+        // 闭包内为什么不能直接 return ToolExecutionResult:transform 的类型是
+        // suspend (String?) -> String?,返回 null 另有语义(删除文件),"没通过校验"
+        // 只能留个记号带出来。校验原因两两互斥,所以一个 String 就够,不必每个校验一个布尔。
+        var failure: String? = null     // 非 null = 本次未落盘,外层原样返回这条错误
+        var note: String = ""           // 成功时的附注(正文被压缩 / 超限照存)
+        var receipt: String = "Saved memory '$name'." // 删掉条目时换成另一种回执
         var storedBody = ""             // 最终写入的正文(user 用它刷新 system prompt)
 
         loader.modify(name) { current ->
             val meta = if (current == null) {
-                if (description.isNullOrBlank()) { missingDescription = true; return@modify current }
+                if (description.isNullOrBlank()) {
+                    failure = "Missing 'description': required when creating a new memory '$name'"
+                    return@modify current
+                }
+                // 超长描述不截断:它每轮随工具清单进上下文,必须由模型自己写短。
+                // 静默截断会让它以为整段都存住了
+                if (description.length > SharedMemory.MAX_DESCRIPTION_CHARS) {
+                    failure = "Description is over ${SharedMemory.MAX_DESCRIPTION_CHARS} chars: it is listed" +
+                        " on every tool call, so keep it to one short sentence"
+                    return@modify current
+                }
                 SharedMemory.create(name, description, now)
             } else {
                 // 已有记忆:description / createdAt 沿用旧值,忽略入参
@@ -683,13 +708,22 @@ internal class SharedMemorySaveTool(
                     val target = oldText!!.trim()
                     val lines = body.lines()
                     val index = lines.indexOfFirst { it.trim() == target }
-                    if (current == null || index < 0) { notFound = true; return@modify current }
+                    if (current == null || index < 0) {
+                        failure = "old_text not found: no line in '$name' matches it exactly; quote the whole entry line"
+                        return@modify current
+                    }
                     // content 为空白 → 删除该条目(removeAt,不留空行);否则整行换成新版本
                     lines.toMutableList().apply {
-                        if (content.isBlank()) { deletedEntry = true; removeAt(index) } else this[index] = content
+                        if (content.isBlank()) {
+                            receipt = "Removed one entry from memory '$name'."
+                            removeAt(index)
+                        } else {
+                            this[index] = content
+                        }
                     }.joinToString("\n")
                 }
-                else -> { notFound = true; return@modify current }
+                // mode 已在 modify 之前校验,走到这里说明那道检查被删了——直接失败,别静默当 append
+                else -> error("unreachable: 'mode' is validated before modify")
             }
 
             // 压缩本身要把 newBody 整个塞进 LLM prompt,连输入窗口都装不下的内容压不了:
@@ -697,7 +731,8 @@ internal class SharedMemorySaveTool(
             // 但硬门只拦"把正文撑大"的那一次写入:已经超限的记忆(宿主放进来的、或旧配置下
             // 压缩失败照存的)必须能靠 update 改短救回来,否则它永久不可修。
             if (newBody.length > maxFileCharSize * MAX_COMPRESS_INPUT_FACTOR && newBody.length > body.length) {
-                tooLarge = true
+                failure = "Content is over ${maxFileCharSize * MAX_COMPRESS_INPUT_FACTOR} chars, too large to compress; " +
+                    "split it into several saves of under $maxFileCharSize chars each"
                 return@modify current
             }
 
@@ -707,29 +742,22 @@ internal class SharedMemorySaveTool(
             val finalBody = when {
                 newBody.length <= maxFileCharSize -> newBody
                 newBody.length <= maxFileCharSize * MAX_COMPRESS_INPUT_FACTOR ->
-                    compressMemory(llmProvider, maxFileCharSize, newBody)?.also {
-                        compressed = true
-                    } ?: newBody.also { overLimitKept = true }
-                else -> newBody.also { overLimitKept = true }
+                    compressMemory(provider, maxFileCharSize, newBody)?.also {
+                        note = " Content was compressed to fit maxFileCharSize; the stored text is a rewritten summary, not what you sent."
+                    } ?: newBody.also {
+                        note = " WARNING: content exceeds maxFileCharSize and compression failed; it was stored as-is."
+                    }
+                else -> newBody.also {
+                    note = " WARNING: content exceeds maxFileCharSize and compression failed; it was stored as-is."
+                }
             }
             storedBody = finalBody          // 供 user 刷新 persona 段落用
             meta.copy(lastAccessedAt = now).render(finalBody)  // 写入即访问
         }
 
-        when {
-            tooLarge -> return ToolExecutionResult.error(
-                "Content is over ${maxFileCharSize * MAX_COMPRESS_INPUT_FACTOR} chars, too large to compress; " +
-                    "split it into several saves of under $maxFileCharSize chars each"
-            )
-            missingDescription -> return ToolExecutionResult.error(
-                "Missing 'description': required when creating a new memory '$name'"
-            )
-            notFound -> return ToolExecutionResult.error(
-                if (mode == "update") {
-                    "old_text not found: no line in '$name' matches it exactly; quote the whole entry line"
-                } else "Invalid mode: $mode"
-            )
-        }
+        // 锁内校验只负责把"为什么失败"记下来(原因互斥,一个变量够),
+        // 这里统一转成错误结果——文案已在判定点就地给出,不必再按标志位翻译一遍
+        failure?.let { return ToolExecutionResult.error(it) }
 
         // user 的正文就是 system prompt 的一部分:写成功后立即把最终正文(可能已被压缩)
         // 原位替换进 persona。这是 user "永远最新" 的唯一机制:不需要 turn hook,也不需要重读磁盘。
@@ -741,12 +769,6 @@ internal class SharedMemorySaveTool(
         // 回执只给模型能据此行动的信息:字符数不回;压缩/超限必须回,
         // 否则模型会以为磁盘上还是它写下的原文,后续 update 的 old_text 就对不上。
         // 删除单独成句:它和"写入成功"是两种结果,合成一句会让模型误以为条目还在。
-        val note = when {
-            compressed -> " Content was compressed to fit maxFileCharSize; the stored text is a rewritten summary, not what you sent."
-            overLimitKept -> " WARNING: content exceeds maxFileCharSize and compression failed; it was stored as-is."
-            else -> ""
-        }
-        val receipt = if (deletedEntry) "Removed one entry from memory '$name'." else "Saved memory '$name'."
         return ToolExecutionResult.success(receipt + note)
     }
 
@@ -1016,7 +1038,8 @@ load_shared_memory.execute({name: "travel"})
 
 ```
 save_shared_memory.execute({name, content, mode, old_text?})
-  → 解析参数:name 必合法;content 必须**显式出现**(update 缺失即报错,只有显式空串才是删除);
+  → 解析参数:name 必合法;mode 只能是 append / update(其他值直接 error);
+    content 必须**显式出现**(update 缺失即报错,只有显式空串才是删除);
     append 不接受空白 content;update 的 old_text 不能为空白
   → loader.modify(name) { current ->                     # per-name 锁内,整流程原子(经 loader 委托到 store)
       current == null → SharedMemory.create(name, description, now),body = ""
@@ -1024,21 +1047,22 @@ save_shared_memory.execute({name, content, mode, old_text?})
       mode=append: body + "\n" + content            # 正文一行一条,追加就是接一行
       mode=update:
         old_text 为空串 → 直接 error
-        current == null 或没有任何一行与 old_text 完全相同(trim 后) → notFound,原样返回 current(不落盘)
+        current == null 或没有任何一行与 old_text 完全相同(trim 后) → 记为失败原因,原样返回 current(不落盘)
         整行替换:用 content 替换那一行;content 为空白表示删除该行(不留空行,回执改为 Removed one entry from ...)
       不判淘汰:lastAccessedAt = now(写入即访问,本次写入排在淘汰队尾)
       若 newBody.length > maxFileCharSize × 4 且这次没把正文改短:→ 直接 error,不落盘(压缩输入都装不下)
       若 newBody.length > maxFileCharSize(字符):
         → 同步调 compressMemory(newBody)   # 仍在 modify 锁内
-        → 压缩成功(summary 更短):用 summary 作 finalBody,compressed 标记
-        → 压缩失败(null 或 summary 不变短):保留 newBody,overLimitKept 标记
-        → 已超硬上限且被改短:不再试压(输入装不下),原样写入 + overLimitKept 标记
+        → 压缩成功(summary 更短):用 summary 作 finalBody,回执附"已被压缩"说明
+        → 压缩失败(null 或 summary 不变短):保留 newBody,原样写入 + 超限 WARNING
+        → 已超硬上限且被改短:不再试压(输入装不下),原样写入 + 超限 WARNING
       返回 meta.copy(lastAccessedAt = now).render(finalBody)   # 原子写回
     }
   → loader.modify 内部自动 reload()                     # 新记忆进入快照 + 条数超额时淘汰其他最久未访问的
-  → tooLarge / missingDescription / notFound → 返回对应 error(均不落盘)
+  → 锁内只记失败原因(正文超大 / description 缺失或超长 / old_text 未命中),
+    由外层统一返回对应 error(均不落盘)
   → name == "user" → onUserProfileUpdated(storedBody)    # 用落盘后的最终正文原位替换 persona 里的 user 段落
-  → 返回 "Saved memory 'x'."(update 删条目时为 "Removed one entry from memory 'x'.") + 压缩说明 / 超限 WARNING / 无
+  → 返回回执与附注(回执:默认 Saved,删条目时 Removed;附注:压缩说明 / 超限 WARNING / 无)
 ```
 
 ### 5.5 同步压缩
@@ -1127,7 +1151,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
   - 缺 `lastAccessedAt` 的文件解析后 **不得** 被排到淘汰队首(兜底用 now 而非 EPOCH)
   - 没有 frontmatter / 半截 frontmatter 的文件不抛异常,正文取全文
   - `description` 含换行 / 冒号 / 中文时 render → parse 往返后与原值一致(换行已折成空格)
-  - `description` 超过 `MAX_DESCRIPTION_CHARS` → `create` 与 `parse` 都截断(外部写入的 frontmatter 也收住)
+  - `description` 超过 `MAX_DESCRIPTION_CHARS` → `create` 抛 `IllegalArgumentException`;`parse` 原样保留,不静默改写外部写入的 frontmatter
 - `MEMORY_NAME_PATTERN`:接受 `travel` / `user` / `a.b-c_1`;拒绝 `../x`、`a/b`、空串、65 字符、`.hidden`(首字符非字母数字)。
 - `PathSharedMemoryStore`:在 tempdir 上读写删列表,IO 异常路径;`list()` 只返回合法名——`中文.md` / `a b.md` / `x.md.tmp` / `user.md` 都不出现。
 - `SharedMemoryLoader` 的条数淘汰(`reload` 已 private,经 `load` / `modify` 间接验证):条数未超额时**一条都不删**;超额时按 lastAccessedAt 由远到近删到刚好回到 `maxFileCount`;`user.md` 既不占名额也不淘汰;并发 touch 过的候选被跳过;单条超长但未超 `maxFileCharSize` 不影响淘汰;快照按 name 升序(清单顺序不随文件系统枚举顺序变)。
@@ -1149,12 +1173,12 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
   - update 的 content 为空串 → 删除该行且不留空行,其余行顺序不变;回执是 "Removed one entry from ...",不能写成 Saved
   - update 缺 content(键缺失)→ 返回 error 且不落盘(漏传字段不得被当成删除指令)
   - append 传空白 content → 返回 error 且不落盘(不得向正文里塞空行)
-  - 新建时 description 超长 → 截断到 `MAX_DESCRIPTION_CHARS`
+  - 新建时 description 超长 → 返回 error 且不落盘;已有记忆的超长 description 被忽略(照常写入)
   - old_text / content 含 `$`、`\`、`.`、`(` → 按字面量逐行比较,不做正则解析
   - newBody 超过 `maxFileCharSize × 4` 且这次把它撑大 → 返回 error 且不落盘(压缩输入都装不下)
   - 已经超 `maxFileCharSize × 4` 的记忆被 update 改短 → 放行并落盘(否则它永久不可修)
   - save 后条数超额 → 淘汰其他最久未访问的(loader.modify 内部 reload 生效)
-  - `onUserProfileUpdated`:name==`user` 且写入成功时被调用一次,失败路径(notFound / missingDescription / tooLarge)不调;其他 name 不调;传 null 时一切照旧。
+  - `onUserProfileUpdated`:name==`user` 且写入成功时被调用一次,失败路径(正文超大 / description 缺失或超长 / old_text 未命中)不调;其他 name 不调;传 null 时一切照旧。
 - `SharedMemoryPlugin.initialize`:user.md 不存在时创建,已存在时不覆盖;正文为空时 install 不注入段落。
 - `SharedMemoryPlugin` 运行期刷新:save("user") 成功后 persona 文本立即更新(v1 → v2),且 `<user-profile>` 只出现一次(原位替换而非追加);save 其他记忆不改变 persona;触发压缩时刷新用的是压缩后正文而非入参 content。
 - `SharedMemoryLoadTool.execute`:保留名 `user` 返回错误(即使 `user.md` 在磁盘上存在也不返回正文);不存在的 name 返回 not found。
@@ -1189,7 +1213,7 @@ save 返回时文件已是最终态(压缩后或未压缩),下一轮 load 直接
 9. **记忆文件不支持人工维护**:frontmatter 由 `render` 全量生成,`load` 也会写回(刷新 `lastAccessedAt`),所以手工添加的字段 / 注释 / 换行风格都会在下一次读写时被规范化。`load` 引起的 mtime 变化是**预期行为**——访问时间存在文件里,不写回就记不住;只有把目录纳入 git / 云同步 / 增量备份的宿主需要知道这一点。删文件是允许的(下次 reload 就消失),改内容不是。
 10. **per-name 锁表按 name 累积、不回收**:`PathSharedMemoryStore.locks` 为每个出现过的 name 留一个 `Mutex`,记忆被淘汰时不清除。不能在淘汰时 `remove`:它与 `computeIfAbsent` 之间没有原子性,"刚拿到的锁被移除、第三方又造一把"会让同名并发写重新变得可能——宁可留一个对象也不能丢互斥。量级上可忽略:每条目约 100 字节(含 map 节点),按每天新增 100 个不同名字、持续一年算也只有几 MB,而宿主进程通常活不到这个量级。若将来确需收敛,正确形态是固定分段锁(按 `name.hashCode()` 经 `Math.floorMod` 取模,段数按同时在途的操作数而非记忆总数决定),而不是淘汰时回收;且必须是可挂起的 `Mutex`,不能用 `Any` + `synchronized`——压缩在锁内挂起数秒,阻塞线程会耗尽调度线程池。
 11. **Windows 上约 1% 的 rename 会被拒,但不会丢内容**:`PathSharedMemoryStore.modify` 用"写 `name.md.tmp` → `ATOMIC_MOVE` 覆盖目标"落盘,NTFS 的 rename 要求目标可删除,杀软 / 索引器短暂持有句柄时会抛 `AccessDeniedException`。本机实测同一文件连续重写 2000 次命中 23 次(约 1%),且与调用间隔无关(0 / 10 / 100 ms 间隔都出现过),所以不是"高频才触发"而是每次操作都带固定小概率;POSIX 的 `rename(2)` 不申请目标文件的 delete 权限,Linux / macOS 不出现;Android 上概率低但存在(媒体扫描器)。失败语义是**整体不生效**,不是丢失或损坏:rename 失败等于目录项指针没改,目标文件仍是上一次成功写入的**完整**版本,本次新内容完整留在 `.md.tmp`(单次 `write` 已成功),`ATOMIC_MOVE` 也保证不会出现半截文件。代价只有两条:该次 `load` / `save` 返回 error(`save` 失败时 `onUserProfileUpdated` 不会被调用,persona 与磁盘仍一致;模型或调用方重试一次即成功);`load` 失败时 `lastAccessedAt` 未刷新,该记忆在淘汰队列里保持原位、看起来比实际更"冷"。`.md.tmp` 不在 `list()` 结果内(按扩展名 `md` 过滤),既不占名额也不会被读,下次同名写入直接覆盖回收。不加重试是有意取舍:数据零风险,代价只是"偶发一次工具调用失败 + 一个几十字节的垃圾文件",而重试要给 Store 引入平台相关分支和一条需要构造句柄占用的用例。若将来要消除,正确做法是在 `move` 处捕获 `AccessDeniedException` 做退避重试(实测退避 20ms 重试一次即可 100% 成功),而不是放弃 `ATOMIC_MOVE` 退化成非原子覆盖。
-12. **已有记忆的 description 只能靠改文件**:`save_shared_memory` 对已存在的记忆忽略 `description` 入参,`load_shared_memory` 又只读不写,所以模型把描述写歪后没有工具能修——只能由宿主改 frontmatter(下一次读写按规范格式重写)。之所以不放开"update 时顺带改 description",是因为那会给"选中已有记忆"这条最高频路径多开一个能覆盖元数据的入口;长度失控已由 `MAX_DESCRIPTION_CHARS`(新建与解析两处截断)兜住。需要修正时再补一个显式模式(如 `mode=describe`)。
+12. **已有记忆的 description 只能靠改文件**:`save_shared_memory` 对已存在的记忆忽略 `description` 入参,`load_shared_memory` 又只读不写,所以模型把描述写歪后没有工具能修——只能由宿主改 frontmatter(下一次读写按规范格式重写)。之所以不放开"update 时顺带改 description",是因为那会给"选中已有记忆"这条最高频路径多开一个能覆盖元数据的入口;长度失控已由 `MAX_DESCRIPTION_CHARS` 兜住:新建时超限直接报错(不截断),解析时原样保留外部写入的值。需要修正时再补一个显式模式(如 `mode=describe`)。
 
 ### 8.2 未来扩展
 

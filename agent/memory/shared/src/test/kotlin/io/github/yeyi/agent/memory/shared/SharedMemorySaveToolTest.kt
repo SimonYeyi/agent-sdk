@@ -371,16 +371,50 @@ class SharedMemorySaveToolTest {
     }
 
     @Test
-    fun `an over-long description is truncated on creation`() = runTest {
+    fun `an over-long description is rejected instead of truncated`() = runTest {
         val store = FakeSharedMemoryStore()
         val loader = SharedMemoryLoader.create(store, 5)
 
-        tool(loader).execute(
+        val result = tool(loader).execute(
             args(name = "travel", description = "d".repeat(500), content = "- x"),
             context,
         )
 
+        assertTrue(result.isError)
+        assertTrue("Description is over" in result.text(), result.text())
+        assertNull(store.contentOf("travel"), "a rejected save must not create the file")
+    }
+
+    @Test
+    fun `a description exactly at the cap is accepted`() = runTest {
+        // 上限是"超过才拒",等于上限要放行(别写成 >=)
+        val store = FakeSharedMemoryStore()
+        val loader = SharedMemoryLoader.create(store, 5)
+
+        val result = tool(loader).execute(
+            args(name = "travel", description = "d".repeat(SharedMemory.MAX_DESCRIPTION_CHARS), content = "- x"),
+            context,
+        )
+
+        assertFalse(result.isError, result.text())
         assertEquals(SharedMemory.MAX_DESCRIPTION_CHARS, loader.get("travel")?.description?.length)
+    }
+
+    @Test
+    fun `an over-long description is ignored when the memory already exists`() = runTest {
+        // 已有记忆本来就忽略 description 入参,不该因为一个用不上的参数拦下这次写入
+        val store = FakeSharedMemoryStore()
+        val loader = SharedMemoryLoader.create(store, 5)
+        loader.modify("travel") { md("travel", body = "- a") }
+
+        val result = tool(loader).execute(
+            args(name = "travel", description = "d".repeat(500), content = "- b"),
+            context,
+        )
+
+        assertFalse(result.isError, result.text())
+        assertEquals("- a\n- b", SharedMemory.bodyOf(store.contentOf("travel")!!))
+        assertEquals("desc", loader.get("travel")?.description)
     }
 
     // ---------- 时间 / 快照 ----------

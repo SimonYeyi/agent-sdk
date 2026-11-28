@@ -3,6 +3,7 @@ package io.github.yeyi.agent.memory.shared
 import java.time.Instant
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFailsWith
 import kotlin.test.assertFalse
 import kotlin.test.assertNotEquals
 import kotlin.test.assertTrue
@@ -133,16 +134,18 @@ class SharedMemoryTest {
     }
 
     @Test
-    fun `description is truncated to the cap on create`() {
-        val created = SharedMemory.create("travel", "d".repeat(500), this.created)
-
-        assertEquals(SharedMemory.MAX_DESCRIPTION_CHARS, created.description.length)
+    fun `create rejects an over-long description instead of truncating it`() {
+        // 截断等于静默改写调用方给的内容:模型会以为整段都存住了
+        assertFailsWith<IllegalArgumentException> {
+            SharedMemory.create("travel", "d".repeat(SharedMemory.MAX_DESCRIPTION_CHARS + 1), created)
+        }
     }
 
     @Test
-    fun `description is truncated to the cap on parse`() {
+    fun `parse keeps an over-long description as is`() {
+        // 外部写的 frontmatter 不受本模块控制:截断会在下次 render 时把宿主的数据永久改短
         val text = "---\ndescription: ${"d".repeat(500)}\n---\nbody"
 
-        assertEquals(SharedMemory.MAX_DESCRIPTION_CHARS, SharedMemory.parse("travel", text).description.length)
+        assertEquals(500, SharedMemory.parse("travel", text).description.length)
     }
 }

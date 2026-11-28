@@ -123,8 +123,13 @@ internal class SharedMemoryLoader private constructor(
 
         // 3. 超额:最久未访问的先走
         val evictOrder = metas.values.sortedWith(compareBy({ it.lastAccessedAt }, { it.name }))
-        for ((name, _, _, observed) in evictOrder) {
+        for (candidate in evictOrder) {
             if (metas.size <= maxFileCount) break
+
+            // 解构按属性位置绑定:将来若在 createdAt 与 lastAccessedAt 之间插字段,
+            // observed 会静默绑到错的 Instant 上且照样编译,所以显式取名。
+            val name = candidate.name
+            val observed = candidate.lastAccessedAt
 
             // 用**返回值**判定是否真的删掉了:transform 返回 null 是删除请求,但并发 touch
             // 会返回 current(放过它),store 删盘失败也返回 current(文件还在)。
