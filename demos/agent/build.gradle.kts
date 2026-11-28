@@ -60,6 +60,7 @@ dependencies {
     implementation(project(":agent:approval"))
     implementation(project(":agent:mcp"))
     implementation(project(":agent:subagent"))
+    implementation(project(":agent:memory:shared"))
     implementation(project(":agent:providers:openai"))
     implementation(project(":agent:providers:anthropic"))
     implementation(project(":agent:tool:serialization"))

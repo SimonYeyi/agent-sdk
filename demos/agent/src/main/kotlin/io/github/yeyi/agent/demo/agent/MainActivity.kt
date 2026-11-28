@@ -14,6 +14,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import io.github.yeyi.agent.demo.agent.runtime.AgentRuntime
 import io.github.yeyi.agent.demo.agent.ui.ChatScreen
 import io.github.yeyi.agent.demo.agent.ui.SessionScreen
 import io.github.yeyi.agent.demo.agent.vm.ChatViewModel
@@ -24,6 +25,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 共享记忆要写应用私有目录：AgentRuntime 是纯 object，Context 由 Activity 送进去。
+        // 必须早于首次访问 chatViewModel——它在首次访问时才构建 agent，届时会读这个目录。
+        AgentRuntime.init(applicationContext)
         startGatewayService()
 
         setContent {

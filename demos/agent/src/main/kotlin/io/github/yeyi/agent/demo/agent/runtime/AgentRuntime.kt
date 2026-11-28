@@ -1,5 +1,6 @@
 package io.github.yeyi.agent.demo.agent.runtime
 
+import android.content.Context
 import io.github.yeyi.agent.Agent
 import io.github.yeyi.agent.AgentHook
 import io.github.yeyi.agent.AgentPersona
@@ -31,6 +32,7 @@ import io.github.yeyi.agent.mcp.ClientInfo
 import io.github.yeyi.agent.mcp.McpRegistry
 import io.github.yeyi.agent.mcp.mcps
 import io.github.yeyi.agent.memory.Memory
+import io.github.yeyi.agent.memory.shared.sharedMemory
 import io.github.yeyi.agent.providers.anthropic.AnthropicProvider
 import io.github.yeyi.agent.providers.openai.OpenAiProvider
 import io.github.yeyi.agent.skill.SkillRegistry
@@ -44,6 +46,7 @@ import io.github.yeyi.agent.tool.lazy_loading.lazyTools
 import io.ktor.client.HttpClientConfig
 import io.ktor.client.plugins.logging.LogLevel
 import io.ktor.client.plugins.logging.Logging
+import java.io.File
 
 /**
  * 全局运行时：持有各 registry，按需组装出一个配好 Tool 与
@@ -65,6 +68,19 @@ object AgentRuntime {
      * 默认 LLM Provider：从 `local.properties` 读配置后建一次，所有 agent 共用。
      */
     private val provider: LlmProvider = createProvider()
+
+    /**
+     * Application Context：只有共享记忆要用它定位应用私有目录，其余装配不依赖 Android 环境。
+     *
+     * 之所以在 object 上持有一份而不顺着工厂签名往下传：ViewModel 是纯 JVM 类拿不到 Context，
+     * 而共享目录是“按进程固定”的，本来也不是会话级参数。
+     */
+    private lateinit var appContext: Context
+
+    /** 由 Activity 在首次访问 ChatViewModel 之前调用。 */
+    fun init(context: Context) {
+        appContext = context.applicationContext
+    }
 
     /**
      * hook 流水线：全局共享一份——日志 hook 与审批策略都不需要 agent 私有数据。
@@ -130,6 +146,9 @@ object AgentRuntime {
      * @param memory 会话记忆
      */
     fun buildAgent(agentId: String, memory: Memory): OmniAgent {
+        // 共享记忆目录固定在应用私有目录下：跨会话复用的是它，而不是 agent 本身。
+        // 切会话 / "New" 只换 agent，目录不变，所以新会话里 load_shared_memory 仍能读到上次存的记忆。
+        val sharedMemoryDir = File(appContext.filesDir, SHARED_MEMORY_DIR).toPath()
         return agent {
             id(agentId)
             persona(AgentPersona(role = "你是一个全能助手。"))
@@ -143,6 +162,8 @@ object AgentRuntime {
             mcps(mcpRegistry)
             hook(agentHook)
             subagents(registry = subagentRegistry, dynamic = true)
+            // 跨会话的 markdown 记忆：与上一行的 memory(...)（短期会话历史）正交
+            sharedMemory(sharedMemoryDir)
         }
     }
 }
@@ -198,6 +219,9 @@ private fun createProvider(): LlmProvider {
 
 private const val PROVIDER_OPENAI = "openai"
 private const val PROVIDER_ANTHROPIC = "anthropic"
+
+/** 共享记忆在应用私有目录下的子目录名。 */
+private const val SHARED_MEMORY_DIR = "shared-memory"
 
 private fun String.requireNonEmpty(fieldName: String): String {
     check(isNotEmpty()) { "$fieldName is required (set it in local.properties)" }
